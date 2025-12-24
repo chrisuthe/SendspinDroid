@@ -1,0 +1,75 @@
+name: Build and Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Install Android NDK
+      run: |
+        sdkmanager --install "ndk;21.4.7075529"
+
+    - name: Install gomobile
+      run: |
+        go install golang.org/x/mobile/cmd/gomobile@latest
+        gomobile init
+
+    - name: Build Go AAR library
+      run: |
+        cd go-player
+        export ANDROID_HOME=$ANDROID_SDK_ROOT
+        export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/21.4.7075529
+        gomobile bind -target=android -o ../android/player/player.aar .
+
+    - name: Make gradlew executable
+      run: chmod +x android/gradlew
+
+    - name: Build APK
+      run: |
+        cd android
+        ./gradlew assembleRelease
+
+    - name: Get version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Rename APK
+      run: |
+        cd android/app/build/outputs/apk/release
+        if [ -f app-release-unsigned.apk ]; then
+          mv app-release-unsigned.apk SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
+        else
+          mv app-release.apk SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
+        fi
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: android/app/build/outputs/apk/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
