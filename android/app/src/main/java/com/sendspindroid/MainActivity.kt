@@ -87,16 +87,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Playback controls
-        binding.playButton.setOnClickListener {
-            onPlayClicked()
+        binding.previousButton.setOnClickListener {
+            onPreviousClicked()
         }
 
-        binding.pauseButton.setOnClickListener {
-            onPauseClicked()
+        binding.playPauseButton.setOnClickListener {
+            onPlayPauseClicked()
         }
 
-        binding.stopButton.setOnClickListener {
-            onStopClicked()
+        binding.nextButton.setOnClickListener {
+            onNextClicked()
         }
 
         // Volume slider
@@ -156,10 +156,6 @@ class MainActivity : AppCompatActivity() {
 
             discoveryPlayer = player.Player.newPlayer("SendSpinDroid Discovery", callback)
             Log.d(TAG, "Discovery player initialized")
-
-            // Add hardcoded test server for debugging
-            // TODO: Remove or make conditional on BuildConfig.DEBUG for production
-            addServer(ServerInfo("Test Server (10.0.2.8)", "10.0.2.8:8927"))
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize discovery player", e)
@@ -231,7 +227,11 @@ class MainActivity : AppCompatActivity() {
                 if (isPlaying) {
                     updatePlaybackState("playing")
                     enablePlaybackControls(true)
+                } else {
+                    updatePlaybackState("paused")
                 }
+                // Update play/pause button text based on current state
+                updatePlayPauseButton(isPlaying)
             }
         }
 
@@ -285,6 +285,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     state == Player.STATE_READY -> {
                         updateStatus("Connected")
+                        updatePlaybackState("paused")
                         enablePlaybackControls(true)
                     }
                     else -> {
@@ -292,6 +293,9 @@ class MainActivity : AppCompatActivity() {
                         enablePlaybackControls(false)
                     }
                 }
+
+                // Sync play/pause button text
+                updatePlayPauseButton(isPlaying)
 
                 // Sync metadata
                 val metadata = controller.mediaMetadata
@@ -432,37 +436,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Handles play button click.
-     * Sends play command to PlaybackService via MediaController.
+     * Handles previous button click.
+     * Sends previous track command to PlaybackService via custom command.
      */
-    private fun onPlayClicked() {
-        Log.d(TAG, "Play clicked")
-        mediaController?.play()
+    private fun onPreviousClicked() {
+        Log.d(TAG, "Previous clicked")
+        val controller = mediaController ?: return
+        val command = SessionCommand(PlaybackService.COMMAND_PREVIOUS, Bundle.EMPTY)
+        controller.sendCustomCommand(command, Bundle.EMPTY)
     }
 
     /**
-     * Handles pause button click.
-     * Sends pause command to PlaybackService via MediaController.
+     * Handles play/pause toggle button click.
+     * Toggles between play and pause based on current state.
      */
-    private fun onPauseClicked() {
-        Log.d(TAG, "Pause clicked")
-        mediaController?.pause()
-    }
-
-    /**
-     * Handles stop button click.
-     * Sends DISCONNECT command to PlaybackService to stop playback.
-     */
-    private fun onStopClicked() {
-        Log.d(TAG, "Stop clicked")
-
+    private fun onPlayPauseClicked() {
         val controller = mediaController ?: return
 
-        // Send DISCONNECT command to stop playback and disconnect from server
-        val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
-        controller.sendCustomCommand(command, Bundle.EMPTY)
+        if (controller.isPlaying) {
+            Log.d(TAG, "Pause clicked")
+            controller.pause()
+        } else {
+            Log.d(TAG, "Play clicked")
+            controller.play()
+        }
+    }
 
-        updatePlaybackState("stopped")
+    /**
+     * Handles next button click.
+     * Sends next track command to PlaybackService via custom command.
+     */
+    private fun onNextClicked() {
+        Log.d(TAG, "Next clicked")
+        val controller = mediaController ?: return
+        val command = SessionCommand(PlaybackService.COMMAND_NEXT, Bundle.EMPTY)
+        controller.sendCustomCommand(command, Bundle.EMPTY)
     }
 
     /**
@@ -502,9 +510,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enablePlaybackControls(enabled: Boolean) {
-        binding.playButton.isEnabled = enabled
-        binding.pauseButton.isEnabled = enabled
-        binding.stopButton.isEnabled = enabled
+        binding.previousButton.isEnabled = enabled
+        binding.playPauseButton.isEnabled = enabled
+        binding.nextButton.isEnabled = enabled
         binding.volumeSlider.isEnabled = enabled
     }
 
@@ -514,6 +522,18 @@ class MainActivity : AppCompatActivity() {
             "paused" -> "Paused"
             "stopped" -> "Stopped"
             else -> "Not Playing"
+        }
+    }
+
+    /**
+     * Updates the play/pause button text based on playing state.
+     * Shows "Pause" when playing, "Play" when paused.
+     */
+    private fun updatePlayPauseButton(isPlaying: Boolean) {
+        binding.playPauseButton.text = if (isPlaying) {
+            getString(R.string.pause)
+        } else {
+            getString(R.string.play)
         }
     }
 

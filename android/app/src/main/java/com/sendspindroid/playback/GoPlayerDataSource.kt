@@ -133,14 +133,37 @@ class GoPlayerDataSource(
         }
 
         try {
-            // If ring buffer doesn't have enough data, read more from Go player
-            if (ringBufferAvailable < length) {
+            // For live streams, keep trying to get data with retries
+            // The Go player's readAudioData may not have data immediately after connect
+            var retryCount = 0
+            val maxRetries = 100 // ~10 seconds of waiting (100ms per retry)
+
+            while (ringBufferAvailable == 0 && opened && retryCount < maxRetries) {
                 fillRingBuffer()
+
+                if (ringBufferAvailable == 0) {
+                    // No data yet - wait a bit before retrying
+                    // This is expected for live streams during initial buffering
+                    retryCount++
+                    if (retryCount % 10 == 0) {
+                        Log.d(TAG, "Waiting for audio data... (attempt $retryCount)")
+                    }
+                    try {
+                        Thread.sleep(100) // 100ms wait between retries
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        return C.RESULT_END_OF_INPUT
+                    }
+                }
             }
 
-            // If still no data available after trying to fill, signal end of input
+            // If still no data after all retries, or stream closed
             if (ringBufferAvailable == 0) {
-                Log.d(TAG, "No data available after fill attempt - signaling end of input")
+                if (!opened) {
+                    Log.d(TAG, "DataSource closed - signaling end of input")
+                } else {
+                    Log.w(TAG, "No data after $maxRetries retries - signaling end of input")
+                }
                 return C.RESULT_END_OF_INPUT
             }
 
