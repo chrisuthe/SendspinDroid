@@ -111,11 +111,33 @@
         </activity>
 
         <!--
-            TODO for v2: Add additional components:
-            - <service> for background playback (foreground service)
-            - <receiver> for media button controls
-            - <provider> if exposing content to other apps
+            PlaybackService: Background audio playback service
+            - foregroundServiceType: Required on API 29+ to specify service purpose
+            - exported: Allow MediaController connections from other apps/system
+            - intent-filter: Declares this as a MediaSessionService for system integration
         -->
+        <service
+            android:name=".playback.PlaybackService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true">
+            <intent-filter>
+                <!-- MediaSessionService action for Media3 integration -->
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
+        <!--
+            MediaButtonReceiver: Handles media button events (headset, Bluetooth)
+            - Forwards media button intents to the MediaSessionService
+            - Required for proper media button handling on all Android versions
+        -->
+        <receiver
+            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
     </application>
 
     <!--
