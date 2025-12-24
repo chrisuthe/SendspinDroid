@@ -1,10 +1,7 @@
 package com.sendspindroid
 
+import android.content.ComponentName
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioManager
-import android.media.AudioTrack
 import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.util.Log
@@ -13,15 +10,16 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionToken
 import androidx.recyclerview.widget.LinearLayoutManager
-import com.google.android.material.slider.Slider
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.databinding.ActivityMainBinding
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import com.sendspindroid.playback.PlaybackService
 
 /**
  * Main activity for the SendSpinDroid audio streaming client.
@@ -39,17 +37,15 @@ class MainActivity : AppCompatActivity() {
     // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
     private val servers = mutableListOf<ServerInfo>()
 
-    // Player instance (gomobile-generated) - JNI bridge to Go code
-    // Nullable because initialization can fail
-    private var audioPlayer: player.Player_? = null
+    // Discovery player (gomobile-generated) - JNI bridge to Go code
+    // Used ONLY for mDNS server discovery, NOT for playback
+    // Playback is handled by PlaybackService
+    private var discoveryPlayer: player.Player_? = null
 
-    // AudioTrack fields for low-level audio playback
-    // AudioTrack is Android's low-level API for PCM audio streaming
-    private var audioTrack: AudioTrack? = null
-
-    // Coroutine job for continuous audio data reading from Go player
-    // Must be lifecycle-aware and cancelled properly to prevent memory leaks
-    private var audioPlaybackJob: Job? = null
+    // MediaController for communicating with PlaybackService
+    // Provides playback control and state observation
+    private var mediaControllerFuture: ListenableFuture<MediaController>? = null
+    private var mediaController: MediaController? = null
 
     // Multicast lock required for mDNS discovery to work on Android
     // Without this, multicast packets are filtered by the WiFi driver for battery optimization
@@ -66,7 +62,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         setupUI()
-        initializePlayer()
+        initializeDiscoveryPlayer()
+        initializeMediaController()
     }
 
     private fun setupUI() {
@@ -111,78 +108,199 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Initializes the gomobile-generated Go player with callbacks.
+     * Initializes the Go player for server discovery ONLY.
      *
-     * Design decision: Using callback pattern from Go instead of StateFlow/LiveData
-     * because gomobile doesn't support Kotlin coroutines directly.
+     * This player handles mDNS server discovery. Playback is handled by
+     * PlaybackService via MediaController.
+     *
      * All callbacks must use runOnUiThread() since they're called from Go runtime threads.
      */
-    private fun initializePlayer() {
+    private fun initializeDiscoveryPlayer() {
         try {
-            // Callback object bridges Go player events to Android UI
+            // Callback only handles discovery - playback events come via MediaController
             val callback = object : player.PlayerCallback {
                 override fun onServerDiscovered(name: String, address: String) {
-                    // IMPORTANT: Called from Go thread, must marshal to UI thread
                     runOnUiThread {
                         Log.d(TAG, "Server discovered: $name at $address")
                         addServer(ServerInfo(name, address))
                     }
                 }
 
+                // These callbacks are ignored - PlaybackService handles playback
                 override fun onConnected(serverName: String) {
-                    runOnUiThread {
-                        Log.d(TAG, "Connected to: $serverName")
-                        updateStatus("Connected to $serverName")
-                        enablePlaybackControls(true)
-                        // Setup audio playback when connected
-                        // This initializes AudioTrack and starts the audio data pump
-                        setupAudioPlayback()
-                    }
+                    Log.d(TAG, "Discovery player connected (ignored): $serverName")
                 }
 
                 override fun onDisconnected() {
-                    runOnUiThread {
-                        Log.d(TAG, "Disconnected from server")
-                        updateStatus("Disconnected")
-                        enablePlaybackControls(false)
-                        // Fix Issue #1: Stop audio playback to prevent memory leak
-                        // This cancels the coroutine and releases AudioTrack resources
-                        stopAudioPlayback()
-                    }
+                    Log.d(TAG, "Discovery player disconnected (ignored)")
                 }
 
                 override fun onStateChanged(state: String) {
-                    runOnUiThread {
-                        Log.d(TAG, "State changed: $state")
-                        updatePlaybackState(state)
-                    }
+                    Log.d(TAG, "Discovery player state (ignored): $state")
                 }
 
                 override fun onMetadata(title: String, artist: String, album: String) {
-                    runOnUiThread {
-                        Log.d(TAG, "Metadata: $title by $artist from $album")
-                        updateMetadata(title, artist, album)
-                    }
+                    Log.d(TAG, "Discovery player metadata (ignored)")
                 }
 
                 override fun onError(message: String) {
                     runOnUiThread {
-                        Log.e(TAG, "Player error: $message")
-                        showError(message)
+                        Log.e(TAG, "Discovery player error: $message")
+                        // Only show discovery-related errors
+                        if (message.contains("discovery", ignoreCase = true)) {
+                            showError(message)
+                        }
                     }
                 }
             }
 
-            audioPlayer = player.Player.newPlayer("Android Player", callback)
-            Log.d(TAG, "Player initialized")
+            discoveryPlayer = player.Player.newPlayer("SendSpinDroid Discovery", callback)
+            Log.d(TAG, "Discovery player initialized")
 
             // Add hardcoded test server for debugging
             // TODO: Remove or make conditional on BuildConfig.DEBUG for production
             addServer(ServerInfo("Test Server (10.0.2.8)", "10.0.2.8:8927"))
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize player", e)
-            showError("Failed to initialize player: ${e.message}")
+            Log.e(TAG, "Failed to initialize discovery player", e)
+            showError("Failed to initialize: ${e.message}")
+        }
+    }
+
+    /**
+     * Initializes MediaController to communicate with PlaybackService.
+     *
+     * MediaController provides:
+     * - Playback control (play, pause, stop)
+     * - State observation (playing, paused, buffering)
+     * - Metadata updates (title, artist, album)
+     * - Custom commands (connect, disconnect, volume)
+     */
+    private fun initializeMediaController() {
+        // Create session token for our PlaybackService
+        val sessionToken = SessionToken(
+            this,
+            ComponentName(this, PlaybackService::class.java)
+        )
+
+        // Build MediaController asynchronously
+        mediaControllerFuture = MediaController.Builder(this, sessionToken)
+            .setListener(MediaControllerListener())
+            .buildAsync()
+
+        // Add callback when controller is ready
+        mediaControllerFuture?.addListener(
+            {
+                try {
+                    mediaController = mediaControllerFuture?.get()
+                    Log.d(TAG, "MediaController connected to PlaybackService")
+
+                    // Add player listener for state updates
+                    mediaController?.addListener(PlayerStateListener())
+
+                    // Sync UI with current player state
+                    syncUIWithPlayerState()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to connect MediaController", e)
+                }
+            },
+            MoreExecutors.directExecutor()
+        )
+    }
+
+    /**
+     * Listener for MediaController connection events.
+     */
+    private inner class MediaControllerListener : MediaController.Listener {
+        override fun onDisconnected(controller: MediaController) {
+            Log.d(TAG, "MediaController disconnected from service")
+            runOnUiThread {
+                updateStatus("Service disconnected")
+                enablePlaybackControls(false)
+            }
+        }
+    }
+
+    /**
+     * Listener for player state changes from the service.
+     */
+    private inner class PlayerStateListener : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            runOnUiThread {
+                Log.d(TAG, "isPlaying changed: $isPlaying")
+                if (isPlaying) {
+                    updatePlaybackState("playing")
+                    enablePlaybackControls(true)
+                }
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            runOnUiThread {
+                Log.d(TAG, "Playback state: $playbackState")
+                when (playbackState) {
+                    Player.STATE_IDLE -> {
+                        updateStatus("Disconnected")
+                        enablePlaybackControls(false)
+                    }
+                    Player.STATE_BUFFERING -> {
+                        updateStatus("Buffering...")
+                    }
+                    Player.STATE_READY -> {
+                        updateStatus("Connected")
+                        enablePlaybackControls(true)
+                    }
+                    Player.STATE_ENDED -> {
+                        updatePlaybackState("stopped")
+                    }
+                }
+            }
+        }
+
+        override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+            runOnUiThread {
+                val title = mediaMetadata.title?.toString() ?: ""
+                val artist = mediaMetadata.artist?.toString() ?: ""
+                val album = mediaMetadata.albumTitle?.toString() ?: ""
+                Log.d(TAG, "Metadata from service: $title / $artist / $album")
+                updateMetadata(title, artist, album)
+            }
+        }
+    }
+
+    /**
+     * Syncs UI with current player state when controller connects.
+     */
+    private fun syncUIWithPlayerState() {
+        mediaController?.let { controller ->
+            val isPlaying = controller.isPlaying
+            val state = controller.playbackState
+
+            runOnUiThread {
+                when {
+                    isPlaying -> {
+                        updateStatus("Connected")
+                        updatePlaybackState("playing")
+                        enablePlaybackControls(true)
+                    }
+                    state == Player.STATE_READY -> {
+                        updateStatus("Connected")
+                        enablePlaybackControls(true)
+                    }
+                    else -> {
+                        updateStatus("Ready")
+                        enablePlaybackControls(false)
+                    }
+                }
+
+                // Sync metadata
+                val metadata = controller.mediaMetadata
+                updateMetadata(
+                    metadata.title?.toString() ?: "",
+                    metadata.artist?.toString() ?: "",
+                    metadata.albumTitle?.toString() ?: ""
+                )
+            }
         }
     }
 
@@ -248,7 +366,7 @@ class MainActivity : AppCompatActivity() {
             // Acquire multicast lock for mDNS
             acquireMulticastLock()
 
-            audioPlayer?.startDiscovery()
+            discoveryPlayer?.startDiscovery()
             Toast.makeText(this, "Discovering servers...", Toast.LENGTH_SHORT).show()
             Log.d(TAG, "Discovery started successfully")
         } catch (e: Exception) {
@@ -291,171 +409,76 @@ class MainActivity : AppCompatActivity() {
     private fun onServerSelected(server: ServerInfo) {
         Log.d(TAG, "Server selected: ${server.name}")
 
+        val controller = mediaController
+        if (controller == null) {
+            showError("Service not connected")
+            return
+        }
+
         try {
-            audioPlayer?.connect(server.address)
+            // Send CONNECT command to PlaybackService via MediaController
+            val args = Bundle().apply {
+                putString(PlaybackService.ARG_SERVER_ADDRESS, server.address)
+            }
+            val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
+
+            controller.sendCustomCommand(command, args)
+            updateStatus("Connecting to ${server.name}...")
             Toast.makeText(this, "Connecting to ${server.name}...", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect", e)
+            Log.e(TAG, "Failed to send connect command", e)
             showError("Failed to connect: ${e.message}")
         }
     }
 
     /**
-     * Sets up AudioTrack for low-latency PCM audio playback.
-     *
-     * Architecture: This creates a "pump" that continuously reads audio data from the Go player
-     * and feeds it to Android's AudioTrack in a background coroutine.
-     *
-     * Best practice followed: Using lifecycleScope ensures automatic cancellation on destroy
-     * Best practice followed: Using Dispatchers.IO for blocking I/O operations
-     *
-     * TODO: Audio format parameters are hardcoded - should query from Go player
-     * TODO: Error handling could be improved with exponential backoff
+     * Handles play button click.
+     * Sends play command to PlaybackService via MediaController.
      */
-    private fun setupAudioPlayback() {
-        // Fix Issue #2: Stop any existing playback to prevent race condition
-        // This ensures only one AudioTrack instance exists at a time
-        stopAudioPlayback()
-
-        try {
-            // Audio format parameters (hardcoded for now, will be from Go player later)
-            // 48kHz is standard for high-quality audio, stereo, 16-bit PCM
-            val sampleRate = 48000
-            val channelConfig = AudioFormat.CHANNEL_OUT_STEREO
-            val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-
-            // Calculate minimum buffer size required by hardware
-            val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-            if (minBufferSize == AudioTrack.ERROR_BAD_VALUE || minBufferSize == AudioTrack.ERROR) {
-                Log.e(TAG, "Invalid buffer size")
-                showError("Failed to setup audio playback")
-                return
-            }
-
-            // Use 4x minimum to reduce risk of buffer underruns (stuttering)
-            // Trade-off: Larger buffer = more latency but smoother playback
-            val bufferSize = minBufferSize * 4
-
-            // Build AudioTrack with modern Builder pattern (API 23+)
-            // AudioAttributes tell the system this is music playback (affects audio routing, focus)
-            val audioAttributes = AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-
-            val format = AudioFormat.Builder()
-                .setSampleRate(sampleRate)
-                .setChannelMask(channelConfig)
-                .setEncoding(audioFormat)
-                .build()
-
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(audioAttributes)
-                .setAudioFormat(format)
-                .setBufferSizeInBytes(bufferSize)
-                .setTransferMode(AudioTrack.MODE_STREAM) // Streaming mode for continuous playback
-                .build()
-
-            // Start playback immediately (data written later will play)
-            audioTrack?.play()
-
-            // Launch coroutine to read and write audio data
-            // Best practice: Using lifecycleScope instead of GlobalScope for automatic cleanup
-            audioPlaybackJob = lifecycleScope.launch(Dispatchers.IO) {
-                val buffer = ByteArray(8192) // 8KB buffer for audio chunks
-
-                while (isActive) { // isActive checks if coroutine was cancelled
-                    try {
-                        // Read audio data from Go player (blocking call with timeout in Go code)
-                        // Returns number of bytes read (0 if timeout, -1 if error)
-                        val bytesRead = audioPlayer?.readAudioData(buffer)?.toInt() ?: 0
-
-                        if (bytesRead > 0) {
-                            // Write PCM data to AudioTrack for playback
-                            val written = audioTrack?.write(buffer, 0, bytesRead) ?: 0
-                            if (written < 0) {
-                                // Negative values indicate errors (ERROR, ERROR_BAD_VALUE, etc.)
-                                Log.e(TAG, "AudioTrack write error: $written")
-                            }
-                        }
-                        // No need for delay - readAudioData() blocks until data is available or timeout
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error reading/writing audio data", e)
-                        // Brief delay on error to prevent tight error loop
-                        delay(100)
-                    }
-                }
-            }
-
-            Log.d(TAG, "Audio playback setup completed")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to setup audio playback", e)
-            showError("Failed to setup audio playback: ${e.message}")
-        }
-    }
-
-    private fun stopAudioPlayback() {
-        try {
-            // Cancel the playback job
-            audioPlaybackJob?.cancel()
-            audioPlaybackJob = null
-
-            // Stop and release AudioTrack
-            audioTrack?.apply {
-                if (playState == AudioTrack.PLAYSTATE_PLAYING) {
-                    stop()
-                }
-                release()
-            }
-            audioTrack = null
-
-            Log.d(TAG, "Audio playback stopped and released")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping audio playback", e)
-        }
-    }
-
     private fun onPlayClicked() {
         Log.d(TAG, "Play clicked")
-        audioPlayer?.play()
-
-        // Resume AudioTrack if it's paused
-        audioTrack?.apply {
-            if (playState == AudioTrack.PLAYSTATE_PAUSED) {
-                play()
-            }
-        }
-
-        updatePlaybackState("playing")
+        mediaController?.play()
     }
 
+    /**
+     * Handles pause button click.
+     * Sends pause command to PlaybackService via MediaController.
+     */
     private fun onPauseClicked() {
         Log.d(TAG, "Pause clicked")
-        audioPlayer?.pause()
-
-        // Pause AudioTrack
-        audioTrack?.apply {
-            if (playState == AudioTrack.PLAYSTATE_PLAYING) {
-                pause()
-            }
-        }
-
-        updatePlaybackState("paused")
+        mediaController?.pause()
     }
 
+    /**
+     * Handles stop button click.
+     * Sends DISCONNECT command to PlaybackService to stop playback.
+     */
     private fun onStopClicked() {
         Log.d(TAG, "Stop clicked")
-        audioPlayer?.stop()
 
-        // Stop audio playback
-        stopAudioPlayback()
+        val controller = mediaController ?: return
+
+        // Send DISCONNECT command to stop playback and disconnect from server
+        val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
+        controller.sendCustomCommand(command, Bundle.EMPTY)
 
         updatePlaybackState("stopped")
     }
 
+    /**
+     * Handles volume slider changes.
+     * Sends SET_VOLUME command to PlaybackService via MediaController.
+     */
     private fun onVolumeChanged(volume: Float) {
         Log.d(TAG, "Volume changed: $volume")
-        audioPlayer?.setVolume(volume.toDouble())
+
+        val controller = mediaController ?: return
+
+        val args = Bundle().apply {
+            putFloat(PlaybackService.ARG_VOLUME, volume)
+        }
+        val command = SessionCommand(PlaybackService.COMMAND_SET_VOLUME, Bundle.EMPTY)
+        controller.sendCustomCommand(command, args)
     }
 
     /**
@@ -517,16 +540,23 @@ class MainActivity : AppCompatActivity() {
      * Activity cleanup - critical for preventing resource leaks.
      *
      * Best practice: Proper resource cleanup in lifecycle methods
-     * Order matters: Stop playback before cleaning up player to avoid crashes
-     *
-     * Note: lifecycleScope coroutines are automatically cancelled by the framework,
-     * but we explicitly stop audio playback for immediate resource release.
+     * Order matters: Release MediaController before cleaning up other resources
      */
     override fun onDestroy() {
         super.onDestroy()
-        // Stop audio playback and cleanup
-        stopAudioPlayback()          // Cancel coroutine, release AudioTrack
-        releaseMulticastLock()        // Release WiFi multicast lock to save battery
-        audioPlayer?.cleanup()        // Cleanup Go player resources
+
+        // Release MediaController connection to service
+        mediaControllerFuture?.let {
+            MediaController.releaseFuture(it)
+        }
+        mediaController = null
+        mediaControllerFuture = null
+
+        // Release WiFi multicast lock to save battery
+        releaseMulticastLock()
+
+        // Cleanup discovery Go player (service manages playback player)
+        discoveryPlayer?.cleanup()
+        discoveryPlayer = null
     }
 }
