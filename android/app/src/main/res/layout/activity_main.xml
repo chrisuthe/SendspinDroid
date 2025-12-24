@@ -113,8 +113,18 @@
                 android:gravity="center">
 
                 <Button
-                    android:id="@+id/playButton"
+                    android:id="@+id/previousButton"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:text="@string/previous"
+                    android:enabled="false" />
+
+                <Button
+                    android:id="@+id/playPauseButton"
+                    style="@style/Widget.MaterialComponents.Button"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
@@ -123,22 +133,12 @@
                     android:enabled="false" />
 
                 <Button
-                    android:id="@+id/pauseButton"
+                    android:id="@+id/nextButton"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:text="@string/pause"
-                    android:enabled="false" />
-
-                <Button
-                    android:id="@+id/stopButton"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="@string/stop"
+                    android:text="@string/next"
                     android:enabled="false" />
 
             </LinearLayout>

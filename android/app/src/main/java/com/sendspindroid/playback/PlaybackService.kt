@@ -7,6 +7,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -66,6 +67,8 @@ class PlaybackService : MediaSessionService() {
         const val COMMAND_CONNECT = "com.sendspindroid.CONNECT"
         const val COMMAND_DISCONNECT = "com.sendspindroid.DISCONNECT"
         const val COMMAND_SET_VOLUME = "com.sendspindroid.SET_VOLUME"
+        const val COMMAND_NEXT = "com.sendspindroid.NEXT"
+        const val COMMAND_PREVIOUS = "com.sendspindroid.PREVIOUS"
 
         // Command arguments
         const val ARG_SERVER_ADDRESS = "server_address"
@@ -150,6 +153,16 @@ class PlaybackService : MediaSessionService() {
             mainHandler.post {
                 Log.d(TAG, "Connected to: $serverName")
                 _connectionState.value = ConnectionState.Connected(serverName)
+
+                // Start Go player streaming FIRST (must happen before ExoPlayer reads)
+                // We call play() here instead of in connectToServer() because
+                // connect() is async - the connection isn't established yet there
+                try {
+                    goPlayer?.play()
+                    Log.d(TAG, "Go player play() called after connection established")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to start Go player playback", e)
+                }
 
                 // Start ExoPlayer playback with Go player audio
                 startExoPlayerPlayback()
@@ -270,7 +283,21 @@ class PlaybackService : MediaSessionService() {
     fun connectToServer(address: String) {
         Log.d(TAG, "Connecting to server: $address")
         _connectionState.value = ConnectionState.Connecting
-        goPlayer?.connect(address)
+
+        try {
+            // If already connected, disconnect first
+            if (goPlayer?.isConnected == true) {
+                Log.d(TAG, "Already connected, disconnecting first...")
+                goPlayer?.disconnect()
+            }
+
+            // Just initiate connection - play() is called in onConnected callback
+            // because connect() is async and play() would be ignored if called here
+            goPlayer?.connect(address)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error connecting to server", e)
+            _connectionState.value = ConnectionState.Error("Connection failed: ${e.message}")
+        }
     }
 
     /**
@@ -350,6 +377,8 @@ class PlaybackService : MediaSessionService() {
                 .add(SessionCommand(COMMAND_CONNECT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_DISCONNECT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_VOLUME, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_NEXT, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_PREVIOUS, Bundle.EMPTY))
                 .build()
 
             // Accept connection with default player commands + our custom commands
@@ -418,6 +447,28 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
 
+                COMMAND_NEXT -> {
+                    Log.d(TAG, "Next track command received")
+                    try {
+                        goPlayer?.next()
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to skip to next track", e)
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_UNKNOWN))
+                    }
+                }
+
+                COMMAND_PREVIOUS -> {
+                    Log.d(TAG, "Previous track command received")
+                    try {
+                        goPlayer?.previous()
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to go to previous track", e)
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_UNKNOWN))
+                    }
+                }
+
                 else -> {
                     Log.w(TAG, "Unknown custom command: ${customCommand.customAction}")
                     super.onCustomCommand(session, controller, customCommand, args)
@@ -433,6 +484,7 @@ class PlaybackService : MediaSessionService() {
      * - Audio attributes set for music playback
      * - Audio focus handling enabled (pauses for phone calls, etc.)
      * - "Becoming noisy" handling (pauses when headphones unplugged)
+     * - Player listener to forward play/pause to Go player (server control)
      */
     private fun initializePlayer() {
         // Configure audio attributes for music streaming
@@ -451,7 +503,54 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        // Add listener to forward play/pause commands to the server
+        // This ensures the server knows when the user pauses/resumes playback
+        exoPlayer?.addListener(ExoPlayerStateListener())
+
         Log.d(TAG, "ExoPlayer initialized")
+    }
+
+    /**
+     * Listener for ExoPlayer state changes.
+     *
+     * Forwards play/pause commands to the Go player, which sends them
+     * to the SendSpin server. This is how the C# client works - when you
+     * pause locally, it tells the server to pause as well.
+     */
+    private inner class ExoPlayerStateListener : Player.Listener {
+
+        // Track previous state to detect actual changes
+        private var wasPlaying = false
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            // Only forward commands when connected to a server
+            val gp = goPlayer ?: return
+            if (!gp.isConnected) return
+
+            Log.d(TAG, "onPlayWhenReadyChanged: playWhenReady=$playWhenReady, reason=$reason")
+
+            // Determine if this is a user-initiated action vs system (audio focus, etc.)
+            // We want to send commands to server for all cases to keep state synchronized
+            try {
+                if (playWhenReady && !wasPlaying) {
+                    // Transitioning to playing state
+                    Log.d(TAG, "Sending play command to server")
+                    gp.sendCommand("play")
+                } else if (!playWhenReady && wasPlaying) {
+                    // Transitioning to paused state
+                    Log.d(TAG, "Sending pause command to server")
+                    gp.sendCommand("pause")
+                }
+                wasPlaying = playWhenReady
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending command to server", e)
+            }
+        }
+
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            Log.d(TAG, "ExoPlayer state: $playbackState")
+            // Could handle STATE_ENDED to send stop command if needed
+        }
     }
 
     /**

@@ -6,7 +6,8 @@
     <string name="disconnect">Disconnect</string>
     <string name="play">Play</string>
     <string name="pause">Pause</string>
-    <string name="stop">Stop</string>
+    <string name="previous">Previous</string>
+    <string name="next">Next</string>
     <string name="volume">Volume</string>
     <string name="not_connected">Not Connected</string>
     <string name="discovering">Discovering servers...</string>

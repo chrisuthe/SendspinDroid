@@ -193,7 +193,7 @@ func (p *Player) performHandshake(conn *websocket.Conn) error {
 			"client_id": p.deviceName,
 			"name":      p.deviceName,
 			"version":   1,
-			"supported_roles": []string{"player@v1"},
+			"supported_roles": []string{"controller@v1", "player@v1"},
 			"device_info": map[string]interface{}{
 				"product_name":     "SendSpinDroid",
 				"manufacturer":     "SendSpin",
@@ -292,16 +292,81 @@ func (p *Player) Disconnect() error {
 	return nil
 }
 
-// Play starts playback
-func (p *Player) Play() error {
+// SendCommand sends a control command to the server (play, pause, stop, next, previous, etc.)
+// This follows the SendSpin protocol: client/command message with controller payload
+func (p *Player) SendCommand(command string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.isConnected {
+	if !p.isConnected || p.conn == nil {
 		return fmt.Errorf("not connected to server")
 	}
 
-	log.Printf("Starting playback")
+	log.Printf("Sending command to server: %s", command)
+
+	// Build client/command message per SendSpin protocol
+	msg := map[string]interface{}{
+		"type": "client/command",
+		"payload": map[string]interface{}{
+			"controller": map[string]interface{}{
+				"command": command,
+			},
+		},
+	}
+
+	// Log the message being sent
+	msgJSON, _ := json.Marshal(msg)
+	log.Printf("Sending client/command: %s", string(msgJSON))
+
+	if err := p.conn.WriteJSON(msg); err != nil {
+		return fmt.Errorf("failed to send command: %w", err)
+	}
+
+	return nil
+}
+
+// SendVolumeCommand sends a volume control command to the server
+func (p *Player) SendVolumeCommand(volume int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.isConnected || p.conn == nil {
+		return fmt.Errorf("not connected to server")
+	}
+
+	log.Printf("Sending volume command to server: %d", volume)
+
+	msg := map[string]interface{}{
+		"type": "client/command",
+		"payload": map[string]interface{}{
+			"controller": map[string]interface{}{
+				"command": "volume",
+				"volume":  volume,
+			},
+		},
+	}
+
+	msgJSON, _ := json.Marshal(msg)
+	log.Printf("Sending client/command: %s", string(msgJSON))
+
+	if err := p.conn.WriteJSON(msg); err != nil {
+		return fmt.Errorf("failed to send volume command: %w", err)
+	}
+
+	return nil
+}
+
+// Play starts playback by sending play command to server
+func (p *Player) Play() error {
+	// Send command to server (don't hold lock during network call)
+	if err := p.SendCommand("play"); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	log.Printf("Play command sent")
 	p.currentState = "playing"
 
 	if p.callback != nil {
@@ -311,16 +376,17 @@ func (p *Player) Play() error {
 	return nil
 }
 
-// Pause pauses playback
+// Pause pauses playback by sending pause command to server
 func (p *Player) Pause() error {
+	// Send command to server
+	if err := p.SendCommand("pause"); err != nil {
+		return err
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.isConnected {
-		return fmt.Errorf("not connected to server")
-	}
-
-	log.Printf("Pausing playback")
+	log.Printf("Pause command sent")
 	p.currentState = "paused"
 
 	if p.callback != nil {
@@ -330,16 +396,17 @@ func (p *Player) Pause() error {
 	return nil
 }
 
-// Stop stops playback
+// Stop stops playback by sending stop command to server
 func (p *Player) Stop() error {
+	// Send command to server
+	if err := p.SendCommand("stop"); err != nil {
+		return err
+	}
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.isConnected {
-		return fmt.Errorf("not connected to server")
-	}
-
-	log.Printf("Stopping playback")
+	log.Printf("Stop command sent")
 	p.currentState = "stopped"
 
 	if p.callback != nil {
@@ -349,20 +416,27 @@ func (p *Player) Stop() error {
 	return nil
 }
 
-// SetVolume sets the playback volume (0.0 to 1.0)
-func (p *Player) SetVolume(volume float64) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// Next skips to the next track
+func (p *Player) Next() error {
+	return p.SendCommand("next")
+}
 
+// Previous goes to the previous track
+func (p *Player) Previous() error {
+	return p.SendCommand("previous")
+}
+
+// SetVolume sets the playback volume (0.0 to 1.0) and sends to server
+func (p *Player) SetVolume(volume float64) error {
 	if volume < 0.0 || volume > 1.0 {
 		return fmt.Errorf("volume must be between 0.0 and 1.0")
 	}
 
-	log.Printf("Setting volume to: %.2f", volume)
+	// Convert to 0-100 scale for server
+	volumeInt := int(volume * 100)
+	log.Printf("Setting volume to: %.2f (sending %d to server)", volume, volumeInt)
 
-	// TODO: Implement actual volume control
-
-	return nil
+	return p.SendVolumeCommand(volumeInt)
 }
 
 // ReadAudioData reads audio data from the player's audio channel

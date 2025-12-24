@@ -3,8 +3,10 @@ package com.sendspindroid.playback
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.extractor.ExtractorsFactory
 
 /**
  * Factory for creating MediaSource instances that use the Go player audio bridge.
@@ -40,7 +42,9 @@ import androidx.media3.exoplayer.source.ProgressiveMediaSource
  *
  * @see GoPlayerDataSource
  * @see GoPlayerDataSourceFactory
+ * @see RawPcmExtractor
  */
+@UnstableApi
 object GoPlayerMediaSourceFactory {
 
     /** Custom URI scheme for SendSpin audio streams */
@@ -50,10 +54,26 @@ object GoPlayerMediaSourceFactory {
     private const val DEFAULT_STREAM_PATH = "/stream"
 
     /**
+     * Creates an ExtractorsFactory that only uses our RawPcmExtractor.
+     *
+     * By providing a custom factory, we bypass ExoPlayer's default format detection
+     * which would fail on raw PCM data (no headers to detect).
+     */
+    private fun createExtractorsFactory(): ExtractorsFactory {
+        return ExtractorsFactory {
+            arrayOf(RawPcmExtractor())
+        }
+    }
+
+    /**
      * Creates a MediaSource for Go player audio playback.
      *
-     * Uses ProgressiveMediaSource with our custom DataSource factory.
-     * The MediaItem is configured with a custom sendspin:// URI.
+     * Uses ProgressiveMediaSource with:
+     * - Custom DataSource factory (GoPlayerDataSourceFactory)
+     * - Custom ExtractorsFactory (RawPcmExtractor only)
+     *
+     * The custom extractor tells ExoPlayer the exact PCM format (48kHz, stereo, 16-bit)
+     * instead of trying to auto-detect from container headers.
      *
      * @param goPlayer The Go player instance providing audio data
      * @param serverAddress Optional server address for the URI (for logging/debugging)
@@ -80,9 +100,10 @@ object GoPlayerMediaSourceFactory {
         // Create our custom DataSource factory
         val dataSourceFactory = GoPlayerDataSourceFactory(goPlayer)
 
-        // Use ProgressiveMediaSource which supports streaming formats
-        // This wraps our DataSource and handles buffering/timeline
-        return ProgressiveMediaSource.Factory(dataSourceFactory)
+        // Create ProgressiveMediaSource with custom extractor
+        // The key difference: we specify our RawPcmExtractor instead of letting
+        // ExoPlayer try to auto-detect the format with default extractors
+        return ProgressiveMediaSource.Factory(dataSourceFactory, createExtractorsFactory())
             .createMediaSource(mediaItem)
     }
 
@@ -123,7 +144,8 @@ object GoPlayerMediaSourceFactory {
 
         val dataSourceFactory = GoPlayerDataSourceFactory(goPlayer)
 
-        return ProgressiveMediaSource.Factory(dataSourceFactory)
+        // Use custom extractor for raw PCM
+        return ProgressiveMediaSource.Factory(dataSourceFactory, createExtractorsFactory())
             .createMediaSource(mediaItem)
     }
 }
