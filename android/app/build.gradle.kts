@@ -34,10 +34,10 @@ android {
     namespace = "com.sendspindroid"
 
     // compileSdk: SDK version used during compilation
-    // Version 34 = Android 14 (released Aug 2023)
-    // TODO 2025: Update to API 35 (Android 15) or 36 for latest features
-    // Google Play requires new apps to target recent API levels
-    compileSdk = 34
+    // Version 35 = Android 15 (released 2024)
+    // Fix Issue #3: Updated to match targetSdk 35 for consistency
+    // Must be >= targetSdk to avoid build errors
+    compileSdk = 35
 
     defaultConfig {
         // Unique identifier for the app on Google Play and devices
@@ -53,10 +53,10 @@ android {
 
         // targetSdk: Version app is tested against
         // Determines which platform behaviors apply
-        // API 34 = Android 14
-        // IMPORTANT: Google Play requires targetSdk 34+ as of Aug 2024
-        // TODO 2025: Update to API 35 by August 2025 deadline
-        targetSdk = 34
+        // API 35 = Android 15
+        // Fix Issue #3: Updated to API 35 for Google Play compliance (required Aug 2025)
+        // Note: May require edge-to-edge UI handling (WindowInsets, system bars)
+        targetSdk = 35
 
         // versionCode: Integer version for Google Play (auto-increment for each release)
         // Users never see this, but must increase with each update
