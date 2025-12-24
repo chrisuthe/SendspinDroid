@@ -145,7 +145,9 @@ class MainActivity : AppCompatActivity() {
                         Log.d(TAG, "Disconnected from server")
                         updateStatus("Disconnected")
                         enablePlaybackControls(false)
-                        // TODO: Should also cleanup audio playback here
+                        // Fix Issue #1: Stop audio playback to prevent memory leak
+                        // This cancels the coroutine and releases AudioTrack resources
+                        stopAudioPlayback()
                     }
                 }
 
@@ -311,6 +313,10 @@ class MainActivity : AppCompatActivity() {
      * TODO: Error handling could be improved with exponential backoff
      */
     private fun setupAudioPlayback() {
+        // Fix Issue #2: Stop any existing playback to prevent race condition
+        // This ensures only one AudioTrack instance exists at a time
+        stopAudioPlayback()
+
         try {
             // Audio format parameters (hardcoded for now, will be from Go player later)
             // 48kHz is standard for high-quality audio, stereo, 16-bit PCM
