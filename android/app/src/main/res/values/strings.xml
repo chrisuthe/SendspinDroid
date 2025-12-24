@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SendSpin Player</string>
+    <string name="discover_servers">Discover Servers</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="stop">Stop</string>
+    <string name="volume">Volume</string>
+    <string name="not_connected">Not Connected</string>
+    <string name="discovering">Discovering servers...</string>
+    <string name="no_servers_found">No servers found</string>
+    <string name="add_server_manually">Add Server Manually</string>
+    <string name="server_name">Server Name</string>
+    <string name="server_address">Server Address</string>
+    <string name="invalid_address">Invalid server address format</string>
+</resources>
