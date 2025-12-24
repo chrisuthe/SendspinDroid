@@ -181,6 +181,15 @@ dependencies {
     // It provides the JNI bridge to Go code
     implementation(project(":player"))
 
+    // Media3 - Modern media playback framework for background playback
+    // Version 1.6.0 (2024)
+    // Provides MediaSession for background playback and media controls
+    implementation("androidx.media3:media3-session:1.6.0")
+    // ExoPlayer integration for advanced media playback features
+    implementation("androidx.media3:media3-exoplayer:1.6.0")
+    // Common Media3 types and interfaces
+    implementation("androidx.media3:media3-common:1.6.0")
+
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)
     // implementation("androidx.recyclerview:recyclerview:1.3.x")

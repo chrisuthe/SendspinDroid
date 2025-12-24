@@ -37,13 +37,26 @@
          Android filters multicast packets unless this lock is held -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!--
-        TODO for v2: Consider adding these permissions:
-        - FOREGROUND_SERVICE: If implementing background playback
-        - POST_NOTIFICATIONS (API 33+): If implementing playback notifications
-        - WAKE_LOCK: If preventing screen sleep during playback
-        - READ_EXTERNAL_STORAGE: If caching audio locally
-    -->
+    <!-- FOREGROUND_SERVICE: Required for background playback service
+         Permission level: Normal (auto-granted)
+         Used by: Media playback service to continue playing when app is backgrounded -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- FOREGROUND_SERVICE_MEDIA_PLAYBACK: Specific foreground service type for media
+         Permission level: Normal (auto-granted)
+         Required on API 34+ for media playback foreground services
+         Used by: MediaSessionService for background audio playback -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- POST_NOTIFICATIONS: Display playback notification (required on API 33+)
+         Permission level: Dangerous (requires runtime permission request on API 33+)
+         Used by: Display media playback controls in notification area -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- WAKE_LOCK: Prevent CPU sleep during playback
+         Permission level: Normal (auto-granted)
+         Used by: Keep audio playback running when screen is off -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!--
         Application Configuration:
