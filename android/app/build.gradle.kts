@@ -190,6 +190,12 @@ dependencies {
     // Common Media3 types and interfaces
     implementation("androidx.media3:media3-common:1.6.0")
 
+    // Coil - Kotlin-first image loading library
+    // Used for loading album artwork from URLs
+    // Lighter and more Kotlin-idiomatic than Glide
+    // Version 2.5.0 (2024)
+    implementation("io.coil-kt:coil:2.5.0")
+
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)
     // implementation("androidx.recyclerview:recyclerview:1.3.x")

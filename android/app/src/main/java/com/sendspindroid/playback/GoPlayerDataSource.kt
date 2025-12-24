@@ -133,20 +133,19 @@ class GoPlayerDataSource(
         }
 
         try {
-            // For live streams, keep trying to get data with retries
-            // The Go player's readAudioData may not have data immediately after connect
+            // For live streams, wait indefinitely for data (no timeout)
+            // Audio only flows after the user hits play and server sends stream/start
             var retryCount = 0
-            val maxRetries = 100 // ~10 seconds of waiting (100ms per retry)
 
-            while (ringBufferAvailable == 0 && opened && retryCount < maxRetries) {
+            while (ringBufferAvailable == 0 && opened) {
                 fillRingBuffer()
 
                 if (ringBufferAvailable == 0) {
-                    // No data yet - wait a bit before retrying
-                    // This is expected for live streams during initial buffering
+                    // No data yet - wait before retrying
+                    // This is expected - audio only flows after stream/start from server
                     retryCount++
-                    if (retryCount % 10 == 0) {
-                        Log.d(TAG, "Waiting for audio data... (attempt $retryCount)")
+                    if (retryCount % 50 == 0) {
+                        Log.d(TAG, "Waiting for audio stream... (${retryCount / 10}s)")
                     }
                     try {
                         Thread.sleep(100) // 100ms wait between retries
@@ -157,13 +156,9 @@ class GoPlayerDataSource(
                 }
             }
 
-            // If still no data after all retries, or stream closed
-            if (ringBufferAvailable == 0) {
-                if (!opened) {
-                    Log.d(TAG, "DataSource closed - signaling end of input")
-                } else {
-                    Log.w(TAG, "No data after $maxRetries retries - signaling end of input")
-                }
+            // Stream was closed externally (disconnect)
+            if (ringBufferAvailable == 0 && !opened) {
+                Log.d(TAG, "DataSource closed - signaling end of input")
                 return C.RESULT_END_OF_INPUT
             }
 

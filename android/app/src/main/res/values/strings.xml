@@ -16,4 +16,7 @@
     <string name="server_name">Server Name</string>
     <string name="server_address">Server Address</string>
     <string name="invalid_address">Invalid server address format</string>
+    <string name="album_art">Album artwork</string>
+    <string name="now_playing">Now Playing</string>
+    <string name="not_playing">Not Playing</string>
 </resources>

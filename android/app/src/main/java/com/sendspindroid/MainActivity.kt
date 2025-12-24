@@ -1,8 +1,6 @@
 package com.sendspindroid
 
 import android.content.ComponentName
-import android.content.Context
-import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -16,9 +14,12 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import androidx.recyclerview.widget.LinearLayoutManager
+import coil.load
+import coil.transform.RoundedCornersTransformation
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.databinding.ActivityMainBinding
+import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.playback.PlaybackService
 
 /**
@@ -37,19 +38,13 @@ class MainActivity : AppCompatActivity() {
     // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
     private val servers = mutableListOf<ServerInfo>()
 
-    // Discovery player (gomobile-generated) - JNI bridge to Go code
-    // Used ONLY for mDNS server discovery, NOT for playback
-    // Playback is handled by PlaybackService
-    private var discoveryPlayer: player.Player_? = null
+    // NsdManager-based discovery (Android native - more reliable than Go's hashicorp/mdns)
+    private var discoveryManager: NsdDiscoveryManager? = null
 
     // MediaController for communicating with PlaybackService
     // Provides playback control and state observation
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
-
-    // Multicast lock required for mDNS discovery to work on Android
-    // Without this, multicast packets are filtered by the WiFi driver for battery optimization
-    private var multicastLock: WifiManager.MulticastLock? = null
 
     companion object {
         private const val TAG = "MainActivity"
@@ -62,7 +57,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         setupUI()
-        initializeDiscoveryPlayer()
+        initializeDiscoveryManager()
         initializeMediaController()
     }
 
@@ -108,57 +103,63 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Initializes the Go player for server discovery ONLY.
+     * Initializes Android-native NsdManager for server discovery.
      *
-     * This player handles mDNS server discovery. Playback is handled by
-     * PlaybackService via MediaController.
-     *
-     * All callbacks must use runOnUiThread() since they're called from Go runtime threads.
+     * Why NsdManager instead of Go's hashicorp/mdns?
+     * - NsdManager is Android's native mDNS implementation
+     * - It properly handles network interface selection on Android
+     * - It works reliably with Android's WiFi stack and multicast lock
+     * - hashicorp/mdns has issues selecting the correct interface on Android
      */
-    private fun initializeDiscoveryPlayer() {
+    private fun initializeDiscoveryManager() {
         try {
-            // Callback only handles discovery - playback events come via MediaController
-            val callback = object : player.PlayerCallback {
-                override fun onServerDiscovered(name: String, address: String) {
-                    runOnUiThread {
-                        Log.d(TAG, "Server discovered: $name at $address")
-                        addServer(ServerInfo(name, address))
+            discoveryManager = NsdDiscoveryManager(
+                context = this,
+                listener = object : NsdDiscoveryManager.DiscoveryListener {
+                    override fun onServerDiscovered(name: String, address: String) {
+                        runOnUiThread {
+                            Log.d(TAG, "Server discovered: $name at $address")
+                            addServer(ServerInfo(name, address))
+                        }
                     }
-                }
 
-                // These callbacks are ignored - PlaybackService handles playback
-                override fun onConnected(serverName: String) {
-                    Log.d(TAG, "Discovery player connected (ignored): $serverName")
-                }
+                    override fun onServerLost(name: String) {
+                        runOnUiThread {
+                            Log.d(TAG, "Server lost: $name")
+                            // Optionally remove from list
+                            // servers.removeAll { it.name == name }
+                            // serverAdapter.notifyDataSetChanged()
+                        }
+                    }
 
-                override fun onDisconnected() {
-                    Log.d(TAG, "Discovery player disconnected (ignored)")
-                }
+                    override fun onDiscoveryStarted() {
+                        runOnUiThread {
+                            Log.d(TAG, "Discovery started")
+                            binding.statusText.text = getString(R.string.discovering)
+                        }
+                    }
 
-                override fun onStateChanged(state: String) {
-                    Log.d(TAG, "Discovery player state (ignored): $state")
-                }
+                    override fun onDiscoveryStopped() {
+                        runOnUiThread {
+                            Log.d(TAG, "Discovery stopped")
+                            if (servers.isEmpty()) {
+                                binding.statusText.text = getString(R.string.no_servers_found)
+                            }
+                        }
+                    }
 
-                override fun onMetadata(title: String, artist: String, album: String) {
-                    Log.d(TAG, "Discovery player metadata (ignored)")
-                }
-
-                override fun onError(message: String) {
-                    runOnUiThread {
-                        Log.e(TAG, "Discovery player error: $message")
-                        // Only show discovery-related errors
-                        if (message.contains("discovery", ignoreCase = true)) {
-                            showError(message)
+                    override fun onDiscoveryError(error: String) {
+                        runOnUiThread {
+                            Log.e(TAG, "Discovery error: $error")
+                            showError(error)
                         }
                     }
                 }
-            }
-
-            discoveryPlayer = player.Player.newPlayer("SendSpinDroid Discovery", callback)
-            Log.d(TAG, "Discovery player initialized")
+            )
+            Log.d(TAG, "NsdDiscoveryManager initialized")
 
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize discovery player", e)
+            Log.e(TAG, "Failed to initialize discovery manager", e)
             showError("Failed to initialize: ${e.message}")
         }
     }
@@ -205,7 +206,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Listener for MediaController connection events.
+     * Listener for MediaController connection events and session extras.
      */
     private inner class MediaControllerListener : MediaController.Listener {
         override fun onDisconnected(controller: MediaController) {
@@ -213,6 +214,30 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 updateStatus("Service disconnected")
                 enablePlaybackControls(false)
+            }
+        }
+
+        /**
+         * Called when session extras change (metadata updates from PlaybackService).
+         * This is how PlaybackService notifies us of metadata since we can't use
+         * MediaItem metadata with our custom MediaSource.
+         */
+        override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
+            runOnUiThread {
+                val title = extras.getString(PlaybackService.EXTRA_TITLE, "")
+                val artist = extras.getString(PlaybackService.EXTRA_ARTIST, "")
+                val album = extras.getString(PlaybackService.EXTRA_ALBUM, "")
+                val artworkUrl = extras.getString(PlaybackService.EXTRA_ARTWORK_URL, "")
+
+                Log.d(TAG, "Extras changed: $title / $artist (artwork: $artworkUrl)")
+
+                // Update text metadata
+                updateMetadata(title, artist, album)
+
+                // Load artwork from URL if available
+                if (artworkUrl.isNotEmpty()) {
+                    loadArtworkFromUrl(artworkUrl)
+                }
             }
         }
     }
@@ -264,6 +289,9 @@ class MainActivity : AppCompatActivity() {
                 val album = mediaMetadata.albumTitle?.toString() ?: ""
                 Log.d(TAG, "Metadata from service: $title / $artist / $album")
                 updateMetadata(title, artist, album)
+
+                // Load album art from MediaMetadata
+                updateAlbumArt(mediaMetadata)
             }
         }
     }
@@ -297,13 +325,14 @@ class MainActivity : AppCompatActivity() {
                 // Sync play/pause button text
                 updatePlayPauseButton(isPlaying)
 
-                // Sync metadata
+                // Sync metadata and artwork
                 val metadata = controller.mediaMetadata
                 updateMetadata(
                     metadata.title?.toString() ?: "",
                     metadata.artist?.toString() ?: "",
                     metadata.albumTitle?.toString() ?: ""
                 )
+                updateAlbumArt(metadata)
             }
         }
     }
@@ -364,49 +393,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun onDiscoverClicked() {
         Log.d(TAG, "Starting discovery")
-        binding.statusText.text = getString(R.string.discovering)
 
         try {
-            // Acquire multicast lock for mDNS
-            acquireMulticastLock()
-
-            discoveryPlayer?.startDiscovery()
+            // NsdDiscoveryManager handles multicast lock internally
+            discoveryManager?.startDiscovery()
             Toast.makeText(this, "Discovering servers...", Toast.LENGTH_SHORT).show()
             Log.d(TAG, "Discovery started successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start discovery", e)
             showError("Failed to start discovery: ${e.message}")
-        }
-    }
-
-    /**
-     * Acquires a multicast lock for mDNS discovery.
-     *
-     * Why this is needed: Android filters multicast packets by default to save battery.
-     * mDNS (Multicast DNS) requires receiving multicast packets on 224.0.0.251.
-     * This lock tells the WiFi driver to allow multicast packets through.
-     *
-     * Best practice: setReferenceCounted(true) allows multiple acquires without leak
-     * Security note: Requires CHANGE_WIFI_MULTICAST_STATE permission (declared in manifest)
-     */
-    private fun acquireMulticastLock() {
-        if (multicastLock == null) {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            multicastLock = wifiManager.createMulticastLock("SendSpinDroid_mDNS").apply {
-                setReferenceCounted(true)
-                acquire()
-            }
-            Log.d(TAG, "Multicast lock acquired for mDNS discovery")
-        }
-    }
-
-    private fun releaseMulticastLock() {
-        multicastLock?.let {
-            if (it.isHeld) {
-                it.release()
-                Log.d(TAG, "Multicast lock released")
-            }
-            multicastLock = null
         }
     }
 
@@ -552,6 +547,70 @@ class MainActivity : AppCompatActivity() {
         binding.metadataText.text = metadata
     }
 
+    /**
+     * Updates album art from MediaMetadata.
+     *
+     * Tries to load artwork from:
+     * 1. artworkData (byte array embedded in metadata)
+     * 2. artworkUri (URI reference)
+     *
+     * Uses Coil for efficient image loading with crossfade animation.
+     */
+    private fun updateAlbumArt(mediaMetadata: MediaMetadata) {
+        val artworkData = mediaMetadata.artworkData
+        val artworkUri = mediaMetadata.artworkUri
+
+        when {
+            artworkData != null && artworkData.isNotEmpty() -> {
+                // Load from byte array (binary artwork from protocol)
+                Log.d(TAG, "Loading artwork from byte array: ${artworkData.size} bytes")
+                binding.albumArtView.load(artworkData) {
+                    crossfade(true)
+                    placeholder(R.drawable.placeholder_album)
+                    error(R.drawable.placeholder_album)
+                    transformations(RoundedCornersTransformation(8f))
+                }
+            }
+            artworkUri != null -> {
+                // Load from URI (could be local or remote)
+                Log.d(TAG, "Loading artwork from URI: $artworkUri")
+                binding.albumArtView.load(artworkUri) {
+                    crossfade(true)
+                    placeholder(R.drawable.placeholder_album)
+                    error(R.drawable.placeholder_album)
+                    transformations(RoundedCornersTransformation(8f))
+                }
+            }
+            else -> {
+                // No artwork available, show placeholder
+                binding.albumArtView.setImageResource(R.drawable.placeholder_album)
+            }
+        }
+    }
+
+    /**
+     * Loads artwork from a URL using Coil.
+     * Called when we receive artwork URL via session extras.
+     */
+    private fun loadArtworkFromUrl(url: String) {
+        Log.d(TAG, "Loading artwork from URL: $url")
+        binding.albumArtView.load(url) {
+            crossfade(true)
+            placeholder(R.drawable.placeholder_album)
+            error(R.drawable.placeholder_album)
+            transformations(RoundedCornersTransformation(8f))
+        }
+    }
+
+    /**
+     * Formats a duration in milliseconds to MM:SS format.
+     */
+    private fun formatDuration(ms: Long): String {
+        val seconds = (ms / 1000) % 60
+        val minutes = (ms / 1000) / 60
+        return String.format("%d:%02d", minutes, seconds)
+    }
+
     private fun showError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
@@ -572,11 +631,8 @@ class MainActivity : AppCompatActivity() {
         mediaController = null
         mediaControllerFuture = null
 
-        // Release WiFi multicast lock to save battery
-        releaseMulticastLock()
-
-        // Cleanup discovery Go player (service manages playback player)
-        discoveryPlayer?.cleanup()
-        discoveryPlayer = null
+        // Cleanup NsdDiscoveryManager (handles multicast lock internally)
+        discoveryManager?.cleanup()
+        discoveryManager = null
     }
 }

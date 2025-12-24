@@ -1,23 +1,41 @@
 package com.sendspindroid.playback
 
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
+import androidx.core.graphics.drawable.toBitmap
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import coil.ImageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.sendspindroid.model.PlaybackState
+import com.sendspindroid.model.PlaybackStateType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 
 /**
  * Background playback service for SendSpinDroid.
@@ -51,6 +69,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
+    private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var goPlayer: player.Player_? = null
 
     // Handler for posting callbacks to main thread (Go callbacks come from Go runtime threads)
@@ -59,6 +78,18 @@ class PlaybackService : MediaSessionService() {
     // Connection state exposed as StateFlow for observers
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    // Playback state exposed as StateFlow (like Python CLI's AppState)
+    private val _playbackState = MutableStateFlow(PlaybackState())
+    val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    // Artwork state
+    private var lastArtworkUrl: String? = null
+    private var currentArtwork: Bitmap? = null
+    private lateinit var imageLoader: ImageLoader
+
+    // Coroutine scope for background tasks (artwork loading)
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -73,6 +104,15 @@ class PlaybackService : MediaSessionService() {
         // Command arguments
         const val ARG_SERVER_ADDRESS = "server_address"
         const val ARG_VOLUME = "volume"
+
+        // Session extras keys for metadata (service → controller)
+        const val EXTRA_TITLE = "title"
+        const val EXTRA_ARTIST = "artist"
+        const val EXTRA_ALBUM = "album"
+        const val EXTRA_ARTWORK_URL = "artwork_url"
+        const val EXTRA_DURATION_MS = "duration_ms"
+        const val EXTRA_POSITION_MS = "position_ms"
+        const val EXTRA_ARTWORK_DATA = "artwork_data"
     }
 
     /**
@@ -101,6 +141,11 @@ class PlaybackService : MediaSessionService() {
         // Create notification channel for foreground service
         // Must be done before any foreground notification is shown
         NotificationHelper.createNotificationChannel(this)
+
+        // Initialize Coil ImageLoader for artwork fetching
+        imageLoader = ImageLoader.Builder(this)
+            .crossfade(true)
+            .build()
 
         // Initialize ExoPlayer with proper audio configuration
         initializePlayer()
@@ -169,10 +214,19 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
         override fun onDisconnected() {
             mainHandler.post {
                 Log.d(TAG, "Disconnected from server")
                 _connectionState.value = ConnectionState.Disconnected
+
+                // Clear playback state on disconnect
+                _playbackState.value = PlaybackState()
+                lastArtworkUrl = null
+                currentArtwork = null
+
+                // Clear lock screen metadata
+                forwardingPlayer?.clearMetadata()
 
                 // Stop ExoPlayer playback
                 stopExoPlayerPlayback()
@@ -182,14 +236,98 @@ class PlaybackService : MediaSessionService() {
         override fun onStateChanged(state: String) {
             mainHandler.post {
                 Log.d(TAG, "State changed: $state")
-                // Could update MediaSession playback state here if needed
+                val newState = PlaybackStateType.fromString(state)
+                _playbackState.value = _playbackState.value.copy(playbackState = newState)
             }
         }
 
-        override fun onMetadata(title: String, artist: String, album: String) {
+        /**
+         * Called when group/update message is received.
+         * Updates group-level state (like Python CLI's _handle_group_update).
+         * Also syncs ExoPlayer state with server state.
+         */
+        override fun onGroupUpdate(groupId: String, groupName: String, playbackState: String) {
             mainHandler.post {
-                Log.d(TAG, "Metadata: $title / $artist / $album")
+                Log.d(TAG, "Group update: id=$groupId name=$groupName state=$playbackState")
+
+                val currentState = _playbackState.value
+                val isGroupChange = groupId.isNotEmpty() && groupId != currentState.groupId
+
+                // Clear metadata on group change (like Python CLI does)
+                val newState = if (isGroupChange) {
+                    currentState.withClearedMetadata().copy(
+                        groupId = groupId,
+                        groupName = groupName.ifEmpty { null },
+                        playbackState = PlaybackStateType.fromString(playbackState)
+                    )
+                } else {
+                    currentState.copy(
+                        groupId = groupId.ifEmpty { currentState.groupId },
+                        groupName = groupName.ifEmpty { currentState.groupName },
+                        playbackState = if (playbackState.isNotEmpty())
+                            PlaybackStateType.fromString(playbackState)
+                        else currentState.playbackState
+                    )
+                }
+                _playbackState.value = newState
+
+                // Sync ExoPlayer state with server state
+                // This ensures the phone follows when server starts/stops playback
+                syncExoPlayerWithServerState(playbackState)
+            }
+        }
+
+        /**
+         * Called when metadata update is received (from server/state or group/update).
+         * Updates track-level metadata and triggers artwork fetch if URL changed.
+         */
+        override fun onMetadataUpdate(
+            title: String,
+            artist: String,
+            album: String,
+            artworkUrl: String,
+            durationMs: Long,
+            positionMs: Long
+        ) {
+            mainHandler.post {
+                Log.d(TAG, "Metadata update: $title / $artist / $album (artwork: $artworkUrl)")
+
+                // Update playback state with new metadata
+                _playbackState.value = _playbackState.value.withMetadata(
+                    title = title.ifEmpty { null },
+                    artist = artist.ifEmpty { null },
+                    album = album.ifEmpty { null },
+                    artworkUrl = artworkUrl.ifEmpty { null },
+                    durationMs = durationMs,
+                    positionMs = positionMs
+                )
+
+                // Update MediaSession metadata
                 updateMediaMetadata(title, artist, album)
+
+                // Fetch artwork if URL changed (like C# does)
+                if (artworkUrl.isNotEmpty() && artworkUrl != lastArtworkUrl) {
+                    lastArtworkUrl = artworkUrl
+                    fetchArtwork(artworkUrl)
+                }
+            }
+        }
+
+        /**
+         * Called when binary artwork data is received (message types 8-11).
+         */
+        override fun onArtwork(imageData: ByteArray) {
+            mainHandler.post {
+                Log.d(TAG, "Artwork received: ${imageData.size} bytes")
+                try {
+                    val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
+                    if (bitmap != null) {
+                        currentArtwork = bitmap
+                        updateMediaSessionArtwork(bitmap)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to decode artwork", e)
+                }
             }
         }
 
@@ -199,6 +337,76 @@ class PlaybackService : MediaSessionService() {
                 _connectionState.value = ConnectionState.Error(message)
             }
         }
+    }
+
+    /**
+     * Fetches artwork from a URL using Coil.
+     * Like C#'s FetchArtworkAsync in MainViewModel.cs.
+     */
+    private fun fetchArtwork(url: String) {
+        // Validate URL (like C# does - block localhost, etc.)
+        if (!isValidArtworkUrl(url)) {
+            Log.w(TAG, "Invalid artwork URL: $url")
+            return
+        }
+
+        Log.d(TAG, "Fetching artwork from: $url")
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val request = ImageRequest.Builder(this@PlaybackService)
+                    .data(url)
+                    .build()
+
+                val result = imageLoader.execute(request)
+                if (result is SuccessResult) {
+                    val bitmap = result.drawable.toBitmap()
+                    mainHandler.post {
+                        currentArtwork = bitmap
+                        updateMediaSessionArtwork(bitmap)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch artwork", e)
+            }
+        }
+    }
+
+    /**
+     * Validates artwork URL for security (like C# implementation).
+     */
+    private fun isValidArtworkUrl(url: String): Boolean {
+        return url.startsWith("http://") || url.startsWith("https://")
+    }
+
+    /**
+     * Updates MediaSession with artwork for lock screen and notifications.
+     *
+     * Updates the ForwardingPlayer with new artwork so MediaSession
+     * can display it on lock screen and in notifications.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun updateMediaSessionArtwork(bitmap: Bitmap) {
+        val state = _playbackState.value
+        Log.d(TAG, "Artwork updated: ${bitmap.width}x${bitmap.height} for ${state.title}")
+
+        // Update the ForwardingPlayer with artwork
+        forwardingPlayer?.updateMetadata(
+            title = state.title,
+            artist = state.artist,
+            album = state.album,
+            artwork = bitmap,
+            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
+        )
+
+        // Also broadcast to controllers via session extras
+        broadcastMetadataToControllers(
+            title = state.title ?: "",
+            artist = state.artist ?: "",
+            album = state.album ?: "",
+            artworkUrl = state.artworkUrl,
+            durationMs = state.durationMs,
+            positionMs = state.positionMs
+        )
     }
 
     /**
@@ -250,29 +458,100 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Updates media metadata for notifications and lock screen.
+     * Syncs ExoPlayer's play/pause state with the server's state.
+     *
+     * When the server changes playback state (e.g., user hits play on server),
+     * we need to tell ExoPlayer to follow. This prevents the audio channel
+     * from filling up when ExoPlayer is paused but server is playing.
+     *
+     * Note: We track whether we're syncing to avoid feedback loops
+     * (ExoPlayer state change → send command → server state → sync → etc.)
      */
-    private fun updateMediaMetadata(title: String, artist: String, album: String) {
-        val metadata = androidx.media3.common.MediaMetadata.Builder()
-            .setTitle(title.ifEmpty { "SendSpinDroid" })
-            .setArtist(artist.ifEmpty { null })
-            .setAlbumTitle(album.ifEmpty { null })
-            .setMediaType(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC)
-            .build()
+    /** Thread-safe flag to prevent feedback loops during state synchronization */
+    private val isSyncingWithServer = AtomicBoolean(false)
 
-        // Create/update media item with metadata
-        val mediaItem = androidx.media3.common.MediaItem.Builder()
-            .setMediaMetadata(metadata)
-            .build()
+    private fun syncExoPlayerWithServerState(serverState: String) {
+        // Use compareAndSet for thread-safe check-and-set
+        if (!isSyncingWithServer.compareAndSet(false, true)) return
 
-        // Update the exoPlayer's current media item
-        exoPlayer?.let {
-            if (it.mediaItemCount > 0) {
-                it.replaceMediaItem(0, mediaItem)
+        try {
+            val player = exoPlayer ?: return
+
+            when (serverState.lowercase()) {
+                "playing" -> {
+                    if (!player.isPlaying && player.playbackState == Player.STATE_READY) {
+                        Log.d(TAG, "Server is playing, resuming ExoPlayer")
+                        player.play()
+                    }
+                }
+                "paused", "stopped" -> {
+                    if (player.isPlaying) {
+                        Log.d(TAG, "Server is $serverState, pausing ExoPlayer")
+                        player.pause()
+                    }
+                }
             }
+        } finally {
+            isSyncingWithServer.set(false)
         }
+    }
 
-        Log.d(TAG, "Updated metadata: $title / $artist / $album")
+    /**
+     * Updates media metadata for notifications and lock screen.
+     *
+     * Uses MetadataForwardingPlayer to provide dynamic metadata to MediaSession.
+     * This ensures lock screen and notifications show current track info.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private fun updateMediaMetadata(title: String, artist: String, album: String) {
+        Log.d(TAG, "Metadata received: $title / $artist / $album")
+
+        // Use current playback state to get all metadata
+        val state = _playbackState.value
+
+        // Update the ForwardingPlayer with current metadata
+        // This will trigger MediaSession to update lock screen/notifications
+        forwardingPlayer?.updateMetadata(
+            title = state.title,
+            artist = state.artist,
+            album = state.album,
+            artwork = currentArtwork,
+            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
+        )
+
+        // Also broadcast to controllers via session extras (for our app's UI)
+        broadcastMetadataToControllers(
+            title = title,
+            artist = artist,
+            album = album,
+            artworkUrl = state.artworkUrl,
+            durationMs = state.durationMs,
+            positionMs = state.positionMs
+        )
+    }
+
+    /**
+     * Broadcasts metadata to all connected MediaControllers via session extras.
+     * Controllers receive updates via Controller.Listener.onExtrasChanged().
+     */
+    private fun broadcastMetadataToControllers(
+        title: String,
+        artist: String,
+        album: String,
+        artworkUrl: String?,
+        durationMs: Long,
+        positionMs: Long
+    ) {
+        val extras = Bundle().apply {
+            putString(EXTRA_TITLE, title)
+            putString(EXTRA_ARTIST, artist)
+            putString(EXTRA_ALBUM, album)
+            putString(EXTRA_ARTWORK_URL, artworkUrl ?: "")
+            putLong(EXTRA_DURATION_MS, durationMs)
+            putLong(EXTRA_POSITION_MS, positionMs)
+        }
+        mediaSession?.setSessionExtras(extras)
+        Log.d(TAG, "Broadcast metadata to controllers: $title / $artist")
     }
 
     /**
@@ -320,7 +599,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Initializes MediaSession wrapping ExoPlayer.
+     * Initializes MediaSession wrapping ExoPlayer via ForwardingPlayer.
+     *
+     * We wrap ExoPlayer in MetadataForwardingPlayer to provide dynamic
+     * metadata for lock screen and notifications. The ForwardingPlayer
+     * intercepts getMediaMetadata() calls and returns our current track info.
      *
      * MediaSession provides:
      * - System media integration (notifications, lock screen)
@@ -330,6 +613,7 @@ class PlaybackService : MediaSessionService() {
      * MediaSessionService automatically handles foreground notification
      * based on the player's state.
      */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun initializeMediaSession() {
         // Ensure exoPlayer is initialized
         val player = exoPlayer ?: run {
@@ -337,12 +621,16 @@ class PlaybackService : MediaSessionService() {
             return
         }
 
-        // Create MediaSession with callback for handling events
-        mediaSession = MediaSession.Builder(this, player)
+        // Wrap ExoPlayer in MetadataForwardingPlayer for dynamic metadata
+        // This allows lock screen to show current track instead of "no title"
+        forwardingPlayer = MetadataForwardingPlayer(player)
+
+        // Create MediaSession with the forwarding player (not raw ExoPlayer)
+        mediaSession = MediaSession.Builder(this, forwardingPlayer!!)
             .setCallback(MediaSessionCallback())
             .build()
 
-        Log.d(TAG, "MediaSession initialized")
+        Log.d(TAG, "MediaSession initialized with MetadataForwardingPlayer")
     }
 
     /**
@@ -619,12 +907,20 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
 
-        // Release MediaSession first (it holds reference to exoPlayer)
+        // Cancel background coroutines
+        serviceScope.cancel()
+
+        // Shutdown ImageLoader to release thread pools and caches
+        imageLoader.shutdown()
+
+        // Release MediaSession first (it holds reference to forwardingPlayer)
         mediaSession?.run {
-            // Don't release exoPlayer here - we'll do it separately
             release()
         }
         mediaSession = null
+
+        // Clear forwardingPlayer reference (it wraps exoPlayer)
+        forwardingPlayer = null
 
         // Release ExoPlayer
         exoPlayer?.release()

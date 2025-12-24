@@ -17,13 +17,28 @@ import (
 	"github.com/hashicorp/mdns"
 )
 
-// PlayerCallback defines the interface for receiving player events
+// PlayerCallback defines the interface for receiving player events.
+//
+// Event sources:
+// - OnServerDiscovered: mDNS discovery finds a SendSpin server
+// - OnConnected/OnDisconnected: WebSocket connection state changes
+// - OnGroupUpdate: group/update protocol messages (group-level state)
+// - OnMetadataUpdate: server/state protocol messages with metadata (track info)
+// - OnArtwork: binary artwork chunks (message types 8-11)
+// - OnError: any error condition
 type PlayerCallback interface {
 	OnServerDiscovered(name string, address string)
 	OnConnected(serverName string)
 	OnDisconnected()
 	OnStateChanged(state string)
-	OnMetadata(title string, artist string, album string)
+	// OnGroupUpdate is called when a group/update message is received.
+	// Contains group-level state: groupId, groupName, playbackState.
+	OnGroupUpdate(groupId string, groupName string, playbackState string)
+	// OnMetadataUpdate is called when track metadata changes.
+	// Contains: title, artist, album, artworkUrl, durationMs, positionMs.
+	OnMetadataUpdate(title string, artist string, album string, artworkUrl string, durationMs int64, positionMs int64)
+	// OnArtwork is called when binary artwork data is received (message types 8-11).
+	OnArtwork(imageData []byte)
 	OnError(message string)
 }
 
@@ -43,6 +58,11 @@ type Player struct {
 	protoClient *protocol.Client
 	clockSync   *sendsync.ClockSync
 	conn        *websocket.Conn
+
+	// Connection-specific context for canceling the message handler goroutine
+	// This is separate from ctx which is for the entire player lifecycle
+	connCtx    context.Context
+	connCancel context.CancelFunc
 
 	// Audio state
 	currentFormat *audio.Format
@@ -169,6 +189,10 @@ func (p *Player) Connect(serverAddress string) error {
 	// Create clock sync instance
 	p.clockSync = sendsync.NewClockSync()
 
+	// Create connection-specific context for the message handler goroutine
+	// This allows us to cancel just this goroutine when disconnecting
+	p.connCtx, p.connCancel = context.WithCancel(p.ctx)
+
 	// Start background goroutine for message handling
 	go p.handleProtocolMessages()
 
@@ -187,13 +211,18 @@ func (p *Player) Connect(serverAddress string) error {
 // performHandshake sends client/hello and waits for server/hello
 func (p *Player) performHandshake(conn *websocket.Conn) error {
 	// Send client/hello
+	// Request roles needed for full functionality (matching C# reference implementation):
+	// - controller@v1: send playback commands (play/pause/next/etc)
+	// - player@v1: receive and play audio
+	// - metadata@v1: receive track metadata (title, artist, album, artwork_url)
+	// Note: artwork@v1 role not requested - we use artwork_url from metadata instead
 	hello := map[string]interface{}{
 		"type": "client/hello",
 		"payload": map[string]interface{}{
 			"client_id": p.deviceName,
 			"name":      p.deviceName,
 			"version":   1,
-			"supported_roles": []string{"controller@v1", "player@v1"},
+			"supported_roles": []string{"controller@v1", "player@v1", "metadata@v1"},
 			"device_info": map[string]interface{}{
 				"product_name":     "SendSpinDroid",
 				"manufacturer":     "SendSpin",
@@ -208,7 +237,7 @@ func (p *Player) performHandshake(conn *websocket.Conn) error {
 						"bit_depth":   16,
 					},
 				},
-				"buffer_capacity":     1048576,
+				"buffer_capacity":     32000000, // 32MB like reference implementation
 				"supported_commands": []string{"volume", "mute"},
 			},
 		},
@@ -224,8 +253,8 @@ func (p *Player) performHandshake(conn *websocket.Conn) error {
 
 	log.Printf("client/hello sent, waiting for server/hello...")
 
-	// Wait for server/hello
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	// Wait for server/hello (10 second timeout like reference implementation)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	var serverMsg map[string]interface{}
 	if err := conn.ReadJSON(&serverMsg); err != nil {
 		return fmt.Errorf("failed to read server/hello: %w", err)
@@ -273,10 +302,38 @@ func (p *Player) Disconnect() error {
 
 	log.Printf("Disconnecting from server")
 
+	// Cancel connection-specific context FIRST to signal the message handler
+	// goroutine to exit cleanly before we close the WebSocket
+	if p.connCancel != nil {
+		p.connCancel()
+		p.connCancel = nil
+	}
+
 	// Close protocol client
 	if p.protoClient != nil {
 		// Note: Close() doesn't return error in current API
 		p.protoClient = nil
+	}
+
+	// Close WebSocket connection - the goroutine should already be exiting
+	// due to context cancellation, but this ensures cleanup
+	if p.conn != nil {
+		if err := p.conn.Close(); err != nil {
+			log.Printf("Error closing WebSocket: %v", err)
+		}
+		p.conn = nil
+	}
+
+	// Drain audio channel to unblock any readers waiting for data
+	// Don't close it - we may reconnect later
+drainLoop:
+	for {
+		select {
+		case <-p.audioChannel:
+			// Discard pending audio data
+		default:
+			break drainLoop
+		}
 	}
 
 	// Reset state
@@ -441,9 +498,19 @@ func (p *Player) SetVolume(volume float64) error {
 
 // ReadAudioData reads audio data from the player's audio channel
 // Blocks until data is available or timeout (10ms). Returns the number of bytes read.
+// Returns -1 if the channel is closed (player cleanup).
 func (p *Player) ReadAudioData(buffer []byte) int {
+	// Check if channel is nil (player cleaned up)
+	if p.audioChannel == nil {
+		return -1
+	}
+
 	select {
-	case audioData := <-p.audioChannel:
+	case audioData, ok := <-p.audioChannel:
+		if !ok {
+			// Channel closed - player is being cleaned up
+			return -1
+		}
 		// Copy audio data to the provided buffer
 		n := copy(buffer, audioData)
 		if n < len(audioData) {
@@ -485,8 +552,21 @@ func (p *Player) Cleanup() {
 		p.discoveryMgr = nil
 	}
 
+	// Close WebSocket connection if still open
+	if p.conn != nil {
+		p.conn.Close()
+		p.conn = nil
+	}
+
+	// Cancel context to stop all goroutines
 	if p.cancel != nil {
 		p.cancel()
+	}
+
+	// Close audio channel to unblock any readers
+	if p.audioChannel != nil {
+		close(p.audioChannel)
+		p.audioChannel = nil
 	}
 
 	p.isRunning = false
@@ -548,84 +628,191 @@ func (p *Player) handleProtocolMessages() {
 	log.Printf("Starting protocol message handler")
 
 	for {
+		// Check if we should stop (connection context canceled)
 		select {
-		case <-p.ctx.Done():
-			log.Printf("Protocol message handler stopped")
+		case <-p.connCtx.Done():
+			log.Printf("Protocol message handler stopped (context canceled)")
 			return
-
 		default:
-			// Read next message - could be text (JSON) or binary (audio)
-			messageType, data, err := p.conn.ReadMessage()
-			if err != nil {
+			// Continue to read messages
+		}
+
+		// Read next message - could be text (JSON) or binary (audio/artwork)
+		// Note: ReadMessage blocks, so we check context first
+		messageType, data, err := p.conn.ReadMessage()
+		if err != nil {
+			// Check if this was due to context cancellation (expected during disconnect)
+			select {
+			case <-p.connCtx.Done():
+				log.Printf("Protocol message handler stopped (disconnect)")
+				return
+			default:
 				log.Printf("Error reading message: %v", err)
 				return
 			}
-
-			// Handle based on message type
-			if messageType == websocket.TextMessage {
-				// Parse JSON message
-				var msg map[string]interface{}
-				if err := json.Unmarshal(data, &msg); err != nil {
-					log.Printf("Error parsing JSON: %v", err)
-					continue
-				}
-
-				msgType, ok := msg["type"].(string)
-				if !ok {
-					log.Printf("Message missing type field")
-					continue
-				}
-
-				log.Printf("Received %s message", msgType)
-
-				// Handle different message types
-				switch msgType {
-				case "stream/start":
-					// Audio stream is starting
-					log.Printf("Audio stream started")
-					if p.callback != nil {
-						p.callback.OnStateChanged("playing")
-					}
-				case "server/metadata":
-					// Metadata update
-					if payload, ok := msg["payload"].(map[string]interface{}); ok {
-						title, _ := payload["title"].(string)
-						artist, _ := payload["artist"].(string)
-						album, _ := payload["album"].(string)
-						log.Printf("Metadata: %s by %s from %s", title, artist, album)
-						if p.callback != nil {
-							p.callback.OnMetadata(title, artist, album)
-						}
-					}
-				case "server/command":
-					// Server command (volume, mute)
-					log.Printf("Server command received")
-				case "group/update":
-					// Group playback state update
-					log.Printf("Group update received")
-				default:
-					log.Printf("Unknown message type: %s", msgType)
-				}
-			} else if messageType == websocket.BinaryMessage {
-				// Binary audio chunk with 9-byte header (1 byte type + 8 byte timestamp)
-				// Strip the header and send only the PCM audio data
-				const binaryHeaderSize = 9
-				if len(data) < binaryHeaderSize {
-					log.Printf("Binary message too short: %d bytes", len(data))
-					continue
-				}
-
-				audioData := data[binaryHeaderSize:]
-
-				// Try to send without blocking - drop if channel is full
-				select {
-				case p.audioChannel <- audioData:
-					// Sent successfully
-				default:
-					// Channel full - drop silently
-				}
-			}
 		}
+
+		// Handle based on message type
+		if messageType == websocket.TextMessage {
+			p.handleTextMessage(data)
+		} else if messageType == websocket.BinaryMessage {
+			p.handleBinaryMessage(data)
+		}
+	}
+}
+
+// handleTextMessage processes JSON text messages from the server
+func (p *Player) handleTextMessage(data []byte) {
+	var msg map[string]interface{}
+	if err := json.Unmarshal(data, &msg); err != nil {
+		log.Printf("Error parsing JSON: %v", err)
+		return
+	}
+
+	msgType, ok := msg["type"].(string)
+	if !ok {
+		log.Printf("Message missing type field")
+		return
+	}
+
+	log.Printf("Received %s message", msgType)
+
+	switch msgType {
+	case "stream/start":
+		log.Printf("Audio stream started")
+		if p.callback != nil {
+			p.callback.OnStateChanged("playing")
+		}
+
+	case "server/metadata", "server/state":
+		// Metadata update from server/metadata or server/state messages
+		if payload, ok := msg["payload"].(map[string]interface{}); ok {
+			p.handleMetadataPayload(payload)
+		}
+
+	case "server/command":
+		log.Printf("Server command received")
+
+	case "group/update":
+		// Group playback state update (like Python CLI's _handle_group_update)
+		if payload, ok := msg["payload"].(map[string]interface{}); ok {
+			p.handleGroupUpdate(payload)
+		}
+
+	default:
+		log.Printf("Unknown message type: %s", msgType)
+	}
+}
+
+// handleMetadataPayload extracts and reports track metadata
+func (p *Player) handleMetadataPayload(payload map[string]interface{}) {
+	// Debug: Simple marker to verify code is being called
+	log.Printf("DEBUG_V2: handleMetadataPayload called with %d keys", len(payload))
+
+	// Debug: Log the full payload to see the actual structure from server
+	payloadJSON, _ := json.Marshal(payload)
+	log.Printf("DEBUG_V2: Raw payload: %s", string(payloadJSON))
+
+	// Check for metadata in payload (could be nested or direct)
+	metadata := payload
+	if meta, ok := payload["metadata"].(map[string]interface{}); ok {
+		log.Printf("Found nested metadata object")
+		metadata = meta
+	}
+
+	// Debug: Log the metadata map we're extracting from
+	metadataJSON, _ := json.Marshal(metadata)
+	log.Printf("Extracting from metadata: %s", string(metadataJSON))
+
+	title, _ := metadata["title"].(string)
+	artist, _ := metadata["artist"].(string)
+	album, _ := metadata["album"].(string)
+	artworkUrl, _ := metadata["artwork_url"].(string)
+
+	// Duration and position can come as float64 from JSON (seconds)
+	var durationMs, positionMs int64
+	if dur, ok := metadata["duration"].(float64); ok {
+		durationMs = int64(dur * 1000)
+	}
+	if pos, ok := metadata["position"].(float64); ok {
+		positionMs = int64(pos * 1000)
+	}
+
+	// Log extracted values AND show what keys were in the payload for debugging
+	var keys []string
+	for k := range payload {
+		keys = append(keys, k)
+	}
+	log.Printf("Metadata: title=%q artist=%q album=%q artwork=%q | payload_keys=%v", title, artist, album, artworkUrl, keys)
+	if p.callback != nil {
+		p.callback.OnMetadataUpdate(title, artist, album, artworkUrl, durationMs, positionMs)
+	}
+}
+
+// handleGroupUpdate processes group/update messages
+func (p *Player) handleGroupUpdate(payload map[string]interface{}) {
+	// Debug: Show all keys in the group/update payload
+	var keys []string
+	for k := range payload {
+		keys = append(keys, k)
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	log.Printf("Group update payload: keys=%v raw=%s", keys, string(payloadJSON))
+
+	groupId, _ := payload["group_id"].(string)
+	groupName, _ := payload["group_name"].(string)
+	playbackState := ""
+	if ps, ok := payload["playback_state"].(string); ok {
+		playbackState = ps
+	}
+
+	log.Printf("Group update: id=%s name=%s state=%s", groupId, groupName, playbackState)
+	if p.callback != nil {
+		p.callback.OnGroupUpdate(groupId, groupName, playbackState)
+	}
+
+	// Also extract metadata if present in group/update
+	if metadata, ok := payload["metadata"].(map[string]interface{}); ok {
+		title, _ := metadata["title"].(string)
+		artist, _ := metadata["artist"].(string)
+		if title != "" || artist != "" {
+			p.handleMetadataPayload(payload)
+		}
+	}
+}
+
+// handleBinaryMessage processes binary messages (audio chunks, artwork)
+func (p *Player) handleBinaryMessage(data []byte) {
+	const binaryHeaderSize = 9
+	if len(data) < binaryHeaderSize {
+		log.Printf("Binary message too short: %d bytes", len(data))
+		return
+	}
+
+	// First byte is message type
+	msgType := data[0]
+	payload := data[binaryHeaderSize:]
+
+	// Debug: Log all binary messages
+	log.Printf("Binary message received: type=%d, total=%d bytes, payload=%d bytes", msgType, len(data), len(payload))
+
+	// Message types 0-7: Audio chunks (slot 0-7)
+	// Message types 8-11: Artwork chunks (channel 0-3)
+	if msgType >= 8 && msgType <= 11 {
+		// Artwork chunk
+		log.Printf("Artwork received: %d bytes (channel %d)", len(payload), msgType-8)
+		if p.callback != nil {
+			p.callback.OnArtwork(payload)
+		}
+		return
+	}
+
+	// Audio chunk (types 0-7) - send to audio channel
+	select {
+	case p.audioChannel <- payload:
+		log.Printf("Audio chunk queued: %d bytes (slot %d)", len(payload), msgType)
+	default:
+		log.Printf("Audio channel full, dropping %d bytes", len(payload))
 	}
 }
 
