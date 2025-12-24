@@ -18,3 +18,9 @@ go-player/*.aar
 *.swo
 *~
 .vscode/
+
+# Gradle distribution
+android/gradle-8.4/
+android/gradle.zip
+android/player/build/
+
