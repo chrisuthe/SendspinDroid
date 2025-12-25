@@ -19,6 +19,9 @@
     <string name="album_art">Album artwork</string>
     <string name="now_playing">Now Playing</string>
     <string name="not_playing">Not Playing</string>
+    <string name="available_servers">Available Servers</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connected_to">Connected to %s</string>
 
     <!-- Accessibility strings -->
     <string name="accessibility_play_button">Play button</string>

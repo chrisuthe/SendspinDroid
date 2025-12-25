@@ -42,6 +42,10 @@ class MainActivity : AppCompatActivity() {
     // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
     private val servers = mutableListOf<ServerInfo>()
 
+    // Connection state tracking
+    private var isConnected = false
+    private var connectedServerName: String? = null
+
     // NsdManager-based discovery (Android native - more reliable than Go's hashicorp/mdns)
     private var discoveryManager: NsdDiscoveryManager? = null
 
@@ -226,8 +230,47 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Disconnect button
+        binding.disconnectButton.setOnClickListener {
+            onDisconnectClicked()
+        }
+
         // Initialize volume accessibility
         updateVolumeAccessibility(binding.volumeSlider.value.toInt())
+
+        // Start with discovery view visible
+        showDiscoveryView()
+    }
+
+    // ============================================================================
+    // View State Management
+    // ============================================================================
+
+    /**
+     * Shows the discovery view (server list, discover button, manual add).
+     * Called when not connected to any server.
+     */
+    private fun showDiscoveryView() {
+        binding.discoveryView.visibility = View.VISIBLE
+        binding.nowPlayingView.visibility = View.GONE
+        isConnected = false
+        connectedServerName = null
+    }
+
+    /**
+     * Shows the now playing view (album art, playback controls, disconnect).
+     * Called when connected to a server.
+     */
+    private fun showNowPlayingView(serverName: String? = null) {
+        binding.discoveryView.visibility = View.GONE
+        binding.nowPlayingView.visibility = View.VISIBLE
+        binding.nowPlayingContent.visibility = View.VISIBLE
+        binding.connectionProgressContainer.visibility = View.GONE
+        isConnected = true
+        connectedServerName = serverName
+
+        // Update the status bar with connected server name
+        binding.connectedServerText.text = serverName ?: getString(R.string.connected_to, "server")
     }
 
     /**
@@ -407,24 +450,32 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Playback state: $playbackState")
                 when (playbackState) {
                     Player.STATE_IDLE -> {
-                        updateStatus("Disconnected")
+                        updateStatus(getString(R.string.not_connected))
                         enablePlaybackControls(false)
                         hideConnectionLoading()
                         hideBufferingIndicator()
+                        // Return to discovery view when disconnected
+                        showDiscoveryView()
                         // Announce disconnection for accessibility
                         announceForAccessibility(getString(R.string.accessibility_disconnected))
                     }
                     Player.STATE_BUFFERING -> {
                         updateStatus("Buffering...")
                         showBufferingIndicator()
+                        // Show now playing view during buffering (we're connected)
+                        if (!isConnected) {
+                            showNowPlayingView(connectedServerName)
+                        }
                         // Announce buffering for accessibility
                         announceForAccessibility(getString(R.string.accessibility_buffering))
                     }
                     Player.STATE_READY -> {
-                        updateStatus("Connected")
+                        updateStatus(getString(R.string.connected_to, connectedServerName ?: "server"))
                         enablePlaybackControls(true)
                         hideConnectionLoading()
                         hideBufferingIndicator()
+                        // Show now playing view when connected
+                        showNowPlayingView(connectedServerName)
                         // Announce connection for accessibility
                         announceForAccessibility(getString(R.string.accessibility_connected))
                     }
@@ -586,6 +637,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         try {
+            // Save server name for later display
+            connectedServerName = server.name
+
             // Send CONNECT command to PlaybackService via MediaController
             val args = Bundle().apply {
                 putString(PlaybackService.ARG_SERVER_ADDRESS, server.address)
@@ -598,6 +652,7 @@ class MainActivity : AppCompatActivity() {
             showInfoSnackbar(getString(R.string.connecting_to_server, server.name))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send connect command", e)
+            connectedServerName = null
             hideConnectionLoading()
             showErrorSnackbar(
                 message = getString(R.string.error_connection_failed),
@@ -643,6 +698,29 @@ class MainActivity : AppCompatActivity() {
         val controller = mediaController ?: return
         val command = SessionCommand(PlaybackService.COMMAND_NEXT, Bundle.EMPTY)
         controller.sendCustomCommand(command, Bundle.EMPTY)
+    }
+
+    /**
+     * Handles disconnect button click.
+     * Sends disconnect command to PlaybackService and returns to discovery view.
+     */
+    private fun onDisconnectClicked() {
+        Log.d(TAG, "Disconnect clicked")
+        val controller = mediaController ?: return
+
+        try {
+            val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
+            controller.sendCustomCommand(command, Bundle.EMPTY)
+            showDiscoveryView()
+            updateStatus(getString(R.string.not_connected))
+            showInfoSnackbar("Disconnected")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to disconnect", e)
+            showErrorSnackbar(
+                message = "Failed to disconnect",
+                errorType = ErrorType.CONNECTION
+            )
+        }
     }
 
     /**
@@ -700,15 +778,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Updates the play/pause button text and content description based on playing state.
-     * Shows "Pause" when playing, "Play" when paused.
+     * Updates the play/pause button icon and content description based on playing state.
+     * Shows pause icon when playing, play icon when paused.
      */
     private fun updatePlayPauseButton(isPlaying: Boolean) {
         if (isPlaying) {
-            binding.playPauseButton.text = getString(R.string.pause)
+            binding.playPauseButton.setIconResource(R.drawable.ic_pause)
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_pause_button)
         } else {
-            binding.playPauseButton.text = getString(R.string.play)
+            binding.playPauseButton.setIconResource(R.drawable.ic_play)
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_play_button)
         }
     }
@@ -827,13 +905,17 @@ class MainActivity : AppCompatActivity() {
     /**
      * Shows the connection progress indicator.
      * Called when attempting to connect to a server.
+     * Switches to now playing view and shows the connecting spinner.
      *
      * @param serverName The name of the server being connected to
      */
     private fun showConnectionLoading(serverName: String) {
+        // Switch to now playing view but show connection progress
+        binding.discoveryView.visibility = View.GONE
+        binding.nowPlayingView.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.VISIBLE
-        binding.connectionStatusText.text = "Connecting to $serverName..."
-        binding.nowPlayingContainer.visibility = View.GONE
+        binding.nowPlayingContent.visibility = View.GONE
+        binding.connectionStatusText.text = getString(R.string.connecting_to_server, serverName)
     }
 
     /**
@@ -842,7 +924,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun hideConnectionLoading() {
         binding.connectionProgressContainer.visibility = View.GONE
-        binding.nowPlayingContainer.visibility = View.VISIBLE
+        binding.nowPlayingContent.visibility = View.VISIBLE
     }
 
     /**
