@@ -4,10 +4,13 @@ import android.content.ComponentName
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.View
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.widget.EditText
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -16,6 +19,7 @@ import androidx.media3.session.SessionToken
 import androidx.recyclerview.widget.LinearLayoutManager
 import coil.load
 import coil.transform.RoundedCornersTransformation
+import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.databinding.ActivityMainBinding
@@ -50,6 +54,122 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
     }
 
+    // ============================================================================
+    // Accessibility Support
+    // ============================================================================
+
+    /**
+     * Announces an important message to screen readers.
+     * Only announces if accessibility services are enabled.
+     *
+     * @param message The message to announce
+     */
+    private fun announceForAccessibility(message: String) {
+        val accessibilityManager = getSystemService(ACCESSIBILITY_SERVICE) as? AccessibilityManager
+        if (accessibilityManager?.isEnabled == true) {
+            binding.root.announceForAccessibility(message)
+        }
+    }
+
+    /**
+     * Updates the server list content description with current count.
+     */
+    private fun updateServerListAccessibility() {
+        val count = servers.size
+        binding.serversRecyclerView.contentDescription =
+            getString(R.string.accessibility_server_list, count)
+    }
+
+    /**
+     * Updates volume slider content description with current percentage.
+     */
+    private fun updateVolumeAccessibility(volumePercent: Int) {
+        binding.volumeSlider.contentDescription =
+            getString(R.string.accessibility_volume_percent, volumePercent)
+    }
+
+    /**
+     * Snackbar error types for different error scenarios.
+     * Used to determine appropriate duration, colors, and actions.
+     */
+    private enum class ErrorType {
+        NETWORK,          // Network connectivity errors
+        CONNECTION,       // Server connection failures
+        DISCOVERY,        // Server discovery failures
+        PLAYBACK,         // Audio playback errors
+        VALIDATION,       // Input validation errors
+        GENERAL          // General errors
+    }
+
+    /**
+     * Shows an error Snackbar with appropriate styling and optional retry action.
+     *
+     * @param message The error message to display
+     * @param errorType The type of error (determines styling and duration)
+     * @param retryAction Optional action to execute when user taps "Retry"
+     */
+    private fun showErrorSnackbar(
+        message: String,
+        errorType: ErrorType = ErrorType.GENERAL,
+        retryAction: (() -> Unit)? = null
+    ) {
+        val snackbar = Snackbar.make(
+            binding.coordinatorLayout,
+            message,
+            if (errorType == ErrorType.VALIDATION) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
+        )
+
+        // Set error background color
+        snackbar.view.setBackgroundColor(
+            ContextCompat.getColor(this, com.google.android.material.R.color.design_default_color_error)
+        )
+
+        // Add retry action if provided
+        retryAction?.let { action ->
+            snackbar.setAction(getString(R.string.action_retry)) {
+                action()
+            }
+            snackbar.setActionTextColor(
+                ContextCompat.getColor(this, android.R.color.white)
+            )
+        }
+
+        snackbar.show()
+    }
+
+    /**
+     * Shows a success Snackbar with appropriate styling.
+     *
+     * @param message The success message to display
+     */
+    private fun showSuccessSnackbar(message: String) {
+        val snackbar = Snackbar.make(
+            binding.coordinatorLayout,
+            message,
+            Snackbar.LENGTH_SHORT
+        )
+
+        // Set success background color (using primary color)
+        snackbar.view.setBackgroundColor(
+            ContextCompat.getColor(this, com.google.android.material.R.color.design_default_color_primary_dark)
+        )
+
+        snackbar.show()
+    }
+
+    /**
+     * Shows an info Snackbar with default styling.
+     *
+     * @param message The info message to display
+     */
+    private fun showInfoSnackbar(message: String) {
+        Snackbar.make(
+            binding.coordinatorLayout,
+            message,
+            Snackbar.LENGTH_SHORT
+        ).show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -70,6 +190,9 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = serverAdapter
         }
+
+        // Initialize accessibility for server list
+        updateServerListAccessibility()
 
         // Discover button
         binding.discoverButton.setOnClickListener {
@@ -94,12 +217,17 @@ class MainActivity : AppCompatActivity() {
             onNextClicked()
         }
 
-        // Volume slider
+        // Volume slider with accessibility updates
         binding.volumeSlider.addOnChangeListener { slider, value, fromUser ->
             if (fromUser) {
                 onVolumeChanged(value / 100f)
+                // Update accessibility description with current volume
+                updateVolumeAccessibility(value.toInt())
             }
         }
+
+        // Initialize volume accessibility
+        updateVolumeAccessibility(binding.volumeSlider.value.toInt())
     }
 
     /**
@@ -136,12 +264,14 @@ class MainActivity : AppCompatActivity() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery started")
                             binding.statusText.text = getString(R.string.discovering)
+                            showDiscoveryLoading()
                         }
                     }
 
                     override fun onDiscoveryStopped() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery stopped")
+                            hideDiscoveryLoading()
                             if (servers.isEmpty()) {
                                 binding.statusText.text = getString(R.string.no_servers_found)
                             }
@@ -151,7 +281,12 @@ class MainActivity : AppCompatActivity() {
                     override fun onDiscoveryError(error: String) {
                         runOnUiThread {
                             Log.e(TAG, "Discovery error: $error")
-                            showError(error)
+                            hideDiscoveryLoading()
+                            showErrorSnackbar(
+                                message = getString(R.string.error_discovery),
+                                errorType = ErrorType.DISCOVERY,
+                                retryAction = { onDiscoverClicked() }
+                            )
                         }
                     }
                 }
@@ -160,7 +295,10 @@ class MainActivity : AppCompatActivity() {
 
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize discovery manager", e)
-            showError("Failed to initialize: ${e.message}")
+            showErrorSnackbar(
+                message = getString(R.string.error_discovery_start),
+                errorType = ErrorType.GENERAL
+            )
         }
     }
 
@@ -252,10 +390,14 @@ class MainActivity : AppCompatActivity() {
                 if (isPlaying) {
                     updatePlaybackState("playing")
                     enablePlaybackControls(true)
+                    // Announce playback started for accessibility
+                    announceForAccessibility(getString(R.string.accessibility_playback_started))
                 } else {
                     updatePlaybackState("paused")
+                    // Announce playback paused for accessibility
+                    announceForAccessibility(getString(R.string.accessibility_playback_paused))
                 }
-                // Update play/pause button text based on current state
+                // Update play/pause button text and content description based on current state
                 updatePlayPauseButton(isPlaying)
             }
         }
@@ -267,16 +409,30 @@ class MainActivity : AppCompatActivity() {
                     Player.STATE_IDLE -> {
                         updateStatus("Disconnected")
                         enablePlaybackControls(false)
+                        hideConnectionLoading()
+                        hideBufferingIndicator()
+                        // Announce disconnection for accessibility
+                        announceForAccessibility(getString(R.string.accessibility_disconnected))
                     }
                     Player.STATE_BUFFERING -> {
                         updateStatus("Buffering...")
+                        showBufferingIndicator()
+                        // Announce buffering for accessibility
+                        announceForAccessibility(getString(R.string.accessibility_buffering))
                     }
                     Player.STATE_READY -> {
                         updateStatus("Connected")
                         enablePlaybackControls(true)
+                        hideConnectionLoading()
+                        hideBufferingIndicator()
+                        // Announce connection for accessibility
+                        announceForAccessibility(getString(R.string.accessibility_connected))
                     }
                     Player.STATE_ENDED -> {
                         updatePlaybackState("stopped")
+                        hideBufferingIndicator()
+                        // Announce playback stopped for accessibility
+                        announceForAccessibility(getString(R.string.accessibility_playback_stopped))
                     }
                 }
             }
@@ -292,6 +448,11 @@ class MainActivity : AppCompatActivity() {
 
                 // Load album art from MediaMetadata
                 updateAlbumArt(mediaMetadata)
+
+                // Announce new track for accessibility
+                if (title.isNotEmpty() && artist.isNotEmpty()) {
+                    announceForAccessibility(getString(R.string.accessibility_now_playing, title, artist))
+                }
             }
         }
     }
@@ -352,9 +513,12 @@ class MainActivity : AppCompatActivity() {
                 if (validateServerAddress(address)) {
                     val serverName = if (name.isEmpty()) address else name
                     addServer(ServerInfo(serverName, address))
-                    Toast.makeText(this, "Server added: $serverName", Toast.LENGTH_SHORT).show()
+                    showSuccessSnackbar(getString(R.string.server_added, serverName))
                 } else {
-                    Toast.makeText(this, getString(R.string.invalid_address), Toast.LENGTH_LONG).show()
+                    showErrorSnackbar(
+                        message = getString(R.string.invalid_address),
+                        errorType = ErrorType.VALIDATION
+                    )
                 }
                 dialog.dismiss()
             }
@@ -397,11 +561,15 @@ class MainActivity : AppCompatActivity() {
         try {
             // NsdDiscoveryManager handles multicast lock internally
             discoveryManager?.startDiscovery()
-            Toast.makeText(this, "Discovering servers...", Toast.LENGTH_SHORT).show()
+            showInfoSnackbar(getString(R.string.discovering))
             Log.d(TAG, "Discovery started successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start discovery", e)
-            showError("Failed to start discovery: ${e.message}")
+            showErrorSnackbar(
+                message = getString(R.string.error_discovery_start),
+                errorType = ErrorType.DISCOVERY,
+                retryAction = { onDiscoverClicked() }
+            )
         }
     }
 
@@ -410,7 +578,10 @@ class MainActivity : AppCompatActivity() {
 
         val controller = mediaController
         if (controller == null) {
-            showError("Service not connected")
+            showErrorSnackbar(
+                message = getString(R.string.error_service_not_connected),
+                errorType = ErrorType.CONNECTION
+            )
             return
         }
 
@@ -423,10 +594,16 @@ class MainActivity : AppCompatActivity() {
 
             controller.sendCustomCommand(command, args)
             updateStatus("Connecting to ${server.name}...")
-            Toast.makeText(this, "Connecting to ${server.name}...", Toast.LENGTH_SHORT).show()
+            showConnectionLoading(server.name)
+            showInfoSnackbar(getString(R.string.connecting_to_server, server.name))
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send connect command", e)
-            showError("Failed to connect: ${e.message}")
+            hideConnectionLoading()
+            showErrorSnackbar(
+                message = getString(R.string.error_connection_failed),
+                errorType = ErrorType.CONNECTION,
+                retryAction = { onServerSelected(server) }
+            )
         }
     }
 
@@ -497,6 +674,8 @@ class MainActivity : AppCompatActivity() {
         if (!servers.any { it.address == server.address }) {
             servers.add(server)
             serverAdapter.notifyItemInserted(servers.size - 1)
+            // Update accessibility description for server list
+            updateServerListAccessibility()
         }
     }
 
@@ -521,14 +700,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Updates the play/pause button text based on playing state.
+     * Updates the play/pause button text and content description based on playing state.
      * Shows "Pause" when playing, "Play" when paused.
      */
     private fun updatePlayPauseButton(isPlaying: Boolean) {
-        binding.playPauseButton.text = if (isPlaying) {
-            getString(R.string.pause)
+        if (isPlaying) {
+            binding.playPauseButton.text = getString(R.string.pause)
+            binding.playPauseButton.contentDescription = getString(R.string.accessibility_pause_button)
         } else {
-            getString(R.string.play)
+            binding.playPauseButton.text = getString(R.string.play)
+            binding.playPauseButton.contentDescription = getString(R.string.accessibility_play_button)
         }
     }
 
@@ -545,6 +726,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         binding.metadataText.text = metadata
+
+        // Update album art content description with current track info
+        val artDescription = if (title.isNotEmpty()) {
+            "Album artwork for $title"
+        } else {
+            getString(R.string.album_art)
+        }
+        binding.albumArtView.contentDescription = artDescription
     }
 
     /**
@@ -611,8 +800,65 @@ class MainActivity : AppCompatActivity() {
         return String.format("%d:%02d", minutes, seconds)
     }
 
-    private fun showError(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    // ============================================================================
+    // Loading State Management
+    // ============================================================================
+
+    /**
+     * Shows the discovery loading indicator.
+     * Called when server discovery begins.
+     */
+    private fun showDiscoveryLoading() {
+        binding.discoveryProgressIndicator.visibility = View.VISIBLE
+        binding.discoveryStatusText.visibility = View.VISIBLE
+        binding.discoverButton.isEnabled = false
+    }
+
+    /**
+     * Hides the discovery loading indicator.
+     * Called when server discovery completes or fails.
+     */
+    private fun hideDiscoveryLoading() {
+        binding.discoveryProgressIndicator.visibility = View.GONE
+        binding.discoveryStatusText.visibility = View.GONE
+        binding.discoverButton.isEnabled = true
+    }
+
+    /**
+     * Shows the connection progress indicator.
+     * Called when attempting to connect to a server.
+     *
+     * @param serverName The name of the server being connected to
+     */
+    private fun showConnectionLoading(serverName: String) {
+        binding.connectionProgressContainer.visibility = View.VISIBLE
+        binding.connectionStatusText.text = "Connecting to $serverName..."
+        binding.nowPlayingContainer.visibility = View.GONE
+    }
+
+    /**
+     * Hides the connection progress indicator.
+     * Called when connection succeeds or fails.
+     */
+    private fun hideConnectionLoading() {
+        binding.connectionProgressContainer.visibility = View.GONE
+        binding.nowPlayingContainer.visibility = View.VISIBLE
+    }
+
+    /**
+     * Shows the buffering indicator overlay on album art.
+     * Called during playback buffering state.
+     */
+    private fun showBufferingIndicator() {
+        binding.bufferingIndicator.visibility = View.VISIBLE
+    }
+
+    /**
+     * Hides the buffering indicator overlay.
+     * Called when buffering completes and playback is ready.
+     */
+    private fun hideBufferingIndicator() {
+        binding.bufferingIndicator.visibility = View.GONE
     }
 
     /**

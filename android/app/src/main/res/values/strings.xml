@@ -19,4 +19,43 @@
     <string name="album_art">Album artwork</string>
     <string name="now_playing">Now Playing</string>
     <string name="not_playing">Not Playing</string>
+
+    <!-- Accessibility strings -->
+    <string name="accessibility_play_button">Play button</string>
+    <string name="accessibility_pause_button">Pause button</string>
+    <string name="accessibility_previous_button">Previous track button</string>
+    <string name="accessibility_next_button">Next track button</string>
+    <string name="accessibility_volume_slider">Volume slider</string>
+    <string name="accessibility_volume_percent">Volume %1$d percent</string>
+    <string name="accessibility_progress_slider">Track progress slider</string>
+    <string name="accessibility_server_list">Server list, %1$d servers available</string>
+    <string name="accessibility_connected">Connected to server</string>
+    <string name="accessibility_disconnected">Disconnected from server</string>
+    <string name="accessibility_connecting">Connecting to server</string>
+    <string name="accessibility_buffering">Buffering audio</string>
+    <string name="accessibility_now_playing">Now playing: %1$s by %2$s</string>
+    <string name="accessibility_playback_paused">Playback paused</string>
+    <string name="accessibility_playback_started">Playback started</string>
+    <string name="accessibility_playback_stopped">Playback stopped</string>
+    <string name="accessibility_server_name_input">Server name input field</string>
+    <string name="accessibility_server_address_input">Server address input field</string>
+    <string name="accessibility_discover_servers">Discover servers on network</string>
+    <string name="accessibility_add_manual_server">Add server manually by address</string>
+
+    <!-- Error messages -->
+    <string name="error_network">Network error. Check your connection.</string>
+    <string name="error_connection_timeout">Connection timeout. Server not responding.</string>
+    <string name="error_playback">Playback error occurred.</string>
+    <string name="error_discovery">Failed to discover servers.</string>
+    <string name="error_service_not_connected">Service not connected</string>
+    <string name="error_connection_failed">Failed to connect to server</string>
+    <string name="error_discovery_start">Failed to start discovery</string>
+
+    <!-- Snackbar actions -->
+    <string name="action_retry">Retry</string>
+    <string name="action_dismiss">Dismiss</string>
+
+    <!-- Success messages -->
+    <string name="server_added">Server added: %s</string>
+    <string name="connecting_to_server">Connecting to %s…</string>
 </resources>
