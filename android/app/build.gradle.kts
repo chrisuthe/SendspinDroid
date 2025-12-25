@@ -28,6 +28,11 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Check if debug keystore exists (for local development signing)
+// On CI, this file won't exist and release builds will be unsigned
+val debugKeystoreFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+val hasDebugKeystore = debugKeystoreFile.exists()
+
 android {
     // Namespace replaces package attribute in AndroidManifest.xml (AGP 7.0+)
     // Used for R class generation and resource ID namespacing
@@ -40,13 +45,15 @@ android {
     compileSdk = 35
 
     // Signing configuration for release builds
-    // Using debug keystore for testing - replace with production keystore for Play Store
+    // Only configure if keystore exists (allows CI to build unsigned APKs)
     signingConfigs {
-        create("release") {
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (hasDebugKeystore) {
+            create("release") {
+                storeFile = debugKeystoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
@@ -97,9 +104,12 @@ android {
                 "proguard-rules.pro"
             )
 
-            // Sign release builds with debug key for testing
+            // Sign release builds with debug key for testing (if keystore exists)
+            // On CI without keystore, builds will be unsigned
             // TODO: Replace with production keystore for Play Store release
-            signingConfig = signingConfigs.getByName("release")
+            if (hasDebugKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
 
         // Debug build type is implicit with default settings

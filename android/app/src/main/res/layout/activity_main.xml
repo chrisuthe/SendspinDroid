@@ -7,199 +7,307 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-<androidx.constraintlayout.widget.ConstraintLayout
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="16dp">
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="16dp">
 
-    <TextView
-        android:id="@+id/titleText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="SendSpin Player"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:importantForAccessibility="yes"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        <!-- ============================================================ -->
+        <!-- DISCOVERY VIEW - Shown when not connected to a server        -->
+        <!-- ============================================================ -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/discoveryView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="visible"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent">
 
-    <TextView
-        android:id="@+id/statusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/not_connected"
-        android:textSize="16sp"
-        android:importantForAccessibility="yes"
-        android:accessibilityLiveRegion="polite"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/titleText" />
+            <TextView
+                android:id="@+id/titleText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnBackground"
+                android:importantForAccessibility="yes"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
 
-    <Button
-        android:id="@+id/discoverButton"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:minHeight="48dp"
-        android:layout_marginTop="32dp"
-        android:text="@string/discover_servers"
-        android:contentDescription="@string/accessibility_discover_servers"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/statusText" />
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/not_connected"
+                android:textSize="14sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:importantForAccessibility="yes"
+                android:accessibilityLiveRegion="polite"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/titleText" />
 
-    <!-- Discovery Progress Indicator (shown during server discovery) -->
-    <com.google.android.material.progressindicator.CircularProgressIndicator
-        android:id="@+id/discoveryProgressIndicator"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:indeterminate="true"
-        android:visibility="gone"
-        android:importantForAccessibility="no"
-        app:indicatorSize="32dp"
-        app:trackThickness="3dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/discoverButton"
-        tools:visibility="visible" />
+            <Button
+                android:id="@+id/discoverButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:layout_marginTop="24dp"
+                android:text="@string/discover_servers"
+                android:contentDescription="@string/accessibility_discover_servers"
+                app:icon="@drawable/ic_refresh"
+                app:iconGravity="textStart"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/statusText" />
 
-    <TextView
-        android:id="@+id/discoveryStatusText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Discovering servers..."
-        android:textSize="14sp"
-        android:visibility="gone"
-        android:importantForAccessibility="yes"
-        android:accessibilityLiveRegion="polite"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/discoveryProgressIndicator"
-        tools:visibility="visible" />
+            <!-- Discovery Progress Indicator -->
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:id="@+id/discoveryProgressIndicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:indeterminate="true"
+                android:visibility="gone"
+                android:importantForAccessibility="no"
+                app:indicatorSize="32dp"
+                app:trackThickness="3dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/discoverButton"
+                tools:visibility="visible" />
 
-    <Button
-        android:id="@+id/addManualServerButton"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:minHeight="48dp"
-        android:layout_marginTop="8dp"
-        android:text="@string/add_server_manually"
-        android:contentDescription="@string/accessibility_add_manual_server"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/discoveryStatusText" />
+            <TextView
+                android:id="@+id/discoveryStatusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/discovering"
+                android:textSize="14sp"
+                android:visibility="gone"
+                android:importantForAccessibility="yes"
+                android:accessibilityLiveRegion="polite"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/discoveryProgressIndicator"
+                tools:visibility="visible" />
 
-    <TextView
-        android:id="@+id/serversLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Available Servers:"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:labelFor="@id/serversRecyclerView"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/addManualServerButton" />
+            <Button
+                android:id="@+id/addManualServerButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:layout_marginTop="8dp"
+                android:text="@string/add_server_manually"
+                android:contentDescription="@string/accessibility_add_manual_server"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:icon="@drawable/ic_server"
+                app:iconGravity="textStart"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/discoveryStatusText" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/serversRecyclerView"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="16dp"
-        android:importantForAccessibility="yes"
-        app:layout_constraintBottom_toTopOf="@id/playbackControlsCard"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/serversLabel" />
+            <TextView
+                android:id="@+id/serversLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/available_servers"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnBackground"
+                android:labelFor="@id/serversRecyclerView"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/addManualServerButton" />
 
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/playbackControlsCard"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        app:cardElevation="4dp"
-        app:cardCornerRadius="8dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/serversRecyclerView"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_marginTop="8dp"
+                android:importantForAccessibility="yes"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/serversLabel" />
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
-            <!-- Connection Progress Indicator (shown when connecting to server) -->
+        <!-- ============================================================ -->
+        <!-- NOW PLAYING VIEW - Shown when connected to a server          -->
+        <!-- ============================================================ -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/nowPlayingView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:visibility="visible">
+
+            <!-- Connection Status Bar -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/connectionStatusBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp">
+
+                    <!-- Server Icon -->
+                    <ImageView
+                        android:id="@+id/connectedServerIcon"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_server_connected"
+                        android:contentDescription="@null"
+                        app:tint="?attr/colorPrimary"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent" />
+
+                    <!-- Connected Server Name -->
+                    <TextView
+                        android:id="@+id/connectedServerText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:layout_marginEnd="12dp"
+                        android:text="@string/not_connected"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toStartOf="@id/disconnectButton"
+                        app:layout_constraintStart_toEndOf="@id/connectedServerIcon"
+                        app:layout_constraintTop_toTopOf="parent" />
+
+                    <!-- Disconnect Button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/disconnectButton"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:text="@string/disconnect"
+                        android:textColor="?attr/colorError"
+                        app:backgroundTint="?attr/colorErrorContainer"
+                        app:icon="@drawable/ic_server_disconnected"
+                        app:iconTint="?attr/colorError"
+                        app:iconGravity="textStart"
+                        app:iconSize="18dp"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toTopOf="parent" />
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Connection Progress (shown during connecting) -->
             <LinearLayout
                 android:id="@+id/connectionProgressContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:gravity="center"
-                android:padding="16dp"
+                android:padding="32dp"
                 android:visibility="gone"
-                tools:visibility="visible">
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                tools:visibility="gone">
 
-                <com.google.android.material.progressindicator.LinearProgressIndicator
+                <com.google.android.material.progressindicator.CircularProgressIndicator
                     android:id="@+id/connectionProgressIndicator"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:indeterminate="true"
                     android:importantForAccessibility="no"
+                    app:indicatorSize="64dp"
                     app:trackThickness="4dp" />
 
                 <TextView
                     android:id="@+id/connectionStatusText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Connecting to server..."
-                    android:textSize="14sp"
-                    android:textStyle="italic"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/connecting"
+                    android:textSize="16sp"
                     android:importantForAccessibility="yes"
                     android:accessibilityLiveRegion="polite" />
 
             </LinearLayout>
 
-            <!-- Now Playing section with album art -->
-            <LinearLayout
-                android:id="@+id/nowPlayingContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="16dp">
+            <!-- Now Playing Content -->
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/nowPlayingContent"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:visibility="visible"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/connectionStatusBar">
 
-                <!-- Album Art Container with Buffering Indicator -->
+                <!-- Large Album Art with Buffering Overlay -->
                 <FrameLayout
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:layout_marginEnd="16dp">
+                    android:id="@+id/albumArtContainer"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:layout_marginTop="16dp"
+                    app:layout_constraintDimensionRatio="1:1"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintWidth_max="280dp"
+                    app:layout_constraintWidth_percent="0.7">
 
-                    <ImageView
-                        android:id="@+id/albumArtView"
+                    <com.google.android.material.card.MaterialCardView
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/placeholder_album"
-                        android:contentDescription="@string/album_art"
-                        android:background="@drawable/placeholder_album"
-                        android:importantForAccessibility="yes" />
+                        app:cardCornerRadius="16dp"
+                        app:cardElevation="8dp">
+
+                        <ImageView
+                            android:id="@+id/albumArtView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:scaleType="centerCrop"
+                            android:src="@drawable/placeholder_album"
+                            android:contentDescription="@string/album_art"
+                            android:importantForAccessibility="yes" />
+
+                    </com.google.android.material.card.MaterialCardView>
 
                     <!-- Buffering Indicator Overlay -->
                     <com.google.android.material.progressindicator.CircularProgressIndicator
                         android:id="@+id/bufferingIndicator"
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
+                        android:layout_width="64dp"
+                        android:layout_height="64dp"
                         android:layout_gravity="center"
                         android:indeterminate="true"
                         android:visibility="gone"
                         android:importantForAccessibility="no"
-                        app:indicatorSize="48dp"
+                        app:indicatorSize="64dp"
                         app:trackThickness="4dp"
                         app:indicatorColor="?attr/colorPrimary"
                         tools:visibility="visible" />
@@ -207,148 +315,182 @@
                 </FrameLayout>
 
                 <!-- Track Info -->
-                <LinearLayout
+                <TextView
+                    android:id="@+id/nowPlayingText"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_gravity="center_vertical"
-                    android:orientation="vertical">
+                    android:layout_marginTop="24dp"
+                    android:gravity="center"
+                    android:text="@string/not_playing"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/colorOnBackground"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:importantForAccessibility="yes"
+                    android:accessibilityLiveRegion="polite"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/albumArtContainer" />
+
+                <TextView
+                    android:id="@+id/metadataText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center"
+                    android:text=""
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:importantForAccessibility="yes"
+                    android:accessibilityLiveRegion="polite"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/nowPlayingText" />
+
+                <!-- Progress Bar -->
+                <LinearLayout
+                    android:id="@+id/progressContainer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:visibility="gone"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/metadataText">
 
                     <TextView
-                        android:id="@+id/nowPlayingText"
+                        android:id="@+id/currentPositionText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Not Playing"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        android:importantForAccessibility="yes"
-                        android:accessibilityLiveRegion="polite" />
-
-                    <TextView
-                        android:id="@+id/metadataText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="0:00"
                         android:textSize="12sp"
-                        android:layout_marginTop="4dp"
-                        android:maxLines="2"
-                        android:ellipsize="end"
-                        android:importantForAccessibility="yes"
-                        android:accessibilityLiveRegion="polite" />
+                        android:minWidth="40dp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:importantForAccessibility="no" />
+
+                    <SeekBar
+                        android:id="@+id/progressSeekBar"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="8dp"
+                        android:max="1000"
+                        android:progress="0"
+                        android:contentDescription="@string/accessibility_progress_slider" />
+
+                    <TextView
+                        android:id="@+id/durationText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0:00"
+                        android:textSize="12sp"
+                        android:minWidth="40dp"
+                        android:gravity="end"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:importantForAccessibility="no" />
 
                 </LinearLayout>
 
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center">
-
-                <Button
-                    android:id="@+id/previousButton"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:text="@string/previous"
-                    android:contentDescription="@string/accessibility_previous_button"
-                    android:enabled="false" />
-
-                <Button
-                    android:id="@+id/playPauseButton"
-                    style="@style/Widget.MaterialComponents.Button"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:text="@string/play"
-                    android:enabled="false" />
-
-                <Button
-                    android:id="@+id/nextButton"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:layout_weight="1"
-                    android:text="@string/next"
-                    android:contentDescription="@string/accessibility_next_button"
-                    android:enabled="false" />
-
-            </LinearLayout>
-
-            <!-- Progress bar for track position -->
-            <LinearLayout
-                android:id="@+id/progressContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/currentPositionText"
+                <!-- Playback Controls with Icon Buttons -->
+                <LinearLayout
+                    android:id="@+id/playbackControlsContainer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="0:00"
-                    android:textSize="10sp"
-                    android:minWidth="32dp"
-                    android:importantForAccessibility="no" />
+                    android:layout_marginTop="24dp"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/progressContainer">
 
-                <SeekBar
-                    android:id="@+id/progressSeekBar"
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/previousButton"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginEnd="16dp"
+                        android:contentDescription="@string/accessibility_previous_button"
+                        android:enabled="false"
+                        app:icon="@drawable/ic_skip_previous"
+                        app:iconSize="28dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/playPauseButton"
+                        style="@style/Widget.Material3.Button.IconButton.Filled"
+                        android:layout_width="72dp"
+                        android:layout_height="72dp"
+                        android:contentDescription="@string/accessibility_play_button"
+                        android:enabled="false"
+                        app:icon="@drawable/ic_play"
+                        app:iconSize="36dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/nextButton"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="56dp"
+                        android:layout_height="56dp"
+                        android:layout_marginStart="16dp"
+                        android:contentDescription="@string/accessibility_next_button"
+                        android:enabled="false"
+                        app:icon="@drawable/ic_skip_next"
+                        app:iconSize="28dp" />
+
+                </LinearLayout>
+
+                <!-- Volume Control -->
+                <LinearLayout
+                    android:id="@+id/volumeContainer"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:minHeight="48dp"
-                    android:layout_weight="1"
-                    android:layout_marginHorizontal="8dp"
-                    android:max="1000"
-                    android:progress="0"
-                    android:contentDescription="@string/accessibility_progress_slider" />
+                    android:layout_marginTop="32dp"
+                    android:layout_marginBottom="16dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/playbackControlsContainer">
 
-                <TextView
-                    android:id="@+id/durationText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0:00"
-                    android:textSize="10sp"
-                    android:minWidth="32dp"
-                    android:gravity="end"
-                    android:importantForAccessibility="no" />
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_volume_down"
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
-            </LinearLayout>
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/volumeSlider"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="8dp"
+                        android:valueFrom="0"
+                        android:valueTo="100"
+                        android:value="75"
+                        android:stepSize="1"
+                        android:contentDescription="@string/accessibility_volume_slider"
+                        android:enabled="false" />
 
-            <TextView
-                android:id="@+id/volumeLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/volume"
-                android:textSize="14sp"
-                android:labelFor="@id/volumeSlider" />
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/ic_volume_up"
+                        android:contentDescription="@null"
+                        android:importantForAccessibility="no"
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
-            <com.google.android.material.slider.Slider
-                android:id="@+id/volumeSlider"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:valueFrom="0"
-                android:valueTo="100"
-                android:value="75"
-                android:stepSize="1"
-                android:contentDescription="@string/accessibility_volume_slider"
-                android:enabled="false" />
+                </LinearLayout>
 
-        </LinearLayout>
+            </androidx.constraintlayout.widget.ConstraintLayout>
 
-    </com.google.android.material.card.MaterialCardView>
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
