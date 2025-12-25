@@ -39,6 +39,17 @@ android {
     // Must be >= targetSdk to avoid build errors
     compileSdk = 35
 
+    // Signing configuration for release builds
+    // Using debug keystore for testing - replace with production keystore for Play Store
+    signingConfigs {
+        create("release") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         // Unique identifier for the app on Google Play and devices
         // Must remain consistent across updates
@@ -86,9 +97,9 @@ android {
                 "proguard-rules.pro"
             )
 
-            // TODO: Add signing configuration for release builds
-            // TODO: Enable isMinifyEnabled = true for production
-            // TODO: Add isShrinkResources = true to remove unused resources
+            // Sign release builds with debug key for testing
+            // TODO: Replace with production keystore for Play Store release
+            signingConfig = signingConfigs.getByName("release")
         }
 
         // Debug build type is implicit with default settings
