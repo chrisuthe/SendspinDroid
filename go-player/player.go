@@ -2,17 +2,18 @@ package player
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/Resonate-Protocol/resonate-go/pkg/audio"
 	"github.com/Resonate-Protocol/resonate-go/pkg/discovery"
 	"github.com/Resonate-Protocol/resonate-go/pkg/protocol"
-	sendsync "github.com/Resonate-Protocol/resonate-go/pkg/sync"
 	"github.com/gorilla/websocket"
 	"github.com/hashicorp/mdns"
 )
@@ -42,6 +43,18 @@ type PlayerCallback interface {
 	OnError(message string)
 }
 
+// burstResult holds timing data from a single time sync exchange
+type burstResult struct {
+	t1, t2, t3, t4 int64
+	rtt            float64
+}
+
+// Burst sync configuration (matching C# implementation)
+const (
+	burstSize       = 8  // Number of messages per burst
+	burstIntervalMs = 50 // Milliseconds between burst messages
+)
+
 // Player represents the SendSpin player instance
 type Player struct {
 	mu       sync.Mutex
@@ -56,17 +69,24 @@ type Player struct {
 
 	// SendSpin components
 	protoClient *protocol.Client
-	clockSync   *sendsync.ClockSync
+	clockSync   *KalmanClockSync
 	conn        *websocket.Conn
+	connMu      sync.Mutex // Protects WebSocket writes
 
 	// Connection-specific context for canceling the message handler goroutine
 	// This is separate from ctx which is for the entire player lifecycle
 	connCtx    context.Context
 	connCancel context.CancelFunc
 
+	// Burst sync state
+	burstMu                sync.Mutex
+	burstResults           []burstResult
+	pendingBurstTimestamps map[int64]bool
+
 	// Audio state
 	currentFormat *audio.Format
-	audioChannel  chan []byte
+	audioChannel  chan []byte    // Legacy simple channel (fallback)
+	timedBuffer   *TimedAudioBuffer // Time-synchronized buffer
 
 	// Server info
 	deviceName string
@@ -186,8 +206,15 @@ func (p *Player) Connect(serverAddress string) error {
 	// Store the WebSocket connection for reading messages
 	p.conn = conn
 
-	// Create clock sync instance
-	p.clockSync = sendsync.NewClockSync()
+	// Create Kalman-based clock synchronizer
+	p.clockSync = NewKalmanClockSync()
+
+	// Create time-synchronized audio buffer
+	p.timedBuffer = NewTimedAudioBuffer(p.clockSync)
+
+	// Initialize burst sync state
+	p.burstResults = make([]burstResult, 0, burstSize)
+	p.pendingBurstTimestamps = make(map[int64]bool)
 
 	// Create connection-specific context for the message handler goroutine
 	// This allows us to cancel just this goroutine when disconnecting
@@ -195,6 +222,9 @@ func (p *Player) Connect(serverAddress string) error {
 
 	// Start background goroutine for message handling
 	go p.handleProtocolMessages()
+
+	// Start time sync loop (burst-based, adaptive intervals)
+	go p.timeSyncLoop()
 
 	// Update connection state
 	p.isConnected = true
@@ -334,6 +364,12 @@ drainLoop:
 		default:
 			break drainLoop
 		}
+	}
+
+	// Clear timed audio buffer
+	if p.timedBuffer != nil {
+		p.timedBuffer.Clear()
+		p.timedBuffer = nil
 	}
 
 	// Reset state
@@ -496,11 +532,22 @@ func (p *Player) SetVolume(volume float64) error {
 	return p.SendVolumeCommand(volumeInt)
 }
 
-// ReadAudioData reads audio data from the player's audio channel
-// Blocks until data is available or timeout (10ms). Returns the number of bytes read.
-// Returns -1 if the channel is closed (player cleanup).
+// ReadAudioData reads audio data from the time-synchronized buffer.
+// Returns data only when it's time to play (based on server timestamps).
+// Returns the number of bytes read, 0 if not ready yet, -1 if player is cleaned up.
 func (p *Player) ReadAudioData(buffer []byte) int {
-	// Check if channel is nil (player cleaned up)
+	// Use time-synchronized buffer if available
+	if p.timedBuffer != nil {
+		n := p.timedBuffer.Read(buffer)
+		if n > 0 {
+			return n
+		}
+		// No data ready yet - short sleep to avoid busy waiting
+		time.Sleep(5 * time.Millisecond)
+		return 0
+	}
+
+	// Fallback to legacy channel (shouldn't happen in normal operation)
 	if p.audioChannel == nil {
 		return -1
 	}
@@ -508,17 +555,14 @@ func (p *Player) ReadAudioData(buffer []byte) int {
 	select {
 	case audioData, ok := <-p.audioChannel:
 		if !ok {
-			// Channel closed - player is being cleaned up
 			return -1
 		}
-		// Copy audio data to the provided buffer
 		n := copy(buffer, audioData)
 		if n < len(audioData) {
 			log.Printf("Warning: buffer too small, truncated %d bytes", len(audioData)-n)
 		}
 		return n
 	case <-time.After(10 * time.Millisecond):
-		// Timeout - no data available, return 0 so Android can retry quickly
 		return 0
 	}
 }
@@ -569,8 +613,22 @@ func (p *Player) Cleanup() {
 		p.audioChannel = nil
 	}
 
+	// Clear timed audio buffer
+	if p.timedBuffer != nil {
+		p.timedBuffer.Clear()
+		p.timedBuffer = nil
+	}
+
 	p.isRunning = false
 	p.isConnected = false
+}
+
+// GetBufferStats returns the current audio buffer statistics
+func (p *Player) GetBufferStats() BufferStats {
+	if p.timedBuffer == nil {
+		return BufferStats{}
+	}
+	return p.timedBuffer.GetStats()
 }
 
 // discoverServers runs the mDNS discovery loop
@@ -699,6 +757,12 @@ func (p *Player) handleTextMessage(data []byte) {
 			p.handleGroupUpdate(payload)
 		}
 
+	case "server/time":
+		// Time sync response - process for clock synchronization
+		if payload, ok := msg["payload"].(map[string]interface{}); ok {
+			p.handleServerTime(payload)
+		}
+
 	default:
 		log.Printf("Unknown message type: %s", msgType)
 	}
@@ -767,17 +831,26 @@ func (p *Player) handleGroupUpdate(payload map[string]interface{}) {
 	}
 
 	log.Printf("Group update: id=%s name=%s state=%s", groupId, groupName, playbackState)
-	if p.callback != nil {
-		p.callback.OnGroupUpdate(groupId, groupName, playbackState)
-	}
 
-	// Also extract metadata if present in group/update
+	// Check for track change by looking at metadata
 	if metadata, ok := payload["metadata"].(map[string]interface{}); ok {
 		title, _ := metadata["title"].(string)
 		artist, _ := metadata["artist"].(string)
+
+		// If we have new metadata, this could be a track change
+		// Clear the audio buffer to start fresh with the new track
+		if (title != "" || artist != "") && p.timedBuffer != nil {
+			log.Printf("Track change detected (title=%q), clearing audio buffer", title)
+			p.timedBuffer.Clear()
+		}
+
 		if title != "" || artist != "" {
 			p.handleMetadataPayload(payload)
 		}
+	}
+
+	if p.callback != nil {
+		p.callback.OnGroupUpdate(groupId, groupName, playbackState)
 	}
 }
 
@@ -791,10 +864,14 @@ func (p *Player) handleBinaryMessage(data []byte) {
 
 	// First byte is message type
 	msgType := data[0]
+
+	// Bytes 1-8: Server timestamp (big-endian int64, microseconds)
+	serverTimestamp := int64(binary.BigEndian.Uint64(data[1:9]))
+
 	payload := data[binaryHeaderSize:]
 
-	// Debug: Log all binary messages
-	log.Printf("Binary message received: type=%d, total=%d bytes, payload=%d bytes", msgType, len(data), len(payload))
+	// Debug: Log binary messages with timestamp
+	log.Printf("Binary message: type=%d, serverTime=%d, payload=%d bytes", msgType, serverTimestamp, len(payload))
 
 	// Message types 0-7: Audio chunks (slot 0-7)
 	// Message types 8-11: Artwork chunks (channel 0-3)
@@ -807,12 +884,204 @@ func (p *Player) handleBinaryMessage(data []byte) {
 		return
 	}
 
-	// Audio chunk (types 0-7) - send to audio channel
-	select {
-	case p.audioChannel <- payload:
-		log.Printf("Audio chunk queued: %d bytes (slot %d)", len(payload), msgType)
-	default:
-		log.Printf("Audio channel full, dropping %d bytes", len(payload))
+	// Audio chunk (types 0-7)
+	// Write to time-synchronized buffer with server timestamp
+	if p.timedBuffer != nil {
+		p.timedBuffer.Write(payload, serverTimestamp, int(msgType))
+	} else {
+		// Fallback to simple channel (should not happen in normal operation)
+		select {
+		case p.audioChannel <- payload:
+			log.Printf("Audio chunk queued (fallback): %d bytes (slot %d)", len(payload), msgType)
+		default:
+			log.Printf("Audio channel full, dropping %d bytes", len(payload))
+		}
 	}
+}
+
+// ============================================================================
+// Time Synchronization (Burst-based with Kalman filter)
+// ============================================================================
+
+// timeSyncLoop runs the burst time synchronization loop
+func (p *Player) timeSyncLoop() {
+	log.Printf("TimeSyncLoop: Starting burst time sync loop")
+
+	for {
+		select {
+		case <-p.connCtx.Done():
+			log.Printf("TimeSyncLoop: Stopped (context canceled)")
+			return
+		default:
+		}
+
+		// Check if still connected
+		p.mu.Lock()
+		connected := p.isConnected
+		p.mu.Unlock()
+
+		if !connected {
+			log.Printf("TimeSyncLoop: Stopped (disconnected)")
+			return
+		}
+
+		// Send burst of time sync messages
+		p.sendTimeSyncBurst()
+
+		// Get adaptive interval based on sync quality
+		intervalMs := p.clockSync.GetAdaptiveSyncIntervalMs()
+
+		status := p.clockSync.GetStatus()
+		log.Printf("TimeSyncLoop: Next burst in %dms (offset=%.0fμs, uncertainty=%.0fμs, converged=%v)",
+			intervalMs,
+			status.OffsetMicroseconds,
+			status.OffsetUncertaintyMicros,
+			status.IsConverged)
+
+		// Wait for interval
+		select {
+		case <-p.connCtx.Done():
+			return
+		case <-time.After(time.Duration(intervalMs) * time.Millisecond):
+		}
+	}
+}
+
+// sendTimeSyncBurst sends a burst of time sync messages
+func (p *Player) sendTimeSyncBurst() {
+	// Clear previous burst results
+	p.burstMu.Lock()
+	p.burstResults = p.burstResults[:0]
+	p.pendingBurstTimestamps = make(map[int64]bool)
+	p.burstMu.Unlock()
+
+	// Send burst of messages
+	for i := 0; i < burstSize; i++ {
+		select {
+		case <-p.connCtx.Done():
+			return
+		default:
+		}
+
+		// Record T1 (client transmit time)
+		t1 := time.Now().UnixMicro()
+
+		// Track this timestamp for response matching
+		p.burstMu.Lock()
+		p.pendingBurstTimestamps[t1] = true
+		p.burstMu.Unlock()
+
+		// Send client/time message
+		msg := map[string]interface{}{
+			"type": "client/time",
+			"payload": map[string]interface{}{
+				"client_transmitted": t1,
+			},
+		}
+
+		p.connMu.Lock()
+		err := p.conn.WriteJSON(msg)
+		p.connMu.Unlock()
+
+		if err != nil {
+			log.Printf("TimeSyncLoop: Failed to send time message: %v", err)
+			return
+		}
+
+		// Wait between burst messages (except after last one)
+		if i < burstSize-1 {
+			time.Sleep(time.Duration(burstIntervalMs) * time.Millisecond)
+		}
+	}
+
+	// Wait for responses to arrive
+	time.Sleep(time.Duration(burstIntervalMs*2) * time.Millisecond)
+
+	// Process the best result from the burst
+	p.processBurstResults()
+}
+
+// processBurstResults finds the best RTT measurement and feeds it to Kalman filter
+func (p *Player) processBurstResults() {
+	p.burstMu.Lock()
+	defer p.burstMu.Unlock()
+
+	if len(p.burstResults) == 0 {
+		log.Printf("TimeSyncLoop: No burst results to process")
+		return
+	}
+
+	// Sort by RTT and take the best (lowest RTT = most accurate)
+	sort.Slice(p.burstResults, func(i, j int) bool {
+		return p.burstResults[i].rtt < p.burstResults[j].rtt
+	})
+
+	best := p.burstResults[0]
+	log.Printf("TimeSyncLoop: Processing best of %d results: RTT=%.0fμs",
+		len(p.burstResults), best.rtt)
+
+	// Feed to Kalman filter
+	p.clockSync.ProcessMeasurement(best.t1, best.t2, best.t3, best.t4)
+
+	// Clear results
+	p.burstResults = p.burstResults[:0]
+	p.pendingBurstTimestamps = make(map[int64]bool)
+}
+
+// handleServerTime processes server/time response messages
+func (p *Player) handleServerTime(payload map[string]interface{}) {
+	// Record T4 (client receive time)
+	t4 := time.Now().UnixMicro()
+
+	// Extract timestamps from payload
+	// Server sends: client_transmitted (T1), server_received (T2), server_transmitted (T3)
+	t1, ok1 := payload["client_transmitted"].(float64)
+	t2, ok2 := payload["server_received"].(float64)
+	t3, ok3 := payload["server_transmitted"].(float64)
+
+	if !ok1 || !ok2 || !ok3 {
+		log.Printf("TimeSyncLoop: Invalid server/time payload: %v", payload)
+		return
+	}
+
+	t1i := int64(t1)
+	t2i := int64(t2)
+	t3i := int64(t3)
+
+	// Debug: Log actual timestamp values
+	log.Printf("TimeSyncLoop: T1=%d T2=%d T3=%d T4=%d", t1i, t2i, t3i, t4)
+
+	// Calculate RTT: (T4 - T1) - (T3 - T2)
+	rtt := float64((t4 - t1i) - (t3i - t2i))
+
+	p.burstMu.Lock()
+	defer p.burstMu.Unlock()
+
+	// Check if this is a response to a pending burst message
+	if p.pendingBurstTimestamps[t1i] {
+		// Collect this result
+		p.burstResults = append(p.burstResults, burstResult{
+			t1:  t1i,
+			t2:  t2i,
+			t3:  t3i,
+			t4:  t4,
+			rtt: rtt,
+		})
+		delete(p.pendingBurstTimestamps, t1i)
+		log.Printf("TimeSyncLoop: Collected burst response RTT=%.0fμs (%d collected)",
+			rtt, len(p.burstResults))
+	} else {
+		// Non-burst response (shouldn't happen normally) - process immediately
+		log.Printf("TimeSyncLoop: Processing non-burst response RTT=%.0fμs", rtt)
+		p.clockSync.ProcessMeasurement(t1i, t2i, t3i, t4)
+	}
+}
+
+// GetClockSyncStatus returns the current clock synchronization status
+func (p *Player) GetClockSyncStatus() ClockSyncStatus {
+	if p.clockSync == nil {
+		return ClockSyncStatus{}
+	}
+	return p.clockSync.GetStatus()
 }
 
