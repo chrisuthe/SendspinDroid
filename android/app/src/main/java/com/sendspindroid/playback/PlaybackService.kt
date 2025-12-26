@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.Log
 import androidx.core.graphics.drawable.toBitmap
 import androidx.media3.common.AudioAttributes
@@ -15,15 +14,18 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.sendspindroid.ServerRepository
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import kotlinx.coroutines.CoroutineScope
@@ -35,16 +37,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.ByteArrayOutputStream
 
 /**
  * Background playback service for SendSpinDroid.
  *
- * Extends MediaSessionService to provide:
+ * Extends MediaLibraryService to provide:
  * - Background audio playback (screen off, app minimized)
  * - System media integration (notifications, lock screen controls)
  * - Audio focus handling (pause for phone calls, etc.)
  * - Bluetooth/headset button support
+ * - Android Auto browse tree support
  *
  * ## Architecture
  * ```
@@ -53,9 +55,16 @@ import java.io.ByteArrayOutputStream
  *                                   ┌────┴────┐
  *                                   │ ExoPlayer │
  *                                   │ GoPlayer  │
- *                                   │ MediaSession │
+ *                                   │ MediaLibrarySession │
  *                                   └─────────────┘
  * ```
+ *
+ * ## Android Auto Integration
+ * Implements MediaLibrarySession.Callback to provide a browsable tree:
+ * - Root
+ *   ├── Discovered Servers (from mDNS)
+ *   ├── Recent (last connected servers)
+ *   └── Manual Servers (user-added)
  *
  * ## Lifecycle
  * - Created when first controller connects or startService() called
@@ -65,9 +74,9 @@ import java.io.ByteArrayOutputStream
  * @see GoPlayerDataSource for audio data bridge
  * @see GoPlayerMediaSourceFactory for ExoPlayer integration
  */
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
-    private var mediaSession: MediaSession? = null
+    private var mediaSession: MediaLibrarySession? = null
     private var exoPlayer: ExoPlayer? = null
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var goPlayer: player.Player_? = null
@@ -113,6 +122,13 @@ class PlaybackService : MediaSessionService() {
         const val EXTRA_DURATION_MS = "duration_ms"
         const val EXTRA_POSITION_MS = "position_ms"
         const val EXTRA_ARTWORK_DATA = "artwork_data"
+
+        // Android Auto browse tree media IDs
+        private const val MEDIA_ID_ROOT = "root"
+        private const val MEDIA_ID_DISCOVERED = "discovered_servers"
+        private const val MEDIA_ID_RECENT = "recent"
+        private const val MEDIA_ID_MANUAL = "manual_servers"
+        private const val MEDIA_ID_SERVER_PREFIX = "server_"
     }
 
     /**
@@ -599,18 +615,19 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * Initializes MediaSession wrapping ExoPlayer via ForwardingPlayer.
+     * Initializes MediaLibrarySession wrapping ExoPlayer via ForwardingPlayer.
      *
      * We wrap ExoPlayer in MetadataForwardingPlayer to provide dynamic
      * metadata for lock screen and notifications. The ForwardingPlayer
      * intercepts getMediaMetadata() calls and returns our current track info.
      *
-     * MediaSession provides:
+     * MediaLibrarySession provides:
      * - System media integration (notifications, lock screen)
      * - MediaController API for remote control
      * - Media button handling (Bluetooth, wired headset)
+     * - Browse tree for Android Auto
      *
-     * MediaSessionService automatically handles foreground notification
+     * MediaLibraryService automatically handles foreground notification
      * based on the player's state.
      */
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -625,34 +642,154 @@ class PlaybackService : MediaSessionService() {
         // This allows lock screen to show current track instead of "no title"
         forwardingPlayer = MetadataForwardingPlayer(player)
 
-        // Create MediaSession with the forwarding player (not raw ExoPlayer)
-        mediaSession = MediaSession.Builder(this, forwardingPlayer!!)
-            .setCallback(MediaSessionCallback())
+        // Create MediaLibrarySession with the forwarding player (not raw ExoPlayer)
+        // LibraryCallback handles both session commands AND browse tree requests
+        mediaSession = MediaLibrarySession.Builder(this, forwardingPlayer!!, LibraryCallback())
             .build()
 
-        Log.d(TAG, "MediaSession initialized with MetadataForwardingPlayer")
+        Log.d(TAG, "MediaLibrarySession initialized with browse tree support")
     }
 
     /**
-     * Callback for MediaSession events.
+     * Callback for MediaLibrarySession events.
      *
      * Handles:
+     * - Browse tree navigation (onGetLibraryRoot, onGetChildren)
      * - Controller connections/disconnections
      * - Custom commands (connect, disconnect, set volume)
-     * - Playback actions from notifications/lock screen
+     * - Playback actions from notifications/lock screen/Android Auto
      */
-    private inner class MediaSessionCallback : MediaSession.Callback {
+    private inner class LibraryCallback : MediaLibrarySession.Callback {
+
+        // ============================================================
+        // Browse Tree Implementation (for Android Auto)
+        // ============================================================
+
+        /**
+         * Returns the root of the browse tree.
+         *
+         * Called when Android Auto (or any MediaBrowser client) connects.
+         * The root is a virtual folder containing our top-level categories.
+         */
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            Log.d(TAG, "onGetLibraryRoot called by: ${browser.packageName}")
+
+            val rootItem = MediaItem.Builder()
+                .setMediaId(MEDIA_ID_ROOT)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle("SendSpinDroid")
+                        .setIsPlayable(false)
+                        .setIsBrowsable(true)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                        .build()
+                )
+                .build()
+
+            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+        }
+
+        /**
+         * Returns children of a browse tree node.
+         *
+         * Called when user navigates into a folder in Android Auto.
+         */
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            Log.d(TAG, "onGetChildren: parentId=$parentId, page=$page")
+
+            val children: List<MediaItem> = when (parentId) {
+                MEDIA_ID_ROOT -> getRootChildren()
+                MEDIA_ID_DISCOVERED -> getDiscoveredServers()
+                MEDIA_ID_RECENT -> getRecentServers()
+                MEDIA_ID_MANUAL -> getManualServers()
+                else -> emptyList()
+            }
+
+            return Futures.immediateFuture(
+                LibraryResult.ofItemList(ImmutableList.copyOf(children), params)
+            )
+        }
+
+        /**
+         * Returns a specific item by ID.
+         */
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            Log.d(TAG, "onGetItem: mediaId=$mediaId")
+
+            val item = findItemById(mediaId)
+            return if (item != null) {
+                Futures.immediateFuture(LibraryResult.ofItem(item, null))
+            } else {
+                Futures.immediateFuture(
+                    LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                )
+            }
+        }
+
+        /**
+         * Handles media item selection from Android Auto.
+         *
+         * When a user selects a server, we connect to it and start playback.
+         */
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>
+        ): ListenableFuture<List<MediaItem>> {
+            Log.d(TAG, "onAddMediaItems: ${mediaItems.size} items")
+
+            val updatedItems = mediaItems.map { item ->
+                val mediaId = item.mediaId
+
+                if (mediaId.startsWith(MEDIA_ID_SERVER_PREFIX)) {
+                    // User selected a server - connect to it
+                    val serverAddress = mediaId.removePrefix(MEDIA_ID_SERVER_PREFIX)
+                    Log.d(TAG, "User selected server: $serverAddress")
+
+                    // Initiate connection
+                    connectToServer(serverAddress)
+
+                    // Record in recent servers
+                    val server = ServerRepository.getServer(serverAddress)
+                    if (server != null) {
+                        ServerRepository.addToRecent(server)
+                    }
+
+                    // Return item with custom URI for our media source
+                    item.buildUpon()
+                        .setUri("sendspin://$serverAddress")
+                        .build()
+                } else {
+                    item
+                }
+            }
+
+            return Futures.immediateFuture(updatedItems)
+        }
+
+        // ============================================================
+        // Session Commands (existing functionality)
+        // ============================================================
 
         /**
          * Called when a MediaController wants to connect.
          *
-         * We accept all connections from our own package.
-         * Could add package verification for additional security.
-         *
-         * Exposes custom commands for app-specific operations:
-         * - COMMAND_CONNECT: Connect to a SendSpin server
-         * - COMMAND_DISCONNECT: Disconnect from current server
-         * - COMMAND_SET_VOLUME: Set playback volume
+         * We accept all connections and expose custom commands.
          */
         override fun onConnect(
             session: MediaSession,
@@ -687,17 +824,6 @@ class PlaybackService : MediaSessionService() {
 
         /**
          * Handles custom commands from MediaController.
-         *
-         * Custom commands allow MainActivity to control the service:
-         * - COMMAND_CONNECT: Connect to a SendSpin server
-         * - COMMAND_DISCONNECT: Disconnect from current server
-         * - COMMAND_SET_VOLUME: Set playback volume
-         *
-         * @param session The MediaSession receiving the command
-         * @param controller Info about the sending controller
-         * @param customCommand The command name and extras
-         * @param args Additional arguments (command-specific)
-         * @return Future with SessionResult indicating success/failure
          */
         override fun onCustomCommand(
             session: MediaSession,
@@ -762,6 +888,142 @@ class PlaybackService : MediaSessionService() {
                     super.onCustomCommand(session, controller, customCommand, args)
                 }
             }
+        }
+    }
+
+    // ============================================================
+    // Browse Tree Helpers
+    // ============================================================
+
+    /**
+     * Returns top-level categories for the browse tree.
+     */
+    private fun getRootChildren(): List<MediaItem> {
+        return listOf(
+            createBrowsableItem(
+                mediaId = MEDIA_ID_DISCOVERED,
+                title = "Discovered Servers",
+                subtitle = "Auto-discovered on your network"
+            ),
+            createBrowsableItem(
+                mediaId = MEDIA_ID_RECENT,
+                title = "Recent",
+                subtitle = "Recently connected servers"
+            ),
+            createBrowsableItem(
+                mediaId = MEDIA_ID_MANUAL,
+                title = "Manual Servers",
+                subtitle = "Manually added servers"
+            )
+        )
+    }
+
+    /**
+     * Returns discovered servers from mDNS.
+     */
+    private fun getDiscoveredServers(): List<MediaItem> {
+        return ServerRepository.discoveredServers.value.map { server ->
+            createPlayableServerItem(server.name, server.address)
+        }
+    }
+
+    /**
+     * Returns recently connected servers.
+     */
+    private fun getRecentServers(): List<MediaItem> {
+        return ServerRepository.recentServers.value.map { recent ->
+            MediaItem.Builder()
+                .setMediaId("$MEDIA_ID_SERVER_PREFIX${recent.address}")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(recent.name)
+                        .setSubtitle(recent.formattedTime)
+                        .setIsPlayable(true)
+                        .setIsBrowsable(false)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .build()
+                )
+                .build()
+        }
+    }
+
+    /**
+     * Returns manually added servers.
+     */
+    private fun getManualServers(): List<MediaItem> {
+        return ServerRepository.manualServers.value.map { server ->
+            createPlayableServerItem(server.name, server.address)
+        }
+    }
+
+    /**
+     * Creates a browsable folder item.
+     */
+    private fun createBrowsableItem(
+        mediaId: String,
+        title: String,
+        subtitle: String? = null
+    ): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(mediaId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setSubtitle(subtitle)
+                    .setIsPlayable(false)
+                    .setIsBrowsable(true)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
+                    .build()
+            )
+            .build()
+    }
+
+    /**
+     * Creates a playable server item.
+     */
+    private fun createPlayableServerItem(name: String, address: String): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId("$MEDIA_ID_SERVER_PREFIX$address")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(name)
+                    .setSubtitle(address)
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build()
+            )
+            .build()
+    }
+
+    /**
+     * Finds a media item by its ID.
+     */
+    private fun findItemById(mediaId: String): MediaItem? {
+        return when {
+            mediaId == MEDIA_ID_ROOT -> {
+                MediaItem.Builder()
+                    .setMediaId(MEDIA_ID_ROOT)
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle("SendSpinDroid")
+                            .setIsPlayable(false)
+                            .setIsBrowsable(true)
+                            .build()
+                    )
+                    .build()
+            }
+            mediaId == MEDIA_ID_DISCOVERED ||
+            mediaId == MEDIA_ID_RECENT ||
+            mediaId == MEDIA_ID_MANUAL -> {
+                getRootChildren().find { it.mediaId == mediaId }
+            }
+            mediaId.startsWith(MEDIA_ID_SERVER_PREFIX) -> {
+                val address = mediaId.removePrefix(MEDIA_ID_SERVER_PREFIX)
+                val server = ServerRepository.getServer(address)
+                server?.let { createPlayableServerItem(it.name, it.address) }
+            }
+            else -> null
         }
     }
 
@@ -848,11 +1110,11 @@ class PlaybackService : MediaSessionService() {
      * Returns null if session not yet created (shouldn't happen in normal flow).
      *
      * @param controllerInfo Information about the connecting controller
-     * @return The MediaSession, or null if not available
+     * @return The MediaLibrarySession, or null if not available
      */
     override fun onGetSession(
         controllerInfo: MediaSession.ControllerInfo
-    ): MediaSession? {
+    ): MediaLibrarySession? {
         Log.d(TAG, "onGetSession called by: ${controllerInfo.packageName}")
         return mediaSession
     }

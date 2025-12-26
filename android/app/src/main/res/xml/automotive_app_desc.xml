@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android Auto Configuration
+
+    This file declares SendSpinDroid as a media app for Android Auto.
+    Android Auto will automatically discover this app and show it in the
+    media apps list when the user connects their phone to a car.
+
+    References:
+    - https://developer.android.com/training/cars/media
+    - https://developer.android.com/training/cars/media/create-media-browser
+-->
+<automotiveApp>
+    <!-- Declare this as a media app for Android Auto -->
+    <uses name="media"/>
+</automotiveApp>
