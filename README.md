@@ -1,85 +1,66 @@
 # SendSpinDroid
 
-A simple Android client for [SendSpin](https://www.sendspin-audio.com/) multi-room audio streaming.
+A native Android client for [SendSpin](https://www.sendspin-audio.com/) multi-room synchronized audio streaming.
 
 ## Features
 
-- 🔍 Automatic server discovery via mDNS
-- 📝 Manual server entry
-- 🎵 PCM audio playback (48kHz, 16-bit, stereo)
-- 🎚️ Volume control
-- ⏯️ Play/Pause/Stop controls
+- Automatic server discovery via mDNS
+- Manual server entry
+- Time-synchronized PCM audio playback (48kHz, 16-bit, stereo)
+- Volume control
+- Play/Pause/Skip controls
+- Background playback with lock screen controls
+- Android Auto support
 
 ## Architecture
 
-This app uses **gomobile bind** to create an Android library from Go code:
+Native Kotlin implementation with AAudio for low-latency synchronized playback:
 
-- **Go Layer** (`go-player/`): SendSpin protocol implementation
-  - WebSocket connection handling
-  - mDNS service discovery
-  - Binary audio chunk parsing
-  - Audio data buffering
+```
+SendSpin Server ──WebSocket──► SendSpinClient ──AAudio──► Audio Output
+                    │
+                    ├── JSON (metadata, state)
+                    └── Binary (timestamped audio)
+```
 
-- **Android Layer** (`android/`): UI and audio playback
-  - Material Design UI
-  - Android AudioTrack for low-latency PCM playback
-  - Kotlin coroutines for async audio processing
+- **SendSpinClient** - WebSocket protocol, clock sync, audio buffering
+- **PlaybackService** - MediaSession for background playback & notifications
+- **AAudio/Oboe** - Native audio output with DAC timing feedback
 
 ## Building
 
 ### Prerequisites
 
-- Go 1.21+
-- Android SDK with NDK 21.4.7075529
-- Java 17 (for Gradle)
-- gomobile: `go install golang.org/x/mobile/cmd/gomobile@latest`
+- Android Studio
+- Android SDK (API 26+)
+- Java 17
 
-### Build Steps
+### Build
 
-1. Initialize gomobile:
 ```bash
-gomobile init
-```
-
-2. Build the Go library:
-```bash
-cd go-player
-gomobile bind -target=android -o ../android/player/player.aar .
-```
-
-3. Build the Android app:
-```bash
-cd ../android
+cd android
 ./gradlew assembleDebug
 ```
 
-4. Install on device:
+### Install
+
 ```bash
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Protocol Implementation
+## Protocol
 
-The app implements the SendSpin protocol as documented at [sendspin-audio.com/spec](https://www.sendspin-audio.com/spec/):
+Implements the SendSpin protocol:
 
-- WebSocket connection to `/sendspin` endpoint
-- `client/hello` handshake with player capabilities
-- `client/state` synchronization
-- Binary audio chunks with 9-byte header (message type + timestamp)
-- Automatic header stripping for pure PCM audio data
-
-## Known Limitations
-
-- Only supports PCM codec (48kHz, 16-bit, stereo)
-- Basic buffering without timestamp-based synchronization
-- No clock sync implementation yet
-- Drops audio chunks if Android can't keep up (non-blocking design)
+- WebSocket connection with JSON control messages
+- Binary audio chunks: `[type:1][timestamp:8][pcm_data:N]`
+- Clock synchronization for multi-room sync
+- 48kHz stereo 16-bit PCM audio
 
 ## References
 
 - [SendSpin Protocol Specification](https://www.sendspin-audio.com/spec/)
-- [aiosendspin Python SDK](https://github.com/Sendspin/aiosendspin)
-- [windowsSpin C# Implementation](https://github.com/chrisuthe/windowsSpin)
+- [Python CLI Reference](https://github.com/Sendspin/sendspin-cli)
 
 ## License
 

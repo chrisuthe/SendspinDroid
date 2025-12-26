@@ -61,4 +61,11 @@
     <!-- Success messages -->
     <string name="server_added">Server added: %s</string>
     <string name="connecting_to_server">Connecting to %s…</string>
+
+    <!-- Auto-discovery flow -->
+    <string name="searching_for_servers">Searching for servers…</string>
+    <string name="enter_manually">Enter server manually</string>
+    <string name="search_again">Search Again</string>
+    <string name="server_found">Found: %s</string>
+    <string name="auto_connecting">Auto-connecting…</string>
 </resources>

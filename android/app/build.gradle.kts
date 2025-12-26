@@ -98,7 +98,7 @@ android {
 
             // ProGuard/R8 configuration files
             // - proguard-android-optimize.txt: Android's default rules with optimizations
-            // - proguard-rules.pro: App-specific rules (keep gomobile classes)
+            // - proguard-rules.pro: App-specific rules
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -196,11 +196,9 @@ dependencies {
     // TODO 2025: Update to 1.8.x or 1.9.x for performance improvements
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // Player module - Contains gomobile-generated AAR (player.aar)
-    // This is a local module dependency, not a remote Maven artifact
-    // The :player module is defined in settings.gradle.kts
-    // It provides the JNI bridge to Go code
-    implementation(project(":player"))
+    // OkHttp - HTTP client with WebSocket support
+    // Used for SendSpin protocol communication
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Media3 - Modern media playback framework for background playback
     // Version 1.6.0 (2024)
@@ -238,8 +236,7 @@ dependencies {
     // TODO: Add Timber for better logging
     // implementation("com.jakewharton.timber:timber:5.0.x")
 
-    // TODO: Add OkHttp/Retrofit if REST API is added
-    // implementation("com.squareup.okhttp3:okhttp:4.12.x")
+    // TODO: Add Retrofit if REST API is added
     // implementation("com.squareup.retrofit2:retrofit:2.11.x")
 
     // TODO: Add testing dependencies
