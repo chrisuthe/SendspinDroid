@@ -78,6 +78,15 @@
         android:theme="@style/Theme.SendSpinDroid">
 
         <!--
+            Android Auto Support
+            Declares this app as a media app that can be used with Android Auto.
+            Android Auto will automatically discover and display this app.
+        -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc"/>
+
+        <!--
             TODO for v2: Add application-level configurations:
             - android:name=".MyApplication" (custom Application class)
             - android:usesCleartextTraffic="false" (enforce HTTPS, currently needed for local servers)
@@ -111,18 +120,21 @@
         </activity>
 
         <!--
-            PlaybackService: Background audio playback service
+            PlaybackService: Background audio playback service with Android Auto support
             - foregroundServiceType: Required on API 29+ to specify service purpose
             - exported: Allow MediaController connections from other apps/system
-            - intent-filter: Declares this as a MediaSessionService for system integration
+            - intent-filter: Declares this as a MediaLibraryService for system integration
+              and Android Auto browse tree support
         -->
         <service
             android:name=".playback.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="true">
             <intent-filter>
-                <!-- MediaSessionService action for Media3 integration -->
-                <action android:name="androidx.media3.session.MediaSessionService" />
+                <!-- MediaLibraryService action for Media3 integration (Android Auto browse tree) -->
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <!-- Backward compatibility with older MediaBrowserService clients -->
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
 

@@ -177,6 +177,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize ServerRepository for sharing server state with PlaybackService
+        // This enables Android Auto to see discovered servers
+        ServerRepository.initialize(this)
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -194,6 +198,9 @@ class MainActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@MainActivity)
             adapter = serverAdapter
         }
+
+        // Load previously saved manual servers
+        loadPersistedServers()
 
         // Initialize accessibility for server list
         updateServerListAccessibility()
@@ -563,7 +570,8 @@ class MainActivity : AppCompatActivity() {
 
                 if (validateServerAddress(address)) {
                     val serverName = if (name.isEmpty()) address else name
-                    addServer(ServerInfo(serverName, address))
+                    // Use addManualServer for user-added servers (persisted)
+                    addManualServer(ServerInfo(serverName, address))
                     showSuccessSnackbar(getString(R.string.server_added, serverName))
                 } else {
                     showErrorSnackbar(
@@ -639,6 +647,9 @@ class MainActivity : AppCompatActivity() {
         try {
             // Save server name for later display
             connectedServerName = server.name
+
+            // Add to recent servers for quick access (Android Auto shows these)
+            ServerRepository.addToRecent(server)
 
             // Send CONNECT command to PlaybackService via MediaController
             val args = Bundle().apply {
@@ -740,7 +751,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Adds a server to the list if not already present.
+     * Adds a discovered server to the list if not already present.
      *
      * Deduplication: Uses address as unique key (not name, since multiple servers
      * could have the same name but different addresses).
@@ -749,11 +760,48 @@ class MainActivity : AppCompatActivity() {
      * vs notifyDataSetChanged which would re-render entire list
      */
     private fun addServer(server: ServerInfo) {
+        // Add to ServerRepository so PlaybackService/Android Auto can see it
+        ServerRepository.addDiscoveredServer(server)
+
+        // Also add to local list for UI
         if (!servers.any { it.address == server.address }) {
             servers.add(server)
             serverAdapter.notifyItemInserted(servers.size - 1)
             // Update accessibility description for server list
             updateServerListAccessibility()
+        }
+    }
+
+    /**
+     * Adds a manually entered server.
+     * These are persisted across app restarts.
+     */
+    private fun addManualServer(server: ServerInfo) {
+        // Add to ServerRepository (persisted)
+        ServerRepository.addManualServer(server)
+
+        // Also add to local list for UI
+        if (!servers.any { it.address == server.address }) {
+            servers.add(server)
+            serverAdapter.notifyItemInserted(servers.size - 1)
+            updateServerListAccessibility()
+        }
+    }
+
+    /**
+     * Loads previously saved manual servers from ServerRepository.
+     * Called on app startup to restore user's saved servers.
+     */
+    private fun loadPersistedServers() {
+        val manualServers = ServerRepository.manualServers.value
+        for (server in manualServers) {
+            if (!servers.any { it.address == server.address }) {
+                servers.add(server)
+            }
+        }
+        if (manualServers.isNotEmpty()) {
+            serverAdapter.notifyDataSetChanged()
+            Log.d(TAG, "Loaded ${manualServers.size} saved servers")
         }
     }
 
