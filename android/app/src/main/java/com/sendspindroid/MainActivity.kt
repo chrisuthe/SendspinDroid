@@ -370,10 +370,10 @@ class MainActivity : AppCompatActivity() {
             discoveryManager = NsdDiscoveryManager(
                 context = this,
                 listener = object : NsdDiscoveryManager.DiscoveryListener {
-                    override fun onServerDiscovered(name: String, address: String) {
+                    override fun onServerDiscovered(name: String, address: String, path: String) {
                         runOnUiThread {
-                            Log.d(TAG, "Server discovered: $name at $address")
-                            val server = ServerInfo(name, address)
+                            Log.d(TAG, "Server discovered: $name at $address path=$path")
+                            val server = ServerInfo(name, address, path)
                             addServer(server)
 
                             // Auto-connect to first discovered server if in searching state
@@ -531,26 +531,88 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
-         * Called when session extras change (metadata updates from PlaybackService).
-         * This is how PlaybackService notifies us of metadata since we can't use
-         * MediaItem metadata with our custom MediaSource.
+         * Called when session extras change (metadata and connection state updates from PlaybackService).
+         * This is how PlaybackService notifies us of:
+         * - Connection state changes (connected, disconnected, error)
+         * - Metadata updates (since we can't use MediaItem metadata with custom protocol)
          */
         override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
             runOnUiThread {
+                // Handle connection state changes
+                val connectionStateStr = extras.getString(PlaybackService.EXTRA_CONNECTION_STATE)
+                if (connectionStateStr != null) {
+                    handleConnectionStateChange(connectionStateStr, extras)
+                }
+
+                // Handle metadata updates
                 val title = extras.getString(PlaybackService.EXTRA_TITLE, "")
                 val artist = extras.getString(PlaybackService.EXTRA_ARTIST, "")
                 val album = extras.getString(PlaybackService.EXTRA_ALBUM, "")
                 val artworkUrl = extras.getString(PlaybackService.EXTRA_ARTWORK_URL, "")
 
-                Log.d(TAG, "Extras changed: $title / $artist (artwork: $artworkUrl)")
+                if (title.isNotEmpty() || artist.isNotEmpty() || album.isNotEmpty()) {
+                    Log.d(TAG, "Metadata changed: $title / $artist (artwork: $artworkUrl)")
+                    updateMetadata(title, artist, album)
 
-                // Update text metadata
-                updateMetadata(title, artist, album)
-
-                // Load artwork from URL if available
-                if (artworkUrl.isNotEmpty()) {
-                    loadArtworkFromUrl(artworkUrl)
+                    // Load artwork from URL if available
+                    if (artworkUrl.isNotEmpty()) {
+                        loadArtworkFromUrl(artworkUrl)
+                    }
                 }
+            }
+        }
+    }
+
+    /**
+     * Handles connection state changes broadcast from PlaybackService.
+     * Updates the UI state machine based on the connection state.
+     */
+    private fun handleConnectionStateChange(stateStr: String, extras: Bundle) {
+        Log.d(TAG, "Connection state changed: $stateStr")
+
+        when (stateStr) {
+            PlaybackService.STATE_CONNECTING -> {
+                // Already handled by connectToServer(), but sync if needed
+                if (connectionState !is AppConnectionState.Connecting) {
+                    Log.d(TAG, "Received CONNECTING state from service")
+                }
+            }
+            PlaybackService.STATE_CONNECTED -> {
+                val serverName = extras.getString(PlaybackService.EXTRA_SERVER_NAME, "Unknown Server")
+                Log.d(TAG, "Connected to: $serverName")
+
+                // Get address from current connecting state, or use empty string
+                val address = (connectionState as? AppConnectionState.Connecting)?.serverAddress ?: ""
+
+                connectionState = AppConnectionState.Connected(serverName, address)
+                showNowPlayingView(serverName)
+                enablePlaybackControls(true)
+                hideConnectionLoading()
+
+                // Announce connection for accessibility
+                announceForAccessibility(getString(R.string.accessibility_connected))
+            }
+            PlaybackService.STATE_DISCONNECTED -> {
+                Log.d(TAG, "Disconnected from server")
+                connectionState = AppConnectionState.ManualEntry
+                showManualEntryView()
+                enablePlaybackControls(false)
+
+                // Announce disconnection for accessibility
+                announceForAccessibility(getString(R.string.accessibility_disconnected))
+            }
+            PlaybackService.STATE_ERROR -> {
+                val errorMessage = extras.getString(PlaybackService.EXTRA_ERROR_MESSAGE, "Unknown error")
+                Log.e(TAG, "Connection error: $errorMessage")
+
+                connectionState = AppConnectionState.Error(errorMessage)
+                hideConnectionLoading()
+                showManualEntryView()
+
+                showErrorSnackbar(
+                    message = errorMessage,
+                    errorType = ErrorType.CONNECTION
+                )
             }
         }
     }
@@ -789,11 +851,12 @@ class MainActivity : AppCompatActivity() {
             // Send CONNECT command to PlaybackService via MediaController
             val args = Bundle().apply {
                 putString(PlaybackService.ARG_SERVER_ADDRESS, server.address)
+                putString(PlaybackService.ARG_SERVER_PATH, server.path)
             }
             val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
 
             controller.sendCustomCommand(command, args)
-            Log.d(TAG, "Sent connect command to ${server.address}")
+            Log.d(TAG, "Sent connect command to ${server.address} path=${server.path}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send connect command", e)
             connectionState = AppConnectionState.Error("Connection failed")

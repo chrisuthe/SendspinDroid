@@ -31,7 +31,13 @@ class NsdDiscoveryManager(
      * Callback interface for discovery events.
      */
     interface DiscoveryListener {
-        fun onServerDiscovered(name: String, address: String)
+        /**
+         * Called when a server is discovered.
+         * @param name Service name
+         * @param address Host:port address
+         * @param path WebSocket path from TXT records (default: /sendspin)
+         */
+        fun onServerDiscovered(name: String, address: String, path: String = "/sendspin")
         fun onServerLost(name: String)
         fun onDiscoveryStarted()
         fun onDiscoveryStopped()
@@ -153,8 +159,30 @@ class NsdDiscoveryManager(
 
                 if (host != null && port > 0) {
                     val address = "$host:$port"
-                    Log.d(TAG, "Service resolved: ${serviceInfo.serviceName} at $address")
-                    listener.onServerDiscovered(serviceInfo.serviceName, address)
+
+                    // Extract path from TXT records (key: "path")
+                    // Android API 21+ has getAttributes() for TXT records
+                    val attributes = try {
+                        serviceInfo.attributes
+                    } catch (e: Exception) {
+                        emptyMap<String, ByteArray>()
+                    }
+
+                    // Log all TXT records for debugging
+                    Log.d(TAG, "TXT records for ${serviceInfo.serviceName}:")
+                    attributes.forEach { (key, value) ->
+                        val valueStr = value?.let { String(it, Charsets.UTF_8) } ?: "(null)"
+                        Log.d(TAG, "  $key = $valueStr")
+                    }
+
+                    // Get path with default
+                    var path = attributes["path"]?.let { String(it, Charsets.UTF_8) } ?: "/sendspin"
+                    if (!path.startsWith("/")) {
+                        path = "/$path"
+                    }
+
+                    Log.d(TAG, "Service resolved: ${serviceInfo.serviceName} at $address path=$path")
+                    listener.onServerDiscovered(serviceInfo.serviceName, address, path)
                 } else {
                     Log.w(TAG, "Service resolved but missing host/port: ${serviceInfo.serviceName}")
                 }
