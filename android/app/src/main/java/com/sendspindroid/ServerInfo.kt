@@ -7,6 +7,7 @@ package com.sendspindroid
  *
  * @property name Human-readable server name (from mDNS or user input)
  * @property address Network address in "host:port" format (e.g., "192.168.1.100:8927")
+ * @property path WebSocket path from mDNS TXT records (default: /sendspin)
  *
  * Design note: Kept simple for v1. For v2, consider:
  * - Adding unique ID field for more reliable deduplication
@@ -16,5 +17,6 @@ package com.sendspindroid
  */
 data class ServerInfo(
     val name: String,
-    val address: String
+    val address: String,
+    val path: String = "/sendspin"
 )

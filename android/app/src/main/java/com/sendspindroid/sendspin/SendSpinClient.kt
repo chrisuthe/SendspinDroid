@@ -1,12 +1,15 @@
 package com.sendspindroid.sendspin
 
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -14,27 +17,34 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import org.json.JSONArray
+import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
  * Native Kotlin SendSpin client.
  *
- * Replaces the Go-based player with a pure Kotlin implementation
- * for WebSocket communication with SendSpin servers.
+ * Implements the Sendspin Protocol for synchronized multi-room audio streaming.
+ * Protocol spec: https://www.sendspin-audio.com/spec/
  *
- * Protocol reference: Python CLI player (sendspin/audio.py)
+ * ## Protocol Overview
+ * 1. WebSocket connect to ws://host:port/sendspin
+ * 2. Send client/hello with capabilities
+ * 3. Receive server/hello with active roles
+ * 4. Send client/time messages continuously for clock sync
+ * 5. Receive binary audio chunks (type 4) with microsecond timestamps
+ * 6. Play audio at computed client time using Kalman-filtered offset
  *
- * ## Architecture
- * - WebSocket connection to SendSpin server
- * - Binary protocol for audio data with timestamps
- * - JSON protocol for control messages
- * - Clock synchronization for audio timing
- *
- * ## TODO: Implementation phases
- * 1. WebSocket connection and basic protocol parsing
- * 2. Clock synchronization (Kalman filter)
- * 3. Audio buffering with timestamps
- * 4. AAudio/Oboe playback with sync correction
+ * ## Message Types
+ * - client/hello: Initial handshake with supported roles/formats
+ * - server/hello: Server acknowledgment and role activation
+ * - client/time: Clock sync request (client_transmitted μs)
+ * - server/time: Clock sync response (client_transmitted, server_received, server_transmitted)
+ * - server/state: Metadata and playback state updates
+ * - Binary type 4: Audio chunk (8-byte timestamp + PCM data)
  */
 class SendSpinClient(
     private val deviceName: String,
@@ -42,6 +52,24 @@ class SendSpinClient(
 ) {
     companion object {
         private const val TAG = "SendSpinClient"
+        private const val PROTOCOL_VERSION = 1
+        private const val ENDPOINT_PATH = "/sendspin"
+
+        // Binary message types
+        private const val MSG_TYPE_AUDIO = 4
+        private const val MSG_TYPE_ARTWORK_BASE = 8 // 8-11 for channels 0-3
+
+        // Time sync configuration
+        private const val TIME_SYNC_INTERVAL_MS = 1000L // Send time sync every second
+        private const val INITIAL_TIME_SYNC_COUNT = 5 // Send 5 rapid syncs initially
+        private const val INITIAL_TIME_SYNC_DELAY_MS = 100L
+
+        // Audio configuration we support
+        private const val AUDIO_CODEC = "pcm"
+        private const val AUDIO_SAMPLE_RATE = 48000
+        private const val AUDIO_CHANNELS = 2
+        private const val AUDIO_BIT_DEPTH = 16
+        private const val BUFFER_CAPACITY = 32_000_000 // 32MB buffer
     }
 
     /**
@@ -64,6 +92,11 @@ class SendSpinClient(
         )
         fun onArtwork(imageData: ByteArray)
         fun onError(message: String)
+
+        // Audio streaming callbacks
+        fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int)
+        fun onStreamClear()
+        fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray)
     }
 
     // Connection state
@@ -85,27 +118,50 @@ class SendSpinClient(
 
     private var webSocket: WebSocket? = null
     private var serverAddress: String? = null
+    private var serverName: String? = null
+
+    // Protocol state
+    private val clientId = UUID.randomUUID().toString()
+    private var handshakeComplete = false
+    private var timeSyncRunning = false
+
+    // Time synchronization (Kalman filter)
+    private val timeFilter = SendspinTimeFilter()
 
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
     /**
+     * Access to the time filter for audio synchronization.
+     * The audio player uses this to convert server timestamps to client time.
+     */
+    fun getTimeFilter(): SendspinTimeFilter = timeFilter
+
+    /**
      * Connect to a SendSpin server.
      *
      * @param address Server address in "host:port" format
+     * @param path WebSocket path (from mDNS TXT or default /sendspin)
      */
-    fun connect(address: String) {
+    fun connect(address: String, path: String = ENDPOINT_PATH) {
         if (isConnected) {
             Log.w(TAG, "Already connected, disconnecting first")
             disconnect()
         }
 
-        Log.d(TAG, "Connecting to: $address")
+        Log.d(TAG, "Connecting to: $address path=$path")
         _connectionState.value = ConnectionState.Connecting
         serverAddress = address
+        handshakeComplete = false
+        timeSyncRunning = false
+        timeFilter.reset()
+
+        // Construct WebSocket URL using provided path
+        val wsUrl = "ws://$address$path"
+        Log.d(TAG, "WebSocket URL: $wsUrl")
 
         val request = Request.Builder()
-            .url("ws://$address/ws")
+            .url(wsUrl)
             .build()
 
         webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
@@ -116,8 +172,11 @@ class SendSpinClient(
      */
     fun disconnect() {
         Log.d(TAG, "Disconnecting")
+        timeSyncRunning = false
+        sendGoodbye("user_disconnect")
         webSocket?.close(1000, "User disconnect")
         webSocket = null
+        handshakeComplete = false
         _connectionState.value = ConnectionState.Disconnected
         callback.onDisconnected()
     }
@@ -173,9 +232,166 @@ class SendSpinClient(
      * Clean up resources.
      */
     fun destroy() {
+        timeSyncRunning = false
         disconnect()
+    }
+
+    // ========== Protocol Messages ==========
+
+    /**
+     * Send client/hello message.
+     *
+     * This is the first message after WebSocket opens.
+     * Declares our capabilities and supported audio formats.
+     */
+    private fun sendClientHello() {
+        val deviceInfo = JSONObject().apply {
+            put("product_name", "SendSpinDroid")
+            put("manufacturer", Build.MANUFACTURER)
+            put("software_version", "1.0.0")
+        }
+
+        val supportedFormat = JSONObject().apply {
+            put("codec", AUDIO_CODEC)
+            put("sample_rate", AUDIO_SAMPLE_RATE)
+            put("channels", AUDIO_CHANNELS)
+            put("bit_depth", AUDIO_BIT_DEPTH)
+        }
+
+        // Also support mono
+        val monoFormat = JSONObject().apply {
+            put("codec", AUDIO_CODEC)
+            put("sample_rate", AUDIO_SAMPLE_RATE)
+            put("channels", 1)
+            put("bit_depth", AUDIO_BIT_DEPTH)
+        }
+
+        val playerSupport = JSONObject().apply {
+            put("supported_formats", JSONArray().apply {
+                put(supportedFormat)
+                put(monoFormat)
+            })
+            put("buffer_capacity", BUFFER_CAPACITY)
+            put("supported_commands", JSONArray().apply {
+                put("volume")
+                put("mute")
+            })
+        }
+
+        val payload = JSONObject().apply {
+            put("client_id", clientId)
+            put("name", deviceName)
+            put("version", PROTOCOL_VERSION)
+            put("supported_roles", JSONArray().apply {
+                put("player@v1")
+            })
+            put("device_info", deviceInfo)
+            // Note: aiosendspin uses "player_support" not "player@v1_support"
+            put("player_support", playerSupport)
+        }
+
+        val message = JSONObject().apply {
+            put("type", "client/hello")
+            put("payload", payload)
+        }
+
+        sendMessage(message)
+        Log.d(TAG, "Sent client/hello: client_id=$clientId")
+    }
+
+    /**
+     * Send goodbye message before disconnecting.
+     */
+    private fun sendGoodbye(reason: String) {
+        if (webSocket == null || !handshakeComplete) return
+
+        val message = JSONObject().apply {
+            put("type", "client/goodbye")
+            put("payload", JSONObject().apply {
+                put("reason", reason)
+            })
+        }
+        sendMessage(message)
+    }
+
+    /**
+     * Send client/time for clock synchronization.
+     *
+     * The server will respond with server/time containing:
+     * - client_transmitted: our timestamp echoed back
+     * - server_received: when server got our message
+     * - server_transmitted: when server sent its response
+     */
+    private fun sendClientTime() {
+        val clientTransmitted = System.nanoTime() / 1000 // Convert to microseconds
+
+        val message = JSONObject().apply {
+            put("type", "client/time")
+            put("payload", JSONObject().apply {
+                put("client_transmitted", clientTransmitted)
+            })
+        }
+        sendMessage(message)
+    }
+
+    /**
+     * Start the continuous time sync loop.
+     * Sends rapid initial syncs for fast convergence, then periodic updates.
+     */
+    private fun startTimeSyncLoop() {
+        if (timeSyncRunning) return
+        timeSyncRunning = true
+
         scope.launch {
-            // Cancel any pending operations
+            // Send initial rapid syncs for fast clock convergence
+            repeat(INITIAL_TIME_SYNC_COUNT) {
+                if (!timeSyncRunning || !isActive) return@launch
+                sendClientTime()
+                delay(INITIAL_TIME_SYNC_DELAY_MS)
+            }
+
+            // Then periodic syncs to maintain accuracy
+            while (timeSyncRunning && isActive) {
+                delay(TIME_SYNC_INTERVAL_MS)
+                if (timeSyncRunning) {
+                    sendClientTime()
+                }
+            }
+        }
+    }
+
+    /**
+     * Send initial player state after handshake.
+     */
+    private fun sendPlayerState() {
+        val message = JSONObject().apply {
+            put("type", "client/state")
+            put("payload", JSONObject().apply {
+                put("volume", 100)
+                put("muted", false)
+            })
+        }
+        sendMessage(message)
+    }
+
+    /**
+     * Send a JSON message over the WebSocket.
+     */
+    private fun sendMessage(message: JSONObject) {
+        // Android's JSONObject escapes forward slashes as \/, which some servers don't like
+        // Replace \/ with / for compatibility
+        var text = message.toString()
+        text = text.replace("\\/", "/")
+
+        val ws = webSocket
+        if (ws == null) {
+            Log.e(TAG, "Cannot send message - WebSocket is null")
+            return
+        }
+        val success = ws.send(text)
+        Log.d(TAG, "sendMessage: type=${message.optString("type")}, success=$success, length=${text.length}")
+        if (!success) {
+            Log.w(TAG, "Failed to send message: ${message.optString("type")}")
         }
     }
 
@@ -185,21 +401,18 @@ class SendSpinClient(
     private inner class WebSocketEventListener : WebSocketListener() {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.d(TAG, "WebSocket connected")
-            val serverName = serverAddress ?: "Unknown"
-            _connectionState.value = ConnectionState.Connected(serverName)
-            callback.onConnected(serverName)
+            Log.d(TAG, "WebSocket connected, sending client/hello")
+            // Don't mark as connected yet - wait for server/hello handshake
+            sendClientHello()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            Log.d(TAG, "Text message: ${text.take(100)}")
-            // TODO: Parse JSON messages (metadata, state updates)
+            Log.i(TAG, ">>> Received TEXT message (${text.length} chars): ${text.take(200)}")
             handleTextMessage(text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            Log.d(TAG, "Binary message: ${bytes.size} bytes")
-            // TODO: Parse binary protocol (audio data, artwork)
+            Log.i(TAG, ">>> Received BINARY message: ${bytes.size} bytes")
             handleBinaryMessage(bytes)
         }
 
@@ -221,27 +434,192 @@ class SendSpinClient(
         }
     }
 
+    // ========== Message Handlers ==========
+
     /**
      * Handle text (JSON) messages from server.
      *
-     * Message types (from Python CLI):
-     * - server/state: Server state and metadata
-     * - group/update: Group playback state
+     * Message types:
+     * - server/hello: Handshake response
+     * - server/time: Clock sync response
+     * - server/state: Metadata and playback state
      * - stream/start: Audio stream starting
-     * - stream/stop: Audio stream stopping
+     * - stream/clear: Clear audio buffers (seek)
      */
     private fun handleTextMessage(text: String) {
-        // TODO: Parse JSON and dispatch to appropriate handlers
-        // Reference: Python CLI's _handle_server_state, _handle_group_update
+        try {
+            val json = JSONObject(text)
+            val type = json.getString("type")
+            val payload = json.optJSONObject("payload")
+
+            when (type) {
+                "server/hello" -> handleServerHello(payload)
+                "server/time" -> handleServerTime(payload)
+                "server/state" -> handleServerState(payload)
+                "group/update" -> handleGroupUpdate(payload)
+                "stream/start" -> handleStreamStart(payload)
+                "stream/clear" -> handleStreamClear()
+                else -> Log.d(TAG, "Unhandled message type: $type")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse message: ${text.take(100)}", e)
+        }
+    }
+
+    /**
+     * Handle server/hello - handshake complete.
+     */
+    private fun handleServerHello(payload: JSONObject?) {
+        if (payload == null) {
+            Log.e(TAG, "server/hello missing payload")
+            return
+        }
+
+        serverName = payload.optString("name", serverAddress ?: "Unknown")
+        val serverId = payload.optString("server_id", "")
+        val activeRoles = payload.optJSONArray("active_roles")
+        val connectionReason = payload.optString("connection_reason", "discovery")
+
+        Log.i(TAG, "server/hello received: name=$serverName, id=$serverId, reason=$connectionReason")
+        Log.d(TAG, "Active roles: $activeRoles")
+
+        handshakeComplete = true
+        _connectionState.value = ConnectionState.Connected(serverName!!)
+        callback.onConnected(serverName!!)
+
+        // Start time synchronization and send initial state
+        sendPlayerState()
+        startTimeSyncLoop()
+    }
+
+    /**
+     * Handle server/time - clock sync response.
+     *
+     * Uses NTP-style calculation:
+     * offset = ((T2 - T1) + (T3 - T4)) / 2
+     * where:
+     *   T1 = client_transmitted (we sent)
+     *   T2 = server_received
+     *   T3 = server_transmitted
+     *   T4 = now (when we received)
+     */
+    private fun handleServerTime(payload: JSONObject?) {
+        if (payload == null) return
+
+        val clientTransmitted = payload.optLong("client_transmitted", 0)
+        val serverReceived = payload.optLong("server_received", 0)
+        val serverTransmitted = payload.optLong("server_transmitted", 0)
+        val clientReceived = System.nanoTime() / 1000 // Current time in microseconds
+
+        if (clientTransmitted == 0L || serverReceived == 0L || serverTransmitted == 0L) {
+            Log.w(TAG, "Invalid server/time payload")
+            return
+        }
+
+        // NTP-style offset calculation
+        // offset = ((server_received - client_transmitted) + (server_transmitted - client_received)) / 2
+        val offset = ((serverReceived - clientTransmitted) + (serverTransmitted - clientReceived)) / 2
+
+        // Round-trip time / 2 gives us the uncertainty
+        val rtt = (clientReceived - clientTransmitted) - (serverTransmitted - serverReceived)
+        val maxError = rtt / 2
+
+        // Update the Kalman filter
+        timeFilter.addMeasurement(offset, maxError, clientReceived)
+
+        if (timeFilter.isReady) {
+            Log.d(TAG, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs")
+        }
+    }
+
+    /**
+     * Handle server/state - metadata and playback updates.
+     */
+    private fun handleServerState(payload: JSONObject?) {
+        if (payload == null) return
+
+        // Extract metadata if present
+        val metadata = payload.optJSONObject("metadata")
+        if (metadata != null) {
+            val title = metadata.optString("title", "")
+            val artist = metadata.optString("artist", "")
+            val album = metadata.optString("album", "")
+            val artworkUrl = metadata.optString("artwork_url", "")
+            val durationMs = metadata.optLong("duration_ms", 0)
+            val positionMs = metadata.optLong("position_ms", 0)
+
+            callback.onMetadataUpdate(title, artist, album, artworkUrl, durationMs, positionMs)
+        }
+
+        // Extract playback state
+        val state = payload.optString("state", "")
+        if (state.isNotEmpty()) {
+            callback.onStateChanged(state)
+        }
+    }
+
+    /**
+     * Handle group/update - playback group state changes.
+     *
+     * This message is sent when the player's group assignment changes or
+     * when the playback state of the group changes.
+     *
+     * Example payload:
+     * {"playback_state":"stopped","group_id":"761348d6-9fce-43f7-b7bc-4f1313e1d523"}
+     */
+    private fun handleGroupUpdate(payload: JSONObject?) {
+        if (payload == null) return
+
+        val groupId = payload.optString("group_id", "")
+        val groupName = payload.optString("group_name", "") // May not always be present
+        val playbackState = payload.optString("playback_state", "")
+
+        Log.d(TAG, "group/update: id=$groupId, name=$groupName, state=$playbackState")
+        callback.onGroupUpdate(groupId, groupName, playbackState)
+    }
+
+    /**
+     * Handle stream/start - audio stream configuration.
+     *
+     * This is sent when the server starts streaming audio.
+     * Includes codec and format information for the audio player.
+     */
+    private fun handleStreamStart(payload: JSONObject?) {
+        if (payload == null) return
+
+        val player = payload.optJSONObject("player")
+        if (player != null) {
+            val codec = player.optString("codec", AUDIO_CODEC)
+            val sampleRate = player.optInt("sample_rate", AUDIO_SAMPLE_RATE)
+            val channels = player.optInt("channels", AUDIO_CHANNELS)
+            val bitDepth = player.optInt("bit_depth", AUDIO_BIT_DEPTH)
+
+            Log.i(TAG, "Stream started: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth")
+            callback.onStreamStart(codec, sampleRate, channels, bitDepth)
+        }
+    }
+
+    /**
+     * Handle stream/clear - flush audio buffers (e.g., seek).
+     *
+     * This is sent when the server wants us to clear our buffers,
+     * typically before a seek or track change.
+     */
+    private fun handleStreamClear() {
+        Log.d(TAG, "Stream clear - flushing audio buffers")
+        callback.onStreamClear()
     }
 
     /**
      * Handle binary messages from server.
      *
-     * Binary protocol (from Python CLI):
-     * - First byte: message type (0-7 = audio slots, 8-11 = artwork)
-     * - Bytes 1-8: timestamp (int64, microseconds)
-     * - Remaining: payload (audio PCM or image data)
+     * Binary protocol:
+     * - Byte 0: message type
+     *   - 4: Audio chunk
+     *   - 8-11: Artwork for channels 0-3
+     *   - 16: Visualization data
+     * - Bytes 1-8: timestamp (int64, big-endian, microseconds)
+     * - Remaining: payload data
      */
     private fun handleBinaryMessage(bytes: ByteString) {
         if (bytes.size < 9) {
@@ -250,7 +628,41 @@ class SendSpinClient(
         }
 
         val msgType = bytes[0].toInt() and 0xFF
-        // TODO: Extract timestamp and payload
-        // TODO: Route audio to buffer, artwork to callback
+
+        // Extract timestamp (big-endian int64)
+        val timestampBytes = bytes.substring(1, 9).toByteArray()
+        val buffer = ByteBuffer.wrap(timestampBytes).order(ByteOrder.BIG_ENDIAN)
+        val serverTimestampMicros = buffer.getLong()
+
+        // Get payload
+        val payload = bytes.substring(9)
+
+        when (msgType) {
+            MSG_TYPE_AUDIO -> handleAudioChunk(serverTimestampMicros, payload)
+            in MSG_TYPE_ARTWORK_BASE..(MSG_TYPE_ARTWORK_BASE + 3) -> {
+                val channel = msgType - MSG_TYPE_ARTWORK_BASE
+                handleArtwork(channel, payload)
+            }
+            else -> Log.d(TAG, "Unknown binary message type: $msgType")
+        }
+    }
+
+    /**
+     * Handle audio chunk with server timestamp.
+     *
+     * The timestamp indicates when the first sample should play in server time.
+     * We forward this to the audio player via callback for synchronized playback.
+     */
+    private fun handleAudioChunk(serverTimestampMicros: Long, payload: ByteString) {
+        // Forward to audio player - it will handle time conversion and sync
+        callback.onAudioChunk(serverTimestampMicros, payload.toByteArray())
+    }
+
+    /**
+     * Handle artwork binary data.
+     */
+    private fun handleArtwork(channel: Int, payload: ByteString) {
+        Log.d(TAG, "Received artwork channel $channel: ${payload.size} bytes")
+        callback.onArtwork(payload.toByteArray())
     }
 }

@@ -102,6 +102,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Command arguments
         const val ARG_SERVER_ADDRESS = "server_address"
+        const val ARG_SERVER_PATH = "server_path"
         const val ARG_VOLUME = "volume"
 
         // Session extras keys for metadata (service → controller)
@@ -112,6 +113,17 @@ class PlaybackService : MediaLibraryService() {
         const val EXTRA_DURATION_MS = "duration_ms"
         const val EXTRA_POSITION_MS = "position_ms"
         const val EXTRA_ARTWORK_DATA = "artwork_data"
+
+        // Session extras keys for connection state
+        const val EXTRA_CONNECTION_STATE = "connection_state"
+        const val EXTRA_SERVER_NAME = "server_name"
+        const val EXTRA_ERROR_MESSAGE = "error_message"
+
+        // Connection state values
+        const val STATE_DISCONNECTED = "disconnected"
+        const val STATE_CONNECTING = "connecting"
+        const val STATE_CONNECTED = "connected"
+        const val STATE_ERROR = "error"
 
         // Android Auto browse tree media IDs
         private const val MEDIA_ID_ROOT = "root"
@@ -183,6 +195,9 @@ class PlaybackService : MediaLibraryService() {
                 Log.d(TAG, "Connected to: $serverName")
                 _connectionState.value = ConnectionState.Connected(serverName)
 
+                // Broadcast connection state to controllers (MainActivity)
+                broadcastConnectionState(STATE_CONNECTED, serverName)
+
                 // Start playback
                 sendSpinClient?.play()
 
@@ -196,6 +211,9 @@ class PlaybackService : MediaLibraryService() {
             mainHandler.post {
                 Log.d(TAG, "Disconnected from server")
                 _connectionState.value = ConnectionState.Disconnected
+
+                // Broadcast disconnection to controllers (MainActivity)
+                broadcastConnectionState(STATE_DISCONNECTED)
 
                 // Clear playback state on disconnect
                 _playbackState.value = PlaybackState()
@@ -289,6 +307,9 @@ class PlaybackService : MediaLibraryService() {
             mainHandler.post {
                 Log.e(TAG, "SendSpinClient error: $message")
                 _connectionState.value = ConnectionState.Error(message)
+
+                // Broadcast error to controllers (MainActivity)
+                broadcastConnectionState(STATE_ERROR, errorMessage = message)
             }
         }
     }
@@ -396,10 +417,16 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Connects to a SendSpin server.
+     *
+     * @param address Server address in "host:port" format
+     * @param path WebSocket path (default: /sendspin)
      */
-    fun connectToServer(address: String) {
-        Log.d(TAG, "Connecting to server: $address")
+    fun connectToServer(address: String, path: String = "/sendspin") {
+        Log.d(TAG, "Connecting to server: $address path=$path")
         _connectionState.value = ConnectionState.Connecting
+
+        // Broadcast connecting state to controllers (MainActivity)
+        broadcastConnectionState(STATE_CONNECTING)
 
         try {
             if (sendSpinClient?.isConnected == true) {
@@ -407,11 +434,36 @@ class PlaybackService : MediaLibraryService() {
                 sendSpinClient?.disconnect()
             }
 
-            sendSpinClient?.connect(address)
+            sendSpinClient?.connect(address, path)
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to server", e)
             _connectionState.value = ConnectionState.Error("Connection failed: ${e.message}")
+            broadcastConnectionState(STATE_ERROR, errorMessage = "Connection failed: ${e.message}")
         }
+    }
+
+    /**
+     * Broadcasts connection state to all connected MediaControllers via session extras.
+     *
+     * This allows MainActivity (and Android Auto) to react to connection state changes
+     * without needing to observe PlaybackService's StateFlow directly across process boundaries.
+     *
+     * @param state One of STATE_DISCONNECTED, STATE_CONNECTING, STATE_CONNECTED, STATE_ERROR
+     * @param serverName Server name (only relevant for STATE_CONNECTED)
+     * @param errorMessage Error message (only relevant for STATE_ERROR)
+     */
+    private fun broadcastConnectionState(
+        state: String,
+        serverName: String? = null,
+        errorMessage: String? = null
+    ) {
+        val extras = Bundle().apply {
+            putString(EXTRA_CONNECTION_STATE, state)
+            serverName?.let { putString(EXTRA_SERVER_NAME, it) }
+            errorMessage?.let { putString(EXTRA_ERROR_MESSAGE, it) }
+        }
+        mediaSession?.setSessionExtras(extras)
+        Log.d(TAG, "Broadcast connection state: $state serverName=$serverName")
     }
 
     /**
@@ -579,8 +631,9 @@ class PlaybackService : MediaLibraryService() {
             return when (customCommand.customAction) {
                 COMMAND_CONNECT -> {
                     val address = args.getString(ARG_SERVER_ADDRESS)
+                    val path = args.getString(ARG_SERVER_PATH) ?: "/sendspin"
                     if (address != null) {
-                        connectToServer(address)
+                        connectToServer(address, path)
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
                         Log.e(TAG, "CONNECT command missing server_address")
