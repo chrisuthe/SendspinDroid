@@ -2,10 +2,11 @@ package com.sendspindroid
 
 import android.content.ComponentName
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
-import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
@@ -24,6 +25,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.databinding.ActivityMainBinding
 import com.sendspindroid.discovery.NsdDiscoveryManager
+import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.playback.PlaybackService
 
 /**
@@ -42,9 +44,8 @@ class MainActivity : AppCompatActivity() {
     // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
     private val servers = mutableListOf<ServerInfo>()
 
-    // Connection state tracking
-    private var isConnected = false
-    private var connectedServerName: String? = null
+    // Connection state machine
+    private var connectionState: AppConnectionState = AppConnectionState.Searching
 
     // NsdManager-based discovery (Android native - more reliable than Go's hashicorp/mdns)
     private var discoveryManager: NsdDiscoveryManager? = null
@@ -54,8 +55,14 @@ class MainActivity : AppCompatActivity() {
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
 
+    // Handler for timeout-based transitions
+    private val handler = Handler(Looper.getMainLooper())
+    private var showManualButtonRunnable: Runnable? = null
+
     companion object {
         private const val TAG = "MainActivity"
+        // Time before showing "Enter manually" button during search
+        private const val MANUAL_BUTTON_DELAY_MS = 10_000L
     }
 
     // ============================================================================
@@ -184,13 +191,15 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setupUI()
+        // Initialize discovery manager BEFORE setupUI, because setupUI calls
+        // showSearchingView() which starts auto-discovery
         initializeDiscoveryManager()
         initializeMediaController()
+        setupUI()
     }
 
     private fun setupUI() {
-        // Setup RecyclerView for servers
+        // Setup RecyclerView for servers (in manual entry view)
         serverAdapter = ServerAdapter(servers) { server ->
             onServerSelected(server)
         }
@@ -205,12 +214,17 @@ class MainActivity : AppCompatActivity() {
         // Initialize accessibility for server list
         updateServerListAccessibility()
 
-        // Discover button
-        binding.discoverButton.setOnClickListener {
-            onDiscoverClicked()
+        // Searching view - "Enter manually" button (shown after timeout)
+        binding.searchingManualButton.setOnClickListener {
+            transitionToManualEntry()
         }
 
-        // Add manual server button
+        // Manual entry view - Search Again button
+        binding.searchAgainButton.setOnClickListener {
+            transitionToSearching()
+        }
+
+        // Manual entry view - Add manual server button
         binding.addManualServerButton.setOnClickListener {
             showAddServerDialog()
         }
@@ -229,7 +243,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Volume slider with accessibility updates
-        binding.volumeSlider.addOnChangeListener { slider, value, fromUser ->
+        binding.volumeSlider.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 onVolumeChanged(value / 100f)
                 // Update accessibility description with current volume
@@ -245,39 +259,101 @@ class MainActivity : AppCompatActivity() {
         // Initialize volume accessibility
         updateVolumeAccessibility(binding.volumeSlider.value.toInt())
 
-        // Start with discovery view visible
-        showDiscoveryView()
+        // Start with searching view and begin auto-discovery
+        showSearchingView()
     }
 
     // ============================================================================
-    // View State Management
+    // View State Management (Three Views: Searching, Manual Entry, Now Playing)
     // ============================================================================
 
     /**
-     * Shows the discovery view (server list, discover button, manual add).
-     * Called when not connected to any server.
+     * Transitions to searching state and starts auto-discovery.
+     * Called on app launch and when user taps "Search Again".
      */
-    private fun showDiscoveryView() {
-        binding.discoveryView.visibility = View.VISIBLE
+    private fun transitionToSearching() {
+        connectionState = AppConnectionState.Searching
+        showSearchingView()
+    }
+
+    /**
+     * Transitions to manual entry state.
+     * Called after search timeout or when user taps "Enter manually".
+     */
+    private fun transitionToManualEntry() {
+        connectionState = AppConnectionState.ManualEntry
+        cancelManualButtonTimeout()
+        discoveryManager?.stopDiscovery()
+        showManualEntryView()
+    }
+
+    /**
+     * Shows the searching view (spinner, status text).
+     * Starts discovery automatically and schedules timeout for manual button.
+     */
+    private fun showSearchingView() {
+        binding.searchingView.visibility = View.VISIBLE
+        binding.manualEntryView.visibility = View.GONE
         binding.nowPlayingView.visibility = View.GONE
-        isConnected = false
-        connectedServerName = null
+
+        // Reset the manual button to hidden
+        binding.searchingManualButton.visibility = View.GONE
+        binding.searchingStatusText.text = getString(R.string.searching_for_servers)
+
+        // Start discovery automatically
+        startAutoDiscovery()
+
+        // Schedule showing the "Enter manually" button after timeout
+        scheduleManualButtonTimeout()
+    }
+
+    /**
+     * Shows the manual entry view (search again, add server, server list).
+     * Called after timeout or explicit user choice.
+     */
+    private fun showManualEntryView() {
+        binding.searchingView.visibility = View.GONE
+        binding.manualEntryView.visibility = View.VISIBLE
+        binding.nowPlayingView.visibility = View.GONE
     }
 
     /**
      * Shows the now playing view (album art, playback controls, disconnect).
      * Called when connected to a server.
      */
-    private fun showNowPlayingView(serverName: String? = null) {
-        binding.discoveryView.visibility = View.GONE
+    private fun showNowPlayingView(serverName: String) {
+        cancelManualButtonTimeout()
+        binding.searchingView.visibility = View.GONE
+        binding.manualEntryView.visibility = View.GONE
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
-        isConnected = true
-        connectedServerName = serverName
 
         // Update the status bar with connected server name
-        binding.connectedServerText.text = serverName ?: getString(R.string.connected_to, "server")
+        binding.connectedServerText.text = serverName
+    }
+
+    /**
+     * Schedules showing the "Enter manually" button after MANUAL_BUTTON_DELAY_MS.
+     * This gives auto-discovery time to find servers before showing fallback option.
+     */
+    private fun scheduleManualButtonTimeout() {
+        cancelManualButtonTimeout()
+        showManualButtonRunnable = Runnable {
+            if (connectionState == AppConnectionState.Searching) {
+                binding.searchingManualButton.visibility = View.VISIBLE
+                binding.searchingStatusText.text = getString(R.string.no_servers_found)
+            }
+        }
+        handler.postDelayed(showManualButtonRunnable!!, MANUAL_BUTTON_DELAY_MS)
+    }
+
+    /**
+     * Cancels the pending manual button timeout.
+     */
+    private fun cancelManualButtonTimeout() {
+        showManualButtonRunnable?.let { handler.removeCallbacks(it) }
+        showManualButtonRunnable = null
     }
 
     /**
@@ -297,7 +373,18 @@ class MainActivity : AppCompatActivity() {
                     override fun onServerDiscovered(name: String, address: String) {
                         runOnUiThread {
                             Log.d(TAG, "Server discovered: $name at $address")
-                            addServer(ServerInfo(name, address))
+                            val server = ServerInfo(name, address)
+                            addServer(server)
+
+                            // Auto-connect to first discovered server if in searching state
+                            if (connectionState == AppConnectionState.Searching) {
+                                Log.d(TAG, "Auto-connecting to first discovered server: $name")
+                                binding.searchingStatusText.text = getString(R.string.server_found, name)
+                                // Small delay to show "Found: X" before connecting
+                                handler.postDelayed({
+                                    autoConnectToServer(server)
+                                }, 500)
+                            }
                         }
                     }
 
@@ -313,30 +400,29 @@ class MainActivity : AppCompatActivity() {
                     override fun onDiscoveryStarted() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery started")
-                            binding.statusText.text = getString(R.string.discovering)
-                            showDiscoveryLoading()
                         }
                     }
 
                     override fun onDiscoveryStopped() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery stopped")
-                            hideDiscoveryLoading()
-                            if (servers.isEmpty()) {
-                                binding.statusText.text = getString(R.string.no_servers_found)
-                            }
                         }
                     }
 
                     override fun onDiscoveryError(error: String) {
                         runOnUiThread {
                             Log.e(TAG, "Discovery error: $error")
-                            hideDiscoveryLoading()
-                            showErrorSnackbar(
-                                message = getString(R.string.error_discovery),
-                                errorType = ErrorType.DISCOVERY,
-                                retryAction = { onDiscoverClicked() }
-                            )
+                            if (connectionState == AppConnectionState.Searching) {
+                                // Show error and allow manual entry
+                                binding.searchingStatusText.text = getString(R.string.error_discovery)
+                                binding.searchingManualButton.visibility = View.VISIBLE
+                            } else {
+                                showErrorSnackbar(
+                                    message = getString(R.string.error_discovery),
+                                    errorType = ErrorType.DISCOVERY,
+                                    retryAction = { transitionToSearching() }
+                                )
+                            }
                         }
                     }
                 }
@@ -350,6 +436,46 @@ class MainActivity : AppCompatActivity() {
                 errorType = ErrorType.GENERAL
             )
         }
+    }
+
+    /**
+     * Starts auto-discovery for servers.
+     * Called automatically when showing the searching view.
+     */
+    private fun startAutoDiscovery() {
+        Log.d(TAG, "Starting auto-discovery")
+        try {
+            discoveryManager?.startDiscovery()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start discovery", e)
+            binding.searchingStatusText.text = getString(R.string.error_discovery_start)
+            binding.searchingManualButton.visibility = View.VISIBLE
+        }
+    }
+
+    /**
+     * Auto-connects to a discovered server.
+     * Called when a server is found during Searching state.
+     */
+    private fun autoConnectToServer(server: ServerInfo) {
+        val controller = mediaController
+        if (controller == null) {
+            Log.w(TAG, "MediaController not ready, delaying auto-connect")
+            // Retry after a short delay if controller isn't ready yet
+            handler.postDelayed({ autoConnectToServer(server) }, 500)
+            return
+        }
+
+        // Update state to Connecting
+        connectionState = AppConnectionState.Connecting(server.name, server.address)
+        cancelManualButtonTimeout()
+        discoveryManager?.stopDiscovery()
+
+        // Update UI to show connecting state
+        binding.searchingStatusText.text = getString(R.string.auto_connecting)
+
+        // Perform the actual connection
+        connectToServer(server, controller)
     }
 
     /**
@@ -400,7 +526,6 @@ class MainActivity : AppCompatActivity() {
         override fun onDisconnected(controller: MediaController) {
             Log.d(TAG, "MediaController disconnected from service")
             runOnUiThread {
-                updateStatus("Service disconnected")
                 enablePlaybackControls(false)
             }
         }
@@ -457,32 +582,49 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Playback state: $playbackState")
                 when (playbackState) {
                     Player.STATE_IDLE -> {
-                        updateStatus(getString(R.string.not_connected))
                         enablePlaybackControls(false)
                         hideConnectionLoading()
                         hideBufferingIndicator()
-                        // Return to discovery view when disconnected
-                        showDiscoveryView()
+                        // Only transition to manual entry if we were connected/connecting
+                        // (not during initial startup)
+                        val currentState = connectionState
+                        if (currentState is AppConnectionState.Connected ||
+                            currentState is AppConnectionState.Connecting) {
+                            connectionState = AppConnectionState.ManualEntry
+                            showManualEntryView()
+                        }
                         // Announce disconnection for accessibility
                         announceForAccessibility(getString(R.string.accessibility_disconnected))
                     }
                     Player.STATE_BUFFERING -> {
-                        updateStatus("Buffering...")
                         showBufferingIndicator()
-                        // Show now playing view during buffering (we're connected)
-                        if (!isConnected) {
-                            showNowPlayingView(connectedServerName)
+                        // Transition to Connected state and show now playing view
+                        val currentState = connectionState
+                        if (currentState is AppConnectionState.Connecting) {
+                            connectionState = AppConnectionState.Connected(
+                                currentState.serverName,
+                                currentState.serverAddress
+                            )
+                            showNowPlayingView(currentState.serverName)
                         }
                         // Announce buffering for accessibility
                         announceForAccessibility(getString(R.string.accessibility_buffering))
                     }
                     Player.STATE_READY -> {
-                        updateStatus(getString(R.string.connected_to, connectedServerName ?: "server"))
                         enablePlaybackControls(true)
                         hideConnectionLoading()
                         hideBufferingIndicator()
-                        // Show now playing view when connected
-                        showNowPlayingView(connectedServerName)
+                        // Transition to Connected state and show now playing view
+                        val currentState = connectionState
+                        if (currentState is AppConnectionState.Connecting) {
+                            connectionState = AppConnectionState.Connected(
+                                currentState.serverName,
+                                currentState.serverAddress
+                            )
+                            showNowPlayingView(currentState.serverName)
+                        } else if (currentState is AppConnectionState.Connected) {
+                            showNowPlayingView(currentState.serverName)
+                        }
                         // Announce connection for accessibility
                         announceForAccessibility(getString(R.string.accessibility_connected))
                     }
@@ -526,17 +668,14 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 when {
                     isPlaying -> {
-                        updateStatus("Connected")
                         updatePlaybackState("playing")
                         enablePlaybackControls(true)
                     }
                     state == Player.STATE_READY -> {
-                        updateStatus("Connected")
                         updatePlaybackState("paused")
                         enablePlaybackControls(true)
                     }
                     else -> {
-                        updateStatus("Ready")
                         enablePlaybackControls(false)
                     }
                 }
@@ -614,24 +753,9 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
-    private fun onDiscoverClicked() {
-        Log.d(TAG, "Starting discovery")
-
-        try {
-            // NsdDiscoveryManager handles multicast lock internally
-            discoveryManager?.startDiscovery()
-            showInfoSnackbar(getString(R.string.discovering))
-            Log.d(TAG, "Discovery started successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start discovery", e)
-            showErrorSnackbar(
-                message = getString(R.string.error_discovery_start),
-                errorType = ErrorType.DISCOVERY,
-                retryAction = { onDiscoverClicked() }
-            )
-        }
-    }
-
+    /**
+     * Handles user selecting a server from the manual entry list.
+     */
     private fun onServerSelected(server: ServerInfo) {
         Log.d(TAG, "Server selected: ${server.name}")
 
@@ -644,10 +768,21 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        try {
-            // Save server name for later display
-            connectedServerName = server.name
+        // Update state to Connecting
+        connectionState = AppConnectionState.Connecting(server.name, server.address)
 
+        // Show connection loading UI
+        showConnectionLoading(server.name)
+
+        // Perform the actual connection
+        connectToServer(server, controller)
+    }
+
+    /**
+     * Shared connection logic used by both auto-connect and manual selection.
+     */
+    private fun connectToServer(server: ServerInfo, controller: MediaController) {
+        try {
             // Add to recent servers for quick access (Android Auto shows these)
             ServerRepository.addToRecent(server)
 
@@ -658,12 +793,10 @@ class MainActivity : AppCompatActivity() {
             val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
 
             controller.sendCustomCommand(command, args)
-            updateStatus("Connecting to ${server.name}...")
-            showConnectionLoading(server.name)
-            showInfoSnackbar(getString(R.string.connecting_to_server, server.name))
+            Log.d(TAG, "Sent connect command to ${server.address}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send connect command", e)
-            connectedServerName = null
+            connectionState = AppConnectionState.Error("Connection failed")
             hideConnectionLoading()
             showErrorSnackbar(
                 message = getString(R.string.error_connection_failed),
@@ -713,7 +846,8 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Handles disconnect button click.
-     * Sends disconnect command to PlaybackService and returns to discovery view.
+     * Sends disconnect command to PlaybackService and returns to manual entry view.
+     * (User explicitly disconnected, so show manual entry instead of auto-searching again)
      */
     private fun onDisconnectClicked() {
         Log.d(TAG, "Disconnect clicked")
@@ -722,8 +856,7 @@ class MainActivity : AppCompatActivity() {
         try {
             val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
             controller.sendCustomCommand(command, Bundle.EMPTY)
-            showDiscoveryView()
-            updateStatus(getString(R.string.not_connected))
+            transitionToManualEntry()
             showInfoSnackbar("Disconnected")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to disconnect", e)
@@ -805,9 +938,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateStatus(status: String) {
-        binding.statusText.text = status
-    }
 
     private fun enablePlaybackControls(enabled: Boolean) {
         binding.previousButton.isEnabled = enabled
@@ -931,26 +1061,6 @@ class MainActivity : AppCompatActivity() {
     // ============================================================================
 
     /**
-     * Shows the discovery loading indicator.
-     * Called when server discovery begins.
-     */
-    private fun showDiscoveryLoading() {
-        binding.discoveryProgressIndicator.visibility = View.VISIBLE
-        binding.discoveryStatusText.visibility = View.VISIBLE
-        binding.discoverButton.isEnabled = false
-    }
-
-    /**
-     * Hides the discovery loading indicator.
-     * Called when server discovery completes or fails.
-     */
-    private fun hideDiscoveryLoading() {
-        binding.discoveryProgressIndicator.visibility = View.GONE
-        binding.discoveryStatusText.visibility = View.GONE
-        binding.discoverButton.isEnabled = true
-    }
-
-    /**
      * Shows the connection progress indicator.
      * Called when attempting to connect to a server.
      * Switches to now playing view and shows the connecting spinner.
@@ -959,7 +1069,8 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showConnectionLoading(serverName: String) {
         // Switch to now playing view but show connection progress
-        binding.discoveryView.visibility = View.GONE
+        binding.searchingView.visibility = View.GONE
+        binding.manualEntryView.visibility = View.GONE
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.GONE
@@ -999,6 +1110,10 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onDestroy() {
         super.onDestroy()
+
+        // Cancel any pending handler callbacks
+        cancelManualButtonTimeout()
+        handler.removeCallbacksAndMessages(null)
 
         // Release MediaController connection to service
         mediaControllerFuture?.let {

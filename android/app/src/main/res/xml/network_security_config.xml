@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network Security Config for SendSpinDroid
+
+    Allows cleartext (non-HTTPS) traffic for local network connections.
+    This is necessary because SendSpin servers use plain WebSocket (ws://)
+    on local networks for low-latency audio streaming.
+
+    Security note: Cleartext is acceptable here because:
+    1. Audio data is not sensitive (just playback commands/audio)
+    2. Local network is trusted
+    3. TLS adds latency which affects audio sync
+    4. mDNS discovery returns IP addresses, not domain names
+-->
+<network-security-config>
+    <!-- Base config applies to all connections not matched by domain-config -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

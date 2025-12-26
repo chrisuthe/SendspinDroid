@@ -20,4 +20,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "SendSpinDroid"
 include(":app")
-include(":player")

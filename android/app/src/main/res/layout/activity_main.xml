@@ -13,10 +13,10 @@
         android:padding="16dp">
 
         <!-- ============================================================ -->
-        <!-- DISCOVERY VIEW - Shown when not connected to a server        -->
+        <!-- SEARCHING VIEW - Shown on startup while discovering servers  -->
         <!-- ============================================================ -->
         <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/discoveryView"
+            android:id="@+id/searchingView"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:visibility="visible"
@@ -26,76 +26,114 @@
             app:layout_constraintTop_toTopOf="parent">
 
             <TextView
-                android:id="@+id/titleText"
+                android:id="@+id/searchingTitleText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
                 android:textSize="28sp"
                 android:textStyle="bold"
                 android:textColor="?attr/colorOnBackground"
-                android:importantForAccessibility="yes"
+                app:layout_constraintBottom_toTopOf="@id/searchingProgressIndicator"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintVertical_chainStyle="packed" />
+
+            <com.google.android.material.progressindicator.CircularProgressIndicator
+                android:id="@+id/searchingProgressIndicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="48dp"
+                android:indeterminate="true"
+                app:indicatorSize="64dp"
+                app:trackThickness="4dp"
+                app:layout_constraintBottom_toTopOf="@id/searchingStatusText"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/searchingTitleText" />
+
+            <TextView
+                android:id="@+id/searchingStatusText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="@string/searching_for_servers"
+                android:textSize="16sp"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:accessibilityLiveRegion="polite"
+                app:layout_constraintBottom_toTopOf="@id/searchingManualButton"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/searchingProgressIndicator" />
+
+            <!-- Manual entry button - shown after timeout or user can tap anytime -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/searchingManualButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:text="@string/enter_manually"
+                android:visibility="gone"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/searchingStatusText"
+                tools:visibility="visible" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <!-- ============================================================ -->
+        <!-- MANUAL ENTRY VIEW - Shown when user wants to enter manually  -->
+        <!-- ============================================================ -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/manualEntryView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:visibility="gone">
+
+            <TextView
+                android:id="@+id/manualTitleText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textSize="28sp"
+                android:textStyle="bold"
+                android:textColor="?attr/colorOnBackground"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent" />
 
             <TextView
-                android:id="@+id/statusText"
+                android:id="@+id/manualStatusText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="@string/not_connected"
+                android:text="@string/no_servers_found"
                 android:textSize="14sp"
                 android:textColor="?attr/colorOnSurfaceVariant"
-                android:importantForAccessibility="yes"
                 android:accessibilityLiveRegion="polite"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/titleText" />
+                app:layout_constraintTop_toBottomOf="@id/manualTitleText" />
 
             <Button
-                android:id="@+id/discoverButton"
+                android:id="@+id/searchAgainButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:minHeight="48dp"
                 android:layout_marginTop="24dp"
-                android:text="@string/discover_servers"
-                android:contentDescription="@string/accessibility_discover_servers"
+                android:text="@string/search_again"
                 app:icon="@drawable/ic_refresh"
                 app:iconGravity="textStart"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/statusText" />
-
-            <!-- Discovery Progress Indicator -->
-            <com.google.android.material.progressindicator.CircularProgressIndicator
-                android:id="@+id/discoveryProgressIndicator"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:indeterminate="true"
-                android:visibility="gone"
-                android:importantForAccessibility="no"
-                app:indicatorSize="32dp"
-                app:trackThickness="3dp"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/discoverButton"
-                tools:visibility="visible" />
-
-            <TextView
-                android:id="@+id/discoveryStatusText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="@string/discovering"
-                android:textSize="14sp"
-                android:visibility="gone"
-                android:importantForAccessibility="yes"
-                android:accessibilityLiveRegion="polite"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/discoveryProgressIndicator"
-                tools:visibility="visible" />
+                app:layout_constraintTop_toBottomOf="@id/manualStatusText" />
 
             <Button
                 android:id="@+id/addManualServerButton"
@@ -110,7 +148,7 @@
                 app:iconGravity="textStart"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/discoveryStatusText" />
+                app:layout_constraintTop_toBottomOf="@id/searchAgainButton" />
 
             <TextView
                 android:id="@+id/serversLabel"
@@ -350,53 +388,6 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@id/nowPlayingText" />
 
-                <!-- Progress Bar -->
-                <LinearLayout
-                    android:id="@+id/progressContainer"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:visibility="gone"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/metadataText">
-
-                    <TextView
-                        android:id="@+id/currentPositionText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0:00"
-                        android:textSize="12sp"
-                        android:minWidth="40dp"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-
-                    <SeekBar
-                        android:id="@+id/progressSeekBar"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:minHeight="48dp"
-                        android:layout_weight="1"
-                        android:layout_marginHorizontal="8dp"
-                        android:max="1000"
-                        android:progress="0"
-                        android:contentDescription="@string/accessibility_progress_slider" />
-
-                    <TextView
-                        android:id="@+id/durationText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0:00"
-                        android:textSize="12sp"
-                        android:minWidth="40dp"
-                        android:gravity="end"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:importantForAccessibility="no" />
-
-                </LinearLayout>
-
                 <!-- Playback Controls with Icon Buttons -->
                 <LinearLayout
                     android:id="@+id/playbackControlsContainer"
@@ -407,7 +398,7 @@
                     android:gravity="center"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/progressContainer">
+                    app:layout_constraintTop_toBottomOf="@id/metadataText">
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/previousButton"
