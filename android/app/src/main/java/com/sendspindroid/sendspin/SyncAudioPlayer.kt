@@ -1,0 +1,1218 @@
+package com.sendspindroid.sendspin
+
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTimestamp
+import android.media.AudioTrack
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+
+/**
+ * Playback state machine for synchronized audio.
+ *
+ * Follows the Python reference implementation pattern:
+ * - INITIALIZING: Waiting for first chunk and time sync
+ * - WAITING_FOR_START: Buffer filling, scheduled start computed
+ * - PLAYING: Active playback with sync corrections
+ * - REANCHORING: Large error exceeded threshold, resetting
+ */
+enum class PlaybackState {
+    INITIALIZING,
+    WAITING_FOR_START,
+    PLAYING,
+    REANCHORING
+}
+
+/**
+ * Synchronized audio player for Sendspin protocol.
+ *
+ * Receives PCM audio chunks with server timestamps and plays them at the correct
+ * client time using the Kalman-filtered time offset. Uses imperceptible sample
+ * insert/drop for sync correction (no pitch changes).
+ *
+ * ## Sync Correction Strategy
+ * Instead of rate adjustment (which causes audible pitch changes), we use sample
+ * insert/drop which is completely imperceptible:
+ * - Behind schedule: Drop frames to catch up (skip input samples)
+ * - Ahead of schedule: Insert duplicate frames to slow down
+ * - At 48kHz with 2ms error: ~48 corrections/sec = 1 frame every 1000 frames
+ *
+ * ## Architecture
+ * ```
+ * SendSpinClient ──┬── Audio chunks (timestamped) ──► SyncAudioPlayer
+ *                  │                                        │
+ *                  └── TimeFilter ◄─────────────────────────┘
+ *                         │
+ *                    serverToClient()
+ * ```
+ */
+class SyncAudioPlayer(
+    private val timeFilter: SendspinTimeFilter,
+    private val sampleRate: Int = 48000,
+    private val channels: Int = 2,
+    private val bitDepth: Int = 16
+) {
+    companion object {
+        private const val TAG = "SyncAudioPlayer"
+
+        // Sync correction thresholds (microseconds)
+        private const val DEADBAND_THRESHOLD_US = 2_000L        // 2ms - no correction needed
+        private const val HARD_RESYNC_THRESHOLD_US = 200_000L   // 200ms - hard resync (drop/skip chunks)
+
+        // Sample insert/drop correction constants (from Python reference)
+        private const val MAX_SPEED_CORRECTION = 0.04           // +/-4% max correction rate
+        private const val CORRECTION_TARGET_SECONDS = 2.0       // Fix error over 2 seconds
+
+        // Buffer configuration
+        private const val BUFFER_HEADROOM_MS = 200  // Schedule audio 200ms ahead
+
+        // Smoothing for sync error measurement
+        private const val SYNC_ERROR_ALPHA = 0.1    // EMA smoothing factor
+
+        // DAC calibration settings
+        private const val DAC_CALIBRATION_MAX_ENTRIES = 100  // Keep last 100 calibration points
+        private const val DAC_CALIBRATION_UPDATE_INTERVAL = 5  // Update every N chunks
+        private const val DAC_SLOPE_MIN = 0.999  // Minimum allowed slope for interpolation
+        private const val DAC_SLOPE_MAX = 1.001  // Maximum allowed slope for interpolation
+
+        // Start gating configuration (from Python reference)
+        private const val MIN_BUFFER_BEFORE_START_MS = 200  // Wait for 200ms buffer before scheduling
+        private const val REANCHOR_THRESHOLD_US = 500_000L  // 500ms error triggers reanchor
+        private const val REANCHOR_COOLDOWN_US = 5_000_000L // 5 second cooldown between reanchors
+    }
+
+    /**
+     * Timestamped audio chunk waiting to be played.
+     */
+    private data class AudioChunk(
+        val serverTimeMicros: Long,
+        val clientPlayTimeMicros: Long,
+        val pcmData: ByteArray,
+        val sampleCount: Int
+    )
+
+    /**
+     * DAC-loop calibration point.
+     * Stores the relationship between DAC presentation time and system loop time.
+     *
+     * @param dacTimeMicros System time (in microseconds) when a specific frame was at the DAC
+     * @param loopTimeMicros System.nanoTime()/1000 when the calibration was recorded
+     * @param framePosition Frame position at the DAC at that moment
+     * @param serverTimeMicros Server timeline position corresponding to this frame
+     */
+    private data class DacCalibration(
+        val dacTimeMicros: Long,
+        val loopTimeMicros: Long,
+        val framePosition: Long,
+        val serverTimeMicros: Long
+    )
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    // Audio output
+    private var audioTrack: AudioTrack? = null
+    private val isPlaying = AtomicBoolean(false)
+    private val isPaused = AtomicBoolean(false)
+
+    // Playback state machine (from Python reference)
+    @Volatile private var playbackState = PlaybackState.INITIALIZING
+    private var scheduledStartLoopTimeUs: Long? = null   // When to start in loop time
+    private var scheduledStartDacTimeUs: Long? = null    // When to start in DAC time
+    private var firstServerTimestampUs: Long? = null     // First chunk's server timestamp
+    private var lastReanchorTimeUs: Long = 0             // Cooldown tracking for reanchor
+
+    // Chunk queue
+    private val chunkQueue = ConcurrentLinkedQueue<AudioChunk>()
+    private val totalQueuedSamples = AtomicLong(0)
+
+    // Sync tracking
+    private var smoothedSyncErrorUs = 0.0
+    private var lastChunkServerTime = 0L
+    private var streamGeneration = 0  // Incremented on stream/clear to invalidate old chunks
+
+    // DAC calibration for accurate timing
+    private val dacCalibrations = ConcurrentLinkedDeque<DacCalibration>()
+    private val audioTimestamp = AudioTimestamp()  // Reusable timestamp object
+    private var dacCalibrationCounter = 0  // Counter for update interval
+    private var firstFrameServerTimeMicros = 0L  // Server time of first frame written
+    private var totalFramesWritten = 0L  // Total frames written to AudioTrack
+
+    // Playback position tracking (in server timeline)
+    @Volatile private var lastKnownPlaybackPositionUs = 0L  // Actual server timestamp being played NOW
+    @Volatile private var serverTimelineCursor = 0L  // Where we've fed audio up to in server time
+    @Volatile private var trueSyncErrorUs = 0L  // lastKnownPlaybackPositionUs - expected position
+
+    // Sample insert/drop correction state (from Python reference)
+    private var insertEveryNFrames: Int = 0      // Insert duplicate frame every N frames (slow down)
+    private var dropEveryNFrames: Int = 0        // Drop frame every N frames (speed up)
+    private var framesUntilNextInsert: Int = 0   // Countdown to next insert
+    private var framesUntilNextDrop: Int = 0     // Countdown to next drop
+    private var lastOutputFrame: ByteArray = ByteArray(0)  // Last frame written (for duplication)
+    private var smoothedSyncErrorForCorrectionUs: Double = 0.0  // Smoothed error for correction scheduling
+
+    // Statistics
+    private var chunksReceived = 0L
+    private var chunksPlayed = 0L
+    private var chunksDropped = 0L
+    private var syncCorrections = 0L
+    private var framesInserted = 0L
+    private var framesDropped = 0L
+
+    // Gap/overlap handling (from Python reference)
+    private var expectedNextTimestampUs: Long? = null  // Expected server timestamp of next chunk
+    private var gapsFilled = 0L           // Count of gaps filled with silence
+    private var gapSilenceMs = 0L         // Total milliseconds of silence inserted
+    private var overlapsTrimmed = 0L      // Count of overlaps trimmed
+    private var overlapTrimmedMs = 0L     // Total milliseconds of audio trimmed
+
+    // Threshold for gap filling - don't fill tiny gaps from network jitter
+    private val GAP_THRESHOLD_US = 10_000L  // 10ms minimum gap before filling
+
+    // Bytes per sample (e.g., 2 channels * 2 bytes = 4 bytes per sample frame)
+    private val bytesPerFrame = channels * (bitDepth / 8)
+
+    // Microseconds per sample frame
+    private val microsPerSample = 1_000_000.0 / sampleRate
+
+    /**
+     * Initialize the audio player with the specified format.
+     */
+    fun initialize() {
+        if (audioTrack != null) {
+            Log.w(TAG, "Already initialized")
+            return
+        }
+
+        val channelConfig = when (channels) {
+            1 -> AudioFormat.CHANNEL_OUT_MONO
+            2 -> AudioFormat.CHANNEL_OUT_STEREO
+            else -> {
+                Log.e(TAG, "Unsupported channel count: $channels")
+                return
+            }
+        }
+
+        val encoding = when (bitDepth) {
+            16 -> AudioFormat.ENCODING_PCM_16BIT
+            else -> {
+                Log.e(TAG, "Unsupported bit depth: $bitDepth")
+                return
+            }
+        }
+
+        // Calculate minimum buffer size
+        val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, encoding)
+        // Use larger buffer for scheduling headroom
+        val bufferSize = maxOf(minBufferSize * 4, sampleRate * bytesPerFrame) // ~1 second
+
+        try {
+            audioTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelConfig)
+                        .setEncoding(encoding)
+                        .build()
+                )
+                .setBufferSizeInBytes(bufferSize)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+                .build()
+
+            Log.i(TAG, "AudioTrack initialized: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit, buffer=${bufferSize}bytes")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create AudioTrack", e)
+        }
+    }
+
+    /**
+     * Start playback.
+     */
+    fun start() {
+        if (isPlaying.get()) {
+            Log.w(TAG, "Already playing")
+            return
+        }
+
+        val track = audioTrack
+        if (track == null) {
+            Log.e(TAG, "AudioTrack not initialized")
+            return
+        }
+
+        isPlaying.set(true)
+        isPaused.set(false)
+        track.play()
+
+        // Start the playback loop
+        startPlaybackLoop()
+
+        Log.i(TAG, "Playback started")
+    }
+
+    /**
+     * Pause playback.
+     */
+    fun pause() {
+        isPaused.set(true)
+        audioTrack?.pause()
+        Log.d(TAG, "Playback paused")
+    }
+
+    /**
+     * Resume playback.
+     */
+    fun resume() {
+        isPaused.set(false)
+        audioTrack?.play()
+        Log.d(TAG, "Playback resumed")
+    }
+
+    /**
+     * Stop playback and clear buffers.
+     */
+    fun stop() {
+        isPlaying.set(false)
+        isPaused.set(false)
+        audioTrack?.stop()
+        audioTrack?.flush()
+        chunkQueue.clear()
+        totalQueuedSamples.set(0)
+
+        // Reset playback state machine
+        playbackState = PlaybackState.INITIALIZING
+        scheduledStartLoopTimeUs = null
+        scheduledStartDacTimeUs = null
+        firstServerTimestampUs = null
+
+        Log.i(TAG, "Playback stopped")
+    }
+
+    /**
+     * Release all resources.
+     */
+    fun release() {
+        stop()
+        scope.cancel()
+        audioTrack?.release()
+        audioTrack = null
+        Log.i(TAG, "Released")
+    }
+
+    /**
+     * Clear the audio buffer (called on stream/clear or seek).
+     */
+    fun clearBuffer() {
+        streamGeneration++
+        chunkQueue.clear()
+        totalQueuedSamples.set(0)
+        audioTrack?.flush()
+        smoothedSyncErrorUs = 0.0
+        lastChunkServerTime = 0L
+
+        // Reset playback state machine
+        playbackState = PlaybackState.INITIALIZING
+        scheduledStartLoopTimeUs = null
+        scheduledStartDacTimeUs = null
+        firstServerTimestampUs = null
+        // Note: lastReanchorTimeUs is NOT reset to maintain cooldown across clears
+
+        // Reset DAC calibration state
+        dacCalibrations.clear()
+        dacCalibrationCounter = 0
+        firstFrameServerTimeMicros = 0L
+        totalFramesWritten = 0L
+        lastKnownPlaybackPositionUs = 0L
+        serverTimelineCursor = 0L
+        trueSyncErrorUs = 0L
+
+        // Reset sample insert/drop correction state
+        insertEveryNFrames = 0
+        dropEveryNFrames = 0
+        framesUntilNextInsert = 0
+        framesUntilNextDrop = 0
+        lastOutputFrame = ByteArray(0)
+        smoothedSyncErrorForCorrectionUs = 0.0
+
+        // Reset gap/overlap tracking
+        expectedNextTimestampUs = null
+
+        Log.d(TAG, "Buffer cleared, generation=$streamGeneration, state=$playbackState")
+    }
+
+    /**
+     * Queue an audio chunk for playback.
+     *
+     * Handles gaps and overlaps in the audio stream following the Python reference:
+     * - Gaps: Insert silence to fill gaps larger than GAP_THRESHOLD_US
+     * - Overlaps: Trim the start of chunks that overlap with already-queued audio
+     *
+     * @param serverTimeMicros Server timestamp when this audio should play
+     * @param pcmData Raw PCM audio data
+     */
+    fun queueChunk(serverTimeMicros: Long, pcmData: ByteArray) {
+        chunksReceived++
+
+        // Wait for time sync to be ready
+        if (!timeFilter.isReady) {
+            chunksDropped++
+            if (chunksDropped % 100 == 1L) {
+                Log.v(TAG, "Dropping chunk - time sync not ready (dropped: $chunksDropped)")
+            }
+            return
+        }
+
+        // Working copies that may be modified by gap/overlap handling
+        var workingServerTimeMicros = serverTimeMicros
+        var workingPcmData = pcmData
+
+        // Initialize expected next timestamp on first chunk
+        val expectedNext = expectedNextTimestampUs
+        if (expectedNext == null) {
+            expectedNextTimestampUs = serverTimeMicros
+            Log.d(TAG, "Gap/overlap tracking initialized at serverTime=${serverTimeMicros/1000}ms")
+        } else {
+            // Handle gap: insert silence to fill the gap
+            if (serverTimeMicros > expectedNext) {
+                val gapUs = serverTimeMicros - expectedNext
+
+                // Only fill gaps larger than threshold (small gaps are normal network jitter)
+                if (gapUs > GAP_THRESHOLD_US) {
+                    val gapFrames = ((gapUs * sampleRate) / 1_000_000).toInt()
+                    val silenceBytes = gapFrames * bytesPerFrame
+                    val silenceData = ByteArray(silenceBytes)  // Zeros = silence
+
+                    // Convert the silence's server time to client time
+                    val silenceClientPlayTime = timeFilter.serverToClient(expectedNext)
+
+                    // Queue the silence chunk BEFORE the current chunk
+                    val silenceChunk = AudioChunk(
+                        serverTimeMicros = expectedNext,
+                        clientPlayTimeMicros = silenceClientPlayTime,
+                        pcmData = silenceData,
+                        sampleCount = gapFrames
+                    )
+                    chunkQueue.add(silenceChunk)
+                    totalQueuedSamples.addAndGet(gapFrames.toLong())
+
+                    // Update statistics
+                    gapsFilled++
+                    val gapMs = gapUs / 1000
+                    gapSilenceMs += gapMs
+
+                    Log.d(TAG, "Gap: ${gapUs / 1000.0}ms filled with ${silenceBytes} bytes of silence")
+
+                    // Update expected next timestamp to account for inserted silence
+                    val silenceDurationUs = (gapFrames * 1_000_000L) / sampleRate
+                    expectedNextTimestampUs = expectedNext + silenceDurationUs
+                }
+            }
+            // Handle overlap: trim the start of the chunk
+            else if (serverTimeMicros < expectedNext) {
+                val overlapUs = expectedNext - serverTimeMicros
+                val overlapFrames = ((overlapUs * sampleRate) / 1_000_000).toInt()
+                val trimBytes = overlapFrames * bytesPerFrame
+
+                if (trimBytes < workingPcmData.size) {
+                    // Trim the overlapping portion from the start
+                    workingPcmData = workingPcmData.copyOfRange(trimBytes, workingPcmData.size)
+                    workingServerTimeMicros = expectedNext
+
+                    // Update statistics
+                    overlapsTrimmed++
+                    val overlapMs = overlapUs / 1000
+                    overlapTrimmedMs += overlapMs
+
+                    Log.d(TAG, "Overlap: ${overlapUs / 1000.0}ms trimmed (${trimBytes} bytes)")
+                } else {
+                    // Entire chunk is overlap - skip it entirely
+                    Log.d(TAG, "Overlap: ${overlapUs / 1000.0}ms (chunk skipped, already played)")
+                    overlapsTrimmed++
+                    overlapTrimmedMs += overlapUs / 1000
+                    return
+                }
+            }
+        }
+
+        // Check for large discontinuity (new stream or seek) - for logging only
+        if (lastChunkServerTime > 0) {
+            val serverGap = serverTimeMicros - lastChunkServerTime
+            val expectedGapUs = (pcmData.size.toLong() / bytesPerFrame) * microsPerSample.toLong()
+
+            // If gap is more than 100ms different from expected, log it
+            if (abs(serverGap - expectedGapUs) > 100_000) {
+                Log.w(TAG, "Discontinuity detected: gap=${serverGap}us, expected=${expectedGapUs}us")
+            }
+        }
+        lastChunkServerTime = serverTimeMicros
+
+        // Calculate sample count for the (possibly trimmed) chunk
+        val sampleCount = workingPcmData.size / bytesPerFrame
+
+        // Skip empty chunks (can happen after trimming)
+        if (sampleCount == 0 || workingPcmData.isEmpty()) {
+            return
+        }
+
+        // Convert server time to client time
+        val clientPlayTime = timeFilter.serverToClient(workingServerTimeMicros)
+
+        // Create and queue the chunk
+        val chunk = AudioChunk(
+            serverTimeMicros = workingServerTimeMicros,
+            clientPlayTimeMicros = clientPlayTime,
+            pcmData = workingPcmData,
+            sampleCount = sampleCount
+        )
+        chunkQueue.add(chunk)
+        totalQueuedSamples.addAndGet(sampleCount.toLong())
+
+        // Update expected next timestamp based on this chunk's duration
+        val chunkDurationUs = (sampleCount * 1_000_000L) / sampleRate
+        expectedNextTimestampUs = workingServerTimeMicros + chunkDurationUs
+
+        // Handle start gating state transitions (from Python reference)
+        when (playbackState) {
+            PlaybackState.INITIALIZING -> {
+                // First chunk received - schedule start time
+                firstServerTimestampUs = workingServerTimeMicros
+                scheduledStartLoopTimeUs = clientPlayTime
+                // Estimate when this will be at the DAC (initially same as loop time)
+                scheduledStartDacTimeUs = clientPlayTime
+                playbackState = PlaybackState.WAITING_FOR_START
+                Log.i(TAG, "First chunk received: serverTime=${workingServerTimeMicros/1000}ms, " +
+                        "scheduled start at ${clientPlayTime/1000}ms, transitioning to WAITING_FOR_START")
+            }
+            PlaybackState.WAITING_FOR_START -> {
+                // Update scheduled start time as time sync improves
+                // Use the first server timestamp to maintain consistent anchor
+                val firstTs = firstServerTimestampUs
+                if (firstTs != null) {
+                    scheduledStartLoopTimeUs = timeFilter.serverToClient(firstTs)
+                    scheduledStartDacTimeUs = scheduledStartLoopTimeUs
+                }
+            }
+            PlaybackState.REANCHORING -> {
+                // During reanchor, we're resetting - treat as new first chunk
+                firstServerTimestampUs = workingServerTimeMicros
+                scheduledStartLoopTimeUs = clientPlayTime
+                scheduledStartDacTimeUs = clientPlayTime
+                playbackState = PlaybackState.WAITING_FOR_START
+                Log.i(TAG, "Reanchoring: new first chunk at serverTime=${workingServerTimeMicros/1000}ms")
+            }
+            PlaybackState.PLAYING -> {
+                // Normal operation - nothing special needed
+            }
+        }
+
+        // Log periodically
+        if (chunksReceived % 100 == 0L) {
+            val queuedMs = (totalQueuedSamples.get() * 1000) / sampleRate
+            Log.d(TAG, "Chunks: received=$chunksReceived, played=$chunksPlayed, dropped=$chunksDropped, " +
+                    "queued=${queuedMs}ms, state=$playbackState, gaps=$gapsFilled (${gapSilenceMs}ms), " +
+                    "overlaps=$overlapsTrimmed (${overlapTrimmedMs}ms)")
+        }
+    }
+
+    // ========================================================================
+    // Start Gating and Reanchoring (from Python reference)
+    // ========================================================================
+
+    /**
+     * Handle start gating - wait for the scheduled start time before playing.
+     *
+     * This ensures synchronized playback by:
+     * 1. Filling with silence until the scheduled DAC time
+     * 2. If we're late, dropping frames to catch up
+     * 3. Transitioning to PLAYING when ready
+     *
+     * @return true if we should continue waiting, false if ready to play
+     */
+    private fun handleStartGating(): Boolean {
+        val scheduledStart = scheduledStartLoopTimeUs ?: return false
+        val nowMicros = System.nanoTime() / 1000
+        val deltaUs = scheduledStart - nowMicros
+
+        when {
+            deltaUs > 0 -> {
+                // Not yet time to start - we could write silence to AudioTrack
+                // For now, just wait (the AudioTrack is already playing, outputting zeros)
+                val waitMs = minOf(deltaUs / 1000, 50L).coerceAtLeast(1)
+                Log.v(TAG, "Start gating: waiting ${deltaUs/1000}ms until scheduled start")
+                return true  // Keep waiting
+            }
+            deltaUs < -HARD_RESYNC_THRESHOLD_US -> {
+                // We're very late - need to drop frames to catch up
+                val framesToDrop = ((-deltaUs * sampleRate) / 1_000_000).toInt()
+                val bytesToDrop = framesToDrop * bytesPerFrame
+                var droppedFrames = 0
+
+                Log.w(TAG, "Start gating: late by ${-deltaUs/1000}ms, dropping $framesToDrop frames")
+
+                // Drop chunks until we've caught up
+                while (droppedFrames < framesToDrop) {
+                    val chunk = chunkQueue.peek() ?: break
+                    val chunkFrames = chunk.sampleCount
+
+                    if (droppedFrames + chunkFrames <= framesToDrop) {
+                        // Drop entire chunk
+                        chunkQueue.poll()
+                        totalQueuedSamples.addAndGet(-chunk.sampleCount.toLong())
+                        droppedFrames += chunkFrames
+                        chunksDropped++
+                    } else {
+                        // Partial drop not supported with chunk-based queue
+                        // Just break and start playing - we'll catch up via rate correction
+                        break
+                    }
+                }
+
+                framesDropped += droppedFrames.toLong()
+                playbackState = PlaybackState.PLAYING
+                Log.i(TAG, "Start gating complete: dropped $droppedFrames frames, now PLAYING")
+                return false  // Ready to play
+            }
+            else -> {
+                // Within tolerance - start playing
+                playbackState = PlaybackState.PLAYING
+                Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
+                return false  // Ready to play
+            }
+        }
+    }
+
+    /**
+     * Trigger a reanchor - reset sync state due to large error.
+     *
+     * Called when sync error exceeds REANCHOR_THRESHOLD_US.
+     * Respects cooldown to avoid thrashing.
+     *
+     * @return true if reanchor was triggered, false if still in cooldown
+     */
+    private fun triggerReanchor(): Boolean {
+        val nowMicros = System.nanoTime() / 1000
+        val timeSinceLastReanchor = nowMicros - lastReanchorTimeUs
+
+        if (timeSinceLastReanchor < REANCHOR_COOLDOWN_US) {
+            Log.v(TAG, "Reanchor blocked: cooldown has ${(REANCHOR_COOLDOWN_US - timeSinceLastReanchor)/1000}ms remaining")
+            return false
+        }
+
+        Log.w(TAG, "Triggering reanchor: clearing buffers and resetting state")
+
+        lastReanchorTimeUs = nowMicros
+        playbackState = PlaybackState.REANCHORING
+
+        // Clear audio state but keep AudioTrack playing
+        chunkQueue.clear()
+        totalQueuedSamples.set(0)
+        audioTrack?.flush()
+
+        // Reset start gating state
+        scheduledStartLoopTimeUs = null
+        scheduledStartDacTimeUs = null
+        firstServerTimestampUs = null
+
+        // Reset sync tracking
+        smoothedSyncErrorUs = 0.0
+        lastChunkServerTime = 0L
+        smoothedSyncErrorForCorrectionUs = 0.0
+        insertEveryNFrames = 0
+        dropEveryNFrames = 0
+
+        // Reset DAC calibration
+        dacCalibrations.clear()
+        dacCalibrationCounter = 0
+        firstFrameServerTimeMicros = 0L
+        totalFramesWritten = 0L
+        lastKnownPlaybackPositionUs = 0L
+        serverTimelineCursor = 0L
+        trueSyncErrorUs = 0L
+
+        // Transition to INITIALIZING to wait for new chunks
+        playbackState = PlaybackState.INITIALIZING
+        syncCorrections++
+
+        return true
+    }
+
+    /**
+     * Main playback loop that writes audio to AudioTrack at the correct time.
+     *
+     * Uses a state machine for start gating and sample insert/drop for sync correction.
+     * This is imperceptible to the listener (no pitch/tempo changes).
+     */
+    private fun startPlaybackLoop() {
+        scope.launch {
+            Log.d(TAG, "Playback loop started, initial state=$playbackState")
+
+            while (isActive && isPlaying.get()) {
+                if (isPaused.get()) {
+                    delay(10)
+                    continue
+                }
+
+                // State machine for synchronized playback
+                when (playbackState) {
+                    PlaybackState.INITIALIZING -> {
+                        // Waiting for first chunk - nothing to do
+                        delay(10)
+                        continue
+                    }
+
+                    PlaybackState.WAITING_FOR_START -> {
+                        // Check if we have enough buffer before starting
+                        val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
+                        if (bufferedMs < MIN_BUFFER_BEFORE_START_MS) {
+                            delay(10)
+                            continue
+                        }
+
+                        // Handle start gating logic
+                        if (handleStartGating()) {
+                            delay(10)  // Still waiting for scheduled start
+                            continue
+                        }
+                        // handleStartGating() transitioned us to PLAYING
+                    }
+
+                    PlaybackState.REANCHORING -> {
+                        // Waiting for new chunks after reanchor
+                        delay(10)
+                        continue
+                    }
+
+                    PlaybackState.PLAYING -> {
+                        // Normal playback - handled below
+                    }
+                }
+
+                // PLAYING state: process chunks with sync correction
+                val chunk = chunkQueue.peek()
+                if (chunk == null) {
+                    // No chunks available, wait a bit
+                    delay(5)
+                    continue
+                }
+
+                // Get current client time
+                val nowMicros = System.nanoTime() / 1000
+
+                // How far in the future should this chunk play?
+                val delayMicros = chunk.clientPlayTimeMicros - nowMicros
+
+                when {
+                    // Too early - wait
+                    delayMicros > BUFFER_HEADROOM_MS * 1000L -> {
+                        delay(10)
+                        continue
+                    }
+
+                    // Check for reanchor condition - very large error
+                    abs(delayMicros) > REANCHOR_THRESHOLD_US -> {
+                        Log.w(TAG, "Large sync error: ${delayMicros/1000}ms, considering reanchor")
+                        if (triggerReanchor()) {
+                            continue  // Reanchor triggered, restart loop
+                        }
+                        // Reanchor blocked by cooldown - fall through to hard resync
+                    }
+
+                    // Hard resync needed - chunk is way too late
+                    delayMicros < -HARD_RESYNC_THRESHOLD_US -> {
+                        // Chunk is more than 200ms late - drop it
+                        chunkQueue.poll()
+                        totalQueuedSamples.addAndGet(-chunk.sampleCount.toLong())
+                        chunksDropped++
+                        syncCorrections++
+                        Log.w(TAG, "Hard resync: dropped chunk ${delayMicros/1000}ms late")
+                        continue
+                    }
+
+                    // Hard resync needed - chunk is way too early
+                    delayMicros > HARD_RESYNC_THRESHOLD_US -> {
+                        // Chunk is more than 200ms early - wait more
+                        delay(50)
+                        continue
+                    }
+
+                    // Normal playback with sample insert/drop correction
+                    else -> {
+                        // Update the correction schedule based on current sync error
+                        updateCorrectionSchedule(delayMicros)
+                        // Play the chunk with corrections applied
+                        playChunkWithCorrection(chunk)
+                    }
+                }
+            }
+
+            Log.d(TAG, "Playback loop ended")
+        }
+    }
+
+    /**
+     * Update the sample insert/drop correction schedule based on sync error.
+     *
+     * This implements proportional control: the correction rate is proportional
+     * to the error magnitude, capped at MAX_SPEED_CORRECTION (4%).
+     *
+     * @param errorUs Sync error in microseconds (positive = ahead, negative = behind)
+     */
+    private fun updateCorrectionSchedule(errorUs: Long) {
+        // Smooth the error with EMA
+        smoothedSyncErrorForCorrectionUs = SYNC_ERROR_ALPHA * errorUs +
+                (1 - SYNC_ERROR_ALPHA) * smoothedSyncErrorForCorrectionUs
+
+        val absErr = abs(smoothedSyncErrorForCorrectionUs)
+
+        // Within deadband - no correction needed
+        if (absErr <= DEADBAND_THRESHOLD_US) {
+            insertEveryNFrames = 0
+            dropEveryNFrames = 0
+            return
+        }
+
+        // Proportional control: correction rate proportional to error
+        // Convert error from microseconds to frames
+        val framesError = absErr * sampleRate / 1_000_000.0
+
+        // How many corrections per second do we want?
+        // We aim to fix the error over CORRECTION_TARGET_SECONDS
+        val desiredCorrectionsPerSec = framesError / CORRECTION_TARGET_SECONDS
+
+        // Cap at maximum correction rate (4% of sample rate)
+        val maxCorrectionsPerSec = sampleRate * MAX_SPEED_CORRECTION
+        val correctionsPerSec = minOf(desiredCorrectionsPerSec, maxCorrectionsPerSec)
+
+        // Calculate interval between corrections
+        val intervalFrames = if (correctionsPerSec > 0) {
+            (sampleRate / correctionsPerSec).toInt().coerceAtLeast(1)
+        } else {
+            0
+        }
+
+        if (smoothedSyncErrorForCorrectionUs < 0) {
+            // Behind schedule (negative error) - drop frames to catch up
+            dropEveryNFrames = intervalFrames
+            insertEveryNFrames = 0
+            if (framesUntilNextDrop == 0) {
+                framesUntilNextDrop = intervalFrames
+            }
+        } else {
+            // Ahead of schedule (positive error) - insert frames to slow down
+            insertEveryNFrames = intervalFrames
+            dropEveryNFrames = 0
+            if (framesUntilNextInsert == 0) {
+                framesUntilNextInsert = intervalFrames
+            }
+        }
+
+        // Log correction schedule changes periodically
+        if (chunksPlayed % 100 == 0L && intervalFrames > 0) {
+            val correctionType = if (dropEveryNFrames > 0) "drop" else "insert"
+            Log.d(TAG, "Correction: $correctionType every $intervalFrames frames, " +
+                    "error=${smoothedSyncErrorForCorrectionUs.toLong()/1000}ms")
+        }
+    }
+
+    /**
+     * Write a chunk to AudioTrack with sample insert/drop corrections.
+     *
+     * When corrections are active, processes frame-by-frame to insert duplicates
+     * or skip frames. When no corrections are needed, writes in bulk for efficiency.
+     */
+    private fun playChunkWithCorrection(chunk: AudioChunk) {
+        chunkQueue.poll() // Remove from queue
+        totalQueuedSamples.addAndGet(-chunk.sampleCount.toLong())
+
+        val track = audioTrack ?: return
+
+        // Track the first frame's server time for DAC calibration mapping
+        if (firstFrameServerTimeMicros == 0L) {
+            firstFrameServerTimeMicros = chunk.serverTimeMicros
+            Log.d(TAG, "First frame server time: ${firstFrameServerTimeMicros/1000}ms")
+        }
+
+        // Decide if we need frame-by-frame processing or can use fast path
+        val needsCorrection = insertEveryNFrames > 0 || dropEveryNFrames > 0
+
+        val written = if (needsCorrection) {
+            writeWithCorrection(track, chunk.pcmData)
+        } else {
+            // Fast path: write entire chunk at once
+            val result = track.write(chunk.pcmData, 0, chunk.pcmData.size)
+            // Store last frame for potential future insertion
+            if (chunk.pcmData.size >= bytesPerFrame) {
+                if (lastOutputFrame.size != bytesPerFrame) {
+                    lastOutputFrame = ByteArray(bytesPerFrame)
+                }
+                System.arraycopy(
+                    chunk.pcmData, chunk.pcmData.size - bytesPerFrame,
+                    lastOutputFrame, 0, bytesPerFrame
+                )
+            }
+            result
+        }
+
+        if (written < 0) {
+            Log.e(TAG, "AudioTrack write error: $written")
+        }
+
+        // Update frame tracking for DAC calibration
+        val framesWritten = written / bytesPerFrame
+        totalFramesWritten += framesWritten
+
+        // Update server timeline cursor - where we've fed audio up to
+        val chunkDurationMicros = (chunk.sampleCount * 1_000_000L) / sampleRate
+        serverTimelineCursor = chunk.serverTimeMicros + chunkDurationMicros
+
+        chunksPlayed++
+
+        // Update DAC calibration periodically
+        dacCalibrationCounter++
+        if (dacCalibrationCounter >= DAC_CALIBRATION_UPDATE_INTERVAL) {
+            dacCalibrationCounter = 0
+            updateDacCalibration()
+        }
+
+        // Update sync error tracking
+        val nowMicros = System.nanoTime() / 1000
+        val actualError = nowMicros - chunk.clientPlayTimeMicros
+        smoothedSyncErrorUs = SYNC_ERROR_ALPHA * actualError + (1 - SYNC_ERROR_ALPHA) * smoothedSyncErrorUs
+    }
+
+    /**
+     * Write PCM data with sample insert/drop corrections applied.
+     *
+     * Processes the audio frame-by-frame, inserting duplicate frames or dropping
+     * frames according to the current correction schedule.
+     *
+     * @param track The AudioTrack to write to
+     * @param pcmData The raw PCM data
+     * @return Total bytes written to AudioTrack
+     */
+    private fun writeWithCorrection(track: AudioTrack, pcmData: ByteArray): Int {
+        val inputFrameCount = pcmData.size / bytesPerFrame
+        var totalWritten = 0
+        var inputOffset = 0
+
+        // Process each input frame
+        for (i in 0 until inputFrameCount) {
+            // Check if we should drop this frame (to speed up / catch up)
+            if (dropEveryNFrames > 0) {
+                framesUntilNextDrop--
+                if (framesUntilNextDrop <= 0) {
+                    // Drop this frame by skipping it
+                    framesUntilNextDrop = dropEveryNFrames
+                    framesDropped++
+                    inputOffset += bytesPerFrame
+                    continue
+                }
+            }
+
+            // Check if we should insert a duplicate frame (to slow down)
+            if (insertEveryNFrames > 0) {
+                framesUntilNextInsert--
+                if (framesUntilNextInsert <= 0 && lastOutputFrame.isNotEmpty()) {
+                    // Insert a duplicate of the last output frame
+                    framesUntilNextInsert = insertEveryNFrames
+                    val written = track.write(lastOutputFrame, 0, bytesPerFrame)
+                    if (written > 0) {
+                        totalWritten += written
+                        framesInserted++
+                    }
+                }
+            }
+
+            // Write the current frame
+            val written = track.write(pcmData, inputOffset, bytesPerFrame)
+            if (written > 0) {
+                totalWritten += written
+                // Store this frame as the last output frame
+                if (lastOutputFrame.size != bytesPerFrame) {
+                    lastOutputFrame = ByteArray(bytesPerFrame)
+                }
+                System.arraycopy(pcmData, inputOffset, lastOutputFrame, 0, bytesPerFrame)
+            }
+            inputOffset += bytesPerFrame
+        }
+
+        return totalWritten
+    }
+
+    // ========================================================================
+    // DAC Calibration - Maps system time to actual speaker output time
+    // ========================================================================
+
+    /**
+     * Update DAC calibration by reading the current AudioTrack timestamp.
+     *
+     * This captures the relationship between:
+     * - The frame position that has been presented to the DAC (hardware output)
+     * - The system time when that frame was at the DAC
+     * - The current loop time for interpolation
+     *
+     * Called periodically during playback to build calibration history.
+     */
+    private fun updateDacCalibration() {
+        val track = audioTrack ?: return
+        if (firstFrameServerTimeMicros == 0L) return  // No frames written yet
+
+        try {
+            // Get the timestamp - this tells us what frame is at the DAC right now
+            val success = track.getTimestamp(audioTimestamp)
+            if (!success) {
+                // Timestamp not available yet (common during initial playback)
+                return
+            }
+
+            val loopTimeMicros = System.nanoTime() / 1000
+            val dacTimeMicros = audioTimestamp.nanoTime / 1000
+            val framePosition = audioTimestamp.framePosition
+
+            // Sanity check: frame position should be positive and reasonable
+            if (framePosition <= 0 || framePosition > totalFramesWritten) {
+                Log.v(TAG, "DAC calibration: invalid frame position $framePosition (written: $totalFramesWritten)")
+                return
+            }
+
+            // Calculate the server timeline position for this frame
+            // framePosition tells us how many frames have been output to DAC
+            // We need to map this back to server time
+            val frameOffsetMicros = (framePosition * 1_000_000L) / sampleRate
+            val serverTimeMicros = firstFrameServerTimeMicros + frameOffsetMicros
+
+            // Store the calibration point
+            val calibration = DacCalibration(
+                dacTimeMicros = dacTimeMicros,
+                loopTimeMicros = loopTimeMicros,
+                framePosition = framePosition,
+                serverTimeMicros = serverTimeMicros
+            )
+            dacCalibrations.addLast(calibration)
+
+            // Limit the number of calibration points
+            while (dacCalibrations.size > DAC_CALIBRATION_MAX_ENTRIES) {
+                dacCalibrations.pollFirst()
+            }
+
+            // Update the last known playback position
+            lastKnownPlaybackPositionUs = serverTimeMicros
+
+            // Calculate true sync error: difference between where we are playing
+            // and where we should be playing based on server timeline
+            trueSyncErrorUs = lastKnownPlaybackPositionUs - serverTimelineCursor
+
+            // Log periodically for debugging
+            if (dacCalibrations.size % 20 == 0) {
+                Log.d(TAG, "DAC calibration: frames=$framePosition, " +
+                        "serverPos=${serverTimeMicros/1000}ms, " +
+                        "cursor=${serverTimelineCursor/1000}ms, " +
+                        "syncError=${trueSyncErrorUs/1000}ms, " +
+                        "calibrations=${dacCalibrations.size}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get AudioTrack timestamp", e)
+        }
+    }
+
+    /**
+     * Estimate the DAC presentation time for a given loop time.
+     *
+     * Uses linear interpolation between recent calibration points.
+     * The slope is clamped to [0.999, 1.001] to prevent wild extrapolation.
+     *
+     * @param loopTimeMicros The loop time (System.nanoTime()/1000) to estimate for
+     * @return Estimated DAC time in microseconds, or loopTimeMicros if no calibration available
+     */
+    fun estimateDacTimeForLoopTime(loopTimeMicros: Long): Long {
+        val calibrations = dacCalibrations.toList()
+        if (calibrations.isEmpty()) {
+            return loopTimeMicros  // No calibration, assume 1:1
+        }
+        if (calibrations.size == 1) {
+            // Single point - use offset only
+            val c = calibrations[0]
+            return loopTimeMicros + (c.dacTimeMicros - c.loopTimeMicros)
+        }
+
+        // Use the two most recent calibration points for interpolation
+        val c1 = calibrations[calibrations.size - 2]
+        val c2 = calibrations[calibrations.size - 1]
+
+        // Calculate slope (dDac/dLoop)
+        val loopDelta = c2.loopTimeMicros - c1.loopTimeMicros
+        if (loopDelta == 0L) {
+            return loopTimeMicros + (c2.dacTimeMicros - c2.loopTimeMicros)
+        }
+
+        val dacDelta = c2.dacTimeMicros - c1.dacTimeMicros
+        var slope = dacDelta.toDouble() / loopDelta.toDouble()
+
+        // Clamp slope to avoid wild extrapolation
+        slope = slope.coerceIn(DAC_SLOPE_MIN, DAC_SLOPE_MAX)
+
+        // Linear interpolation: dac = c2.dac + slope * (loop - c2.loop)
+        val estimatedDac = c2.dacTimeMicros + (slope * (loopTimeMicros - c2.loopTimeMicros)).toLong()
+        return estimatedDac
+    }
+
+    /**
+     * Estimate the loop time for a given DAC presentation time.
+     *
+     * Inverse of estimateDacTimeForLoopTime.
+     *
+     * @param dacTimeMicros The DAC presentation time to estimate for
+     * @return Estimated loop time in microseconds, or dacTimeMicros if no calibration available
+     */
+    fun estimateLoopTimeForDacTime(dacTimeMicros: Long): Long {
+        val calibrations = dacCalibrations.toList()
+        if (calibrations.isEmpty()) {
+            return dacTimeMicros  // No calibration, assume 1:1
+        }
+        if (calibrations.size == 1) {
+            // Single point - use offset only
+            val c = calibrations[0]
+            return dacTimeMicros + (c.loopTimeMicros - c.dacTimeMicros)
+        }
+
+        // Use the two most recent calibration points for interpolation
+        val c1 = calibrations[calibrations.size - 2]
+        val c2 = calibrations[calibrations.size - 1]
+
+        // Calculate slope (dLoop/dDac) - inverse of the forward direction
+        val dacDelta = c2.dacTimeMicros - c1.dacTimeMicros
+        if (dacDelta == 0L) {
+            return dacTimeMicros + (c2.loopTimeMicros - c2.dacTimeMicros)
+        }
+
+        val loopDelta = c2.loopTimeMicros - c1.loopTimeMicros
+        var slope = loopDelta.toDouble() / dacDelta.toDouble()
+
+        // Clamp slope to avoid wild extrapolation
+        slope = slope.coerceIn(DAC_SLOPE_MIN, DAC_SLOPE_MAX)
+
+        // Linear interpolation: loop = c2.loop + slope * (dac - c2.dac)
+        val estimatedLoop = c2.loopTimeMicros + (slope * (dacTimeMicros - c2.dacTimeMicros)).toLong()
+        return estimatedLoop
+    }
+
+    /**
+     * Get the current playback position in the server timeline.
+     *
+     * This is the server timestamp of the audio currently being output to the speakers.
+     *
+     * @return Server time in microseconds of current playback, or 0 if not available
+     */
+    fun getCurrentPlaybackPositionUs(): Long = lastKnownPlaybackPositionUs
+
+    /**
+     * Get the server timeline cursor (where we've fed audio up to).
+     *
+     * @return Server time in microseconds of the last audio chunk queued
+     */
+    fun getServerTimelineCursorUs(): Long = serverTimelineCursor
+
+    /**
+     * Get the true sync error (actual playback position vs. expected).
+     *
+     * Negative means we're playing audio that's behind where we should be.
+     * Positive means we're playing audio that's ahead of where we should be.
+     *
+     * @return Sync error in microseconds
+     */
+    fun getTrueSyncErrorUs(): Long = trueSyncErrorUs
+
+    /**
+     * Get the number of DAC calibration points collected.
+     */
+    fun getDacCalibrationCount(): Int = dacCalibrations.size
+
+    /**
+     * Get current playback state.
+     */
+    fun getPlaybackState(): PlaybackState = playbackState
+
+    /**
+     * Get current sync statistics.
+     */
+    fun getStats(): SyncStats {
+        return SyncStats(
+            chunksReceived = chunksReceived,
+            chunksPlayed = chunksPlayed,
+            chunksDropped = chunksDropped,
+            syncCorrections = syncCorrections,
+            queuedSamples = totalQueuedSamples.get(),
+            smoothedSyncErrorUs = smoothedSyncErrorUs.toLong(),
+            isPlaying = isPlaying.get(),
+            // Playback state machine
+            playbackState = playbackState,
+            scheduledStartLoopTimeUs = scheduledStartLoopTimeUs,
+            firstServerTimestampUs = firstServerTimestampUs,
+            // DAC calibration stats
+            dacCalibrationCount = dacCalibrations.size,
+            trueSyncErrorUs = trueSyncErrorUs,
+            lastKnownPlaybackPositionUs = lastKnownPlaybackPositionUs,
+            serverTimelineCursorUs = serverTimelineCursor,
+            totalFramesWritten = totalFramesWritten,
+            // Sample insert/drop correction stats
+            framesInserted = framesInserted,
+            framesDropped = framesDropped,
+            insertEveryNFrames = insertEveryNFrames,
+            dropEveryNFrames = dropEveryNFrames,
+            correctionErrorUs = smoothedSyncErrorForCorrectionUs.toLong(),
+            // Gap/overlap handling stats
+            gapsFilled = gapsFilled,
+            gapSilenceMs = gapSilenceMs,
+            overlapsTrimmed = overlapsTrimmed,
+            overlapTrimmedMs = overlapTrimmedMs
+        )
+    }
+
+    data class SyncStats(
+        val chunksReceived: Long,
+        val chunksPlayed: Long,
+        val chunksDropped: Long,
+        val syncCorrections: Long,
+        val queuedSamples: Long,
+        val smoothedSyncErrorUs: Long,
+        val isPlaying: Boolean,
+        // Playback state machine stats
+        val playbackState: PlaybackState = PlaybackState.INITIALIZING,
+        val scheduledStartLoopTimeUs: Long? = null,
+        val firstServerTimestampUs: Long? = null,
+        // DAC calibration stats
+        val dacCalibrationCount: Int = 0,
+        val trueSyncErrorUs: Long = 0,
+        val lastKnownPlaybackPositionUs: Long = 0,
+        val serverTimelineCursorUs: Long = 0,
+        val totalFramesWritten: Long = 0,
+        // Sample insert/drop correction stats
+        val framesInserted: Long = 0,
+        val framesDropped: Long = 0,
+        val insertEveryNFrames: Int = 0,
+        val dropEveryNFrames: Int = 0,
+        val correctionErrorUs: Long = 0,
+        // Gap/overlap handling stats
+        val gapsFilled: Long = 0,
+        val gapSilenceMs: Long = 0,
+        val overlapsTrimmed: Long = 0,
+        val overlapTrimmedMs: Long = 0
+    )
+}

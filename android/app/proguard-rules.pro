@@ -1,4 +1,7 @@
 # Add project specific ProGuard rules here.
-# Keep gomobile generated classes
--keep class player.** { *; }
--keep interface player.** { *; }
+
+# OkHttp
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep interface okhttp3.** { *; }
