@@ -68,4 +68,7 @@
     <string name="search_again">Search Again</string>
     <string name="server_found">Found: %s</string>
     <string name="auto_connecting">Auto-connecting…</string>
+
+    <!-- Notification -->
+    <string name="notification_channel_name">Music Playback</string>
 </resources>
