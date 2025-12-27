@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c:*)"
+    ]
+  }
+}

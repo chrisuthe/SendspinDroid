@@ -114,6 +114,7 @@ class SendSpinClient(
 
     private val okHttpClient = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS) // No timeout for WebSocket
+        .pingInterval(30, TimeUnit.SECONDS) // Keep connection alive through NAT/routers
         .build()
 
     private var webSocket: WebSocket? = null

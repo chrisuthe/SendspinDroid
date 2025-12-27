@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.wifi.WifiManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -96,6 +97,9 @@ class PlaybackService : MediaLibraryService() {
 
     // Wake lock to prevent CPU sleep during playback
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // WiFi lock to prevent WiFi from going to sleep during playback
+    private var wifiLock: WifiManager.WifiLock? = null
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -588,11 +592,12 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Acquires a partial wake lock to keep CPU running during audio playback.
-     * This prevents the system from killing our audio when the screen turns off.
+     * Acquires wake lock and WiFi lock to keep CPU and WiFi running during audio playback.
+     * This prevents the system from killing our audio or dropping the connection when the screen turns off.
      */
     @Suppress("DEPRECATION")
     private fun acquireWakeLock() {
+        // CPU wake lock
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(
@@ -604,15 +609,32 @@ class PlaybackService : MediaLibraryService() {
             wakeLock?.acquire(10 * 60 * 60 * 1000L) // 10 hours max, released on disconnect
             Log.d(TAG, "Wake lock acquired")
         }
+
+        // WiFi lock - keeps WiFi active even when screen is off
+        if (wifiLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "SendSpinDroid::AudioStreaming"
+            )
+        }
+        if (wifiLock?.isHeld == false) {
+            wifiLock?.acquire()
+            Log.d(TAG, "WiFi lock acquired")
+        }
     }
 
     /**
-     * Releases the wake lock when playback stops.
+     * Releases wake lock and WiFi lock when playback stops.
      */
     private fun releaseWakeLock() {
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
             Log.d(TAG, "Wake lock released")
+        }
+        if (wifiLock?.isHeld == true) {
+            wifiLock?.release()
+            Log.d(TAG, "WiFi lock released")
         }
     }
 
