@@ -191,6 +191,11 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Set up the toolbar as the action bar
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        supportActionBar?.setDisplayShowHomeEnabled(false)
+
         // Initialize discovery manager BEFORE setupUI, because setupUI calls
         // showSearchingView() which starts auto-discovery
         initializeDiscoveryManager()

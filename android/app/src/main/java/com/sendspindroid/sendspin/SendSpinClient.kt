@@ -215,17 +215,47 @@ class SendSpinClient(
      * @param volume Volume level from 0.0 to 1.0
      */
     fun setVolume(volume: Double) {
-        // TODO: Implement volume control
-        Log.d(TAG, "setVolume: $volume (not yet implemented)")
+        val volumePercent = (volume * 100).toInt().coerceIn(0, 100)
+        Log.d(TAG, "setVolume: $volumePercent%")
+        sendPlayerStateUpdate(volumePercent, false)
     }
 
     /**
-     * Send a command to the server.
+     * Send the current player state (volume/muted) to the server.
+     */
+    private fun sendPlayerStateUpdate(volume: Int, muted: Boolean) {
+        val message = JSONObject().apply {
+            put("type", "client/state")
+            put("payload", JSONObject().apply {
+                put("volume", volume)
+                put("muted", muted)
+            })
+        }
+        sendMessage(message)
+    }
+
+    /**
+     * Send a media command to the server (play, pause, next, previous, etc).
+     *
+     * Commands are sent as client/command messages with controller object.
+     * Protocol format: {"type": "client/command", "payload": {"controller": {"command": "pause"}}}
      */
     fun sendCommand(command: String) {
-        Log.d(TAG, "Sending command: $command")
-        // TODO: Implement command protocol
-        // Format: JSON message with command type
+        Log.i(TAG, ">>> Sending controller command: $command")
+
+        val payload = JSONObject().apply {
+            put("controller", JSONObject().apply {
+                put("command", command)
+            })
+        }
+
+        val message = JSONObject().apply {
+            put("type", "client/command")
+            put("payload", payload)
+        }
+
+        Log.i(TAG, ">>> Command message: $message")
+        sendMessage(message)
     }
 
     /**
@@ -284,6 +314,8 @@ class SendSpinClient(
             put("version", PROTOCOL_VERSION)
             put("supported_roles", JSONArray().apply {
                 put("player@v1")
+                put("controller@v1")  // Needed to send play/pause/next/previous commands
+                put("metadata@v1")    // Needed to receive track metadata
             })
             put("device_info", deviceInfo)
             // Note: aiosendspin uses "player_support" not "player@v1_support"
@@ -364,14 +396,8 @@ class SendSpinClient(
      * Send initial player state after handshake.
      */
     private fun sendPlayerState() {
-        val message = JSONObject().apply {
-            put("type", "client/state")
-            put("payload", JSONObject().apply {
-                put("volume", 100)
-                put("muted", false)
-            })
-        }
-        sendMessage(message)
+        // Send default player state (100% volume, not muted)
+        sendPlayerStateUpdate(100, false)
     }
 
     /**

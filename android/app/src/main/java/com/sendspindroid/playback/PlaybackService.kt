@@ -1,22 +1,22 @@
 package com.sendspindroid.playback
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.graphics.drawable.toBitmap
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import coil.ImageLoader
 import coil.request.ImageRequest
@@ -28,6 +28,8 @@ import com.sendspindroid.ServerRepository
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SyncAudioPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -64,12 +66,14 @@ import kotlinx.coroutines.launch
  * 3. AAudio/Oboe playback with sync correction
  * 4. Remove ExoPlayer dependency
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
 
     private var mediaSession: MediaLibrarySession? = null
-    private var exoPlayer: ExoPlayer? = null
+    private var sendSpinPlayer: SendSpinPlayer? = null
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
+    private var syncAudioPlayer: SyncAudioPlayer? = null
 
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -89,6 +93,9 @@ class PlaybackService : MediaLibraryService() {
 
     // Coroutine scope for background tasks (artwork loading)
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Wake lock to prevent CPU sleep during playback
+    private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -143,6 +150,7 @@ class PlaybackService : MediaLibraryService() {
         data class Error(val message: String) : ConnectionState()
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "PlaybackService created")
@@ -150,15 +158,22 @@ class PlaybackService : MediaLibraryService() {
         // Create notification channel for foreground service
         NotificationHelper.createNotificationChannel(this)
 
+        // Configure media notification provider to use our channel
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider.Builder(this)
+                .setChannelId(NotificationHelper.CHANNEL_ID)
+                .build()
+        )
+
         // Initialize Coil ImageLoader for artwork fetching
         imageLoader = ImageLoader.Builder(this)
             .crossfade(true)
             .build()
 
-        // Initialize ExoPlayer (temporary - will be replaced by AAudio)
+        // Initialize SendSpinPlayer
         initializePlayer()
 
-        // Create MediaSession wrapping ExoPlayer
+        // Create MediaSession wrapping SendSpinPlayer
         initializeMediaSession()
 
         // Initialize native Kotlin SendSpin client
@@ -168,12 +183,14 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Initializes the native Kotlin SendSpin client.
      */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun initializeSendSpinClient() {
         try {
             sendSpinClient = SendSpinClient(
                 deviceName = android.os.Build.MODEL,
                 callback = SendSpinClientCallback()
             )
+            sendSpinPlayer?.setSendSpinClient(sendSpinClient)
             Log.d(TAG, "SendSpinClient initialized")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize SendSpinClient", e)
@@ -190,19 +207,17 @@ class PlaybackService : MediaLibraryService() {
             Log.d(TAG, "Server discovered (ignored in service): $name at $address")
         }
 
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
         override fun onConnected(serverName: String) {
             mainHandler.post {
                 Log.d(TAG, "Connected to: $serverName")
                 _connectionState.value = ConnectionState.Connected(serverName)
+                sendSpinPlayer?.updateConnectionState(true, serverName)
 
                 // Broadcast connection state to controllers (MainActivity)
                 broadcastConnectionState(STATE_CONNECTED, serverName)
 
-                // Start playback
-                sendSpinClient?.play()
-
-                // TODO: Start audio playback when AAudio is implemented
-                // For now, just update state
+                // Note: Don't auto-start playback - let user control or server push state
             }
         }
 
@@ -210,6 +225,15 @@ class PlaybackService : MediaLibraryService() {
         override fun onDisconnected() {
             mainHandler.post {
                 Log.d(TAG, "Disconnected from server")
+
+                // Stop audio playback and release wake lock
+                syncAudioPlayer?.stop()
+                syncAudioPlayer?.release()
+                syncAudioPlayer = null
+                sendSpinPlayer?.setSyncAudioPlayer(null)
+                sendSpinPlayer?.updateConnectionState(false, null)
+                releaseWakeLock()
+
                 _connectionState.value = ConnectionState.Disconnected
 
                 // Broadcast disconnection to controllers (MainActivity)
@@ -229,29 +253,56 @@ class PlaybackService : MediaLibraryService() {
             mainHandler.post {
                 Log.d(TAG, "State changed: $state")
                 val newState = PlaybackStateType.fromString(state)
+
+                // Stop audio immediately when server stops/pauses playback
+                if (newState == PlaybackStateType.STOPPED || newState == PlaybackStateType.PAUSED) {
+                    Log.d(TAG, "State is stopped/paused - clearing audio buffer")
+                    syncAudioPlayer?.clearBuffer()
+                    syncAudioPlayer?.pause()
+                }
+
                 _playbackState.value = _playbackState.value.copy(playbackState = newState)
             }
         }
 
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
         override fun onGroupUpdate(groupId: String, groupName: String, playbackState: String) {
             mainHandler.post {
                 Log.d(TAG, "Group update: id=$groupId name=$groupName state=$playbackState")
 
                 val currentState = _playbackState.value
                 val isGroupChange = groupId.isNotEmpty() && groupId != currentState.groupId
+                val newPlaybackState = PlaybackStateType.fromString(playbackState)
+
+                // Handle playback state changes for audio player and notifications
+                if (playbackState.isNotEmpty()) {
+                    when (newPlaybackState) {
+                        PlaybackStateType.STOPPED, PlaybackStateType.PAUSED -> {
+                            Log.d(TAG, "Playback stopped/paused - clearing audio buffer")
+                            syncAudioPlayer?.clearBuffer()
+                            syncAudioPlayer?.pause()
+                        }
+                        PlaybackStateType.PLAYING -> {
+                            Log.d(TAG, "Playback playing - updating player state")
+                            // Player state will update from SyncAudioPlayer via setSyncAudioPlayer
+                            sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
+                        }
+                        else -> { /* No action needed */ }
+                    }
+                }
 
                 val newState = if (isGroupChange) {
                     currentState.withClearedMetadata().copy(
                         groupId = groupId,
                         groupName = groupName.ifEmpty { null },
-                        playbackState = PlaybackStateType.fromString(playbackState)
+                        playbackState = newPlaybackState
                     )
                 } else {
                     currentState.copy(
                         groupId = groupId.ifEmpty { currentState.groupId },
                         groupName = groupName.ifEmpty { currentState.groupName },
                         playbackState = if (playbackState.isNotEmpty())
-                            PlaybackStateType.fromString(playbackState)
+                            newPlaybackState
                         else currentState.playbackState
                     )
                 }
@@ -259,6 +310,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
         override fun onMetadataUpdate(
             title: String,
             artist: String,
@@ -277,6 +329,14 @@ class PlaybackService : MediaLibraryService() {
                     artworkUrl = artworkUrl.ifEmpty { null },
                     durationMs = durationMs,
                     positionMs = positionMs
+                )
+
+                // Update the player's media item for lock screen/notification
+                sendSpinPlayer?.updateMediaItem(
+                    title = title.ifEmpty { null },
+                    artist = artist.ifEmpty { null },
+                    album = album.ifEmpty { null },
+                    durationMs = durationMs
                 )
 
                 updateMediaMetadata(title, artist, album)
@@ -311,6 +371,51 @@ class PlaybackService : MediaLibraryService() {
                 // Broadcast error to controllers (MainActivity)
                 broadcastConnectionState(STATE_ERROR, errorMessage = message)
             }
+        }
+
+        override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int) {
+            mainHandler.post {
+                Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth")
+
+                // Stop existing player if any
+                syncAudioPlayer?.release()
+
+                // Get the time filter from SendSpinClient
+                val timeFilter = sendSpinClient?.getTimeFilter()
+                if (timeFilter == null) {
+                    Log.e(TAG, "Cannot start audio: time filter not available")
+                    return@post
+                }
+
+                // Acquire wake lock to prevent CPU sleep during playback
+                acquireWakeLock()
+
+                // Create and start the audio player
+                syncAudioPlayer = SyncAudioPlayer(
+                    timeFilter = timeFilter,
+                    sampleRate = sampleRate,
+                    channels = channels,
+                    bitDepth = bitDepth
+                ).apply {
+                    initialize()
+                    start()
+                }
+                sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
+
+                Log.i(TAG, "SyncAudioPlayer started: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit")
+            }
+        }
+
+        override fun onStreamClear() {
+            mainHandler.post {
+                Log.d(TAG, "Stream clear - flushing audio buffers")
+                syncAudioPlayer?.clearBuffer()
+            }
+        }
+
+        override fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray) {
+            // Queue chunk directly - SyncAudioPlayer handles threading internally
+            syncAudioPlayer?.queueChunk(serverTimeMicros, pcmData)
         }
     }
 
@@ -480,13 +585,41 @@ class PlaybackService : MediaLibraryService() {
     fun setVolume(volume: Float) {
         Log.d(TAG, "Setting volume: $volume")
         sendSpinClient?.setVolume(volume.toDouble())
-        exoPlayer?.volume = volume
+    }
+
+    /**
+     * Acquires a partial wake lock to keep CPU running during audio playback.
+     * This prevents the system from killing our audio when the screen turns off.
+     */
+    @Suppress("DEPRECATION")
+    private fun acquireWakeLock() {
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "SendSpinDroid::AudioPlayback"
+            )
+        }
+        if (wakeLock?.isHeld == false) {
+            wakeLock?.acquire(10 * 60 * 60 * 1000L) // 10 hours max, released on disconnect
+            Log.d(TAG, "Wake lock acquired")
+        }
+    }
+
+    /**
+     * Releases the wake lock when playback stops.
+     */
+    private fun releaseWakeLock() {
+        if (wakeLock?.isHeld == true) {
+            wakeLock?.release()
+            Log.d(TAG, "Wake lock released")
+        }
     }
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun initializeMediaSession() {
-        val player = exoPlayer ?: run {
-            Log.e(TAG, "Cannot create MediaSession: exoPlayer is null")
+        val player = sendSpinPlayer ?: run {
+            Log.e(TAG, "Cannot create MediaSession: sendSpinPlayer is null")
             return
         }
 
@@ -557,7 +690,7 @@ class PlaybackService : MediaLibraryService() {
                 Futures.immediateFuture(LibraryResult.ofItem(item, null))
             } else {
                 Futures.immediateFuture(
-                    LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                    LibraryResult.ofError(SessionError.ERROR_BAD_VALUE)
                 )
             }
         }
@@ -637,7 +770,7 @@ class PlaybackService : MediaLibraryService() {
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
                         Log.e(TAG, "CONNECT command missing server_address")
-                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+                        Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                     }
                 }
 
@@ -653,7 +786,7 @@ class PlaybackService : MediaLibraryService() {
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
                         Log.e(TAG, "SET_VOLUME command has invalid volume: $volume")
-                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_BAD_VALUE))
+                        Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                     }
                 }
 
@@ -788,18 +921,10 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun initializePlayer() {
-        val audioAttributes = AudioAttributes.Builder()
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .setUsage(C.USAGE_MEDIA)
-            .build()
-
-        exoPlayer = ExoPlayer.Builder(this)
-            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
-            .setHandleAudioBecomingNoisy(true)
-            .build()
-
-        Log.d(TAG, "ExoPlayer initialized (temporary - will be replaced by AAudio)")
+        sendSpinPlayer = SendSpinPlayer()
+        Log.d(TAG, "SendSpinPlayer initialized")
     }
 
     override fun onGetSession(
@@ -818,23 +943,32 @@ class PlaybackService : MediaLibraryService() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         Log.d(TAG, "onTaskRemoved")
 
-        val isPlaying = exoPlayer?.isPlaying == true
+        // Check if SyncAudioPlayer is actively playing (not ExoPlayer)
+        val audioPlayerState = syncAudioPlayer?.getPlaybackState()
+        val isPlaying = audioPlayerState == com.sendspindroid.sendspin.PlaybackState.PLAYING ||
+                        audioPlayerState == com.sendspindroid.sendspin.PlaybackState.WAITING_FOR_START
 
         if (!isPlaying) {
-            Log.d(TAG, "Not playing, stopping service")
+            Log.d(TAG, "Not playing (state=$audioPlayerState), stopping service")
             stopSelf()
         } else {
-            Log.d(TAG, "Currently playing, continuing in background")
+            Log.d(TAG, "Currently playing (state=$audioPlayerState), continuing in background")
         }
 
         super.onTaskRemoved(rootIntent)
     }
 
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
 
         serviceScope.cancel()
         imageLoader.shutdown()
+
+        // Release audio player and wake lock
+        syncAudioPlayer?.release()
+        syncAudioPlayer = null
+        releaseWakeLock()
 
         mediaSession?.run {
             release()
@@ -843,8 +977,8 @@ class PlaybackService : MediaLibraryService() {
 
         forwardingPlayer = null
 
-        exoPlayer?.release()
-        exoPlayer = null
+        sendSpinPlayer?.release()
+        sendSpinPlayer = null
 
         sendSpinClient?.destroy()
         sendSpinClient = null

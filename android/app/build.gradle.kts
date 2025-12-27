@@ -35,14 +35,10 @@ val hasDebugKeystore = debugKeystoreFile.exists()
 
 android {
     // Namespace replaces package attribute in AndroidManifest.xml (AGP 7.0+)
-    // Used for R class generation and resource ID namespacing
     namespace = "com.sendspindroid"
 
-    // compileSdk: SDK version used during compilation
-    // Version 35 = Android 15 (released 2024)
-    // Fix Issue #3: Updated to match targetSdk 35 for consistency
-    // Must be >= targetSdk to avoid build errors
-    compileSdk = 35
+    // compileSdk 36 required by androidx.core:core-ktx:1.17.0
+    compileSdk = 36
 
     // Signing configuration for release builds
     // Only configure if keystore exists (allows CI to build unsigned APKs)
@@ -69,12 +65,8 @@ android {
         // TODO 2025: Consider raising to API 29 (Android 10) for security
         minSdk = 26
 
-        // targetSdk: Version app is tested against
-        // Determines which platform behaviors apply
-        // API 35 = Android 15
-        // Fix Issue #3: Updated to API 35 for Google Play compliance (required Aug 2025)
-        // Note: May require edge-to-edge UI handling (WindowInsets, system bars)
-        targetSdk = 35
+        // targetSdk 36 = Android 16
+        targetSdk = 36
 
         // versionCode: Integer version for Google Play (auto-increment for each release)
         // Users never see this, but must increase with each update
@@ -182,9 +174,9 @@ dependencies {
     // OkHttp - HTTP client with WebSocket support
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
-    // Media3 - Modern media playback framework for background playback
+    // Media3 - MediaSession for background playback and system integration
+    // Note: ExoPlayer removed - using native SyncAudioPlayer for audio output
     implementation("androidx.media3:media3-session:1.9.0")
-    implementation("androidx.media3:media3-exoplayer:1.9.0")
     implementation("androidx.media3:media3-common:1.9.0")
 
     // Coil - Kotlin-first image loading library for album artwork

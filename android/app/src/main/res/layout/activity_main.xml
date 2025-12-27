@@ -5,12 +5,34 @@
     android:id="@+id/coordinatorLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
+    <!-- App Bar with Toolbar -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/appBarLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fitsSystemWindows="true"
+        app:liftOnScroll="true">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            app:title="@string/app_name"
+            app:titleCentered="false"
+            app:navigationIcon="@null"
+            style="@style/Widget.Material3.Toolbar" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Main Content Area (scrolls under app bar) -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp">
+        android:padding="16dp"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <!-- ============================================================ -->
         <!-- SEARCHING VIEW - Shown on startup while discovering servers  -->
@@ -25,32 +47,18 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
-            <TextView
-                android:id="@+id/searchingTitleText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/app_name"
-                android:textSize="28sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorOnBackground"
-                app:layout_constraintBottom_toTopOf="@id/searchingProgressIndicator"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintVertical_chainStyle="packed" />
-
             <com.google.android.material.progressindicator.CircularProgressIndicator
                 android:id="@+id/searchingProgressIndicator"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="48dp"
                 android:indeterminate="true"
                 app:indicatorSize="64dp"
                 app:trackThickness="4dp"
                 app:layout_constraintBottom_toTopOf="@id/searchingStatusText"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/searchingTitleText" />
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintVertical_chainStyle="packed" />
 
             <TextView
                 android:id="@+id/searchingStatusText"
@@ -98,36 +106,23 @@
             tools:visibility="gone">
 
             <TextView
-                android:id="@+id/manualTitleText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/app_name"
-                android:textSize="28sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorOnBackground"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
-
-            <TextView
                 android:id="@+id/manualStatusText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
                 android:text="@string/no_servers_found"
                 android:textSize="14sp"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:accessibilityLiveRegion="polite"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/manualTitleText" />
+                app:layout_constraintTop_toTopOf="parent" />
 
             <Button
                 android:id="@+id/searchAgainButton"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:minHeight="48dp"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="16dp"
                 android:text="@string/search_again"
                 app:icon="@drawable/ic_refresh"
                 app:iconGravity="textStart"
@@ -195,7 +190,6 @@
                 android:id="@+id/connectionStatusBar"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
                 app:cardBackgroundColor="?attr/colorSurfaceVariant"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="2dp"
@@ -208,14 +202,13 @@
                     android:layout_height="wrap_content"
                     android:padding="12dp">
 
-                    <!-- Server Icon -->
+                    <!-- Connection Status Icon -->
                     <ImageView
                         android:id="@+id/connectedServerIcon"
                         android:layout_width="24dp"
                         android:layout_height="24dp"
                         android:src="@drawable/ic_server_connected"
-                        android:contentDescription="@null"
-                        app:tint="?attr/colorPrimary"
+                        android:contentDescription="@string/accessibility_connected"
                         app:layout_constraintBottom_toBottomOf="parent"
                         app:layout_constraintStart_toStartOf="parent"
                         app:layout_constraintTop_toTopOf="parent" />
@@ -248,7 +241,7 @@
                         android:textColor="?attr/colorError"
                         app:backgroundTint="?attr/colorErrorContainer"
                         app:icon="@drawable/ic_server_disconnected"
-                        app:iconTint="?attr/colorError"
+                        app:iconTint="@null"
                         app:iconGravity="textStart"
                         app:iconSize="18dp"
                         app:layout_constraintBottom_toBottomOf="parent"
@@ -300,6 +293,7 @@
                 android:id="@+id/nowPlayingContent"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
+                android:layout_marginTop="16dp"
                 android:visibility="visible"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -311,7 +305,6 @@
                     android:id="@+id/albumArtContainer"
                     android:layout_width="0dp"
                     android:layout_height="0dp"
-                    android:layout_marginTop="16dp"
                     app:layout_constraintDimensionRatio="1:1"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
