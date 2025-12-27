@@ -16,16 +16,16 @@ plugins {
 // Ensures consistent Java version across different environments
 java {
     toolchain {
-        // Java 17 is LTS and required for modern Android development
-        // Compatible with AGP 8.x and Kotlin 2.x
-        languageVersion = JavaLanguageVersion.of(17)
+        // Java 21 is current LTS (Sept 2023), bundled with Android Studio
+        // Compatible with AGP 8.x, Kotlin 2.x, and Gradle 9.x
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
 // Kotlin JVM target configuration
 // Must match Java version for bytecode compatibility
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
 }
 
 // Check if debug keystore exists (for local development signing)
@@ -119,16 +119,16 @@ android {
     }
 
     // Java bytecode version compatibility
-    // Must match toolchain version (17)
+    // Must match toolchain version (21)
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
     }
 
     // Kotlin compiler JVM target
-    // Generates bytecode compatible with Java 17
+    // Generates bytecode compatible with Java 21
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = "21"
 
         // TODO: Consider enabling these Kotlin compiler options:
         // freeCompilerArgs += listOf(
@@ -162,58 +162,33 @@ android {
 
 dependencies {
     // AndroidX Core KTX - Kotlin extensions for Android framework APIs
-    // Version 1.12.0 (Dec 2023)
-    // TODO 2025: Update to 1.13.x or 1.15.x for latest extensions
-    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.core:core-ktx:1.17.0")
 
     // AppCompat - Backward-compatible implementations of new Android features
-    // Provides Material theming, ActionBar, and platform compatibility
-    // Version 1.6.1 (Dec 2023)
-    // TODO 2025: Update to 1.7.x for latest features
-    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
 
     // Material Design Components - Google's Material Design 3 library
-    // Provides Material widgets (Button, Card, Slider, TextInput, etc.)
-    // Version 1.11.0 (Jan 2024)
-    // TODO 2025: Update to 1.12.x or later for Material 3 Expressive features
-    implementation("com.google.android.material:material:1.11.0")
+    implementation("com.google.android.material:material:1.13.0")
 
     // ConstraintLayout - Flexible layout manager for complex UIs
-    // More performant than nested LinearLayouts
-    // Version 2.1.4 (Jul 2022)
-    // TODO: Update to 2.2.x when stable (beta as of 2024)
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.constraintlayout:constraintlayout:2.2.1")
 
     // Lifecycle Runtime KTX - Lifecycle-aware components and coroutine support
-    // Provides lifecycleScope for safe coroutine management
-    // Version 2.7.0 (Jan 2024)
-    // TODO 2025: Update to 2.8.x or 2.9.x
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.0")
 
     // Kotlin Coroutines for Android - Structured concurrency primitives
-    // Provides Dispatchers.Main, Dispatchers.IO for threading
-    // Version 1.7.3 (Sep 2023)
-    // TODO 2025: Update to 1.8.x or 1.9.x for performance improvements
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // OkHttp - HTTP client with WebSocket support
-    // Used for SendSpin protocol communication
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // Media3 - Modern media playback framework for background playback
-    // Version 1.6.0 (2024)
-    // Provides MediaSession for background playback and media controls
-    implementation("androidx.media3:media3-session:1.6.0")
-    // ExoPlayer integration for advanced media playback features
-    implementation("androidx.media3:media3-exoplayer:1.6.0")
-    // Common Media3 types and interfaces
-    implementation("androidx.media3:media3-common:1.6.0")
+    implementation("androidx.media3:media3-session:1.9.0")
+    implementation("androidx.media3:media3-exoplayer:1.9.0")
+    implementation("androidx.media3:media3-common:1.9.0")
 
-    // Coil - Kotlin-first image loading library
-    // Used for loading album artwork from URLs
-    // Lighter and more Kotlin-idiomatic than Glide
-    // Version 2.5.0 (2024)
-    implementation("io.coil-kt:coil:2.5.0")
+    // Coil - Kotlin-first image loading library for album artwork
+    implementation("io.coil-kt:coil:2.7.0")
 
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)

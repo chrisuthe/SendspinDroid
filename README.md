@@ -33,7 +33,7 @@ SendSpin Server ──WebSocket──► SendSpinClient ──AAudio──► Au
 
 - Android Studio
 - Android SDK (API 26+)
-- Java 17
+- Java 21 (bundled with Android Studio)
 
 ### Build
 
