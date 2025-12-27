@@ -24,3 +24,5 @@ android/gradle-8.4/
 android/gradle.zip
 android/player/build/
 
+keystore_base64.txt
+*.keystore
