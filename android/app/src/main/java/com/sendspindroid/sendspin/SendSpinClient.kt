@@ -218,7 +218,30 @@ class SendSpinClient(
     fun setVolume(volume: Double) {
         val volumePercent = (volume * 100).toInt().coerceIn(0, 100)
         Log.d(TAG, "setVolume: $volumePercent%")
-        sendPlayerStateUpdate(volumePercent, false)
+        sendVolumeCommand(volumePercent)
+    }
+
+    /**
+     * Send volume command to the server.
+     * Uses client/command format like other controller commands.
+     */
+    private fun sendVolumeCommand(volumePercent: Int) {
+        Log.i(TAG, ">>> Sending volume command: $volumePercent%")
+
+        val payload = JSONObject().apply {
+            put("controller", JSONObject().apply {
+                put("command", "volume")
+                put("value", volumePercent)
+            })
+        }
+
+        val message = JSONObject().apply {
+            put("type", "client/command")
+            put("payload", payload)
+        }
+
+        Log.i(TAG, ">>> Volume command message: $message")
+        sendMessage(message)
     }
 
     /**
