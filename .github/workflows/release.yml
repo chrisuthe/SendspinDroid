@@ -83,6 +83,7 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: ${{ steps.get_version.outputs.VERSION }}
         files: android/app/build/outputs/apk/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
         draft: false
         prerelease: false
