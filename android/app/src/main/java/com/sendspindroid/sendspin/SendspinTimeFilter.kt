@@ -75,6 +75,12 @@ class SendspinTimeFilter {
         get() = if (p00.isFinite() && p00 >= 0) sqrt(p00).toLong() else Long.MAX_VALUE
 
     /**
+     * Number of measurements collected so far.
+     */
+    val measurementCountValue: Int
+        get() = measurementCount
+
+    /**
      * Reset the filter to initial state.
      */
     fun reset() {

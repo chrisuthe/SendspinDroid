@@ -114,6 +114,7 @@ class PlaybackService : MediaLibraryService() {
         const val COMMAND_SET_VOLUME = "com.sendspindroid.SET_VOLUME"
         const val COMMAND_NEXT = "com.sendspindroid.NEXT"
         const val COMMAND_PREVIOUS = "com.sendspindroid.PREVIOUS"
+        const val COMMAND_GET_STATS = "com.sendspindroid.GET_STATS"
 
         // Command arguments
         const val ARG_SERVER_ADDRESS = "server_address"
@@ -133,6 +134,9 @@ class PlaybackService : MediaLibraryService() {
         const val EXTRA_CONNECTION_STATE = "connection_state"
         const val EXTRA_SERVER_NAME = "server_name"
         const val EXTRA_ERROR_MESSAGE = "error_message"
+
+        // Session extras keys for volume (server → controller)
+        const val EXTRA_VOLUME = "volume"
 
         // Connection state values
         const val STATE_DISCONNECTED = "disconnected"
@@ -436,6 +440,11 @@ class PlaybackService : MediaLibraryService() {
                 // Convert from 0-100 to 0.0-1.0 and apply to local audio player
                 val volumeFloat = volume / 100f
                 syncAudioPlayer?.setVolume(volumeFloat)
+                // Broadcast volume to UI controllers
+                val extras = Bundle().apply {
+                    putInt(EXTRA_VOLUME, volume)
+                }
+                mediaSession?.setSessionExtras(extras)
             }
         }
     }
@@ -869,6 +878,8 @@ class PlaybackService : MediaLibraryService() {
                     val volume = args.getFloat(ARG_VOLUME, -1f)
                     if (volume in 0f..1f) {
                         setVolume(volume)
+                        // Also send volume command to server
+                        sendSpinClient?.setVolume(volume.toDouble())
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
                         Log.e(TAG, "SET_VOLUME command has invalid volume: $volume")
@@ -888,12 +899,80 @@ class PlaybackService : MediaLibraryService() {
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
+                COMMAND_GET_STATS -> {
+                    val statsBundle = getStats()
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, statsBundle))
+                }
+
                 else -> {
                     Log.w(TAG, "Unknown custom command: ${customCommand.customAction}")
                     super.onCustomCommand(session, controller, customCommand, args)
                 }
             }
         }
+    }
+
+    /**
+     * Collects current stats from SyncAudioPlayer and SendSpinClient.
+     * Returns a Bundle containing all stats for Stats for Nerds display.
+     */
+    private fun getStats(): Bundle {
+        val bundle = Bundle()
+
+        // Get stats from SyncAudioPlayer
+        val audioStats = syncAudioPlayer?.getStats()
+        if (audioStats != null) {
+            // Playback state
+            bundle.putString("playback_state", audioStats.playbackState.name)
+            bundle.putBoolean("is_playing", audioStats.isPlaying)
+
+            // Sync status
+            bundle.putLong("sync_error_us", audioStats.smoothedSyncErrorUs)
+            bundle.putLong("true_sync_error_us", audioStats.trueSyncErrorUs)
+
+            // Buffer
+            bundle.putLong("queued_samples", audioStats.queuedSamples)
+            bundle.putLong("chunks_received", audioStats.chunksReceived)
+            bundle.putLong("chunks_played", audioStats.chunksPlayed)
+            bundle.putLong("chunks_dropped", audioStats.chunksDropped)
+            bundle.putLong("gaps_filled", audioStats.gapsFilled)
+            bundle.putLong("gap_silence_ms", audioStats.gapSilenceMs)
+            bundle.putLong("overlaps_trimmed", audioStats.overlapsTrimmed)
+            bundle.putLong("overlap_trimmed_ms", audioStats.overlapTrimmedMs)
+
+            // Sync correction
+            bundle.putInt("insert_every_n_frames", audioStats.insertEveryNFrames)
+            bundle.putInt("drop_every_n_frames", audioStats.dropEveryNFrames)
+            bundle.putLong("frames_inserted", audioStats.framesInserted)
+            bundle.putLong("frames_dropped", audioStats.framesDropped)
+            bundle.putLong("sync_corrections", audioStats.syncCorrections)
+            bundle.putLong("correction_error_us", audioStats.correctionErrorUs)
+
+            // DAC calibration
+            bundle.putInt("dac_calibration_count", audioStats.dacCalibrationCount)
+            bundle.putLong("total_frames_written", audioStats.totalFramesWritten)
+            bundle.putLong("last_known_playback_position_us", audioStats.lastKnownPlaybackPositionUs)
+            bundle.putLong("server_timeline_cursor_us", audioStats.serverTimelineCursorUs)
+
+            // Timing
+            audioStats.scheduledStartLoopTimeUs?.let {
+                bundle.putLong("scheduled_start_loop_time_us", it)
+            }
+            audioStats.firstServerTimestampUs?.let {
+                bundle.putLong("first_server_timestamp_us", it)
+            }
+        }
+
+        // Get stats from SendSpinClient (clock sync)
+        sendSpinClient?.let { client ->
+            val timeFilter = client.getTimeFilter()
+            bundle.putBoolean("clock_ready", timeFilter.isReady)
+            bundle.putLong("clock_offset_us", timeFilter.offsetMicros)
+            bundle.putLong("clock_error_us", timeFilter.errorMicros)
+            bundle.putInt("measurement_count", timeFilter.measurementCountValue)
+        }
+
+        return bundle
     }
 
     private fun getRootChildren(): List<MediaItem> {

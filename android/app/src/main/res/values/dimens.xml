@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base spacing units (Material 3 8dp grid) -->
+    <dimen name="spacing_xs">4dp</dimen>
+    <dimen name="spacing_sm">8dp</dimen>
+    <dimen name="spacing_md">16dp</dimen>
+    <dimen name="spacing_lg">24dp</dimen>
+    <dimen name="spacing_xl">32dp</dimen>
+    <dimen name="spacing_xxl">48dp</dimen>
+
+    <!-- Screen padding -->
+    <dimen name="screen_padding">16dp</dimen>
+    <dimen name="screen_padding_horizontal">16dp</dimen>
+    <dimen name="screen_padding_vertical">16dp</dimen>
+
+    <!-- Card styling -->
+    <dimen name="card_corner_radius">12dp</dimen>
+    <dimen name="card_corner_radius_large">16dp</dimen>
+    <dimen name="card_elevation">8dp</dimen>
+
+    <!-- Album art -->
+    <dimen name="album_art_max_width">280dp</dimen>
+    <dimen name="album_art_max_width_tablet">360dp</dimen>
+    <dimen name="album_art_corner_radius">16dp</dimen>
+
+    <!-- Playback controls -->
+    <dimen name="playback_button_size_small">56dp</dimen>
+    <dimen name="playback_button_size_large">72dp</dimen>
+    <dimen name="playback_button_spacing">24dp</dimen>
+    <dimen name="playback_icon_size_small">28dp</dimen>
+    <dimen name="playback_icon_size_large">36dp</dimen>
+
+    <!-- Typography margins -->
+    <dimen name="title_margin_top">24dp</dimen>
+    <dimen name="subtitle_margin_top">4dp</dimen>
+    <dimen name="controls_margin_top">24dp</dimen>
+    <dimen name="volume_margin_top">32dp</dimen>
+
+    <!-- Progress indicators -->
+    <dimen name="progress_indicator_size">64dp</dimen>
+    <dimen name="progress_track_thickness">4dp</dimen>
+
+    <!-- Empty state -->
+    <dimen name="empty_icon_size">64dp</dimen>
+    <dimen name="empty_text_margin_top">16dp</dimen>
+</resources>

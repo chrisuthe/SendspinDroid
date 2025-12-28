@@ -169,6 +169,46 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/serversLabel" />
 
+            <!-- Empty state when no servers are available -->
+            <LinearLayout
+                android:id="@+id/emptyServerListView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone"
+                app:layout_constraintTop_toBottomOf="@id/serversLabel"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_server"
+                    android:alpha="0.4"
+                    android:importantForAccessibility="no" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/empty_server_list_title"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/empty_server_list_subtitle"
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:alpha="0.7"
+                    android:gravity="center" />
+
+            </LinearLayout>
+
         </androidx.constraintlayout.widget.ConstraintLayout>
 
         <!-- ============================================================ -->
@@ -190,9 +230,11 @@
                 android:id="@+id/connectionStatusBar"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                app:cardBackgroundColor="?attr/colorPrimaryContainer"
                 app:cardCornerRadius="12dp"
-                app:cardElevation="2dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="1dp"
+                app:strokeColor="?attr/colorOutlineVariant"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent">
@@ -309,7 +351,7 @@
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
-                    app:layout_constraintWidth_max="280dp"
+                    app:layout_constraintWidth_max="@dimen/album_art_max_width"
                     app:layout_constraintWidth_percent="0.7">
 
                     <com.google.android.material.card.MaterialCardView
@@ -345,17 +387,18 @@
 
                 </FrameLayout>
 
-                <!-- Track Info -->
+                <!-- Track Info - Title with larger, bolder text -->
                 <TextView
                     android:id="@+id/nowPlayingText"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="@dimen/title_margin_top"
                     android:gravity="center"
                     android:text="@string/not_playing"
-                    android:textSize="20sp"
+                    android:textSize="22sp"
                     android:textStyle="bold"
                     android:textColor="?attr/colorOnBackground"
+                    android:letterSpacing="-0.01"
                     android:maxLines="2"
                     android:ellipsize="end"
                     android:importantForAccessibility="yes"
@@ -364,15 +407,17 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@id/albumArtContainer" />
 
+                <!-- Metadata (artist/album) - Dimmer, smaller secondary text -->
                 <TextView
                     android:id="@+id/metadataText"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
+                    android:layout_marginTop="@dimen/spacing_xs"
                     android:gravity="center"
                     android:text=""
                     android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
+                    android:alpha="0.8"
                     android:maxLines="2"
                     android:ellipsize="end"
                     android:importantForAccessibility="yes"
@@ -386,7 +431,7 @@
                     android:id="@+id/playbackControlsContainer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="@dimen/controls_margin_top"
                     android:orientation="horizontal"
                     android:gravity="center"
                     app:layout_constraintEnd_toEndOf="parent"
@@ -396,34 +441,34 @@
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/previousButton"
                         style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
-                        android:layout_marginEnd="16dp"
+                        android:layout_width="@dimen/playback_button_size_small"
+                        android:layout_height="@dimen/playback_button_size_small"
+                        android:layout_marginEnd="@dimen/playback_button_spacing"
                         android:contentDescription="@string/accessibility_previous_button"
                         android:enabled="false"
                         app:icon="@drawable/ic_skip_previous"
-                        app:iconSize="28dp" />
+                        app:iconSize="@dimen/playback_icon_size_small" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/playPauseButton"
                         style="@style/Widget.Material3.Button.IconButton.Filled"
-                        android:layout_width="72dp"
-                        android:layout_height="72dp"
+                        android:layout_width="@dimen/playback_button_size_large"
+                        android:layout_height="@dimen/playback_button_size_large"
                         android:contentDescription="@string/accessibility_play_button"
                         android:enabled="false"
                         app:icon="@drawable/ic_play"
-                        app:iconSize="36dp" />
+                        app:iconSize="@dimen/playback_icon_size_large" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/nextButton"
                         style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
-                        android:layout_marginStart="16dp"
+                        android:layout_width="@dimen/playback_button_size_small"
+                        android:layout_height="@dimen/playback_button_size_small"
+                        android:layout_marginStart="@dimen/playback_button_spacing"
                         android:contentDescription="@string/accessibility_next_button"
                         android:enabled="false"
                         app:icon="@drawable/ic_skip_next"
-                        app:iconSize="28dp" />
+                        app:iconSize="@dimen/playback_icon_size_small" />
 
                 </LinearLayout>
 
@@ -432,8 +477,8 @@
                     android:id="@+id/volumeContainer"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="32dp"
-                    android:layout_marginBottom="16dp"
+                    android:layout_marginTop="@dimen/volume_margin_top"
+                    android:layout_marginBottom="@dimen/spacing_md"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     app:layout_constraintEnd_toEndOf="parent"

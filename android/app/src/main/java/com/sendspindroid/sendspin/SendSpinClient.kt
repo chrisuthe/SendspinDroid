@@ -19,10 +19,15 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.ConnectException
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import javax.net.ssl.SSLHandshakeException
 
 /**
  * Native Kotlin SendSpin client.
@@ -129,6 +134,10 @@ class SendSpinClient(
     private var handshakeComplete = false
     private var timeSyncRunning = false
 
+    // Player state (for client/state messages)
+    private var currentVolume: Int = 100
+    private var currentMuted: Boolean = false
+
     // Time synchronization (Kalman filter)
     private val timeFilter = SendspinTimeFilter()
 
@@ -220,44 +229,36 @@ class SendSpinClient(
      */
     fun setVolume(volume: Double) {
         val volumePercent = (volume * 100).toInt().coerceIn(0, 100)
+        currentVolume = volumePercent
         Log.d(TAG, "setVolume: $volumePercent%")
-        sendVolumeCommand(volumePercent)
+        // Use client/state format per SendSpin protocol
+        sendPlayerStateUpdate(volumePercent, currentMuted)
     }
 
     /**
-     * Send volume command to the server.
-     * Uses client/command format like other controller commands.
+     * Set muted state and send to server.
      */
-    private fun sendVolumeCommand(volumePercent: Int) {
-        Log.i(TAG, ">>> Sending volume command: $volumePercent%")
-
-        val payload = JSONObject().apply {
-            put("controller", JSONObject().apply {
-                put("command", "volume")
-                put("value", volumePercent)
-            })
-        }
-
-        val message = JSONObject().apply {
-            put("type", "client/command")
-            put("payload", payload)
-        }
-
-        Log.i(TAG, ">>> Volume command message: $message")
-        sendMessage(message)
+    fun setMuted(muted: Boolean) {
+        currentMuted = muted
+        Log.d(TAG, "setMuted: $muted")
+        sendPlayerStateUpdate(currentVolume, muted)
     }
 
     /**
      * Send the current player state (volume/muted) to the server.
+     * Format: {"type": "client/state", "payload": {"state": "synchronized", "volume": 75, "muted": false}}
      */
     private fun sendPlayerStateUpdate(volume: Int, muted: Boolean) {
+        Log.i(TAG, ">>> Sending player state: volume=$volume%, muted=$muted")
         val message = JSONObject().apply {
             put("type", "client/state")
             put("payload", JSONObject().apply {
+                put("state", "synchronized")
                 put("volume", volume)
                 put("muted", muted)
             })
         }
+        Log.i(TAG, ">>> Player state message: $message")
         sendMessage(message)
     }
 
@@ -482,8 +483,36 @@ class SendSpinClient(
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "WebSocket failure", t)
-            _connectionState.value = ConnectionState.Error(t.message ?: "Connection failed")
-            callback.onError(t.message ?: "Connection failed")
+            val errorMessage = getSpecificErrorMessage(t)
+            _connectionState.value = ConnectionState.Error(errorMessage)
+            callback.onError(errorMessage)
+        }
+    }
+
+    /**
+     * Maps exception types to user-friendly error messages.
+     */
+    private fun getSpecificErrorMessage(t: Throwable): String {
+        // Check the root cause for wrapped exceptions
+        val cause = t.cause ?: t
+
+        return when (cause) {
+            is ConnectException -> "Server refused connection. Check if SendSpin is running."
+            is UnknownHostException -> "Server not found. Check the address."
+            is SocketTimeoutException -> "Connection timeout. Server not responding."
+            is NoRouteToHostException -> "Network unreachable. Check WiFi connection."
+            is SSLHandshakeException -> "Secure connection failed."
+            else -> {
+                // Check message for additional hints
+                val message = t.message?.lowercase() ?: ""
+                when {
+                    message.contains("refused") -> "Server refused connection. Check if SendSpin is running."
+                    message.contains("timeout") -> "Connection timeout. Server not responding."
+                    message.contains("unreachable") -> "Network unreachable. Check WiFi connection."
+                    message.contains("host") -> "Server not found. Check the address."
+                    else -> t.message ?: "Connection failed"
+                }
+            }
         }
     }
 
@@ -513,6 +542,7 @@ class SendSpinClient(
                 "server/hello" -> handleServerHello(payload)
                 "server/time" -> handleServerTime(payload)
                 "server/state" -> handleServerState(payload)
+                "server/command" -> handleServerCommand(payload)
                 "group/update" -> handleGroupUpdate(payload)
                 "stream/start" -> handleStreamStart(payload)
                 "stream/clear" -> handleStreamClear()
@@ -621,6 +651,42 @@ class SendSpinClient(
                 Log.d(TAG, "Server volume update: $volume%")
                 callback.onVolumeChanged(volume)
             }
+        }
+    }
+
+    /**
+     * Handle server/command - player volume/mute control from server.
+     *
+     * Example payload:
+     * {"player": {"command": "volume", "volume": 75}}
+     * {"player": {"command": "mute", "mute": true}}
+     */
+    private fun handleServerCommand(payload: JSONObject?) {
+        if (payload == null) return
+
+        val player = payload.optJSONObject("player") ?: return
+        val command = player.optString("command", "")
+
+        when (command) {
+            "volume" -> {
+                val volume = player.optInt("volume", -1)
+                if (volume in 0..100) {
+                    Log.d(TAG, "Server command: set volume to $volume%")
+                    currentVolume = volume
+                    callback.onVolumeChanged(volume)
+                    // Send state update back to server per spec
+                    sendPlayerStateUpdate(currentVolume, currentMuted)
+                }
+            }
+            "mute" -> {
+                val mute = player.optBoolean("mute", false)
+                Log.d(TAG, "Server command: set mute to $mute")
+                currentMuted = mute
+                // TODO: Add onMutedChanged callback if needed
+                // For now, send volume update with muted state
+                sendPlayerStateUpdate(currentVolume, currentMuted)
+            }
+            else -> Log.d(TAG, "Unknown player command: $command")
         }
     }
 

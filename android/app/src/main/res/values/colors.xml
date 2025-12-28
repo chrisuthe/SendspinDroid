@@ -113,4 +113,16 @@
     <color name="status_connected">#2196F3</color>       <!-- Blue - connected and active -->
     <color name="status_error">#F44336</color>           <!-- Red - connection error -->
     <color name="status_disconnected">#9E9E9E</color>    <!-- Gray - disconnected -->
+
+    <!-- Stats for Nerds - Dark Technical Aesthetic (matching Windows WPF reference) -->
+    <color name="stats_background">#1a1a2e</color>           <!-- Dark navy background -->
+    <color name="stats_card_background">#2d2d44</color>      <!-- Card background -->
+    <color name="stats_text_primary">#ffffff</color>         <!-- Primary text -->
+    <color name="stats_text_secondary">#b0b0c0</color>       <!-- Secondary text (labels) -->
+    <color name="stats_text_tertiary">#7a7a8a</color>        <!-- Tertiary text (footer) -->
+    <color name="stats_section_header">#a78bfa</color>       <!-- Purple section headers -->
+    <color name="stats_value_good">#4ade80</color>           <!-- Green - good values -->
+    <color name="stats_value_warning">#fbbf24</color>        <!-- Yellow - warning values -->
+    <color name="stats_value_bad">#f87171</color>            <!-- Red - bad values -->
+    <color name="stats_value_neutral">#e0e0e8</color>        <!-- Neutral white - normal values -->
 </resources>

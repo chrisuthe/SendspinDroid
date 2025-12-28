@@ -66,7 +66,9 @@ cd android
 
 ## Reference Implementation
 
-Python CLI player location: `/home/chris/Documents/sendspin-cli-main/sendspin/audio.py`
+Python CLI player location: `C:\Users\chris\Downloads\sendspin-cli-main\sendspin-cli-main`
+
+This is a fully working reference implementation. All features work as expected - use it to verify correct behavior when debugging.
 
 Key files to study:
 - `audio.py` - Main audio playback with time sync (~1500 lines)

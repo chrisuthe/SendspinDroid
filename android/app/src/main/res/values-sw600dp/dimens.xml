@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tablet overrides (sw600dp = 7" tablets and larger) -->
+
+    <!-- Larger album art for tablets -->
+    <dimen name="album_art_max_width">360dp</dimen>
+
+    <!-- More generous screen padding on tablets -->
+    <dimen name="screen_padding">24dp</dimen>
+    <dimen name="screen_padding_horizontal">32dp</dimen>
+
+    <!-- Larger playback buttons for tablets -->
+    <dimen name="playback_button_size_small">64dp</dimen>
+    <dimen name="playback_button_size_large">80dp</dimen>
+    <dimen name="playback_button_spacing">32dp</dimen>
+</resources>

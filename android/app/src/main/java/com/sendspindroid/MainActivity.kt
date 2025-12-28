@@ -1,14 +1,28 @@
 package com.sendspindroid
 
 import android.content.ComponentName
+import android.content.Context
+import android.content.SharedPreferences
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.view.accessibility.AccessibilityManager
+import android.view.animation.AnimationUtils
 import android.widget.EditText
+import androidx.palette.graphics.Palette
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -20,6 +34,7 @@ import androidx.media3.session.SessionToken
 import androidx.recyclerview.widget.LinearLayoutManager
 import coil.load
 import coil.transform.RoundedCornersTransformation
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -58,11 +73,27 @@ class MainActivity : AppCompatActivity() {
     // Handler for timeout-based transitions
     private val handler = Handler(Looper.getMainLooper())
     private var showManualButtonRunnable: Runnable? = null
+    private var countdownRunnable: Runnable? = null
+
+    // Network state monitoring
+    private val connectivityManager by lazy {
+        getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    }
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     companion object {
         private const val TAG = "MainActivity"
-        // Time before showing "Enter manually" button during search
-        private const val MANUAL_BUTTON_DELAY_MS = 10_000L
+        // Time before enabling "Enter manually" button during search
+        private const val MANUAL_BUTTON_DELAY_MS = 5_000L
+        private const val COUNTDOWN_INTERVAL_MS = 1_000L
+        // SharedPreferences keys
+        private const val PREFS_NAME = "sendspindroid_prefs"
+        private const val PREF_ONBOARDING_SHOWN = "onboarding_shown"
+    }
+
+    // SharedPreferences for app state
+    private val prefs: SharedPreferences by lazy {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
     // ============================================================================
@@ -89,6 +120,19 @@ class MainActivity : AppCompatActivity() {
         val count = servers.size
         binding.serversRecyclerView.contentDescription =
             getString(R.string.accessibility_server_list, count)
+    }
+
+    /**
+     * Shows/hides the empty state view based on server list size.
+     */
+    private fun updateEmptyServerListState() {
+        if (servers.isEmpty()) {
+            binding.emptyServerListView.visibility = View.VISIBLE
+            binding.serversRecyclerView.visibility = View.GONE
+        } else {
+            binding.emptyServerListView.visibility = View.GONE
+            binding.serversRecyclerView.visibility = View.VISIBLE
+        }
     }
 
     /**
@@ -124,6 +168,9 @@ class MainActivity : AppCompatActivity() {
         errorType: ErrorType = ErrorType.GENERAL,
         retryAction: (() -> Unit)? = null
     ) {
+        // Announce error to screen readers for accessibility
+        announceForAccessibility("Error: $message")
+
         val snackbar = Snackbar.make(
             binding.coordinatorLayout,
             message,
@@ -201,6 +248,28 @@ class MainActivity : AppCompatActivity() {
         initializeDiscoveryManager()
         initializeMediaController()
         setupUI()
+
+        // Show onboarding dialog for first-time users
+        showOnboardingIfNeeded()
+    }
+
+    /**
+     * Shows the onboarding dialog if this is the user's first launch.
+     * Uses SharedPreferences to track if the dialog has been shown.
+     */
+    private fun showOnboardingIfNeeded() {
+        if (!prefs.getBoolean(PREF_ONBOARDING_SHOWN, false)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.onboarding_title)
+                .setMessage(R.string.onboarding_message)
+                .setPositiveButton(R.string.onboarding_got_it) { dialog, _ ->
+                    // Mark onboarding as shown
+                    prefs.edit().putBoolean(PREF_ONBOARDING_SHOWN, true).apply()
+                    dialog.dismiss()
+                }
+                .setCancelable(false)
+                .show()
+        }
     }
 
     private fun setupUI() {
@@ -247,12 +316,19 @@ class MainActivity : AppCompatActivity() {
             onNextClicked()
         }
 
-        // Volume slider with accessibility updates
-        binding.volumeSlider.addOnChangeListener { _, value, fromUser ->
+        // Volume slider with accessibility updates and haptic feedback
+        binding.volumeSlider.addOnChangeListener { slider, value, fromUser ->
             if (fromUser) {
                 onVolumeChanged(value / 100f)
+                val volumePercent = value.toInt()
                 // Update accessibility description with current volume
-                updateVolumeAccessibility(value.toInt())
+                updateVolumeAccessibility(volumePercent)
+                // Announce volume changes at 10% increments for screen readers
+                // and provide haptic feedback at these increments
+                if (volumePercent % 10 == 0) {
+                    announceForAccessibility("Volume $volumePercent percent")
+                    slider.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                }
             }
         }
 
@@ -266,6 +342,73 @@ class MainActivity : AppCompatActivity() {
 
         // Start with searching view and begin auto-discovery
         showSearchingView()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerNetworkCallback()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        unregisterNetworkCallback()
+    }
+
+    // ============================================================================
+    // Network State Monitoring
+    // ============================================================================
+
+    /**
+     * Registers a network callback to monitor connectivity changes.
+     * Shows error when network is lost while connected to a server.
+     */
+    private fun registerNetworkCallback() {
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.d(TAG, "Network available")
+                // Network restored - could optionally restart discovery if in searching state
+            }
+
+            override fun onLost(network: Network) {
+                Log.w(TAG, "Network lost")
+                runOnUiThread {
+                    // Only show error if we're connected or connecting to a server
+                    if (connectionState is AppConnectionState.Connected ||
+                        connectionState is AppConnectionState.Connecting) {
+                        showErrorSnackbar(
+                            message = "Network connection lost",
+                            errorType = ErrorType.NETWORK
+                        )
+                    }
+                }
+            }
+        }
+
+        networkCallback = callback
+
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        try {
+            connectivityManager.registerNetworkCallback(request, callback)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register network callback", e)
+        }
+    }
+
+    /**
+     * Unregisters the network callback to prevent leaks.
+     */
+    private fun unregisterNetworkCallback() {
+        networkCallback?.let {
+            try {
+                connectivityManager.unregisterNetworkCallback(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to unregister network callback", e)
+            }
+        }
+        networkCallback = null
     }
 
     // ============================================================================
@@ -297,6 +440,10 @@ class MainActivity : AppCompatActivity() {
      * Starts discovery automatically and schedules timeout for manual button.
      */
     private fun showSearchingView() {
+        // Animate view transitions
+        if (binding.searchingView.visibility != View.VISIBLE) {
+            binding.searchingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
+        }
         binding.searchingView.visibility = View.VISIBLE
         binding.manualEntryView.visibility = View.GONE
         binding.nowPlayingView.visibility = View.GONE
@@ -304,6 +451,9 @@ class MainActivity : AppCompatActivity() {
         // Reset the manual button to hidden
         binding.searchingManualButton.visibility = View.GONE
         binding.searchingStatusText.text = getString(R.string.searching_for_servers)
+
+        // Announce searching state for accessibility
+        announceForAccessibility(getString(R.string.searching_for_servers))
 
         // Start discovery automatically
         startAutoDiscovery()
@@ -318,6 +468,10 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showManualEntryView() {
         binding.searchingView.visibility = View.GONE
+        // Animate view transition
+        if (binding.manualEntryView.visibility != View.VISIBLE) {
+            binding.manualEntryView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
+        }
         binding.manualEntryView.visibility = View.VISIBLE
         binding.nowPlayingView.visibility = View.GONE
     }
@@ -330,6 +484,11 @@ class MainActivity : AppCompatActivity() {
         cancelManualButtonTimeout()
         binding.searchingView.visibility = View.GONE
         binding.manualEntryView.visibility = View.GONE
+
+        // Animate view transition with slide up
+        if (binding.nowPlayingView.visibility != View.VISIBLE) {
+            binding.nowPlayingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.slide_in_up))
+        }
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
@@ -339,26 +498,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Schedules showing the "Enter manually" button after MANUAL_BUTTON_DELAY_MS.
-     * This gives auto-discovery time to find servers before showing fallback option.
+     * Shows the "Enter manually" button with a countdown, then enables it.
+     * Button is visible immediately but disabled until countdown completes.
      */
     private fun scheduleManualButtonTimeout() {
         cancelManualButtonTimeout()
-        showManualButtonRunnable = Runnable {
-            if (connectionState == AppConnectionState.Searching) {
-                binding.searchingManualButton.visibility = View.VISIBLE
-                binding.searchingStatusText.text = getString(R.string.no_servers_found)
+
+        // Show button immediately, but disabled with countdown
+        binding.searchingManualButton.visibility = View.VISIBLE
+        binding.searchingManualButton.isEnabled = false
+
+        var secondsRemaining = (MANUAL_BUTTON_DELAY_MS / 1000).toInt()
+        binding.searchingManualButton.text = "${getString(R.string.enter_manually)} (${secondsRemaining}s)"
+
+        // Countdown runnable
+        countdownRunnable = object : Runnable {
+            override fun run() {
+                if (connectionState != AppConnectionState.Searching) return
+
+                secondsRemaining--
+                if (secondsRemaining > 0) {
+                    binding.searchingManualButton.text = "${getString(R.string.enter_manually)} (${secondsRemaining}s)"
+                    handler.postDelayed(this, COUNTDOWN_INTERVAL_MS)
+                } else {
+                    // Countdown finished - enable button
+                    binding.searchingManualButton.text = getString(R.string.enter_manually)
+                    binding.searchingManualButton.isEnabled = true
+                    binding.searchingStatusText.text = getString(R.string.no_servers_found)
+                }
             }
         }
-        handler.postDelayed(showManualButtonRunnable!!, MANUAL_BUTTON_DELAY_MS)
+        handler.postDelayed(countdownRunnable!!, COUNTDOWN_INTERVAL_MS)
     }
 
     /**
-     * Cancels the pending manual button timeout.
+     * Cancels the pending manual button timeout and countdown.
      */
     private fun cancelManualButtonTimeout() {
         showManualButtonRunnable?.let { handler.removeCallbacks(it) }
         showManualButtonRunnable = null
+        countdownRunnable?.let { handler.removeCallbacks(it) }
+        countdownRunnable = null
     }
 
     /**
@@ -564,6 +744,14 @@ class MainActivity : AppCompatActivity() {
                         loadArtworkFromUrl(artworkUrl)
                     }
                 }
+
+                // Handle volume updates from server
+                val volume = extras.getInt(PlaybackService.EXTRA_VOLUME, -1)
+                if (volume in 0..100) {
+                    Log.d(TAG, "Server volume update received: $volume%")
+                    binding.volumeSlider.value = volume.toFloat()
+                    updateVolumeAccessibility(volume)
+                }
             }
         }
     }
@@ -593,6 +781,7 @@ class MainActivity : AppCompatActivity() {
                 showNowPlayingView(serverName)
                 enablePlaybackControls(true)
                 hideConnectionLoading()
+                invalidateOptionsMenu() // Show "Switch Server" menu option
 
                 // Announce connection for accessibility
                 announceForAccessibility(getString(R.string.accessibility_connected))
@@ -602,6 +791,7 @@ class MainActivity : AppCompatActivity() {
                 connectionState = AppConnectionState.ManualEntry
                 showManualEntryView()
                 enablePlaybackControls(false)
+                invalidateOptionsMenu() // Hide "Switch Server" menu option
 
                 // Announce disconnection for accessibility
                 announceForAccessibility(getString(R.string.accessibility_disconnected))
@@ -634,10 +824,14 @@ class MainActivity : AppCompatActivity() {
                     enablePlaybackControls(true)
                     // Announce playback started for accessibility
                     announceForAccessibility(getString(R.string.accessibility_playback_started))
+                    // Start subtle pulse animation on album art
+                    startAlbumArtPulse()
                 } else {
                     updatePlaybackState("paused")
                     // Announce playback paused for accessibility
                     announceForAccessibility(getString(R.string.accessibility_playback_paused))
+                    // Stop pulse animation
+                    stopAlbumArtPulse()
                 }
                 // Update play/pause button text and content description based on current state
                 updatePlayPauseButton(isPlaying)
@@ -914,11 +1108,26 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Handles disconnect button click.
-     * Sends disconnect command to PlaybackService and returns to manual entry view.
-     * (User explicitly disconnected, so show manual entry instead of auto-searching again)
+     * Shows confirmation dialog before disconnecting.
      */
     private fun onDisconnectClicked() {
         Log.d(TAG, "Disconnect clicked")
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Disconnect from server?")
+            .setMessage("This will stop playback on this device. Other devices will continue playing.")
+            .setPositiveButton("Disconnect") { _, _ ->
+                performDisconnect()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Performs the actual disconnect operation.
+     * Sends disconnect command to PlaybackService and returns to manual entry view.
+     */
+    private fun performDisconnect() {
         val controller = mediaController ?: return
 
         try {
@@ -970,6 +1179,7 @@ class MainActivity : AppCompatActivity() {
             serverAdapter.notifyItemInserted(servers.size - 1)
             // Update accessibility description for server list
             updateServerListAccessibility()
+            updateEmptyServerListState()
         }
     }
 
@@ -986,6 +1196,7 @@ class MainActivity : AppCompatActivity() {
             servers.add(server)
             serverAdapter.notifyItemInserted(servers.size - 1)
             updateServerListAccessibility()
+            updateEmptyServerListState()
         }
     }
 
@@ -1004,6 +1215,8 @@ class MainActivity : AppCompatActivity() {
             serverAdapter.notifyDataSetChanged()
             Log.d(TAG, "Loaded ${manualServers.size} saved servers")
         }
+        // Update empty state after loading
+        updateEmptyServerListState()
     }
 
 
@@ -1068,6 +1281,7 @@ class MainActivity : AppCompatActivity() {
      * 2. artworkUri (URI reference)
      *
      * Uses Coil for efficient image loading with crossfade animation.
+     * Also extracts colors from the artwork to apply to the volume slider.
      */
     private fun updateAlbumArt(mediaMetadata: MediaMetadata) {
         val artworkData = mediaMetadata.artworkData
@@ -1082,6 +1296,14 @@ class MainActivity : AppCompatActivity() {
                     placeholder(R.drawable.placeholder_album)
                     error(R.drawable.placeholder_album)
                     transformations(RoundedCornersTransformation(8f))
+                    listener(
+                        onSuccess = { _, result ->
+                            // Extract colors from loaded artwork
+                            (result.drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
+                                extractAndApplyColors(bitmap)
+                            }
+                        }
+                    )
                 }
             }
             artworkUri != null -> {
@@ -1092,11 +1314,20 @@ class MainActivity : AppCompatActivity() {
                     placeholder(R.drawable.placeholder_album)
                     error(R.drawable.placeholder_album)
                     transformations(RoundedCornersTransformation(8f))
+                    listener(
+                        onSuccess = { _, result ->
+                            // Extract colors from loaded artwork
+                            (result.drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
+                                extractAndApplyColors(bitmap)
+                            }
+                        }
+                    )
                 }
             }
             else -> {
-                // No artwork available, show placeholder
+                // No artwork available, show placeholder and reset colors
                 binding.albumArtView.setImageResource(R.drawable.placeholder_album)
+                resetSliderColors()
             }
         }
     }
@@ -1112,7 +1343,47 @@ class MainActivity : AppCompatActivity() {
             placeholder(R.drawable.placeholder_album)
             error(R.drawable.placeholder_album)
             transformations(RoundedCornersTransformation(8f))
+            listener(
+                onSuccess = { _, result ->
+                    // Extract colors from loaded artwork
+                    (result.drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
+                        extractAndApplyColors(bitmap)
+                    }
+                }
+            )
         }
+    }
+
+    /**
+     * Extracts dominant colors from artwork and applies them to the volume slider.
+     * Uses the Palette library to analyze the image.
+     */
+    private fun extractAndApplyColors(bitmap: Bitmap) {
+        Palette.from(bitmap).generate { palette ->
+            palette?.let {
+                // Get the vibrant swatch, or fall back to muted, then dominant
+                val swatch = it.vibrantSwatch
+                    ?: it.mutedSwatch
+                    ?: it.dominantSwatch
+
+                swatch?.let { color ->
+                    // Apply extracted color to volume slider
+                    binding.volumeSlider.trackActiveTintList = ColorStateList.valueOf(color.rgb)
+                    binding.volumeSlider.thumbTintList = ColorStateList.valueOf(color.rgb)
+                    Log.d(TAG, "Applied artwork color to volume slider")
+                }
+            }
+        }
+    }
+
+    /**
+     * Resets the volume slider colors to default theme colors.
+     * Called when no artwork is available.
+     */
+    private fun resetSliderColors() {
+        val primaryColor = ContextCompat.getColor(this, com.google.android.material.R.color.design_default_color_primary)
+        binding.volumeSlider.trackActiveTintList = ColorStateList.valueOf(primaryColor)
+        binding.volumeSlider.thumbTintList = ColorStateList.valueOf(primaryColor)
     }
 
     /**
@@ -1143,6 +1414,9 @@ class MainActivity : AppCompatActivity() {
         binding.connectionProgressContainer.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.GONE
         binding.connectionStatusText.text = getString(R.string.connecting_to_server, serverName)
+
+        // Announce connecting state for accessibility
+        announceForAccessibility(getString(R.string.accessibility_connecting))
     }
 
     /**
@@ -1168,6 +1442,57 @@ class MainActivity : AppCompatActivity() {
      */
     private fun hideBufferingIndicator() {
         binding.bufferingIndicator.visibility = View.GONE
+    }
+
+    /**
+     * Starts a subtle pulse animation on the album art container.
+     * Called when playback starts to provide visual feedback.
+     */
+    private fun startAlbumArtPulse() {
+        val pulseAnimation = AnimationUtils.loadAnimation(this, R.anim.pulse)
+        binding.albumArtContainer.startAnimation(pulseAnimation)
+    }
+
+    /**
+     * Stops the pulse animation on the album art container.
+     * Called when playback is paused or stopped.
+     */
+    private fun stopAlbumArtPulse() {
+        binding.albumArtContainer.clearAnimation()
+    }
+
+    // ========================================================================
+    // Menu Handling
+    // ========================================================================
+
+    /**
+     * Inflate options menu only when connected to show "Switch Server" option.
+     */
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        if (connectionState is AppConnectionState.Connected) {
+            menuInflater.inflate(R.menu.menu_now_playing, menu)
+        }
+        return true
+    }
+
+    /**
+     * Handle menu item selection.
+     */
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_stats -> {
+                // Show Stats for Nerds bottom sheet
+                StatsBottomSheet().show(supportFragmentManager, "stats")
+                true
+            }
+            R.id.action_switch_server -> {
+                // Disconnect and go to manual entry to pick a different server
+                // Skip confirmation since intent is clear
+                performDisconnect()
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
     }
 
     /**

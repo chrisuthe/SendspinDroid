@@ -182,6 +182,9 @@ dependencies {
     // Coil - Kotlin-first image loading library for album artwork
     implementation("io.coil-kt:coil:2.7.0")
 
+    // Palette - Extract prominent colors from images for dynamic theming
+    implementation("androidx.palette:palette-ktx:1.0.0")
+
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)
     // implementation("androidx.recyclerview:recyclerview:1.3.x")

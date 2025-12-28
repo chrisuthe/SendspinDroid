@@ -53,10 +53,18 @@
     <string name="error_service_not_connected">Service not connected</string>
     <string name="error_connection_failed">Failed to connect to server</string>
     <string name="error_discovery_start">Failed to start discovery</string>
+    <string name="error_connection_refused">Server refused connection. Check if SendSpin is running.</string>
+    <string name="error_host_not_found">Server not found. Check the address.</string>
+    <string name="error_network_unreachable">Network unreachable. Check WiFi connection.</string>
+    <string name="error_invalid_response">Invalid server response. May not be a SendSpin server.</string>
+    <string name="error_ssl_handshake">Secure connection failed. Server may not support encryption.</string>
 
     <!-- Snackbar actions -->
     <string name="action_retry">Retry</string>
     <string name="action_dismiss">Dismiss</string>
+
+    <!-- Menu actions -->
+    <string name="action_switch_server">Switch Server</string>
 
     <!-- Success messages -->
     <string name="server_added">Server added: %s</string>
@@ -64,6 +72,8 @@
 
     <!-- Auto-discovery flow -->
     <string name="searching_for_servers">Searching for servers…</string>
+    <string name="empty_server_list_title">No servers available</string>
+    <string name="empty_server_list_subtitle">Try searching again or add\na server manually</string>
     <string name="enter_manually">Enter server manually</string>
     <string name="search_again">Search Again</string>
     <string name="server_found">Found: %s</string>
@@ -71,4 +81,49 @@
 
     <!-- Notification -->
     <string name="notification_channel_name">Music Playback</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_title">Welcome to SendSpin Player</string>
+    <string name="onboarding_message">This app connects to SendSpin servers on your local network to play synchronized audio.\n\n• The app will automatically search for servers\n• You can also add servers manually by address\n• Control playback and volume from anywhere\n\nMake sure your device is connected to the same WiFi network as your SendSpin server.</string>
+    <string name="onboarding_got_it">Got it</string>
+
+    <!-- Stats for Nerds -->
+    <string name="stats_title">Stats for Nerds</string>
+    <string name="stats_close">Close stats</string>
+    <string name="stats_footer_note">Updates every 100ms • Values color-coded: green (good), yellow (warning), red (bad)</string>
+
+    <!-- Stats sections -->
+    <string name="stats_section_sync_status">SYNC STATUS</string>
+    <string name="stats_section_buffer">BUFFER</string>
+    <string name="stats_section_sync_correction">SYNC CORRECTION</string>
+    <string name="stats_section_clock_sync">CLOCK SYNC</string>
+
+    <!-- Stats labels - Sync Status -->
+    <string name="stats_playback_state">Playback State</string>
+    <string name="stats_sync_error">Sync Error</string>
+    <string name="stats_true_sync_error">True Sync Error</string>
+
+    <!-- Stats labels - Buffer -->
+    <string name="stats_queued_audio">Queued Audio</string>
+    <string name="stats_chunks_received">Chunks Received</string>
+    <string name="stats_chunks_played">Chunks Played</string>
+    <string name="stats_chunks_dropped">Chunks Dropped</string>
+    <string name="stats_gaps_filled">Gaps Filled</string>
+    <string name="stats_overlaps_trimmed">Overlaps Trimmed</string>
+
+    <!-- Stats labels - Sync Correction -->
+    <string name="stats_correction_mode">Correction Mode</string>
+    <string name="stats_frames_inserted">Frames Inserted</string>
+    <string name="stats_frames_dropped">Frames Dropped</string>
+    <string name="stats_total_corrections">Total Corrections</string>
+
+    <!-- Stats labels - Clock Sync -->
+    <string name="stats_clock_ready">Clock Ready</string>
+    <string name="stats_clock_offset">Clock Offset</string>
+    <string name="stats_clock_error">Clock Error</string>
+    <string name="stats_measurement_count">Measurements</string>
+    <string name="stats_dac_calibration_count">DAC Calibrations</string>
+
+    <!-- Menu -->
+    <string name="action_stats">Stats for Nerds</string>
 </resources>
