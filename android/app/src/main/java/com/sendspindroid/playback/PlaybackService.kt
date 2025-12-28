@@ -107,8 +107,29 @@ class PlaybackService : MediaLibraryService() {
     // WiFi lock to prevent WiFi from going to sleep during playback
     private var wifiLock: WifiManager.WifiLock? = null
 
+    // Handler for periodic wake lock refresh
+    private val wakeLockHandler = Handler(Looper.getMainLooper())
+
+    // Wake lock refresh runnable - refreshes wake lock periodically during active playback
+    private val wakeLockRefreshRunnable = object : Runnable {
+        override fun run() {
+            refreshWakeLock()
+            // Schedule next refresh if still playing
+            if (isActivelyPlaying()) {
+                wakeLockHandler.postDelayed(this, WAKE_LOCK_REFRESH_INTERVAL_MS)
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "PlaybackService"
+
+        // Wake lock refresh strategy:
+        // - Use a 30-minute timeout so if release fails (crash, etc.), max battery drain is 30 min
+        // - Refresh every 20 minutes during active playback to keep it alive
+        // - This is safer than a 10-hour timeout with no refresh
+        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L  // 30 minutes
+        private const val WAKE_LOCK_REFRESH_INTERVAL_MS = 20 * 60 * 1000L  // 20 minutes
 
         // Custom session commands
         const val COMMAND_CONNECT = "com.sendspindroid.CONNECT"
@@ -641,13 +662,20 @@ class PlaybackService : MediaLibraryService() {
      * Acquires wake lock and WiFi lock to keep CPU and WiFi running during audio playback.
      * Also starts the foreground service to prevent Android from killing us.
      * This prevents the system from killing our audio or dropping the connection when the screen turns off.
+     *
+     * Wake lock strategy for battery safety:
+     * - Uses a 30-minute timeout instead of indefinite or very long timeout
+     * - Refreshes the wake lock every 20 minutes during active playback
+     * - If the app crashes without releasing, max battery drain is limited to 30 minutes
+     * - The refresh mechanism ensures continuous playback isn't interrupted
      */
     @Suppress("DEPRECATION")
     private fun acquireWakeLock() {
         // Start as foreground service with notification
         startForegroundServiceWithNotification()
 
-        // CPU wake lock
+        // CPU wake lock with 30-minute timeout for battery safety
+        // Refreshed periodically during active playback
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = powerManager.newWakeLock(
@@ -656,8 +684,12 @@ class PlaybackService : MediaLibraryService() {
             )
         }
         if (wakeLock?.isHeld == false) {
-            wakeLock?.acquire(10 * 60 * 60 * 1000L) // 10 hours max, released on disconnect
-            Log.d(TAG, "Wake lock acquired")
+            wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
+            Log.d(TAG, "Wake lock acquired with ${WAKE_LOCK_TIMEOUT_MS / 60000}min timeout")
+
+            // Start periodic refresh to keep wake lock alive during long playback sessions
+            wakeLockHandler.removeCallbacks(wakeLockRefreshRunnable)
+            wakeLockHandler.postDelayed(wakeLockRefreshRunnable, WAKE_LOCK_REFRESH_INTERVAL_MS)
         }
 
         // WiFi lock - keeps WiFi active even when screen is off
@@ -672,6 +704,31 @@ class PlaybackService : MediaLibraryService() {
             wifiLock?.acquire()
             Log.d(TAG, "WiFi lock acquired")
         }
+    }
+
+    /**
+     * Refreshes the wake lock by releasing and re-acquiring with a fresh timeout.
+     * Called periodically during active playback to prevent the wake lock from expiring.
+     */
+    private fun refreshWakeLock() {
+        if (wakeLock?.isHeld == true) {
+            // Release and re-acquire with fresh timeout
+            wakeLock?.release()
+            wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
+            Log.d(TAG, "Wake lock refreshed with ${WAKE_LOCK_TIMEOUT_MS / 60000}min timeout")
+        } else {
+            Log.d(TAG, "Wake lock refresh skipped - not held")
+        }
+    }
+
+    /**
+     * Checks if the audio player is actively playing or waiting to start.
+     * Used to determine whether to continue refreshing the wake lock.
+     */
+    private fun isActivelyPlaying(): Boolean {
+        val state = syncAudioPlayer?.getPlaybackState()
+        return state == com.sendspindroid.sendspin.PlaybackState.PLAYING ||
+               state == com.sendspindroid.sendspin.PlaybackState.WAITING_FOR_START
     }
 
     /**
@@ -709,9 +766,12 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Releases wake lock and WiFi lock when playback stops.
-     * Also stops the foreground service.
+     * Also stops the foreground service and cancels the wake lock refresh handler.
      */
     private fun releaseWakeLock() {
+        // Stop the periodic wake lock refresh first
+        wakeLockHandler.removeCallbacks(wakeLockRefreshRunnable)
+
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
             Log.d(TAG, "Wake lock released")
