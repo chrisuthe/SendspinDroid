@@ -21,12 +21,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.net.ConnectException
 import java.net.NoRouteToHostException
+import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLHandshakeException
 
 /**
@@ -68,6 +71,11 @@ class SendSpinClient(
         private const val TIME_SYNC_INTERVAL_MS = 1000L // Send time sync every second
         private const val INITIAL_TIME_SYNC_COUNT = 5 // Send 5 rapid syncs initially
         private const val INITIAL_TIME_SYNC_DELAY_MS = 100L
+
+        // Reconnection configuration
+        private const val MAX_RECONNECT_ATTEMPTS = 5
+        private const val INITIAL_RECONNECT_DELAY_MS = 1000L // 1 second
+        private const val MAX_RECONNECT_DELAY_MS = 30000L // 30 seconds
 
         // Audio configuration we support
         private const val AUDIO_CODEC = "pcm"
@@ -127,12 +135,18 @@ class SendSpinClient(
 
     private var webSocket: WebSocket? = null
     private var serverAddress: String? = null
+    private var serverPath: String? = null
     private var serverName: String? = null
 
     // Protocol state
     private val clientId = UUID.randomUUID().toString()
     private var handshakeComplete = false
     private var timeSyncRunning = false
+
+    // Reconnection state
+    private val userInitiatedDisconnect = AtomicBoolean(false)
+    private val reconnectAttempts = AtomicInteger(0)
+    private var reconnecting = false
 
     // Player state (for client/state messages)
     private var currentVolume: Int = 100
@@ -165,9 +179,15 @@ class SendSpinClient(
         Log.d(TAG, "Connecting to: $address path=$path")
         _connectionState.value = ConnectionState.Connecting
         serverAddress = address
+        serverPath = path
         handshakeComplete = false
         timeSyncRunning = false
         timeFilter.reset()
+
+        // Reset reconnection state for new connection
+        userInitiatedDisconnect.set(false)
+        reconnectAttempts.set(0)
+        reconnecting = false
 
         // Construct WebSocket URL using provided path
         val wsUrl = "ws://$address$path"
@@ -184,8 +204,10 @@ class SendSpinClient(
      * Disconnect from the current server.
      */
     fun disconnect() {
-        Log.d(TAG, "Disconnecting")
+        Log.d(TAG, "Disconnecting (user-initiated)")
+        userInitiatedDisconnect.set(true)
         timeSyncRunning = false
+        reconnecting = false
         sendGoodbye("user_disconnect")
         webSocket?.close(1000, "User disconnect")
         webSocket = null
@@ -291,7 +313,68 @@ class SendSpinClient(
      */
     fun destroy() {
         timeSyncRunning = false
+        userInitiatedDisconnect.set(true) // Prevent reconnection during destroy
+        reconnecting = false
         disconnect()
+    }
+
+    /**
+     * Attempt to reconnect to the last server.
+     * Uses exponential backoff with a maximum number of attempts.
+     */
+    private fun attemptReconnect() {
+        val address = serverAddress
+        val path = serverPath ?: ENDPOINT_PATH
+
+        if (address == null) {
+            Log.w(TAG, "Cannot reconnect: no server address saved")
+            return
+        }
+
+        if (userInitiatedDisconnect.get()) {
+            Log.d(TAG, "Not reconnecting: user-initiated disconnect")
+            return
+        }
+
+        val attempts = reconnectAttempts.incrementAndGet()
+        if (attempts > MAX_RECONNECT_ATTEMPTS) {
+            Log.w(TAG, "Max reconnection attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
+            reconnecting = false
+            _connectionState.value = ConnectionState.Error("Connection lost. Please reconnect manually.")
+            callback.onError("Connection lost after $MAX_RECONNECT_ATTEMPTS reconnection attempts")
+            return
+        }
+
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s (capped at 30s)
+        val delayMs = (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
+            .coerceAtMost(MAX_RECONNECT_DELAY_MS)
+
+        Log.i(TAG, "Attempting reconnection $attempts/$MAX_RECONNECT_ATTEMPTS in ${delayMs}ms")
+        reconnecting = true
+        _connectionState.value = ConnectionState.Connecting
+
+        scope.launch {
+            delay(delayMs)
+
+            if (userInitiatedDisconnect.get() || !reconnecting) {
+                Log.d(TAG, "Reconnection cancelled")
+                return@launch
+            }
+
+            Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
+
+            // Reset state for new connection attempt
+            handshakeComplete = false
+            timeSyncRunning = false
+            timeFilter.reset()
+
+            val wsUrl = "ws://$address$path"
+            val request = Request.Builder()
+                .url(wsUrl)
+                .build()
+
+            webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
+        }
     }
 
     // ========== Protocol Messages ==========
@@ -477,15 +560,67 @@ class SendSpinClient(
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "WebSocket closed: $code $reason")
-            _connectionState.value = ConnectionState.Disconnected
-            callback.onDisconnected()
+
+            // If not user-initiated and was previously connected, try to reconnect
+            if (!userInitiatedDisconnect.get() && handshakeComplete) {
+                Log.i(TAG, "Unexpected closure, attempting reconnection")
+                attemptReconnect()
+            } else {
+                _connectionState.value = ConnectionState.Disconnected
+                callback.onDisconnected()
+            }
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "WebSocket failure", t)
-            val errorMessage = getSpecificErrorMessage(t)
-            _connectionState.value = ConnectionState.Error(errorMessage)
-            callback.onError(errorMessage)
+
+            // Check if we should attempt reconnection
+            val shouldReconnect = !userInitiatedDisconnect.get() &&
+                                  serverAddress != null &&
+                                  isRecoverableError(t)
+
+            if (shouldReconnect) {
+                Log.i(TAG, "Recoverable error, attempting reconnection: ${t.message}")
+                attemptReconnect()
+            } else {
+                val errorMessage = getSpecificErrorMessage(t)
+                reconnecting = false
+                _connectionState.value = ConnectionState.Error(errorMessage)
+                callback.onError(errorMessage)
+            }
+        }
+    }
+
+    /**
+     * Checks if an error is recoverable (should trigger reconnection).
+     * Errors like network drops, socket resets, etc. are recoverable.
+     * Errors like authentication failures or invalid URLs are not.
+     */
+    private fun isRecoverableError(t: Throwable): Boolean {
+        val cause = t.cause ?: t
+        val message = t.message?.lowercase() ?: ""
+
+        return when {
+            // Socket errors are generally recoverable
+            cause is SocketException -> true
+            cause is java.io.EOFException -> true
+
+            // Connection reset/abort are recoverable
+            message.contains("reset") -> true
+            message.contains("abort") -> true
+            message.contains("broken pipe") -> true
+            message.contains("connection closed") -> true
+
+            // Timeouts are recoverable
+            cause is SocketTimeoutException -> true
+
+            // Specific non-recoverable errors
+            cause is UnknownHostException -> false
+            cause is SSLHandshakeException -> false
+            message.contains("refused") -> false
+
+            // Default: try to recover from unknown errors
+            else -> true
         }
     }
 
@@ -502,6 +637,7 @@ class SendSpinClient(
             is SocketTimeoutException -> "Connection timeout. Server not responding."
             is NoRouteToHostException -> "Network unreachable. Check WiFi connection."
             is SSLHandshakeException -> "Secure connection failed."
+            is SocketException -> "Connection lost. Check your network."
             else -> {
                 // Check message for additional hints
                 val message = t.message?.lowercase() ?: ""
@@ -510,6 +646,9 @@ class SendSpinClient(
                     message.contains("timeout") -> "Connection timeout. Server not responding."
                     message.contains("unreachable") -> "Network unreachable. Check WiFi connection."
                     message.contains("host") -> "Server not found. Check the address."
+                    message.contains("abort") -> "Connection dropped. Reconnecting..."
+                    message.contains("reset") -> "Connection reset. Reconnecting..."
+                    message.contains("broken pipe") -> "Connection lost. Reconnecting..."
                     else -> t.message ?: "Connection failed"
                 }
             }
@@ -571,6 +710,8 @@ class SendSpinClient(
         Log.d(TAG, "Active roles: $activeRoles")
 
         handshakeComplete = true
+        reconnecting = false
+        reconnectAttempts.set(0) // Reset reconnection counter on successful connection
         _connectionState.value = ConnectionState.Connected(serverName!!)
         callback.onConnected(serverName!!)
 
