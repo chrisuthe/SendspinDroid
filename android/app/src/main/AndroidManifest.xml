@@ -58,6 +58,28 @@
          Used by: Keep audio playback running when screen is off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- BIND_PLAYBACK_SERVICE: Custom permission for binding to PlaybackService
+         Permission level: Signature (only apps signed with same key can use)
+         Used by: This app to bind to its own PlaybackService
+         Note: Required because we protect the service with this permission -->
+    <uses-permission android:name="com.sendspindroid.permission.BIND_PLAYBACK_SERVICE" />
+
+    <!--
+        CUSTOM PERMISSIONS:
+        Define custom permissions for protecting app components.
+        Signature-level permissions ensure only apps signed with the same key can access.
+    -->
+
+    <!-- BIND_PLAYBACK_SERVICE: Protects the exported PlaybackService
+         Protection level: signature - Only apps signed with the same certificate can bind
+         Defense-in-depth: MediaSession already handles authentication via session tokens,
+         but this adds OS-level protection against unauthorized binding attempts -->
+    <permission
+        android:name="com.sendspindroid.permission.BIND_PLAYBACK_SERVICE"
+        android:protectionLevel="signature"
+        android:label="@string/permission_bind_playback_service_label"
+        android:description="@string/permission_bind_playback_service_description" />
+
     <!--
         Application Configuration:
         - allowBackup: Enable automatic backup to Google Drive (default: true)
@@ -123,14 +145,17 @@
         <!--
             PlaybackService: Background audio playback service with Android Auto support
             - foregroundServiceType: Required on API 29+ to specify service purpose
-            - exported: Allow MediaController connections from other apps/system
+            - exported: Allow MediaController connections from other apps/system (required for MediaBrowserService)
+            - permission: Signature-level protection ensures only apps signed with same key can bind
+              This is defense-in-depth; MediaSession handles auth via tokens, but this adds OS-level security
             - intent-filter: Declares this as a MediaLibraryService for system integration
               and Android Auto browse tree support
         -->
         <service
             android:name=".playback.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.sendspindroid.permission.BIND_PLAYBACK_SERVICE">
             <intent-filter>
                 <!-- MediaLibraryService action for Media3 integration (Android Auto browse tree) -->
                 <action android:name="androidx.media3.session.MediaLibraryService" />
