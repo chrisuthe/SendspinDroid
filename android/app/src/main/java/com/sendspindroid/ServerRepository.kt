@@ -60,6 +60,7 @@ object ServerRepository {
      */
     val allServers: List<ServerInfo>
         get() {
+            ensurePersistedDataLoaded()
             val all = mutableListOf<ServerInfo>()
             val addresses = mutableSetOf<String>()
 
@@ -82,15 +83,50 @@ object ServerRepository {
             return all
         }
 
-    private var prefs: SharedPreferences? = null
+    // Store application context for lazy prefs initialization
+    @Volatile
+    private var applicationContext: Context? = null
+
+    // Track if we've loaded persisted data
+    @Volatile
+    private var persistedDataLoaded = false
+
+    // Lazily initialize SharedPreferences when first needed
+    private val prefs: SharedPreferences?
+        get() {
+            val ctx = applicationContext ?: return null
+            return ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        }
+
+    /**
+     * Ensure persisted servers are loaded. Called lazily on first prefs access.
+     */
+    private fun ensurePersistedDataLoaded() {
+        if (!persistedDataLoaded && applicationContext != null) {
+            synchronized(this) {
+                if (!persistedDataLoaded) {
+                    loadPersistedServers()
+                    persistedDataLoaded = true
+                }
+            }
+        }
+    }
 
     /**
      * Initialize the repository with a context for SharedPreferences.
-     * Call this from Application.onCreate() or MainActivity.onCreate().
+     * Safe to call multiple times - only first call takes effect.
+     * Call this from Application.onCreate(), MainActivity.onCreate(), or service.
      */
     fun initialize(context: Context) {
-        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadPersistedServers()
+        if (applicationContext == null) {
+            synchronized(this) {
+                if (applicationContext == null) {
+                    applicationContext = context.applicationContext
+                }
+            }
+        }
+        // Load persisted data if not already done
+        ensurePersistedDataLoaded()
     }
 
     /**
@@ -123,6 +159,7 @@ object ServerRepository {
      * Add a manually entered server. Persists to SharedPreferences.
      */
     fun addManualServer(server: ServerInfo) {
+        ensurePersistedDataLoaded()
         val current = _manualServers.value.toMutableList()
         if (!current.any { it.address == server.address }) {
             current.add(server)
@@ -135,6 +172,7 @@ object ServerRepository {
      * Remove a manual server.
      */
     fun removeManualServer(address: String) {
+        ensurePersistedDataLoaded()
         _manualServers.value = _manualServers.value.filter { it.address != address }
         persistManualServers()
     }
@@ -144,6 +182,7 @@ object ServerRepository {
      * Moves the server to the front if already in history.
      */
     fun addToRecent(server: ServerInfo) {
+        ensurePersistedDataLoaded()
         val current = _recentServers.value.toMutableList()
 
         // Remove existing entry for this address
@@ -165,6 +204,7 @@ object ServerRepository {
      * Get a server by address from any source.
      */
     fun getServer(address: String): ServerInfo? {
+        ensurePersistedDataLoaded()
         return _discoveredServers.value.find { it.address == address }
             ?: _manualServers.value.find { it.address == address }
             ?: _recentServers.value.find { it.address == address }?.toServerInfo()
