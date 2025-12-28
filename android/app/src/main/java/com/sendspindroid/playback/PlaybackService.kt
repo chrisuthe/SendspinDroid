@@ -853,6 +853,7 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(COMMAND_SET_VOLUME, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_NEXT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_PREVIOUS, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_GET_STATS, Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -937,6 +938,7 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun getStats(): Bundle {
         val bundle = Bundle()
+        Log.d(TAG, "getStats: syncAudioPlayer=${syncAudioPlayer != null}, sendSpinClient=${sendSpinClient != null}")
 
         // Get stats from SyncAudioPlayer
         val audioStats = syncAudioPlayer?.getStats()
@@ -944,6 +946,7 @@ class PlaybackService : MediaLibraryService() {
             // Playback state
             bundle.putString("playback_state", audioStats.playbackState.name)
             bundle.putBoolean("is_playing", audioStats.isPlaying)
+            Log.d(TAG, "getStats: playbackState=${audioStats.playbackState.name}, syncError=${audioStats.smoothedSyncErrorUs}us")
 
             // Sync status
             bundle.putLong("sync_error_us", audioStats.smoothedSyncErrorUs)
@@ -980,6 +983,11 @@ class PlaybackService : MediaLibraryService() {
             audioStats.firstServerTimestampUs?.let {
                 bundle.putLong("first_server_timestamp_us", it)
             }
+        } else {
+            // No audio player - provide default values
+            bundle.putString("playback_state", "NO_AUDIO")
+            bundle.putBoolean("is_playing", false)
+            Log.d(TAG, "getStats: no audio player available")
         }
 
         // Get stats from SendSpinClient (clock sync)
