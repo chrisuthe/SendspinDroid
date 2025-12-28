@@ -505,6 +505,10 @@ class SendSpinClient(
             val type = json.getString("type")
             val payload = json.optJSONObject("payload")
 
+            // Log all incoming messages for debugging (truncate long messages)
+            val logText = if (text.length > 200) text.take(200) + "..." else text
+            Log.v(TAG, "<<< Received: $logText")
+
             when (type) {
                 "server/hello" -> handleServerHello(payload)
                 "server/time" -> handleServerTime(payload)
@@ -638,6 +642,15 @@ class SendSpinClient(
 
         Log.d(TAG, "group/update: id=$groupId, name=$groupName, state=$playbackState")
         callback.onGroupUpdate(groupId, groupName, playbackState)
+
+        // Check for volume in group/update as well
+        if (payload.has("volume")) {
+            val volume = payload.optInt("volume", -1)
+            if (volume in 0..100) {
+                Log.d(TAG, "Group volume update: $volume%")
+                callback.onVolumeChanged(volume)
+            }
+        }
     }
 
     /**

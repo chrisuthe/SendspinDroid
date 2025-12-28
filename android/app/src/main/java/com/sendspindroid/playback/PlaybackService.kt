@@ -222,6 +222,10 @@ class PlaybackService : MediaLibraryService() {
                 _connectionState.value = ConnectionState.Connected(serverName)
                 sendSpinPlayer?.updateConnectionState(true, serverName)
 
+                // Acquire wake lock immediately on connect to prevent being killed
+                // before stream starts
+                acquireWakeLock()
+
                 // Broadcast connection state to controllers (MainActivity)
                 broadcastConnectionState(STATE_CONNECTED, serverName)
 
