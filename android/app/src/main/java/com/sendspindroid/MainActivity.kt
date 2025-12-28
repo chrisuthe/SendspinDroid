@@ -824,14 +824,10 @@ class MainActivity : AppCompatActivity() {
                     enablePlaybackControls(true)
                     // Announce playback started for accessibility
                     announceForAccessibility(getString(R.string.accessibility_playback_started))
-                    // Start subtle pulse animation on album art
-                    startAlbumArtPulse()
                 } else {
                     updatePlaybackState("paused")
                     // Announce playback paused for accessibility
                     announceForAccessibility(getString(R.string.accessibility_playback_paused))
-                    // Stop pulse animation
-                    stopAlbumArtPulse()
                 }
                 // Update play/pause button text and content description based on current state
                 updatePlayPauseButton(isPlaying)
@@ -1355,35 +1351,75 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Extracts dominant colors from artwork and applies them to the volume slider.
+     * Extracts dominant colors from artwork and applies them to UI elements.
      * Uses the Palette library to analyze the image.
+     *
+     * Applies colors to:
+     * - Volume slider (vibrant/muted color)
+     * - Background (dark muted color for ambient effect)
      */
     private fun extractAndApplyColors(bitmap: Bitmap) {
         Palette.from(bitmap).generate { palette ->
             palette?.let {
-                // Get the vibrant swatch, or fall back to muted, then dominant
-                val swatch = it.vibrantSwatch
+                // Get the vibrant swatch for slider, or fall back to muted, then dominant
+                val accentSwatch = it.vibrantSwatch
                     ?: it.mutedSwatch
                     ?: it.dominantSwatch
 
-                swatch?.let { color ->
+                accentSwatch?.let { color ->
                     // Apply extracted color to volume slider
                     binding.volumeSlider.trackActiveTintList = ColorStateList.valueOf(color.rgb)
                     binding.volumeSlider.thumbTintList = ColorStateList.valueOf(color.rgb)
-                    Log.d(TAG, "Applied artwork color to volume slider")
+                    Log.d(TAG, "Applied artwork color to volume slider: ${Integer.toHexString(color.rgb)}")
                 }
+
+                // Get dark muted color for background, or darken the dominant color
+                val backgroundSwatch = it.darkMutedSwatch
+                    ?: it.darkVibrantSwatch
+                    ?: it.mutedSwatch
+
+                val backgroundColor = if (backgroundSwatch != null) {
+                    // Darken the color further for a subtle ambient background
+                    darkenColor(backgroundSwatch.rgb, 0.3f)
+                } else if (it.dominantSwatch != null) {
+                    // Fall back to darkened dominant color
+                    darkenColor(it.dominantSwatch!!.rgb, 0.2f)
+                } else {
+                    // Default dark background
+                    ContextCompat.getColor(this, R.color.md_theme_dark_background)
+                }
+
+                binding.nowPlayingView.setBackgroundColor(backgroundColor)
+                Log.d(TAG, "Applied background color: ${Integer.toHexString(backgroundColor)}")
             }
         }
     }
 
     /**
-     * Resets the volume slider colors to default theme colors.
-     * Called when no artwork is available.
+     * Darkens a color by a given factor.
+     * @param color The original color
+     * @param factor How much to darken (0.0 = black, 1.0 = original color)
+     */
+    private fun darkenColor(color: Int, factor: Float): Int {
+        val a = android.graphics.Color.alpha(color)
+        val r = (android.graphics.Color.red(color) * factor).toInt()
+        val g = (android.graphics.Color.green(color) * factor).toInt()
+        val b = (android.graphics.Color.blue(color) * factor).toInt()
+        return android.graphics.Color.argb(a, r, g, b)
+    }
+
+    /**
+     * Resets the volume slider and background colors to default theme colors.
+     * Called when no artwork is available or when disconnected.
      */
     private fun resetSliderColors() {
         val primaryColor = ContextCompat.getColor(this, com.google.android.material.R.color.design_default_color_primary)
         binding.volumeSlider.trackActiveTintList = ColorStateList.valueOf(primaryColor)
         binding.volumeSlider.thumbTintList = ColorStateList.valueOf(primaryColor)
+
+        // Reset background to default theme color
+        val backgroundColor = ContextCompat.getColor(this, R.color.md_theme_dark_background)
+        binding.nowPlayingView.setBackgroundColor(backgroundColor)
     }
 
     /**
@@ -1444,22 +1480,6 @@ class MainActivity : AppCompatActivity() {
         binding.bufferingIndicator.visibility = View.GONE
     }
 
-    /**
-     * Starts a subtle pulse animation on the album art container.
-     * Called when playback starts to provide visual feedback.
-     */
-    private fun startAlbumArtPulse() {
-        val pulseAnimation = AnimationUtils.loadAnimation(this, R.anim.pulse)
-        binding.albumArtContainer.startAnimation(pulseAnimation)
-    }
-
-    /**
-     * Stops the pulse animation on the album art container.
-     * Called when playback is paused or stopped.
-     */
-    private fun stopAlbumArtPulse() {
-        binding.albumArtContainer.clearAnimation()
-    }
 
     // ========================================================================
     // Menu Handling
