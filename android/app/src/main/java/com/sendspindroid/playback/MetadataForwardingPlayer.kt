@@ -7,6 +7,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * A ForwardingPlayer that provides dynamic metadata for lock screen and notifications.
@@ -150,7 +151,8 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
     }
 
     // Track listeners for metadata change notifications
-    private val listeners = mutableListOf<Player.Listener>()
+    // CopyOnWriteArrayList is thread-safe for iteration while allowing concurrent modification
+    private val listeners = CopyOnWriteArrayList<Player.Listener>()
 
     override fun addListener(listener: Player.Listener) {
         super.addListener(listener)
