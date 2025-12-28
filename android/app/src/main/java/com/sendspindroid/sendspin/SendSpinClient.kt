@@ -129,7 +129,11 @@ class SendSpinClient(
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS) // No timeout for WebSocket
+        .connectTimeout(15, TimeUnit.SECONDS) // Fail fast if server is unreachable
+        .writeTimeout(15, TimeUnit.SECONDS) // Timeout for sending data
+        // readTimeout must be 0 for WebSocket: OkHttp uses this for reading frames,
+        // and WebSocket connections are long-lived with infrequent messages
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(30, TimeUnit.SECONDS) // Keep connection alive through NAT/routers
         .build()
 
