@@ -679,13 +679,21 @@ class MainActivity : AppCompatActivity() {
     /**
      * Auto-connects to a discovered server.
      * Called when a server is found during Searching state.
+     *
+     * @param server The server to connect to
+     * @param retryCount Current retry attempt (default 0, max 10)
      */
-    private fun autoConnectToServer(server: ServerInfo) {
+    private fun autoConnectToServer(server: ServerInfo, retryCount: Int = 0) {
+        val maxRetries = 10
         val controller = mediaController
         if (controller == null) {
-            Log.w(TAG, "MediaController not ready, delaying auto-connect")
+            if (retryCount >= maxRetries) {
+                Log.w(TAG, "Auto-connect failed: MediaController not ready after $maxRetries attempts")
+                return
+            }
+            Log.w(TAG, "MediaController not ready, delaying auto-connect (attempt ${retryCount + 1}/$maxRetries)")
             // Retry after a short delay if controller isn't ready yet
-            handler.postDelayed({ autoConnectToServer(server) }, 500)
+            handler.postDelayed({ autoConnectToServer(server, retryCount + 1) }, 500)
             return
         }
 
