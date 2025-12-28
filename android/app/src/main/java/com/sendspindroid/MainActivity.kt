@@ -1,8 +1,10 @@
 package com.sendspindroid
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
@@ -10,6 +12,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -22,10 +25,11 @@ import android.view.View
 import android.view.accessibility.AccessibilityManager
 import android.view.animation.AnimationUtils
 import android.widget.EditText
-import androidx.palette.graphics.Palette
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.palette.graphics.Palette
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
@@ -80,6 +84,17 @@ class MainActivity : AppCompatActivity() {
         getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    // Permission request launcher for POST_NOTIFICATIONS (Android 13+)
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Log.d(TAG, "Notification permission granted")
+        } else {
+            Log.w(TAG, "Notification permission denied - playback notifications will not appear")
+        }
+    }
 
     companion object {
         private const val TAG = "MainActivity"
@@ -251,6 +266,29 @@ class MainActivity : AppCompatActivity() {
 
         // Show onboarding dialog for first-time users
         showOnboardingIfNeeded()
+
+        // Request notification permission for Android 13+
+        requestNotificationPermission()
+    }
+
+    /**
+     * Requests POST_NOTIFICATIONS permission on Android 13+ (API 33+).
+     * This is required for playback notifications to appear.
+     * If denied, playback will still work but without notification controls.
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permission = Manifest.permission.POST_NOTIFICATIONS
+            when {
+                ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED -> {
+                    Log.d(TAG, "Notification permission already granted")
+                }
+                else -> {
+                    Log.d(TAG, "Requesting notification permission")
+                    notificationPermissionLauncher.launch(permission)
+                }
+            }
+        }
     }
 
     /**
