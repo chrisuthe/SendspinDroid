@@ -421,6 +421,15 @@ class PlaybackService : MediaLibraryService() {
             // Queue chunk directly - SyncAudioPlayer handles threading internally
             syncAudioPlayer?.queueChunk(serverTimeMicros, pcmData)
         }
+
+        override fun onVolumeChanged(volume: Int) {
+            mainHandler.post {
+                Log.d(TAG, "Server volume update: $volume%")
+                // Convert from 0-100 to 0.0-1.0 and apply to local audio player
+                val volumeFloat = volume / 100f
+                syncAudioPlayer?.setVolume(volumeFloat)
+            }
+        }
     }
 
     /**
@@ -585,10 +594,11 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Sets the playback volume.
+     * Volume is controlled locally on the audio player, not sent to the server.
      */
     fun setVolume(volume: Float) {
         Log.d(TAG, "Setting volume: $volume")
-        sendSpinClient?.setVolume(volume.toDouble())
+        syncAudioPlayer?.setVolume(volume)
     }
 
     /**

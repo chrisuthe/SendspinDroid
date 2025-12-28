@@ -286,6 +286,17 @@ class SyncAudioPlayer(
     }
 
     /**
+     * Set the playback volume.
+     *
+     * @param volume Volume level from 0.0 (mute) to 1.0 (full volume)
+     */
+    fun setVolume(volume: Float) {
+        val clampedVolume = volume.coerceIn(0f, 1f)
+        audioTrack?.setVolume(clampedVolume)
+        Log.d(TAG, "Volume set to: $clampedVolume")
+    }
+
+    /**
      * Stop playback and clear buffers.
      */
     fun stop() {

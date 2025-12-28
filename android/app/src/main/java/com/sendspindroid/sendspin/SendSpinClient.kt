@@ -97,6 +97,9 @@ class SendSpinClient(
         fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int)
         fun onStreamClear()
         fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray)
+
+        // Volume callback - called when server sends volume update
+        fun onVolumeChanged(volume: Int)
     }
 
     // Connection state
@@ -605,6 +608,15 @@ class SendSpinClient(
         val state = payload.optString("state", "")
         if (state.isNotEmpty()) {
             callback.onStateChanged(state)
+        }
+
+        // Extract volume if present (0-100)
+        if (payload.has("volume")) {
+            val volume = payload.optInt("volume", -1)
+            if (volume in 0..100) {
+                Log.d(TAG, "Server volume update: $volume%")
+                callback.onVolumeChanged(volume)
+            }
         }
     }
 
