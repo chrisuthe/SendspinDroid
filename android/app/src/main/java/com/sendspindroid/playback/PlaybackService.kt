@@ -2,14 +2,18 @@ package com.sendspindroid.playback
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -603,10 +607,14 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Acquires wake lock and WiFi lock to keep CPU and WiFi running during audio playback.
+     * Also starts the foreground service to prevent Android from killing us.
      * This prevents the system from killing our audio or dropping the connection when the screen turns off.
      */
     @Suppress("DEPRECATION")
     private fun acquireWakeLock() {
+        // Start as foreground service with notification
+        startForegroundServiceWithNotification()
+
         // CPU wake lock
         if (wakeLock == null) {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -635,7 +643,41 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
+     * Starts the service in foreground mode with a notification.
+     * This is required on Android 8+ to keep the service alive when the app is in the background.
+     * On Android 14+, we must specify the foreground service type.
+     */
+    private fun startForegroundServiceWithNotification() {
+        try {
+            val notification = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_ID)
+                .setContentTitle("SendSpin")
+                .setContentText("Streaming audio...")
+                .setSmallIcon(com.sendspindroid.R.drawable.ic_launcher_foreground)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .build()
+
+            // Use ServiceCompat for backward compatibility
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NotificationHelper.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NotificationHelper.NOTIFICATION_ID, notification)
+            }
+            Log.d(TAG, "Foreground service started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground service", e)
+        }
+    }
+
+    /**
      * Releases wake lock and WiFi lock when playback stops.
+     * Also stops the foreground service.
      */
     private fun releaseWakeLock() {
         if (wakeLock?.isHeld == true) {
@@ -645,6 +687,14 @@ class PlaybackService : MediaLibraryService() {
         if (wifiLock?.isHeld == true) {
             wifiLock?.release()
             Log.d(TAG, "WiFi lock released")
+        }
+
+        // Stop foreground service but keep the service running
+        try {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            Log.d(TAG, "Foreground service stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop foreground service", e)
         }
     }
 
