@@ -3,6 +3,8 @@ package com.sendspindroid
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.sendspindroid.databinding.ItemServerBinding
 
@@ -10,20 +12,21 @@ import com.sendspindroid.databinding.ItemServerBinding
  * RecyclerView adapter for displaying discovered servers with Material 3 design.
  *
  * Features:
+ * - ListAdapter with DiffUtil for efficient list updates
  * - ViewBinding for type-safe view access
  * - Custom Material 3 card layout with elevation
  * - Connection status indicator (colored dot)
  * - Ripple effect for touch feedback
  *
- * Best practice: Accepts callback as constructor parameter (dependency injection pattern)
- * TODO: Implement DiffUtil for efficient list updates instead of notifyItemInserted
+ * Best practice: Uses ListAdapter which automatically calculates list diffs
+ * on a background thread and dispatches minimal update operations.
+ *
  * TODO: Add view state for selected server (highlight current connection)
  * TODO: Add connection status to ServerInfo model and bind to status indicator
  */
 class ServerAdapter(
-    private val servers: List<ServerInfo>,
     private val onServerClick: (ServerInfo) -> Unit
-) : RecyclerView.Adapter<ServerAdapter.ServerViewHolder>() {
+) : ListAdapter<ServerInfo, ServerAdapter.ServerViewHolder>(ServerDiffCallback()) {
 
     /**
      * ViewHolder pattern for efficient view recycling.
@@ -72,8 +75,32 @@ class ServerAdapter(
     }
 
     override fun onBindViewHolder(holder: ServerViewHolder, position: Int) {
-        holder.bind(servers[position], onServerClick)
+        holder.bind(getItem(position), onServerClick)
     }
 
-    override fun getItemCount() = servers.size
+    /**
+     * DiffUtil callback for calculating the difference between two ServerInfo lists.
+     *
+     * This enables efficient RecyclerView updates by:
+     * - Only updating items that have changed
+     * - Calculating diffs on a background thread
+     * - Animating changes automatically
+     */
+    private class ServerDiffCallback : DiffUtil.ItemCallback<ServerInfo>() {
+        /**
+         * Checks if two items represent the same server.
+         * Uses address as the unique identifier since it should be unique per server.
+         */
+        override fun areItemsTheSame(oldItem: ServerInfo, newItem: ServerInfo): Boolean {
+            return oldItem.address == newItem.address
+        }
+
+        /**
+         * Checks if two items have the same content.
+         * Since ServerInfo is a data class, equals() compares all properties.
+         */
+        override fun areContentsTheSame(oldItem: ServerInfo, newItem: ServerInfo): Boolean {
+            return oldItem == newItem
+        }
+    }
 }

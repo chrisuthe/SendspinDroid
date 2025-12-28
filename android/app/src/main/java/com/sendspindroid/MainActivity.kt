@@ -312,7 +312,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         // Setup RecyclerView for servers (in manual entry view)
-        serverAdapter = ServerAdapter(servers) { server ->
+        serverAdapter = ServerAdapter { server ->
             onServerSelected(server)
         }
         binding.serversRecyclerView.apply {
@@ -1208,17 +1208,18 @@ class MainActivity : AppCompatActivity() {
      * Deduplication: Uses address as unique key (not name, since multiple servers
      * could have the same name but different addresses).
      *
-     * Best practice: notifyItemInserted for efficient RecyclerView updates
-     * vs notifyDataSetChanged which would re-render entire list
+     * Uses ListAdapter.submitList() which efficiently calculates the diff
+     * on a background thread and applies minimal changes to the RecyclerView.
      */
     private fun addServer(server: ServerInfo) {
         // Add to ServerRepository so PlaybackService/Android Auto can see it
         ServerRepository.addDiscoveredServer(server)
 
-        // Also add to local list for UI
+        // Also add to local list for UI (deduplication by address)
         if (!servers.any { it.address == server.address }) {
             servers.add(server)
-            serverAdapter.notifyItemInserted(servers.size - 1)
+            // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
+            serverAdapter.submitList(servers.toList())
             // Update accessibility description for server list
             updateServerListAccessibility()
             updateEmptyServerListState()
@@ -1233,10 +1234,11 @@ class MainActivity : AppCompatActivity() {
         // Add to ServerRepository (persisted)
         ServerRepository.addManualServer(server)
 
-        // Also add to local list for UI
+        // Also add to local list for UI (deduplication by address)
         if (!servers.any { it.address == server.address }) {
             servers.add(server)
-            serverAdapter.notifyItemInserted(servers.size - 1)
+            // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
+            serverAdapter.submitList(servers.toList())
             updateServerListAccessibility()
             updateEmptyServerListState()
         }
@@ -1254,7 +1256,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         if (manualServers.isNotEmpty()) {
-            serverAdapter.notifyDataSetChanged()
+            // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
+            serverAdapter.submitList(servers.toList())
             Log.d(TAG, "Loaded ${manualServers.size} saved servers")
         }
         // Update empty state after loading
