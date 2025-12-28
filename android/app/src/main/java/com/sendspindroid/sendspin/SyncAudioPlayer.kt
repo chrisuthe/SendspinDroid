@@ -7,15 +7,20 @@ import android.media.AudioTrack
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 import kotlin.math.abs
 
 /**
@@ -128,7 +133,15 @@ class SyncAudioPlayer(
         val serverTimeMicros: Long
     )
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    // Coroutine scope for playback - recreated for each playback session
+    private var scope: CoroutineScope? = null
+    private var playbackJob: Job? = null
+
+    // Lock for thread-safe state transitions
+    private val stateLock = ReentrantLock()
+
+    // Flag to track if release() has been called
+    private val isReleased = AtomicBoolean(false)
 
     // Audio output
     private var audioTrack: AudioTrack? = null
@@ -200,9 +213,16 @@ class SyncAudioPlayer(
      * Initialize the audio player with the specified format.
      */
     fun initialize() {
-        if (audioTrack != null) {
-            Log.w(TAG, "Already initialized")
+        if (isReleased.get()) {
+            Log.e(TAG, "Cannot initialize - player has been released")
             return
+        }
+
+        stateLock.withLock {
+            if (audioTrack != null) {
+                Log.w(TAG, "Already initialized")
+                return
+            }
         }
 
         val channelConfig = when (channels) {
@@ -257,25 +277,38 @@ class SyncAudioPlayer(
      * Start playback.
      */
     fun start() {
-        if (isPlaying.get()) {
-            Log.w(TAG, "Already playing")
+        if (isReleased.get()) {
+            Log.e(TAG, "Cannot start - player has been released")
             return
         }
 
-        val track = audioTrack
-        if (track == null) {
-            Log.e(TAG, "AudioTrack not initialized")
-            return
+        stateLock.withLock {
+            if (isPlaying.get()) {
+                Log.w(TAG, "Already playing")
+                return
+            }
+
+            val track = audioTrack
+            if (track == null) {
+                Log.e(TAG, "AudioTrack not initialized")
+                return
+            }
+
+            // Cancel any existing playback job and scope
+            cancelPlaybackLoop()
+
+            // Create a new scope for this playback session
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+            isPlaying.set(true)
+            isPaused.set(false)
+            track.play()
+
+            // Start the playback loop
+            startPlaybackLoop()
+
+            Log.i(TAG, "Playback started")
         }
-
-        isPlaying.set(true)
-        isPaused.set(false)
-        track.play()
-
-        // Start the playback loop
-        startPlaybackLoop()
-
-        Log.i(TAG, "Playback started")
     }
 
     /**
@@ -309,74 +342,176 @@ class SyncAudioPlayer(
 
     /**
      * Stop playback and clear buffers.
+     *
+     * This method is thread-safe and can be called from any thread.
+     * It will wait for the playback loop to finish before returning.
      */
     fun stop() {
-        isPlaying.set(false)
-        isPaused.set(false)
-        audioTrack?.stop()
-        audioTrack?.flush()
-        chunkQueue.clear()
-        totalQueuedSamples.set(0)
+        stateLock.withLock {
+            // Signal the playback loop to stop
+            isPlaying.set(false)
+            isPaused.set(false)
 
-        // Reset playback state machine
-        setPlaybackState(PlaybackState.INITIALIZING)
-        scheduledStartLoopTimeUs = null
-        scheduledStartDacTimeUs = null
-        firstServerTimestampUs = null
+            // Cancel the playback coroutine and wait for it to finish
+            cancelPlaybackLoop()
 
-        Log.i(TAG, "Playback stopped")
+            // Now safe to manipulate AudioTrack - playback loop has stopped
+            audioTrack?.stop()
+            audioTrack?.flush()
+            chunkQueue.clear()
+            totalQueuedSamples.set(0)
+
+            // Reset playback state machine
+            setPlaybackState(PlaybackState.INITIALIZING)
+            scheduledStartLoopTimeUs = null
+            scheduledStartDacTimeUs = null
+            firstServerTimestampUs = null
+
+            Log.i(TAG, "Playback stopped")
+        }
+    }
+
+    /**
+     * Cancel the playback loop coroutine and wait for it to complete.
+     *
+     * Must be called while holding stateLock or when certain no concurrent access.
+     */
+    private fun cancelPlaybackLoop() {
+        val job = playbackJob
+        val currentScope = scope
+
+        if (job != null && job.isActive) {
+            // Cancel the job
+            job.cancel()
+
+            // Wait for the coroutine to finish (with timeout to prevent deadlock)
+            try {
+                runBlocking {
+                    withTimeoutOrNull(1000L) {
+                        job.join()
+                    } ?: Log.w(TAG, "Playback loop did not stop within timeout")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Exception while waiting for playback loop to stop", e)
+            }
+        }
+
+        // Cancel the scope to clean up any lingering coroutines
+        currentScope?.cancel()
+
+        // Clear references
+        playbackJob = null
+        scope = null
     }
 
     /**
      * Release all resources.
+     *
+     * After calling this method, the player cannot be reused.
+     * This method is idempotent and thread-safe.
      */
     fun release() {
-        stop()
-        scope.cancel()
-        audioTrack?.release()
-        audioTrack = null
-        Log.i(TAG, "Released")
+        if (isReleased.getAndSet(true)) {
+            Log.w(TAG, "Already released")
+            return
+        }
+
+        stateLock.withLock {
+            // Stop playback and cancel coroutines (stop() handles this)
+            isPlaying.set(false)
+            isPaused.set(false)
+            cancelPlaybackLoop()
+
+            // Release AudioTrack
+            try {
+                audioTrack?.stop()
+            } catch (e: IllegalStateException) {
+                // AudioTrack may already be stopped
+                Log.v(TAG, "AudioTrack already stopped during release")
+            }
+            audioTrack?.release()
+            audioTrack = null
+
+            // Clear all buffers and state
+            chunkQueue.clear()
+            totalQueuedSamples.set(0)
+            dacCalibrations.clear()
+            stateCallback = null
+
+            Log.i(TAG, "Released")
+        }
     }
 
     /**
      * Clear the audio buffer (called on stream/clear or seek).
+     *
+     * This method is thread-safe. It pauses the playback loop during the clear
+     * to prevent concurrent access issues.
      */
     fun clearBuffer() {
-        streamGeneration++
-        chunkQueue.clear()
-        totalQueuedSamples.set(0)
-        audioTrack?.flush()
-        smoothedSyncErrorUs = 0.0
-        lastChunkServerTime = 0L
+        if (isReleased.get()) {
+            Log.w(TAG, "Cannot clear buffer - player has been released")
+            return
+        }
 
-        // Reset playback state machine
-        setPlaybackState(PlaybackState.INITIALIZING)
-        scheduledStartLoopTimeUs = null
-        scheduledStartDacTimeUs = null
-        firstServerTimestampUs = null
-        // Note: lastReanchorTimeUs is NOT reset to maintain cooldown across clears
+        stateLock.withLock {
+            streamGeneration++
 
-        // Reset DAC calibration state
-        dacCalibrations.clear()
-        dacCalibrationCounter = 0
-        firstFrameServerTimeMicros = 0L
-        totalFramesWritten = 0L
-        lastKnownPlaybackPositionUs = 0L
-        serverTimelineCursor = 0L
-        trueSyncErrorUs = 0L
+            // Clear the chunk queue (thread-safe operation)
+            chunkQueue.clear()
+            totalQueuedSamples.set(0)
 
-        // Reset sample insert/drop correction state
-        insertEveryNFrames = 0
-        dropEveryNFrames = 0
-        framesUntilNextInsert = 0
-        framesUntilNextDrop = 0
-        lastOutputFrame = ByteArray(0)
-        smoothedSyncErrorForCorrectionUs = 0.0
+            // Only flush AudioTrack if we have one and it's safe to do so
+            // The stateLock ensures the playback loop won't be writing during this
+            val track = audioTrack
+            if (track != null) {
+                try {
+                    // If playing, pause briefly to safely flush
+                    val wasPlaying = isPlaying.get()
+                    if (wasPlaying) {
+                        track.pause()
+                    }
+                    track.flush()
+                    if (wasPlaying) {
+                        track.play()
+                    }
+                } catch (e: IllegalStateException) {
+                    Log.w(TAG, "Failed to flush AudioTrack during clearBuffer", e)
+                }
+            }
 
-        // Reset gap/overlap tracking
-        expectedNextTimestampUs = null
+            smoothedSyncErrorUs = 0.0
+            lastChunkServerTime = 0L
 
-        Log.d(TAG, "Buffer cleared, generation=$streamGeneration, state=$playbackState")
+            // Reset playback state machine
+            setPlaybackState(PlaybackState.INITIALIZING)
+            scheduledStartLoopTimeUs = null
+            scheduledStartDacTimeUs = null
+            firstServerTimestampUs = null
+            // Note: lastReanchorTimeUs is NOT reset to maintain cooldown across clears
+
+            // Reset DAC calibration state
+            dacCalibrations.clear()
+            dacCalibrationCounter = 0
+            firstFrameServerTimeMicros = 0L
+            totalFramesWritten = 0L
+            lastKnownPlaybackPositionUs = 0L
+            serverTimelineCursor = 0L
+            trueSyncErrorUs = 0L
+
+            // Reset sample insert/drop correction state
+            insertEveryNFrames = 0
+            dropEveryNFrames = 0
+            framesUntilNextInsert = 0
+            framesUntilNextDrop = 0
+            lastOutputFrame = ByteArray(0)
+            smoothedSyncErrorForCorrectionUs = 0.0
+
+            // Reset gap/overlap tracking
+            expectedNextTimestampUs = null
+
+            Log.d(TAG, "Buffer cleared, generation=$streamGeneration, state=$playbackState")
+        }
     }
 
     /**
@@ -626,7 +761,10 @@ class SyncAudioPlayer(
      * Called when sync error exceeds REANCHOR_THRESHOLD_US.
      * Respects cooldown to avoid thrashing.
      *
-     * @return true if reanchor was triggered, false if still in cooldown
+     * Note: This is called from the playback loop, so we use tryLock to avoid
+     * blocking if another thread holds the lock.
+     *
+     * @return true if reanchor was triggered, false if still in cooldown or lock unavailable
      */
     private fun triggerReanchor(): Boolean {
         val nowMicros = System.nanoTime() / 1000
@@ -637,42 +775,63 @@ class SyncAudioPlayer(
             return false
         }
 
-        Log.w(TAG, "Triggering reanchor: clearing buffers and resetting state")
+        // Try to acquire the lock without blocking - if we can't, skip this reanchor attempt
+        if (!stateLock.tryLock()) {
+            Log.v(TAG, "Reanchor skipped: could not acquire lock")
+            return false
+        }
 
-        lastReanchorTimeUs = nowMicros
-        setPlaybackState(PlaybackState.REANCHORING)
+        try {
+            Log.w(TAG, "Triggering reanchor: clearing buffers and resetting state")
 
-        // Clear audio state but keep AudioTrack playing
-        chunkQueue.clear()
-        totalQueuedSamples.set(0)
-        audioTrack?.flush()
+            lastReanchorTimeUs = nowMicros
+            setPlaybackState(PlaybackState.REANCHORING)
 
-        // Reset start gating state
-        scheduledStartLoopTimeUs = null
-        scheduledStartDacTimeUs = null
-        firstServerTimestampUs = null
+            // Clear audio state but keep AudioTrack playing
+            chunkQueue.clear()
+            totalQueuedSamples.set(0)
 
-        // Reset sync tracking
-        smoothedSyncErrorUs = 0.0
-        lastChunkServerTime = 0L
-        smoothedSyncErrorForCorrectionUs = 0.0
-        insertEveryNFrames = 0
-        dropEveryNFrames = 0
+            // Safely flush the AudioTrack
+            val track = audioTrack
+            if (track != null) {
+                try {
+                    track.pause()
+                    track.flush()
+                    track.play()
+                } catch (e: IllegalStateException) {
+                    Log.w(TAG, "Failed to flush AudioTrack during reanchor", e)
+                }
+            }
 
-        // Reset DAC calibration
-        dacCalibrations.clear()
-        dacCalibrationCounter = 0
-        firstFrameServerTimeMicros = 0L
-        totalFramesWritten = 0L
-        lastKnownPlaybackPositionUs = 0L
-        serverTimelineCursor = 0L
-        trueSyncErrorUs = 0L
+            // Reset start gating state
+            scheduledStartLoopTimeUs = null
+            scheduledStartDacTimeUs = null
+            firstServerTimestampUs = null
 
-        // Transition to INITIALIZING to wait for new chunks
-        setPlaybackState(PlaybackState.INITIALIZING)
-        syncCorrections++
+            // Reset sync tracking
+            smoothedSyncErrorUs = 0.0
+            lastChunkServerTime = 0L
+            smoothedSyncErrorForCorrectionUs = 0.0
+            insertEveryNFrames = 0
+            dropEveryNFrames = 0
 
-        return true
+            // Reset DAC calibration
+            dacCalibrations.clear()
+            dacCalibrationCounter = 0
+            firstFrameServerTimeMicros = 0L
+            totalFramesWritten = 0L
+            lastKnownPlaybackPositionUs = 0L
+            serverTimelineCursor = 0L
+            trueSyncErrorUs = 0L
+
+            // Transition to INITIALIZING to wait for new chunks
+            setPlaybackState(PlaybackState.INITIALIZING)
+            syncCorrections++
+
+            return true
+        } finally {
+            stateLock.unlock()
+        }
     }
 
     /**
@@ -682,7 +841,12 @@ class SyncAudioPlayer(
      * This is imperceptible to the listener (no pitch/tempo changes).
      */
     private fun startPlaybackLoop() {
-        scope.launch {
+        val currentScope = scope ?: run {
+            Log.e(TAG, "Cannot start playback loop - scope is null")
+            return
+        }
+
+        playbackJob = currentScope.launch {
             Log.d(TAG, "Playback loop started, initial state=$playbackState")
 
             while (isActive && isPlaying.get()) {
