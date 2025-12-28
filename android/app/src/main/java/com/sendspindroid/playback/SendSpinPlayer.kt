@@ -98,8 +98,9 @@ class SendSpinPlayer : Player {
 
     /**
      * Updates internal state based on SyncAudioPlayer state.
+     * Called when SyncAudioPlayer state changes.
      */
-    private fun updateStateFromPlayer() {
+    internal fun updateStateFromPlayer() {
         val player = syncAudioPlayer
         if (player == null) {
             // No audio player - check connection state

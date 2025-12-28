@@ -34,6 +34,8 @@ import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SyncAudioPlayer
+import com.sendspindroid.sendspin.SyncAudioPlayerCallback
+import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -207,6 +209,21 @@ class PlaybackService : MediaLibraryService() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize SendSpinClient", e)
             _connectionState.value = ConnectionState.Error("Failed to initialize: ${e.message}")
+        }
+    }
+
+    /**
+     * Callback for SyncAudioPlayer state changes.
+     * Updates SendSpinPlayer when playback state changes so MediaSession notifies controllers.
+     */
+    private inner class SyncAudioPlayerStateCallback : SyncAudioPlayerCallback {
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        override fun onPlaybackStateChanged(state: SyncPlaybackState) {
+            mainHandler.post {
+                Log.d(TAG, "SyncAudioPlayer state changed: $state")
+                // Update SendSpinPlayer so it notifies MediaSession listeners
+                sendSpinPlayer?.updateStateFromPlayer()
+            }
         }
     }
 
@@ -413,6 +430,8 @@ class PlaybackService : MediaLibraryService() {
                     channels = channels,
                     bitDepth = bitDepth
                 ).apply {
+                    // Set callback to update SendSpinPlayer when playback state changes
+                    setStateCallback(SyncAudioPlayerStateCallback())
                     initialize()
                     start()
                 }

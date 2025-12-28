@@ -35,6 +35,16 @@ enum class PlaybackState {
 }
 
 /**
+ * Callback interface for SyncAudioPlayer state changes.
+ */
+interface SyncAudioPlayerCallback {
+    /**
+     * Called when the playback state changes.
+     */
+    fun onPlaybackStateChanged(state: PlaybackState)
+}
+
+/**
  * Synchronized audio player for Sendspin protocol.
  *
  * Receives PCM audio chunks with server timestamps and plays them at the correct
@@ -127,6 +137,7 @@ class SyncAudioPlayer(
 
     // Playback state machine (from Python reference)
     @Volatile private var playbackState = PlaybackState.INITIALIZING
+    private var stateCallback: SyncAudioPlayerCallback? = null
     private var scheduledStartLoopTimeUs: Long? = null   // When to start in loop time
     private var scheduledStartDacTimeUs: Long? = null    // When to start in DAC time
     private var firstServerTimestampUs: Long? = null     // First chunk's server timestamp
@@ -308,7 +319,7 @@ class SyncAudioPlayer(
         totalQueuedSamples.set(0)
 
         // Reset playback state machine
-        playbackState = PlaybackState.INITIALIZING
+        setPlaybackState(PlaybackState.INITIALIZING)
         scheduledStartLoopTimeUs = null
         scheduledStartDacTimeUs = null
         firstServerTimestampUs = null
@@ -339,7 +350,7 @@ class SyncAudioPlayer(
         lastChunkServerTime = 0L
 
         // Reset playback state machine
-        playbackState = PlaybackState.INITIALIZING
+        setPlaybackState(PlaybackState.INITIALIZING)
         scheduledStartLoopTimeUs = null
         scheduledStartDacTimeUs = null
         firstServerTimestampUs = null
@@ -507,7 +518,7 @@ class SyncAudioPlayer(
                 scheduledStartLoopTimeUs = clientPlayTime
                 // Estimate when this will be at the DAC (initially same as loop time)
                 scheduledStartDacTimeUs = clientPlayTime
-                playbackState = PlaybackState.WAITING_FOR_START
+                setPlaybackState(PlaybackState.WAITING_FOR_START)
                 Log.i(TAG, "First chunk received: serverTime=${workingServerTimeMicros/1000}ms, " +
                         "scheduled start at ${clientPlayTime/1000}ms, transitioning to WAITING_FOR_START")
             }
@@ -525,7 +536,7 @@ class SyncAudioPlayer(
                 firstServerTimestampUs = workingServerTimeMicros
                 scheduledStartLoopTimeUs = clientPlayTime
                 scheduledStartDacTimeUs = clientPlayTime
-                playbackState = PlaybackState.WAITING_FOR_START
+                setPlaybackState(PlaybackState.WAITING_FOR_START)
                 Log.i(TAG, "Reanchoring: new first chunk at serverTime=${workingServerTimeMicros/1000}ms")
             }
             PlaybackState.PLAYING -> {
@@ -596,13 +607,13 @@ class SyncAudioPlayer(
                 }
 
                 framesDropped += droppedFrames.toLong()
-                playbackState = PlaybackState.PLAYING
+                setPlaybackState(PlaybackState.PLAYING)
                 Log.i(TAG, "Start gating complete: dropped $droppedFrames frames, now PLAYING")
                 return false  // Ready to play
             }
             else -> {
                 // Within tolerance - start playing
-                playbackState = PlaybackState.PLAYING
+                setPlaybackState(PlaybackState.PLAYING)
                 Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
                 return false  // Ready to play
             }
@@ -629,7 +640,7 @@ class SyncAudioPlayer(
         Log.w(TAG, "Triggering reanchor: clearing buffers and resetting state")
 
         lastReanchorTimeUs = nowMicros
-        playbackState = PlaybackState.REANCHORING
+        setPlaybackState(PlaybackState.REANCHORING)
 
         // Clear audio state but keep AudioTrack playing
         chunkQueue.clear()
@@ -658,7 +669,7 @@ class SyncAudioPlayer(
         trueSyncErrorUs = 0L
 
         // Transition to INITIALIZING to wait for new chunks
-        playbackState = PlaybackState.INITIALIZING
+        setPlaybackState(PlaybackState.INITIALIZING)
         syncCorrections++
 
         return true
@@ -1159,6 +1170,23 @@ class SyncAudioPlayer(
      * Get current playback state.
      */
     fun getPlaybackState(): PlaybackState = playbackState
+
+    /**
+     * Set the callback for playback state changes.
+     */
+    fun setStateCallback(callback: SyncAudioPlayerCallback?) {
+        stateCallback = callback
+    }
+
+    /**
+     * Update playback state and notify callback if changed.
+     */
+    private fun setPlaybackState(newState: PlaybackState) {
+        if (playbackState != newState) {
+            playbackState = newState
+            stateCallback?.onPlaybackStateChanged(newState)
+        }
+    }
 
     /**
      * Get current sync statistics.
