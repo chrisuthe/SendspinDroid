@@ -26,3 +26,4 @@ android/player/build/
 
 keystore_base64.txt
 *.keystore
+android/app/release/
