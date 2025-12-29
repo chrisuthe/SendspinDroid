@@ -56,6 +56,12 @@ Bytes 9+:   Payload (PCM audio or image data)
 3. **Audio Buffer** - Timestamped chunk storage
 4. **AAudio Output** - Native audio with sync correction
 
+## Development Environment
+
+- **Platform**: Windows
+- **IDE**: Android Studio
+- **JAVA_HOME**: `C:\Program Files\Android\Android Studio\jbr`
+
 ## Build Notes
 
 Standard Android Gradle build:
