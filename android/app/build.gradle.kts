@@ -185,6 +185,9 @@ dependencies {
     // Palette - Extract prominent colors from images for dynamic theming
     implementation("androidx.palette:palette-ktx:1.0.0")
 
+    // Preference - Settings UI with PreferenceFragmentCompat
+    implementation("androidx.preference:preference-ktx:1.2.1")
+
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)
     // implementation("androidx.recyclerview:recyclerview:1.3.x")

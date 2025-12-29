@@ -205,6 +205,9 @@ class PlaybackService : MediaLibraryService() {
             .crossfade(true)
             .build()
 
+        // Initialize UserSettings for player name preference
+        com.sendspindroid.UserSettings.initialize(this)
+
         // Initialize SendSpinPlayer
         initializePlayer()
 
@@ -221,12 +224,14 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun initializeSendSpinClient() {
         try {
+            // Use user-configured player name, falls back to device model
+            val playerName = com.sendspindroid.UserSettings.getPlayerName()
             sendSpinClient = SendSpinClient(
-                deviceName = android.os.Build.MODEL,
+                deviceName = playerName,
                 callback = SendSpinClientCallback()
             )
             sendSpinPlayer?.setSendSpinClient(sendSpinClient)
-            Log.d(TAG, "SendSpinClient initialized")
+            Log.d(TAG, "SendSpinClient initialized with name: $playerName")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize SendSpinClient", e)
             _connectionState.value = ConnectionState.Error("Failed to initialize: ${e.message}")

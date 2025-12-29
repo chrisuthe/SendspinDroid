@@ -142,6 +142,17 @@
             -->
         </activity>
 
+        <!-- SettingsActivity: User preferences screen
+             - parentActivityName: Enable up navigation to MainActivity -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity">
+            <meta-data
+                android:name="android.support.PARENT_ACTIVITY"
+                android:value=".MainActivity" />
+        </activity>
+
         <!--
             PlaybackService: Background audio playback service with Android Auto support
             - foregroundServiceType: Required on API 29+ to specify service purpose

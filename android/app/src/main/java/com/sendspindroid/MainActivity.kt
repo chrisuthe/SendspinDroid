@@ -250,6 +250,9 @@ class MainActivity : AppCompatActivity() {
         // This enables Android Auto to see discovered servers
         ServerRepository.initialize(this)
 
+        // Initialize UserSettings for accessing user preferences
+        UserSettings.initialize(this)
+
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -1538,25 +1541,33 @@ class MainActivity : AppCompatActivity() {
     // ========================================================================
 
     /**
-     * Inflate options menu only when connected.
+     * Inflate options menu. Settings is always visible; other items shown when connected.
      */
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
-        if (connectionState is AppConnectionState.Connected) {
-            menuInflater.inflate(R.menu.menu_now_playing, menu)
-        }
+        menuInflater.inflate(R.menu.menu_now_playing, menu)
         return true
     }
 
     /**
-     * Update menu items with dynamic content (connection info header).
+     * Update menu items visibility based on connection state.
+     * Settings is always visible; connection-specific items only when connected.
      */
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
-        menu?.findItem(R.id.action_connection_info)?.let { item ->
-            val state = connectionState
-            if (state is AppConnectionState.Connected) {
-                item.title = getString(R.string.connected_to, state.serverName)
+        val isConnected = connectionState is AppConnectionState.Connected
+
+        // Connection-specific items only visible when connected
+        menu?.findItem(R.id.action_connection_info)?.apply {
+            isVisible = isConnected
+            if (isConnected) {
+                val state = connectionState as AppConnectionState.Connected
+                title = getString(R.string.connected_to, state.serverName)
             }
         }
+        menu?.findItem(R.id.action_stats)?.isVisible = isConnected
+        menu?.findItem(R.id.action_disconnect)?.isVisible = isConnected
+
+        // Settings is always visible (no change needed, visible by default)
+
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -1573,6 +1584,11 @@ class MainActivity : AppCompatActivity() {
             R.id.action_disconnect -> {
                 // Show confirmation dialog before disconnecting
                 onDisconnectClicked()
+                true
+            }
+            R.id.action_settings -> {
+                // Open Settings activity
+                startActivity(android.content.Intent(this, SettingsActivity::class.java))
                 true
             }
             else -> super.onOptionsItemSelected(item)

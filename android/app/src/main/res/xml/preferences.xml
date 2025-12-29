@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:title="@string/pref_category_player"
+        app:iconSpaceReserved="false">
+
+        <EditTextPreference
+            android:key="player_name"
+            android:title="@string/pref_player_name_title"
+            android:summary="@string/pref_player_name_summary"
+            android:dialogTitle="@string/pref_player_name_title"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>
