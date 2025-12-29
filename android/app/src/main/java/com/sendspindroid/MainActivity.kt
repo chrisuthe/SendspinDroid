@@ -1156,12 +1156,12 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Disconnect clicked")
 
         MaterialAlertDialogBuilder(this)
-            .setTitle("Disconnect from server?")
-            .setMessage("This will stop playback on this device. Other devices will continue playing.")
-            .setPositiveButton("Disconnect") { _, _ ->
+            .setTitle(R.string.disconnect_dialog_title)
+            .setMessage(R.string.disconnect_dialog_message)
+            .setPositiveButton(R.string.disconnect_dialog_positive) { _, _ ->
                 performDisconnect()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.disconnect_dialog_negative, null)
             .show()
     }
 

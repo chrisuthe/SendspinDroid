@@ -127,6 +127,12 @@
     <!-- Menu -->
     <string name="action_stats">Stats for Nerds</string>
 
+    <!-- Disconnect dialog -->
+    <string name="disconnect_dialog_title">Disconnect from server?</string>
+    <string name="disconnect_dialog_message">This will stop playback on this device. You can reconnect at any time.</string>
+    <string name="disconnect_dialog_positive">Disconnect</string>
+    <string name="disconnect_dialog_negative">Cancel</string>
+
     <!-- Permission strings -->
     <string name="permission_bind_playback_service_label">Bind to SendSpin Playback Service</string>
     <string name="permission_bind_playback_service_description">Allows the app to bind to the SendSpin playback service for audio control. Only apps signed with the same certificate can use this permission.</string>
