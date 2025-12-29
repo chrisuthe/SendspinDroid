@@ -476,7 +476,6 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onVolumeChanged(volume: Int) {
             mainHandler.post {
-                Log.d(TAG, "Server volume update: $volume%")
                 // Convert from 0-100 to 0.0-1.0 and apply to local audio player
                 val volumeFloat = volume / 100f
                 syncAudioPlayer?.setVolume(volumeFloat)
@@ -494,11 +493,9 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun fetchArtwork(url: String) {
         if (!isValidArtworkUrl(url)) {
-            Log.w(TAG, "Invalid artwork URL: $url")
             return
         }
 
-        Log.d(TAG, "Fetching artwork from: $url")
         serviceScope.launch(Dispatchers.IO) {
             try {
                 val request = ImageRequest.Builder(this@PlaybackService)
@@ -526,7 +523,6 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun updateMediaSessionArtwork(bitmap: Bitmap) {
         val state = _playbackState.value
-        Log.d(TAG, "Artwork updated: ${bitmap.width}x${bitmap.height} for ${state.title}")
 
         forwardingPlayer?.updateMetadata(
             title = state.title,
@@ -548,8 +544,6 @@ class PlaybackService : MediaLibraryService() {
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun updateMediaMetadata(title: String, artist: String, album: String) {
-        Log.d(TAG, "Metadata received: $title / $artist / $album")
-
         val state = _playbackState.value
 
         forwardingPlayer?.updateMetadata(
@@ -587,7 +581,6 @@ class PlaybackService : MediaLibraryService() {
             putLong(EXTRA_POSITION_MS, positionMs)
         }
         mediaSession?.setSessionExtras(extras)
-        Log.d(TAG, "Broadcast metadata to controllers: $title / $artist")
     }
 
     /**
@@ -638,7 +631,6 @@ class PlaybackService : MediaLibraryService() {
             errorMessage?.let { putString(EXTRA_ERROR_MESSAGE, it) }
         }
         mediaSession?.setSessionExtras(extras)
-        Log.d(TAG, "Broadcast connection state: $state serverName=$serverName")
     }
 
     /**
@@ -998,7 +990,6 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun getStats(): Bundle {
         val bundle = Bundle()
-        Log.d(TAG, "getStats: syncAudioPlayer=${syncAudioPlayer != null}, sendSpinClient=${sendSpinClient != null}")
 
         // Get stats from SyncAudioPlayer
         val audioStats = syncAudioPlayer?.getStats()
@@ -1006,7 +997,6 @@ class PlaybackService : MediaLibraryService() {
             // Playback state
             bundle.putString("playback_state", audioStats.playbackState.name)
             bundle.putBoolean("is_playing", audioStats.isPlaying)
-            Log.d(TAG, "getStats: playbackState=${audioStats.playbackState.name}, syncError=${audioStats.smoothedSyncErrorUs}us")
 
             // Sync status
             bundle.putLong("sync_error_us", audioStats.smoothedSyncErrorUs)
@@ -1047,7 +1037,6 @@ class PlaybackService : MediaLibraryService() {
             // No audio player - provide default values
             bundle.putString("playback_state", "NO_AUDIO")
             bundle.putBoolean("is_playing", false)
-            Log.d(TAG, "getStats: no audio player available")
         }
 
         // Get stats from SendSpinClient (clock sync)
