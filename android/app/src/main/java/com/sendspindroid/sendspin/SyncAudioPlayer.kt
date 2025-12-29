@@ -267,6 +267,9 @@ class SyncAudioPlayer(
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
 
+            // Pre-allocate lastOutputFrame buffer for sync correction (avoids GC in audio callback)
+            lastOutputFrame = ByteArray(bytesPerFrame)
+
             Log.i(TAG, "AudioTrack initialized: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit, buffer=${bufferSize}bytes")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create AudioTrack", e)
@@ -504,7 +507,8 @@ class SyncAudioPlayer(
             dropEveryNFrames = 0
             framesUntilNextInsert = 0
             framesUntilNextDrop = 0
-            lastOutputFrame = ByteArray(0)
+            // Clear lastOutputFrame contents but keep the pre-allocated buffer
+            lastOutputFrame.fill(0)
             smoothedSyncErrorForCorrectionUs = 0.0
 
             // Reset gap/overlap tracking
@@ -1021,7 +1025,9 @@ class SyncAudioPlayer(
             val result = track.write(chunk.pcmData, 0, chunk.pcmData.size)
             // Store last frame for potential future insertion
             if (chunk.pcmData.size >= bytesPerFrame) {
+                // Safety guard: should not trigger since lastOutputFrame is pre-allocated in initialize()
                 if (lastOutputFrame.size != bytesPerFrame) {
+                    Log.w(TAG, "lastOutputFrame size mismatch, reallocating (expected: $bytesPerFrame, actual: ${lastOutputFrame.size})")
                     lastOutputFrame = ByteArray(bytesPerFrame)
                 }
                 System.arraycopy(
@@ -1107,7 +1113,9 @@ class SyncAudioPlayer(
             if (written > 0) {
                 totalWritten += written
                 // Store this frame as the last output frame
+                // Safety guard: should not trigger since lastOutputFrame is pre-allocated in initialize()
                 if (lastOutputFrame.size != bytesPerFrame) {
+                    Log.w(TAG, "lastOutputFrame size mismatch in writeWithCorrection, reallocating")
                     lastOutputFrame = ByteArray(bytesPerFrame)
                 }
                 System.arraycopy(pcmData, inputOffset, lastOutputFrame, 0, bytesPerFrame)
