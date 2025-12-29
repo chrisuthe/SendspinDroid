@@ -180,10 +180,13 @@ class SendSpinClient(
             disconnect()
         }
 
-        Log.d(TAG, "Connecting to: $address path=$path")
+        // Validate and normalize path parameter
+        val normalizedPath = normalizePath(path)
+
+        Log.d(TAG, "Connecting to: $address path=$normalizedPath")
         _connectionState.value = ConnectionState.Connecting
         serverAddress = address
-        serverPath = path
+        serverPath = normalizedPath
         handshakeComplete = false
         timeSyncRunning = false
         timeFilter.reset()
@@ -193,8 +196,8 @@ class SendSpinClient(
         reconnectAttempts.set(0)
         reconnecting = false
 
-        // Construct WebSocket URL using provided path
-        val wsUrl = "ws://$address$path"
+        // Construct WebSocket URL using normalized path
+        val wsUrl = "ws://$address$normalizedPath"
         Log.d(TAG, "WebSocket URL: $wsUrl")
 
         val request = Request.Builder()
@@ -508,6 +511,46 @@ class SendSpinClient(
     private fun sendPlayerState() {
         // Send default player state (100% volume, not muted)
         sendPlayerStateUpdate(100, false)
+    }
+
+    /**
+     * Normalize and validate the WebSocket path parameter.
+     *
+     * - If path is empty, returns default ENDPOINT_PATH
+     * - If path doesn't start with '/', prepends it
+     * - Removes any query string (everything after '?')
+     *
+     * @param path The raw path parameter
+     * @return A normalized path that is safe for URL construction
+     */
+    private fun normalizePath(path: String): String {
+        // Handle empty path
+        if (path.isEmpty()) {
+            Log.d(TAG, "Empty path provided, using default: $ENDPOINT_PATH")
+            return ENDPOINT_PATH
+        }
+
+        // Remove query string if present
+        val pathWithoutQuery = path.substringBefore("?")
+        if (pathWithoutQuery != path) {
+            Log.d(TAG, "Removed query string from path: '$path' -> '$pathWithoutQuery'")
+        }
+
+        // Handle path after query removal becoming empty
+        if (pathWithoutQuery.isEmpty()) {
+            Log.d(TAG, "Path empty after removing query string, using default: $ENDPOINT_PATH")
+            return ENDPOINT_PATH
+        }
+
+        // Ensure path starts with '/'
+        val normalizedPath = if (!pathWithoutQuery.startsWith("/")) {
+            Log.d(TAG, "Path missing leading slash, prepending: '/$pathWithoutQuery'")
+            "/$pathWithoutQuery"
+        } else {
+            pathWithoutQuery
+        }
+
+        return normalizedPath
     }
 
     /**
