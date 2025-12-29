@@ -370,11 +370,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Disconnect button
-        binding.disconnectButton.setOnClickListener {
-            onDisconnectClicked()
-        }
-
         // Initialize volume accessibility
         updateVolumeAccessibility(binding.volumeSlider.value.toInt())
 
@@ -478,6 +473,9 @@ class MainActivity : AppCompatActivity() {
      * Starts discovery automatically and schedules timeout for manual button.
      */
     private fun showSearchingView() {
+        // Clear toolbar subtitle when not connected
+        supportActionBar?.subtitle = null
+
         // Animate view transitions
         if (binding.searchingView.visibility != View.VISIBLE) {
             binding.searchingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
@@ -505,6 +503,9 @@ class MainActivity : AppCompatActivity() {
      * Called after timeout or explicit user choice.
      */
     private fun showManualEntryView() {
+        // Clear toolbar subtitle when not connected
+        supportActionBar?.subtitle = null
+
         binding.searchingView.visibility = View.GONE
         // Animate view transition
         if (binding.manualEntryView.visibility != View.VISIBLE) {
@@ -515,11 +516,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Shows the now playing view (album art, playback controls, disconnect).
+     * Shows the now playing view (album art, playback controls).
      * Called when connected to a server.
+     * Connection status is shown in the toolbar subtitle.
      */
     private fun showNowPlayingView(serverName: String) {
         cancelManualButtonTimeout()
+
+        // Show server name in toolbar subtitle
+        supportActionBar?.subtitle = serverName
+
         binding.searchingView.visibility = View.GONE
         binding.manualEntryView.visibility = View.GONE
 
@@ -530,9 +536,6 @@ class MainActivity : AppCompatActivity() {
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
-
-        // Update the status bar with connected server name
-        binding.connectedServerText.text = serverName
     }
 
     /**
@@ -1535,13 +1538,26 @@ class MainActivity : AppCompatActivity() {
     // ========================================================================
 
     /**
-     * Inflate options menu only when connected to show "Switch Server" option.
+     * Inflate options menu only when connected.
      */
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         if (connectionState is AppConnectionState.Connected) {
             menuInflater.inflate(R.menu.menu_now_playing, menu)
         }
         return true
+    }
+
+    /**
+     * Update menu items with dynamic content (connection info header).
+     */
+    override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
+        menu?.findItem(R.id.action_connection_info)?.let { item ->
+            val state = connectionState
+            if (state is AppConnectionState.Connected) {
+                item.title = getString(R.string.connected_to, state.serverName)
+            }
+        }
+        return super.onPrepareOptionsMenu(menu)
     }
 
     /**
@@ -1554,10 +1570,9 @@ class MainActivity : AppCompatActivity() {
                 StatsBottomSheet().show(supportFragmentManager, "stats")
                 true
             }
-            R.id.action_switch_server -> {
-                // Disconnect and go to manual entry to pick a different server
-                // Skip confirmation since intent is clear
-                performDisconnect()
+            R.id.action_disconnect -> {
+                // Show confirmation dialog before disconnecting
+                onDisconnectClicked()
                 true
             }
             else -> super.onOptionsItemSelected(item)

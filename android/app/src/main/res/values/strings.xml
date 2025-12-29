@@ -64,7 +64,7 @@
     <string name="action_dismiss">Dismiss</string>
 
     <!-- Menu actions -->
-    <string name="action_switch_server">Switch Server</string>
+    <string name="action_disconnect">Disconnect</string>
 
     <!-- Success messages -->
     <string name="server_added">Server added: %s</string>
