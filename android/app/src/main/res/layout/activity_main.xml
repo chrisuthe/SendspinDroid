@@ -225,75 +225,6 @@
             app:layout_constraintTop_toTopOf="parent"
             tools:visibility="visible">
 
-            <!-- Connection Status Bar -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/connectionStatusBar"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:cardBackgroundColor="?attr/colorPrimaryContainer"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="1dp"
-                app:strokeColor="?attr/colorOutlineVariant"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent">
-
-                <androidx.constraintlayout.widget.ConstraintLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:padding="12dp">
-
-                    <!-- Connection Status Icon -->
-                    <ImageView
-                        android:id="@+id/connectedServerIcon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:src="@drawable/ic_server_connected"
-                        android:contentDescription="@string/accessibility_connected"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintStart_toStartOf="parent"
-                        app:layout_constraintTop_toTopOf="parent" />
-
-                    <!-- Connected Server Name -->
-                    <TextView
-                        android:id="@+id/connectedServerText"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_marginEnd="12dp"
-                        android:text="@string/not_connected"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:maxLines="1"
-                        android:ellipsize="end"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintEnd_toStartOf="@id/disconnectButton"
-                        app:layout_constraintStart_toEndOf="@id/connectedServerIcon"
-                        app:layout_constraintTop_toTopOf="parent" />
-
-                    <!-- Disconnect Button -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/disconnectButton"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="40dp"
-                        android:text="@string/disconnect"
-                        android:textColor="?attr/colorError"
-                        app:backgroundTint="?attr/colorErrorContainer"
-                        app:icon="@drawable/ic_server_disconnected"
-                        app:iconTint="@null"
-                        app:iconGravity="textStart"
-                        app:iconSize="18dp"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintEnd_toEndOf="parent"
-                        app:layout_constraintTop_toTopOf="parent" />
-
-                </androidx.constraintlayout.widget.ConstraintLayout>
-
-            </com.google.android.material.card.MaterialCardView>
-
             <!-- Connection Progress (shown during connecting) -->
             <LinearLayout
                 android:id="@+id/connectionProgressContainer"
@@ -335,12 +266,11 @@
                 android:id="@+id/nowPlayingContent"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
-                android:layout_marginTop="16dp"
                 android:visibility="visible"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/connectionStatusBar">
+                app:layout_constraintTop_toTopOf="parent">
 
                 <!-- Large Album Art with Buffering Overlay -->
                 <FrameLayout
