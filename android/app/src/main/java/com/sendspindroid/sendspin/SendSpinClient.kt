@@ -275,7 +275,6 @@ class SendSpinClient(
      * Format: {"type": "client/state", "payload": {"state": "synchronized", "volume": 75, "muted": false}}
      */
     private fun sendPlayerStateUpdate(volume: Int, muted: Boolean) {
-        Log.i(TAG, ">>> Sending player state: volume=$volume%, muted=$muted")
         val message = JSONObject().apply {
             put("type", "client/state")
             put("payload", JSONObject().apply {
@@ -284,7 +283,6 @@ class SendSpinClient(
                 put("muted", muted)
             })
         }
-        Log.i(TAG, ">>> Player state message: $message")
         sendMessage(message)
     }
 
@@ -295,8 +293,6 @@ class SendSpinClient(
      * Protocol format: {"type": "client/command", "payload": {"controller": {"command": "pause"}}}
      */
     fun sendCommand(command: String) {
-        Log.i(TAG, ">>> Sending controller command: $command")
-
         val payload = JSONObject().apply {
             put("controller", JSONObject().apply {
                 put("command", command)
@@ -308,7 +304,6 @@ class SendSpinClient(
             put("payload", payload)
         }
 
-        Log.i(TAG, ">>> Command message: $message")
         sendMessage(message)
     }
 
@@ -548,12 +543,10 @@ class SendSpinClient(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            Log.i(TAG, ">>> Received TEXT message (${text.length} chars): ${text.take(200)}")
             handleTextMessage(text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            Log.i(TAG, ">>> Received BINARY message: ${bytes.size} bytes")
             handleBinaryMessage(bytes)
         }
 
@@ -676,10 +669,6 @@ class SendSpinClient(
             val json = JSONObject(text)
             val type = json.getString("type")
             val payload = json.optJSONObject("payload")
-
-            // Log all incoming messages for debugging (truncate long messages)
-            val logText = if (text.length > 200) text.take(200) + "..." else text
-            Log.v(TAG, "<<< Received: $logText")
 
             when (type) {
                 "server/hello" -> handleServerHello(payload)

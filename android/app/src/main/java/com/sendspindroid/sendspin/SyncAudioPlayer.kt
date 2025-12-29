@@ -544,7 +544,6 @@ class SyncAudioPlayer(
         val expectedNext = expectedNextTimestampUs
         if (expectedNext == null) {
             expectedNextTimestampUs = serverTimeMicros
-            Log.d(TAG, "Gap/overlap tracking initialized at serverTime=${serverTimeMicros/1000}ms")
         } else {
             // Handle gap: insert silence to fill the gap
             if (serverTimeMicros > expectedNext) {
@@ -574,8 +573,6 @@ class SyncAudioPlayer(
                     val gapMs = gapUs / 1000
                     gapSilenceMs += gapMs
 
-                    Log.d(TAG, "Gap: ${gapUs / 1000.0}ms filled with ${silenceBytes} bytes of silence")
-
                     // Update expected next timestamp to account for inserted silence
                     val silenceDurationUs = (gapFrames * 1_000_000L) / sampleRate
                     expectedNextTimestampUs = expectedNext + silenceDurationUs
@@ -596,11 +593,8 @@ class SyncAudioPlayer(
                     overlapsTrimmed++
                     val overlapMs = overlapUs / 1000
                     overlapTrimmedMs += overlapMs
-
-                    Log.d(TAG, "Overlap: ${overlapUs / 1000.0}ms trimmed (${trimBytes} bytes)")
                 } else {
                     // Entire chunk is overlap - skip it entirely
-                    Log.d(TAG, "Overlap: ${overlapUs / 1000.0}ms (chunk skipped, already played)")
                     overlapsTrimmed++
                     overlapTrimmedMs += overlapUs / 1000
                     return
@@ -679,13 +673,6 @@ class SyncAudioPlayer(
             }
         }
 
-        // Log periodically
-        if (chunksReceived % 100 == 0L) {
-            val queuedMs = (totalQueuedSamples.get() * 1000) / sampleRate
-            Log.d(TAG, "Chunks: received=$chunksReceived, played=$chunksPlayed, dropped=$chunksDropped, " +
-                    "queued=${queuedMs}ms, state=$playbackState, gaps=$gapsFilled (${gapSilenceMs}ms), " +
-                    "overlaps=$overlapsTrimmed (${overlapTrimmedMs}ms)")
-        }
     }
 
     // ========================================================================
@@ -711,8 +698,6 @@ class SyncAudioPlayer(
             deltaUs > 0 -> {
                 // Not yet time to start - we could write silence to AudioTrack
                 // For now, just wait (the AudioTrack is already playing, outputting zeros)
-                val waitMs = minOf(deltaUs / 1000, 50L).coerceAtLeast(1)
-                Log.v(TAG, "Start gating: waiting ${deltaUs/1000}ms until scheduled start")
                 return true  // Keep waiting
             }
             deltaUs < -HARD_RESYNC_THRESHOLD_US -> {
@@ -771,13 +756,11 @@ class SyncAudioPlayer(
         val timeSinceLastReanchor = nowMicros - lastReanchorTimeUs
 
         if (timeSinceLastReanchor < REANCHOR_COOLDOWN_US) {
-            Log.v(TAG, "Reanchor blocked: cooldown has ${(REANCHOR_COOLDOWN_US - timeSinceLastReanchor)/1000}ms remaining")
             return false
         }
 
         // Try to acquire the lock without blocking - if we can't, skip this reanchor attempt
         if (!stateLock.tryLock()) {
-            Log.v(TAG, "Reanchor skipped: could not acquire lock")
             return false
         }
 
@@ -1009,12 +992,6 @@ class SyncAudioPlayer(
             }
         }
 
-        // Log correction schedule changes periodically
-        if (chunksPlayed % 100 == 0L && intervalFrames > 0) {
-            val correctionType = if (dropEveryNFrames > 0) "drop" else "insert"
-            Log.d(TAG, "Correction: $correctionType every $intervalFrames frames, " +
-                    "error=${smoothedSyncErrorForCorrectionUs.toLong()/1000}ms")
-        }
     }
 
     /**
@@ -1032,7 +1009,6 @@ class SyncAudioPlayer(
         // Track the first frame's server time for DAC calibration mapping
         if (firstFrameServerTimeMicros == 0L) {
             firstFrameServerTimeMicros = chunk.serverTimeMicros
-            Log.d(TAG, "First frame server time: ${firstFrameServerTimeMicros/1000}ms")
         }
 
         // Decide if we need frame-by-frame processing or can use fast path
@@ -1174,7 +1150,6 @@ class SyncAudioPlayer(
 
             // Sanity check: frame position should be positive and reasonable
             if (framePosition <= 0 || framePosition > totalFramesWritten) {
-                Log.v(TAG, "DAC calibration: invalid frame position $framePosition (written: $totalFramesWritten)")
                 return
             }
 
@@ -1204,15 +1179,6 @@ class SyncAudioPlayer(
             // Calculate true sync error: difference between where we are playing
             // and where we should be playing based on server timeline
             trueSyncErrorUs = lastKnownPlaybackPositionUs - serverTimelineCursor
-
-            // Log periodically for debugging
-            if (dacCalibrations.size % 20 == 0) {
-                Log.d(TAG, "DAC calibration: frames=$framePosition, " +
-                        "serverPos=${serverTimeMicros/1000}ms, " +
-                        "cursor=${serverTimelineCursor/1000}ms, " +
-                        "syncError=${trueSyncErrorUs/1000}ms, " +
-                        "calibrations=${dacCalibrations.size}")
-            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get AudioTrack timestamp", e)
         }
