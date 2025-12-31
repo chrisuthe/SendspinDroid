@@ -491,6 +491,18 @@ class PlaybackService : MediaLibraryService() {
                 mediaSession?.setSessionExtras(extras)
             }
         }
+
+        override fun onSyncOffsetApplied(offsetMs: Double, source: String) {
+            android.util.Log.i(TAG, "Sync offset applied: ${offsetMs}ms from $source")
+            // Optionally broadcast to UI for display
+            mainHandler.post {
+                val extras = Bundle().apply {
+                    putDouble("sync_offset_ms", offsetMs)
+                    putString("sync_offset_source", source)
+                }
+                mediaSession?.setSessionExtras(extras)
+            }
+        }
     }
 
     /**

@@ -113,6 +113,9 @@ class SendSpinClient(
 
         // Volume callback - called when server sends volume update
         fun onVolumeChanged(volume: Int)
+
+        // Sync offset callback - called when GroupSync calibration offset is applied
+        fun onSyncOffsetApplied(offsetMs: Double, source: String)
     }
 
     // Connection state
@@ -721,6 +724,7 @@ class SendSpinClient(
                 "group/update" -> handleGroupUpdate(payload)
                 "stream/start" -> handleStreamStart(payload)
                 "stream/clear" -> handleStreamClear()
+                "client/sync_offset" -> handleClientSyncOffset(payload)
                 else -> Log.d(TAG, "Unhandled message type: $type")
             }
         } catch (e: Exception) {
@@ -865,6 +869,41 @@ class SendSpinClient(
             }
             else -> Log.d(TAG, "Unknown player command: $command")
         }
+    }
+
+    /**
+     * Handle client/sync_offset - GroupSync calibration offset.
+     *
+     * This message is sent by the GroupSync calibration tool to apply a
+     * calculated speaker offset for multi-room synchronization.
+     *
+     * Example payload:
+     * {"player_id": "...", "offset_ms": 12.5, "source": "groupsync"}
+     */
+    private fun handleClientSyncOffset(payload: JSONObject?) {
+        if (payload == null) {
+            Log.w(TAG, "client/sync_offset: missing payload")
+            return
+        }
+
+        val playerId = payload.optString("player_id", "")
+        val offsetMs = payload.optDouble("offset_ms", 0.0)
+        val source = payload.optString("source", "unknown")
+
+        Log.i(TAG, "client/sync_offset: offset=${offsetMs}ms from $source")
+
+        // Clamp offset to reasonable range (-5000 to +5000 ms)
+        val clampedOffset = offsetMs.coerceIn(-5000.0, 5000.0)
+        if (clampedOffset != offsetMs) {
+            Log.w(TAG, "client/sync_offset: clamped from ${offsetMs}ms to ${clampedOffset}ms")
+        }
+
+        // Apply to time filter
+        timeFilter.staticDelayMs = clampedOffset
+        Log.d(TAG, "client/sync_offset: static delay set to ${clampedOffset}ms")
+
+        // Notify callback if available
+        callback.onSyncOffsetApplied(clampedOffset, source)
     }
 
     /**
