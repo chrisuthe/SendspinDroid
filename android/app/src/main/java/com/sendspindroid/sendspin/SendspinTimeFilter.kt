@@ -56,6 +56,10 @@ class SendspinTimeFilter {
     private var lastUpdateTime: Long = 0
     private var measurementCount: Int = 0
 
+    // Static delay offset for speaker synchronization (GroupSync calibration)
+    // Positive = delay playback (plays later), Negative = advance (plays earlier)
+    private var staticDelayMicros: Long = 0
+
     /**
      * Whether enough measurements have been collected for reliable time conversion.
      */
@@ -79,6 +83,17 @@ class SendspinTimeFilter {
      */
     val measurementCountValue: Int
         get() = measurementCount
+
+    /**
+     * Static delay in milliseconds for speaker synchronization.
+     * Positive = delay playback (plays later), Negative = advance (plays earlier).
+     * Used by GroupSync calibration tool.
+     */
+    var staticDelayMs: Double
+        get() = staticDelayMicros / 1000.0
+        set(value) {
+            staticDelayMicros = (value * 1000).toLong()
+        }
 
     /**
      * Reset the filter to initial state.
@@ -207,6 +222,7 @@ class SendspinTimeFilter {
 
     /**
      * Convert server time to client time.
+     * Includes static delay offset for speaker synchronization.
      *
      * @param serverTimeMicros Server timestamp in microseconds
      * @return Equivalent client timestamp in microseconds
@@ -214,10 +230,14 @@ class SendspinTimeFilter {
     fun serverToClient(serverTimeMicros: Long): Long {
         // T_client = (T_server - offset + drift * T_last) / (1 + drift)
         val denom = 1.0 + drift
-        if (denom == 0.0) return serverTimeMicros - offset.toLong()
+        val baseResult = if (denom == 0.0) {
+            serverTimeMicros - offset.toLong()
+        } else {
+            ((serverTimeMicros - offset + drift * lastUpdateTime) / denom).toLong()
+        }
 
-        val result = (serverTimeMicros - offset + drift * lastUpdateTime) / denom
-        return result.toLong()
+        // Apply static delay: positive delay = play later = higher client time
+        return baseResult + staticDelayMicros
     }
 
     /**
