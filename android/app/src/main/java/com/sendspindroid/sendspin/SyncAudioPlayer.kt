@@ -175,7 +175,12 @@ class SyncAudioPlayer(
     // Playback position tracking (in server timeline)
     @Volatile private var lastKnownPlaybackPositionUs = 0L  // Actual server timestamp being played NOW
     @Volatile private var serverTimelineCursor = 0L  // Where we've fed audio up to in server time
-    @Volatile private var trueSyncErrorUs = 0L  // lastKnownPlaybackPositionUs - expected position
+    @Volatile private var trueSyncErrorUs = 0L  // Actual DAC position - expected position (based on elapsed time)
+
+    // DAC-based sync error for corrections (more accurate than processing-time error)
+    // This is smoothed with EMA to prevent oscillation from DAC timestamp jitter
+    private var smoothedDacSyncErrorUs: Double = 0.0
+    private var dacSyncErrorReady = false  // Only use DAC error after we have valid calibration
 
     // Sample insert/drop correction state (from Python reference)
     private var insertEveryNFrames: Int = 0      // Insert duplicate frame every N frames (slow down)
@@ -511,6 +516,10 @@ class SyncAudioPlayer(
             lastOutputFrame.fill(0)
             smoothedSyncErrorForCorrectionUs = 0.0
 
+            // Reset DAC-based sync error state
+            smoothedDacSyncErrorUs = 0.0
+            dacSyncErrorReady = false
+
             // Reset gap/overlap tracking
             expectedNextTimestampUs = null
 
@@ -730,15 +739,30 @@ class SyncAudioPlayer(
                     }
                 }
 
+                // CRITICAL: Update firstServerTimestampUs to match what we're actually playing
+                // The first chunk we'll play is now at the front of the queue
+                val firstPlayableChunk = chunkQueue.peek()
+                if (firstPlayableChunk != null) {
+                    firstServerTimestampUs = firstPlayableChunk.serverTimeMicros
+                }
+
+                // CRITICAL: Update scheduledStartDacTimeUs to NOW
+                val actualStartTime = System.nanoTime() / 1000
+                scheduledStartDacTimeUs = actualStartTime
+
                 framesDropped += droppedFrames.toLong()
                 setPlaybackState(PlaybackState.PLAYING)
-                Log.i(TAG, "Start gating complete: dropped $droppedFrames frames, now PLAYING")
+                Log.i(TAG, "Start gating complete: dropped $droppedFrames frames, actualStartTime=${actualStartTime/1000}ms, now PLAYING")
                 return false  // Ready to play
             }
             else -> {
                 // Within tolerance - start playing
+                // CRITICAL: Update scheduledStartDacTimeUs to NOW, not when first chunk arrived
+                // This is when playback actually begins, which is the reference for sync error calculation
+                val actualStartTime = System.nanoTime() / 1000
+                scheduledStartDacTimeUs = actualStartTime
                 setPlaybackState(PlaybackState.PLAYING)
-                Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
+                Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, actualStartTime=${actualStartTime/1000}ms, now PLAYING")
                 return false  // Ready to play
             }
         }
@@ -810,6 +834,10 @@ class SyncAudioPlayer(
             lastKnownPlaybackPositionUs = 0L
             serverTimelineCursor = 0L
             trueSyncErrorUs = 0L
+
+            // Reset DAC-based sync error state
+            smoothedDacSyncErrorUs = 0.0
+            dacSyncErrorReady = false
 
             // Transition to INITIALIZING to wait for new chunks
             setPlaybackState(PlaybackState.INITIALIZING)
@@ -945,14 +973,35 @@ class SyncAudioPlayer(
      * This implements proportional control: the correction rate is proportional
      * to the error magnitude, capped at MAX_SPEED_CORRECTION (4%).
      *
-     * @param errorUs Sync error in microseconds (positive = ahead, negative = behind)
+     * Uses DAC-based sync error when available (more accurate), otherwise falls
+     * back to processing-time error (from chunk delay measurement).
+     *
+     * Sign convention for both error sources:
+     * - Positive error = we're AHEAD of schedule (playing future audio) → INSERT to slow down
+     * - Negative error = we're BEHIND schedule (playing past audio) → DROP to catch up
+     *
+     * @param processingTimeErrorUs Sync error from processing time (positive = ahead, negative = behind)
      */
-    private fun updateCorrectionSchedule(errorUs: Long) {
-        // Smooth the error with EMA
-        smoothedSyncErrorForCorrectionUs = SYNC_ERROR_ALPHA * errorUs +
+    private fun updateCorrectionSchedule(processingTimeErrorUs: Long) {
+        // Always update the processing-time based smoothed error (for fallback and stats)
+        smoothedSyncErrorForCorrectionUs = SYNC_ERROR_ALPHA * processingTimeErrorUs +
                 (1 - SYNC_ERROR_ALPHA) * smoothedSyncErrorForCorrectionUs
 
-        val absErr = abs(smoothedSyncErrorForCorrectionUs)
+        // Use DAC-based sync error if available (more accurate)
+        // DAC error is already smoothed in updateDacCalibration()
+        val effectiveErrorUs = if (dacSyncErrorReady) {
+            // DAC-based error: actual_position - expected_position
+            // Positive = ahead (playing future audio), need INSERT to slow down
+            // Negative = behind (playing past audio), need DROP to catch up
+            smoothedDacSyncErrorUs
+        } else {
+            // Fall back to processing-time error
+            // Positive = chunk is scheduled in future (we're early/ahead), need INSERT
+            // Negative = chunk was scheduled in past (we're late/behind), need DROP
+            smoothedSyncErrorForCorrectionUs
+        }
+
+        val absErr = abs(effectiveErrorUs)
 
         // Within deadband - no correction needed
         if (absErr <= DEADBAND_THRESHOLD_US) {
@@ -980,7 +1029,7 @@ class SyncAudioPlayer(
             0
         }
 
-        if (smoothedSyncErrorForCorrectionUs < 0) {
+        if (effectiveErrorUs < 0) {
             // Behind schedule (negative error) - drop frames to catch up
             dropEveryNFrames = intervalFrames
             insertEveryNFrames = 0
@@ -995,7 +1044,6 @@ class SyncAudioPlayer(
                 framesUntilNextInsert = intervalFrames
             }
         }
-
     }
 
     /**
@@ -1138,6 +1186,9 @@ class SyncAudioPlayer(
      * - The system time when that frame was at the DAC
      * - The current loop time for interpolation
      *
+     * Also calculates the TRUE sync error based on actual DAC playback position
+     * vs. expected position (elapsed time since playback started).
+     *
      * Called periodically during playback to build calibration history.
      */
     private fun updateDacCalibration() {
@@ -1164,15 +1215,24 @@ class SyncAudioPlayer(
             // Calculate the server timeline position for this frame
             // framePosition tells us how many frames have been output to DAC
             // We need to map this back to server time
-            val frameOffsetMicros = (framePosition * 1_000_000L) / sampleRate
-            val serverTimeMicros = firstFrameServerTimeMicros + frameOffsetMicros
+            //
+            // CRITICAL: When we drop frames, the DAC plays fewer frames but the server
+            // timeline advances past the dropped audio. When we insert frames, the DAC
+            // plays more frames but the server timeline stays the same.
+            //
+            // So: server_position = first_server_time + (dac_frames + dropped - inserted) / sample_rate
+            //
+            val netFrameAdjustment = framesDropped - framesInserted
+            val serverFramePosition = framePosition + netFrameAdjustment
+            val frameOffsetMicros = (serverFramePosition * 1_000_000L) / sampleRate
+            val actualPlaybackServerTime = firstFrameServerTimeMicros + frameOffsetMicros
 
             // Store the calibration point
             val calibration = DacCalibration(
                 dacTimeMicros = dacTimeMicros,
                 loopTimeMicros = loopTimeMicros,
                 framePosition = framePosition,
-                serverTimeMicros = serverTimeMicros
+                serverTimeMicros = actualPlaybackServerTime
             )
             dacCalibrations.addLast(calibration)
 
@@ -1182,11 +1242,49 @@ class SyncAudioPlayer(
             }
 
             // Update the last known playback position
-            lastKnownPlaybackPositionUs = serverTimeMicros
+            lastKnownPlaybackPositionUs = actualPlaybackServerTime
 
-            // Calculate true sync error: difference between where we are playing
-            // and where we should be playing based on server timeline
-            trueSyncErrorUs = lastKnownPlaybackPositionUs - serverTimelineCursor
+            // ================================================================
+            // TRUE SYNC ERROR CALCULATION
+            // ================================================================
+            // The true sync error is: actual_playback_position - expected_playback_position
+            //
+            // Expected position = first server timestamp + elapsed DAC time since start
+            // This tells us WHERE WE SHOULD BE in the server timeline based on how much
+            // time has actually passed at the DAC (hardware clock).
+            //
+            // Positive error = we're playing audio AHEAD of where we should be (playing future audio)
+            //                  → need to INSERT frames to slow down
+            // Negative error = we're playing audio BEHIND where we should be (playing past audio)
+            //                  → need to DROP frames to catch up
+            //
+            val scheduledStart = scheduledStartDacTimeUs
+            val firstServerTs = firstServerTimestampUs
+
+            if (scheduledStart != null && firstServerTs != null && dacTimeMicros > scheduledStart) {
+                // How much time has elapsed at the DAC since we started?
+                val elapsedDacTimeUs = dacTimeMicros - scheduledStart
+
+                // Where SHOULD we be in the server timeline?
+                val expectedPlaybackServerTime = firstServerTs + elapsedDacTimeUs
+
+                // The sync error: actual - expected
+                // Positive = ahead (playing future audio), Negative = behind (playing past audio)
+                trueSyncErrorUs = actualPlaybackServerTime - expectedPlaybackServerTime
+
+                // Update the smoothed DAC-based sync error for use in corrections
+                // This is more accurate than the processing-time based error because
+                // it reflects actual hardware output timing, not Android scheduling jitter
+                val rawDacSyncError = trueSyncErrorUs.toDouble()
+                smoothedDacSyncErrorUs = SYNC_ERROR_ALPHA * rawDacSyncError +
+                        (1 - SYNC_ERROR_ALPHA) * smoothedDacSyncErrorUs
+
+                // Mark DAC sync error as ready for use
+                if (!dacSyncErrorReady && dacCalibrations.size >= 3) {
+                    dacSyncErrorReady = true
+                    Log.i(TAG, "DAC sync error calibration ready, switching to DAC-based corrections")
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get AudioTrack timestamp", e)
         }
@@ -1348,6 +1446,9 @@ class SyncAudioPlayer(
             lastKnownPlaybackPositionUs = lastKnownPlaybackPositionUs,
             serverTimelineCursorUs = serverTimelineCursor,
             totalFramesWritten = totalFramesWritten,
+            // DAC-based sync error for corrections
+            dacSyncErrorReady = dacSyncErrorReady,
+            smoothedDacSyncErrorUs = smoothedDacSyncErrorUs.toLong(),
             // Sample insert/drop correction stats
             framesInserted = framesInserted,
             framesDropped = framesDropped,
@@ -1380,6 +1481,9 @@ class SyncAudioPlayer(
         val lastKnownPlaybackPositionUs: Long = 0,
         val serverTimelineCursorUs: Long = 0,
         val totalFramesWritten: Long = 0,
+        // DAC-based sync error for corrections
+        val dacSyncErrorReady: Boolean = false,
+        val smoothedDacSyncErrorUs: Long = 0,
         // Sample insert/drop correction stats
         val framesInserted: Long = 0,
         val framesDropped: Long = 0,

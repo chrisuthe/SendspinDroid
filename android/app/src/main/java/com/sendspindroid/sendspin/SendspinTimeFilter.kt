@@ -38,6 +38,10 @@ class SendspinTimeFilter {
         // Minimum measurements before we consider ourselves synchronized
         private const val MIN_MEASUREMENTS = 2
 
+        // Stricter convergence threshold for good sync quality
+        private const val MIN_MEASUREMENTS_FOR_CONVERGENCE = 5
+        private const val MAX_ERROR_FOR_CONVERGENCE_US = 10_000L  // 10ms
+
         // Forgetting factor - reset if residual exceeds this fraction of max_error
         private const val FORGETTING_THRESHOLD = 0.75
     }
@@ -62,9 +66,20 @@ class SendspinTimeFilter {
 
     /**
      * Whether enough measurements have been collected for reliable time conversion.
+     * This is the minimum threshold - playback can start, but may need corrections.
      */
     val isReady: Boolean
         get() = measurementCount >= MIN_MEASUREMENTS && p00.isFinite()
+
+    /**
+     * Whether the filter has converged to a high-quality sync.
+     * This is stricter than isReady - requires more measurements and lower uncertainty.
+     * When true, sync corrections should be minimal.
+     */
+    val isConverged: Boolean
+        get() = measurementCount >= MIN_MEASUREMENTS_FOR_CONVERGENCE &&
+                p00.isFinite() &&
+                errorMicros < MAX_ERROR_FOR_CONVERGENCE_US
 
     /**
      * Current estimated offset in microseconds.

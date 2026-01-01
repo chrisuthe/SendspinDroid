@@ -5,6 +5,10 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
@@ -121,6 +125,33 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    // Network change detection - resets time filter when network changes
+    private var connectivityManager: ConnectivityManager? = null
+    private var lastNetworkId: Int = -1
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            val networkId = network.hashCode()
+            Log.d(TAG, "Network available: id=$networkId (last=$lastNetworkId)")
+
+            // Only trigger if we had a previous network and it changed
+            if (lastNetworkId != -1 && lastNetworkId != networkId) {
+                Log.i(TAG, "Network changed from $lastNetworkId to $networkId")
+                sendSpinClient?.onNetworkChanged()
+            }
+            lastNetworkId = networkId
+        }
+
+        override fun onLost(network: Network) {
+            Log.d(TAG, "Network lost: id=${network.hashCode()}")
+            // Don't reset lastNetworkId here - we want to detect when a new network comes up
+        }
+
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+            // Could also detect WiFi SSID changes here if needed
+            Log.d(TAG, "Network capabilities changed: id=${network.hashCode()}")
+        }
+    }
+
     companion object {
         private const val TAG = "PlaybackService"
 
@@ -216,6 +247,39 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
+
+        // Register network callback to detect network changes
+        registerNetworkCallback()
+    }
+
+    /**
+     * Registers a network callback to detect when the network changes.
+     * When the network changes (e.g., WiFi AP handoff, WiFi→mobile), we reset
+     * the time filter to force re-synchronization since latency may have changed.
+     */
+    private fun registerNetworkCallback() {
+        try {
+            connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager?.registerNetworkCallback(request, networkCallback)
+            Log.d(TAG, "Network callback registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register network callback", e)
+        }
+    }
+
+    /**
+     * Unregisters the network callback.
+     */
+    private fun unregisterNetworkCallback() {
+        try {
+            connectivityManager?.unregisterNetworkCallback(networkCallback)
+            Log.d(TAG, "Network callback unregistered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to unregister network callback", e)
+        }
     }
 
     /**
@@ -501,6 +565,14 @@ class PlaybackService : MediaLibraryService() {
                     putString("sync_offset_source", source)
                 }
                 mediaSession?.setSessionExtras(extras)
+            }
+        }
+
+        override fun onNetworkChanged() {
+            android.util.Log.i(TAG, "Network changed - triggering audio player reanchor")
+            mainHandler.post {
+                // Trigger a reanchor in the SyncAudioPlayer since timing may have changed
+                syncAudioPlayer?.clearBuffer()
             }
         }
     }
@@ -1219,6 +1291,9 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
+
+        // Unregister network callback
+        unregisterNetworkCallback()
 
         serviceScope.cancel()
         imageLoader.shutdown()
