@@ -116,6 +116,9 @@ class SendSpinClient(
 
         // Sync offset callback - called when GroupSync calibration offset is applied
         fun onSyncOffsetApplied(offsetMs: Double, source: String)
+
+        // Network change callback - called when network changes and time filter is reset
+        fun onNetworkChanged()
     }
 
     // Connection state
@@ -170,6 +173,22 @@ class SendSpinClient(
      * The audio player uses this to convert server timestamps to client time.
      */
     fun getTimeFilter(): SendspinTimeFilter = timeFilter
+
+    /**
+     * Called when the network changes (e.g., WiFi to mobile, different AP).
+     *
+     * Resets the time filter to force re-synchronization, since network latency
+     * characteristics may have changed significantly.
+     */
+    fun onNetworkChanged() {
+        if (!isConnected) return
+
+        Log.i(TAG, "Network changed - resetting time filter for re-sync")
+        timeFilter.reset()
+
+        // Notify callback so SyncAudioPlayer can trigger reanchor if needed
+        callback.onNetworkChanged()
+    }
 
     /**
      * Connect to a SendSpin server.
