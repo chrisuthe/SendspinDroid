@@ -333,6 +333,9 @@ class PlaybackService : MediaLibraryService() {
                 _connectionState.value = ConnectionState.Connected(serverName)
                 sendSpinPlayer?.updateConnectionState(true, serverName)
 
+                // Apply saved sync offset from settings
+                applySyncOffsetFromSettings()
+
                 // Acquire wake lock immediately on connect to prevent being killed
                 // before stream starts
                 acquireWakeLock()
@@ -1138,6 +1141,32 @@ class PlaybackService : MediaLibraryService() {
         }
 
         return bundle
+    }
+
+    /**
+     * Applies the manual sync offset from UserSettings to the TimeFilter.
+     * Called when connecting to a server to apply the saved offset.
+     */
+    private fun applySyncOffsetFromSettings() {
+        val offsetMs = com.sendspindroid.UserSettings.getSyncOffsetMs()
+        if (offsetMs != 0) {
+            sendSpinClient?.getTimeFilter()?.let { timeFilter ->
+                timeFilter.staticDelayMs = offsetMs.toDouble()
+                Log.i(TAG, "Applied manual sync offset from settings: ${offsetMs}ms")
+            }
+        }
+    }
+
+    /**
+     * Updates the sync offset and applies it immediately if connected.
+     * Called when the user changes the offset in settings.
+     */
+    fun updateSyncOffset(offsetMs: Int) {
+        com.sendspindroid.UserSettings.setSyncOffsetMs(offsetMs)
+        sendSpinClient?.getTimeFilter()?.let { timeFilter ->
+            timeFilter.staticDelayMs = offsetMs.toDouble()
+            Log.i(TAG, "Updated sync offset to: ${offsetMs}ms")
+        }
     }
 
     private fun getRootChildren(): List<MediaItem> {

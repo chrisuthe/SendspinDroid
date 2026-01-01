@@ -101,7 +101,6 @@
     <!-- Stats labels - Sync Status -->
     <string name="stats_playback_state">Playback State</string>
     <string name="stats_sync_error">Sync Error</string>
-    <string name="stats_true_sync_error">True Sync Error</string>
 
     <!-- Stats labels - Buffer -->
     <string name="stats_queued_audio">Queued Audio</string>
@@ -133,6 +132,10 @@
     <string name="pref_category_player">Player</string>
     <string name="pref_player_name_title">Player Name</string>
     <string name="pref_player_name_summary">Name shown to SendSpin server</string>
+    <string name="pref_category_audio">Audio Sync</string>
+    <string name="pref_sync_offset_title">Manual Sync Offset</string>
+    <string name="pref_sync_offset_summary">Adjust timing: positive delays playback, negative advances it</string>
+    <string name="pref_sync_offset_value">%+d ms</string>
 
     <!-- Disconnect dialog -->
     <string name="disconnect_dialog_title">Disconnect from server?</string>

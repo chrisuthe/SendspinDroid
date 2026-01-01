@@ -13,6 +13,12 @@ object UserSettings {
 
     // Preference keys - must match keys in preferences.xml
     const val KEY_PLAYER_NAME = "player_name"
+    const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
+
+    // Sync offset range limits (milliseconds)
+    const val SYNC_OFFSET_MIN = -5000
+    const val SYNC_OFFSET_MAX = 5000
+    const val SYNC_OFFSET_DEFAULT = 0
 
     private var prefs: SharedPreferences? = null
 
@@ -51,4 +57,20 @@ object UserSettings {
      * Used as placeholder/hint in settings UI.
      */
     fun getDefaultPlayerName(): String = Build.MODEL
+
+    /**
+     * Gets the manual sync offset in milliseconds.
+     * Positive = delay playback (plays later), Negative = advance (plays earlier).
+     */
+    fun getSyncOffsetMs(): Int {
+        return prefs?.getInt(KEY_SYNC_OFFSET_MS, SYNC_OFFSET_DEFAULT) ?: SYNC_OFFSET_DEFAULT
+    }
+
+    /**
+     * Sets the manual sync offset in milliseconds.
+     */
+    fun setSyncOffsetMs(offsetMs: Int) {
+        val clamped = offsetMs.coerceIn(SYNC_OFFSET_MIN, SYNC_OFFSET_MAX)
+        prefs?.edit()?.putInt(KEY_SYNC_OFFSET_MS, clamped)?.apply()
+    }
 }

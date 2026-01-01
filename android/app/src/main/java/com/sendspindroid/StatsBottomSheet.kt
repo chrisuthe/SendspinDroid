@@ -170,15 +170,11 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         binding.playbackStateValue.text = playbackState
         binding.playbackStateValue.setTextColor(getColorForPlaybackState(playbackState))
 
-        val syncErrorUs = bundle.getLong("sync_error_us", 0L)
+        // Use DAC-based sync error (actual playback position vs expected)
+        val syncErrorUs = bundle.getLong("true_sync_error_us", 0L)
         val syncErrorMs = syncErrorUs / 1000.0
         binding.syncErrorValue.text = String.format("%.2f ms", syncErrorMs)
         binding.syncErrorValue.setTextColor(getColorForSyncError(syncErrorUs))
-
-        val trueSyncErrorUs = bundle.getLong("true_sync_error_us", 0L)
-        val trueSyncErrorMs = trueSyncErrorUs / 1000.0
-        binding.trueSyncErrorValue.text = String.format("%.2f ms", trueSyncErrorMs)
-        binding.trueSyncErrorValue.setTextColor(getColorForSyncError(trueSyncErrorUs))
 
         // === BUFFER ===
         val queuedSamples = bundle.getLong("queued_samples", 0L)
