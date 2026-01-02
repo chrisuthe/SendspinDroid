@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Custom layout for sync offset preference with +/- buttons.
+    Shows current value with increment/decrement buttons for fine-tuning.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:minHeight="?android:attr/listPreferredItemHeightSmall"
+    android:gravity="center_vertical"
+    android:paddingStart="?android:attr/listPreferredItemPaddingStart"
+    android:paddingEnd="?android:attr/listPreferredItemPaddingEnd"
+    android:orientation="vertical">
+
+    <!-- Title -->
+    <TextView
+        android:id="@android:id/title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="16dp"
+        android:textAppearance="?android:attr/textAppearanceListItem"
+        tools:text="Manual Sync Offset" />
+
+    <!-- Summary -->
+    <TextView
+        android:id="@android:id/summary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="?android:attr/textAppearanceListItemSecondary"
+        android:textColor="?android:attr/textColorSecondary"
+        android:maxLines="2"
+        tools:text="Adjust timing: positive delays, negative advances" />
+
+    <!-- Controls row: - button, value, + button -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="8dp"
+        android:paddingBottom="16dp">
+
+        <!-- Decrease button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_decrease"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="56dp"
+            android:layout_height="48dp"
+            android:text="−"
+            android:textSize="20sp"
+            android:contentDescription="@string/sync_offset_decrease" />
+
+        <!-- Current value (tappable to edit directly) -->
+        <TextView
+            android:id="@+id/value_text"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            tools:text="+0 ms" />
+
+        <!-- Increase button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_increase"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="56dp"
+            android:layout_height="48dp"
+            android:text="+"
+            android:textSize="20sp"
+            android:contentDescription="@string/sync_offset_increase" />
+
+    </LinearLayout>
+
+</LinearLayout>

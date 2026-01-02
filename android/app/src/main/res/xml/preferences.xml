@@ -20,14 +20,10 @@
         android:title="@string/pref_category_audio"
         app:iconSpaceReserved="false">
 
-        <SeekBarPreference
-            android:key="sync_offset_ms_seekbar"
+        <com.sendspindroid.SyncOffsetPreference
+            android:key="sync_offset_ms"
             android:title="@string/pref_sync_offset_title"
             android:summary="@string/pref_sync_offset_summary"
-            android:defaultValue="5000"
-            android:max="10000"
-            app:min="0"
-            app:showSeekBarValue="false"
             app:iconSpaceReserved="false" />
 
     </PreferenceCategory>
