@@ -135,7 +135,12 @@
     <string name="pref_category_audio">Audio Sync</string>
     <string name="pref_sync_offset_title">Manual Sync Offset</string>
     <string name="pref_sync_offset_summary">Adjust timing: positive delays playback, negative advances it</string>
-    <string name="pref_sync_offset_value">%+d ms</string>
+    <string name="pref_sync_offset_dialog_title">Sync Offset (ms)</string>
+    <string name="pref_sync_offset_value">Current: %+d ms</string>
+    <string name="pref_sync_offset_invalid">Please enter a valid number</string>
+    <string name="pref_sync_offset_clamped">Value clamped to range %1$d to %2$d ms</string>
+    <string name="sync_offset_decrease">Decrease sync offset by 10ms</string>
+    <string name="sync_offset_increase">Increase sync offset by 10ms</string>
 
     <!-- Disconnect dialog -->
     <string name="disconnect_dialog_title">Disconnect from server?</string>
