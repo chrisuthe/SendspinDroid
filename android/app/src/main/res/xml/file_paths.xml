@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FileProvider path configuration for sharing debug logs.
+    Only exposes the debug_logs subdirectory in cache.
+-->
+<paths>
+    <!-- Debug logs in app cache directory -->
+    <cache-path name="debug_logs" path="debug_logs/" />
+</paths>

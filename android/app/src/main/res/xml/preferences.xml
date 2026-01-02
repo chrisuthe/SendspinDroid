@@ -32,4 +32,23 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory
+        android:title="@string/pref_category_debug"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            android:key="debug_logging_enabled"
+            android:title="@string/pref_debug_logging_title"
+            android:summary="@string/pref_debug_logging_summary_off"
+            android:defaultValue="false"
+            app:iconSpaceReserved="false" />
+
+        <Preference
+            android:key="export_debug_logs"
+            android:title="@string/pref_export_logs_title"
+            android:summary="@string/pref_export_logs_summary_empty"
+            app:iconSpaceReserved="false" />
+
+    </PreferenceCategory>
+
 </PreferenceScreen>

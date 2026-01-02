@@ -44,6 +44,15 @@ class SendspinTimeFilter {
 
         // Forgetting factor - reset if residual exceeds this fraction of max_error
         private const val FORGETTING_THRESHOLD = 0.75
+
+        // Maximum allowed drift (±500 ppm = ±5e-4)
+        // Real quartz oscillators have drift of ~20-100 ppm, so this is generous
+        private const val MAX_DRIFT = 5e-4
+
+        // Drift decay factor - slowly decay drift towards zero to prevent long-term accumulation
+        // Applied every update: drift *= (1 - DRIFT_DECAY_RATE)
+        // At 1Hz updates, 0.01 gives ~1% decay per second, ~50% after 70 seconds
+        private const val DRIFT_DECAY_RATE = 0.01
     }
 
     // State vector: [offset, drift]
@@ -59,6 +68,10 @@ class SendspinTimeFilter {
     // Timing state
     private var lastUpdateTime: Long = 0
     private var measurementCount: Int = 0
+
+    // Baseline time for relative calculations - prevents drift accumulation over long periods
+    // Set when first measurement is received, used as reference point for time conversions
+    private var baselineClientTime: Long = 0
 
     // Static delay offset for speaker synchronization (GroupSync calibration)
     // Positive = delay playback (plays later), Negative = advance (plays earlier)
@@ -122,6 +135,7 @@ class SendspinTimeFilter {
         p11 = 1e-6
         lastUpdateTime = 0
         measurementCount = 0
+        baselineClientTime = 0
     }
 
     /**
@@ -141,6 +155,7 @@ class SendspinTimeFilter {
                 offset = measurement
                 p00 = variance
                 lastUpdateTime = clientTimeMicros
+                baselineClientTime = clientTimeMicros  // Set baseline for relative calculations
                 measurementCount = 1
             }
             1 -> {
@@ -218,7 +233,18 @@ class SendspinTimeFilter {
 
         // State update
         offset = offsetPredicted + k0 * innovation
-        drift = drift + k1 * innovation
+        var newDrift = drift + k1 * innovation
+
+        // Bound drift to physically realistic values (±500 ppm)
+        // This prevents the drift * lastUpdateTime term from exploding over time
+        newDrift = newDrift.coerceIn(-MAX_DRIFT, MAX_DRIFT)
+
+        // Apply drift decay to prevent long-term accumulation
+        // This slowly pulls drift back towards zero, ensuring small estimation errors
+        // don't compound indefinitely
+        newDrift *= (1.0 - DRIFT_DECAY_RATE)
+
+        drift = newDrift
 
         // Covariance update: P = (I - K * H) * P
         val p00Updated = (1 - k0) * p00
@@ -239,17 +265,26 @@ class SendspinTimeFilter {
      * Convert server time to client time.
      * Includes static delay offset for speaker synchronization.
      *
+     * Uses relative time calculation to prevent drift accumulation over long periods.
+     * The baseline time (set on first measurement) is used as reference point.
+     *
      * @param serverTimeMicros Server timestamp in microseconds
      * @return Equivalent client timestamp in microseconds
      */
     fun serverToClient(serverTimeMicros: Long): Long {
-        // T_client = (T_server - offset + drift * T_last) / (1 + drift)
-        val denom = 1.0 + drift
-        val baseResult = if (denom == 0.0) {
-            serverTimeMicros - offset.toLong()
-        } else {
-            ((serverTimeMicros - offset + drift * lastUpdateTime) / denom).toLong()
-        }
+        // Use relative time from baseline to prevent drift accumulation
+        // The drift term now operates on bounded time deltas instead of absolute time
+        //
+        // Original formula: T_client = (T_server - offset + drift * T_last) / (1 + drift)
+        // Rewritten as relative: T_client = T_server - offset + drift * (T_last - baseline)
+        //
+        // This bounds the drift correction term to the time since baseline, not time since epoch
+        val timeSinceBaseline = (lastUpdateTime - baselineClientTime).toDouble()
+        val driftCorrection = drift * timeSinceBaseline
+
+        // Simplified calculation: T_client ≈ T_server - offset + drift_correction
+        // The (1 + drift) divisor is essentially 1.0 for realistic drift values (±500 ppm)
+        val baseResult = serverTimeMicros - offset.toLong() + driftCorrection.toLong()
 
         // Apply static delay: positive delay = play later = higher client time
         return baseResult + staticDelayMicros
@@ -258,12 +293,15 @@ class SendspinTimeFilter {
     /**
      * Convert client time to server time.
      *
+     * Uses relative time calculation consistent with serverToClient.
+     *
      * @param clientTimeMicros Client timestamp in microseconds
      * @return Equivalent server timestamp in microseconds
      */
     fun clientToServer(clientTimeMicros: Long): Long {
-        // T_server = T_client + offset + drift * (T_client - T_last)
-        val result = clientTimeMicros + offset + drift * (clientTimeMicros - lastUpdateTime)
-        return result.toLong()
+        // Inverse of serverToClient, using relative time from baseline
+        val timeSinceBaseline = (lastUpdateTime - baselineClientTime).toDouble()
+        val driftCorrection = drift * timeSinceBaseline
+        return clientTimeMicros + offset.toLong() - driftCorrection.toLong()
     }
 }

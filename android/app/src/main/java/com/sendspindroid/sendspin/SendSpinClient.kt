@@ -68,8 +68,10 @@ class SendSpinClient(
         private const val MSG_TYPE_ARTWORK_BASE = 8 // 8-11 for channels 0-3
 
         // Time sync configuration
-        private const val TIME_SYNC_INTERVAL_MS = 1000L // Send time sync every second
-        private const val INITIAL_TIME_SYNC_COUNT = 5 // Send 5 rapid syncs initially
+        // More frequent sync (4Hz) helps prevent drift accumulation and provides
+        // faster correction when network conditions change
+        private const val TIME_SYNC_INTERVAL_MS = 250L // Send time sync 4x per second
+        private const val INITIAL_TIME_SYNC_COUNT = 10 // Send 10 rapid syncs initially for fast convergence
         private const val INITIAL_TIME_SYNC_DELAY_MS = 100L
 
         // Reconnection configuration

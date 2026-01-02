@@ -34,8 +34,10 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.sendspindroid.ServerRepository
+import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
+import com.sendspindroid.model.SyncStats
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
@@ -125,6 +127,17 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    // Debug logging handler - logs stats periodically when debug mode is enabled
+    private val debugLogHandler = Handler(Looper.getMainLooper())
+    private val debugLogRunnable = object : Runnable {
+        override fun run() {
+            if (DebugLogger.isEnabled && isConnected()) {
+                logCurrentStats()
+                debugLogHandler.postDelayed(this, DEBUG_LOG_INTERVAL_MS)
+            }
+        }
+    }
+
     // Network change detection - resets time filter when network changes
     private var connectivityManager: ConnectivityManager? = null
     private var lastNetworkId: Int = -1
@@ -161,6 +174,9 @@ class PlaybackService : MediaLibraryService() {
         // - This is safer than a 10-hour timeout with no refresh
         private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L  // 30 minutes
         private const val WAKE_LOCK_REFRESH_INTERVAL_MS = 20 * 60 * 1000L  // 20 minutes
+
+        // Debug logging interval (1 sample per second)
+        private const val DEBUG_LOG_INTERVAL_MS = 1000L
 
         // Custom session commands
         const val COMMAND_CONNECT = "com.sendspindroid.CONNECT"
@@ -340,6 +356,14 @@ class PlaybackService : MediaLibraryService() {
                 // before stream starts
                 acquireWakeLock()
 
+                // Start debug logging session if enabled
+                val serverAddr = sendSpinClient?.let {
+                    // Get address from connection state or use empty string
+                    (it.connectionState.value as? SendSpinClient.ConnectionState.Connected)?.serverName ?: ""
+                } ?: ""
+                DebugLogger.startSession(serverName, serverAddr)
+                startDebugLogging()
+
                 // Broadcast connection state to controllers (MainActivity)
                 broadcastConnectionState(STATE_CONNECTED, serverName)
 
@@ -351,6 +375,10 @@ class PlaybackService : MediaLibraryService() {
         override fun onDisconnected() {
             mainHandler.post {
                 Log.d(TAG, "Disconnected from server")
+
+                // Stop debug logging session
+                stopDebugLogging()
+                DebugLogger.endSession()
 
                 // Stop audio playback and release wake lock
                 syncAudioPlayer?.stop()
@@ -813,6 +841,74 @@ class PlaybackService : MediaLibraryService() {
         val state = syncAudioPlayer?.getPlaybackState()
         return state == com.sendspindroid.sendspin.PlaybackState.PLAYING ||
                state == com.sendspindroid.sendspin.PlaybackState.WAITING_FOR_START
+    }
+
+    /**
+     * Checks if we are currently connected to a server.
+     */
+    private fun isConnected(): Boolean {
+        return _connectionState.value is ConnectionState.Connected
+    }
+
+    /**
+     * Logs the current stats to DebugLogger if enabled.
+     * Called periodically when debug mode is active.
+     */
+    private fun logCurrentStats() {
+        val audioStats = syncAudioPlayer?.getStats() ?: return
+        val timeFilter = sendSpinClient?.getTimeFilter() ?: return
+
+        val syncStats = SyncStats(
+            playbackState = audioStats.playbackState,
+            isPlaying = audioStats.isPlaying,
+            syncErrorUs = audioStats.smoothedSyncErrorUs,
+            trueSyncErrorUs = audioStats.trueSyncErrorUs,
+            queuedSamples = audioStats.queuedSamples,
+            chunksReceived = audioStats.chunksReceived,
+            chunksPlayed = audioStats.chunksPlayed,
+            chunksDropped = audioStats.chunksDropped,
+            gapsFilled = audioStats.gapsFilled,
+            gapSilenceMs = audioStats.gapSilenceMs,
+            overlapsTrimmed = audioStats.overlapsTrimmed,
+            overlapTrimmedMs = audioStats.overlapTrimmedMs,
+            insertEveryNFrames = audioStats.insertEveryNFrames,
+            dropEveryNFrames = audioStats.dropEveryNFrames,
+            framesInserted = audioStats.framesInserted,
+            framesDropped = audioStats.framesDropped,
+            syncCorrections = audioStats.syncCorrections,
+            correctionErrorUs = audioStats.correctionErrorUs,
+            clockReady = timeFilter.isReady,
+            clockOffsetUs = timeFilter.offsetMicros,
+            clockErrorUs = timeFilter.errorMicros,
+            measurementCount = timeFilter.measurementCountValue,
+            dacCalibrationCount = audioStats.dacCalibrationCount,
+            totalFramesWritten = audioStats.totalFramesWritten,
+            lastKnownPlaybackPositionUs = audioStats.lastKnownPlaybackPositionUs,
+            serverTimelineCursorUs = audioStats.serverTimelineCursorUs,
+            scheduledStartLoopTimeUs = audioStats.scheduledStartLoopTimeUs,
+            firstServerTimestampUs = audioStats.firstServerTimestampUs
+        )
+
+        DebugLogger.logStats(syncStats)
+    }
+
+    /**
+     * Starts the debug logging loop if debug mode is enabled.
+     */
+    private fun startDebugLogging() {
+        if (DebugLogger.isEnabled) {
+            debugLogHandler.removeCallbacks(debugLogRunnable)
+            debugLogHandler.postDelayed(debugLogRunnable, DEBUG_LOG_INTERVAL_MS)
+            Log.d(TAG, "Debug logging started")
+        }
+    }
+
+    /**
+     * Stops the debug logging loop.
+     */
+    private fun stopDebugLogging() {
+        debugLogHandler.removeCallbacks(debugLogRunnable)
+        Log.d(TAG, "Debug logging stopped")
     }
 
     /**
@@ -1320,6 +1416,9 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
+
+        // Stop debug logging
+        stopDebugLogging()
 
         // Unregister network callback
         unregisterNetworkCallback()

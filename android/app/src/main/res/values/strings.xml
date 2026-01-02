@@ -146,4 +146,16 @@
     <!-- Permission strings -->
     <string name="permission_bind_playback_service_label">Bind to SendSpin Playback Service</string>
     <string name="permission_bind_playback_service_description">Allows the app to bind to the SendSpin playback service for audio control. Only apps signed with the same certificate can use this permission.</string>
+
+    <!-- Debug logging -->
+    <string name="pref_category_debug">Debug</string>
+    <string name="pref_debug_logging_title">Debug Logging</string>
+    <string name="pref_debug_logging_summary_off">Disabled - tap to enable sync data collection</string>
+    <string name="pref_debug_logging_summary_on">Enabled - collecting sync data (%d samples)</string>
+    <string name="pref_export_logs_title">Export Debug Logs</string>
+    <string name="pref_export_logs_summary">Share collected sync data for troubleshooting</string>
+    <string name="pref_export_logs_summary_empty">No logs collected yet - enable debug logging first</string>
+    <string name="debug_share_chooser_title">Share Debug Log</string>
+    <string name="debug_log_exported">Debug log exported</string>
+    <string name="debug_log_export_failed">Failed to export debug log</string>
 </resources>
