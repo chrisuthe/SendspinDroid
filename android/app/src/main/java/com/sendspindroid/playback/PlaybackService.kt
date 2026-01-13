@@ -1200,6 +1200,15 @@ class PlaybackService : MediaLibraryService() {
     private fun getStats(): Bundle {
         val bundle = Bundle()
 
+        // Get connection info from SendSpinClient
+        sendSpinClient?.let { client ->
+            bundle.putString("server_name", client.getServerName())
+            bundle.putString("server_address", client.getServerAddress())
+            bundle.putString("connection_state", client.connectionState.value.toString())
+        } ?: run {
+            bundle.putString("connection_state", "Disconnected")
+        }
+
         // Get stats from SyncAudioPlayer
         val audioStats = syncAudioPlayer?.getStats()
         if (audioStats != null) {
@@ -1207,11 +1216,18 @@ class PlaybackService : MediaLibraryService() {
             bundle.putString("playback_state", audioStats.playbackState.name)
             bundle.putBoolean("is_playing", audioStats.isPlaying)
 
-            // Sync status (simplified Windows SDK style)
+            // Sync error
             bundle.putLong("sync_error_us", audioStats.syncErrorUs)
             bundle.putLong("smoothed_sync_error_us", audioStats.smoothedSyncErrorUs)
+            bundle.putDouble("sync_error_drift", audioStats.syncErrorDrift)
+            bundle.putLong("grace_period_remaining_us", audioStats.gracePeriodRemainingUs)
+
+            // DAC/Audio
             bundle.putBoolean("start_time_calibrated", audioStats.startTimeCalibrated)
+            bundle.putInt("dac_calibration_count", audioStats.dacCalibrationCount)
             bundle.putLong("samples_read_since_start", audioStats.samplesReadSinceStart)
+            bundle.putLong("total_frames_written", audioStats.totalFramesWritten)
+            bundle.putLong("buffer_underrun_count", audioStats.bufferUnderrunCount)
 
             // Buffer
             bundle.putLong("queued_samples", audioStats.queuedSamples)
@@ -1229,9 +1245,9 @@ class PlaybackService : MediaLibraryService() {
             bundle.putLong("frames_inserted", audioStats.framesInserted)
             bundle.putLong("frames_dropped", audioStats.framesDropped)
             bundle.putLong("sync_corrections", audioStats.syncCorrections)
+            bundle.putLong("reanchor_count", audioStats.reanchorCount)
 
             // Playback tracking
-            bundle.putLong("total_frames_written", audioStats.totalFramesWritten)
             bundle.putLong("server_timeline_cursor_us", audioStats.serverTimelineCursorUs)
 
             // Timing
@@ -1251,9 +1267,12 @@ class PlaybackService : MediaLibraryService() {
         sendSpinClient?.let { client ->
             val timeFilter = client.getTimeFilter()
             bundle.putBoolean("clock_ready", timeFilter.isReady)
+            bundle.putBoolean("clock_converged", timeFilter.isConverged)
             bundle.putLong("clock_offset_us", timeFilter.offsetMicros)
+            bundle.putDouble("clock_drift_ppm", timeFilter.driftPpm)
             bundle.putLong("clock_error_us", timeFilter.errorMicros)
             bundle.putInt("measurement_count", timeFilter.measurementCountValue)
+            bundle.putLong("last_time_sync_age_ms", client.getLastTimeSyncAgeMs())
         }
 
         return bundle
