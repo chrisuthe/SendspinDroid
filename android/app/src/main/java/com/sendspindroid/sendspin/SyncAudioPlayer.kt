@@ -181,6 +181,7 @@ class SyncAudioPlayer(
     // This is smoothed with EMA to prevent oscillation from DAC timestamp jitter
     private var smoothedDacSyncErrorUs: Double = 0.0
     private var dacSyncErrorReady = false  // Only use DAC error after we have valid calibration
+    private var dacStartTimeInitialized = false  // Has scheduledStartDacTimeUs been initialized from actual DAC timestamp?
 
     // Sample insert/drop correction state (from Python reference)
     private var insertEveryNFrames: Int = 0      // Insert duplicate frame every N frames (slow down)
@@ -506,6 +507,7 @@ class SyncAudioPlayer(
             lastKnownPlaybackPositionUs = 0L
             serverTimelineCursor = 0L
             trueSyncErrorUs = 0L
+            dacStartTimeInitialized = false
 
             // Reset sample insert/drop correction state
             insertEveryNFrames = 0
@@ -746,9 +748,11 @@ class SyncAudioPlayer(
                     firstServerTimestampUs = firstPlayableChunk.serverTimeMicros
                 }
 
-                // CRITICAL: Update scheduledStartDacTimeUs to NOW
+                // Set initial scheduledStartDacTimeUs, but mark as not initialized
+                // It will be properly calibrated from first AudioTimestamp in updateDacCalibration()
                 val actualStartTime = System.nanoTime() / 1000
                 scheduledStartDacTimeUs = actualStartTime
+                dacStartTimeInitialized = false  // Will be recalculated from actual DAC timestamp
 
                 framesDropped += droppedFrames.toLong()
                 setPlaybackState(PlaybackState.PLAYING)
@@ -757,10 +761,11 @@ class SyncAudioPlayer(
             }
             else -> {
                 // Within tolerance - start playing
-                // CRITICAL: Update scheduledStartDacTimeUs to NOW, not when first chunk arrived
-                // This is when playback actually begins, which is the reference for sync error calculation
+                // Set initial scheduledStartDacTimeUs, but mark as not initialized
+                // It will be properly calibrated from first AudioTimestamp in updateDacCalibration()
                 val actualStartTime = System.nanoTime() / 1000
                 scheduledStartDacTimeUs = actualStartTime
+                dacStartTimeInitialized = false  // Will be recalculated from actual DAC timestamp
                 setPlaybackState(PlaybackState.PLAYING)
                 Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, actualStartTime=${actualStartTime/1000}ms, now PLAYING")
                 return false  // Ready to play
@@ -834,6 +839,7 @@ class SyncAudioPlayer(
             lastKnownPlaybackPositionUs = 0L
             serverTimelineCursor = 0L
             trueSyncErrorUs = 0L
+            dacStartTimeInitialized = false
 
             // Reset DAC-based sync error state
             smoothedDacSyncErrorUs = 0.0
@@ -1210,6 +1216,22 @@ class SyncAudioPlayer(
             // Sanity check: frame position should be positive and reasonable
             if (framePosition <= 0 || framePosition > totalFramesWritten) {
                 return
+            }
+
+            // CRITICAL: Initialize scheduledStartDacTimeUs from first valid AudioTimestamp
+            // When we transition to PLAYING, we set scheduledStartDacTimeUs to System.nanoTime(),
+            // but at that moment no audio has reached the DAC yet (AudioTrack has buffer latency).
+            // This causes a constant offset in sync error calculation.
+            // Fix: Back-calculate when frame 0 was actually at the DAC using the first valid timestamp.
+            if (!dacStartTimeInitialized && playbackState == PlaybackState.PLAYING) {
+                // Back-calculate when frame 0 reached the DAC
+                // If framePosition=N at dacTime=D, then frame 0 was at D - N*timePerFrame
+                val frameZeroDacTime = dacTimeMicros - (framePosition * 1_000_000L) / sampleRate
+                scheduledStartDacTimeUs = frameZeroDacTime
+                dacStartTimeInitialized = true
+                Log.i(TAG, "Initialized DAC start time from AudioTimestamp: " +
+                        "framePos=$framePosition, dacTime=${dacTimeMicros/1000}ms, " +
+                        "calculated start=${frameZeroDacTime/1000}ms")
             }
 
             // Calculate the server timeline position for this frame
