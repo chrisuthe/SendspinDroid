@@ -91,8 +91,11 @@ class SyncAudioPlayer(
         // Buffer configuration
         private const val BUFFER_HEADROOM_MS = 200  // Schedule audio 200ms ahead
 
-        // Smoothing for sync error measurement
-        private const val SYNC_ERROR_ALPHA = 0.1    // EMA smoothing factor
+        // Sync error Kalman filter parameters (from Python reference)
+        // Process noise std dev - how much sync error can change between updates
+        private const val SYNC_ERROR_PROCESS_STD_DEV = 0.01
+        // Expected measurement noise in microseconds (5ms jitter)
+        private const val SYNC_ERROR_MEASUREMENT_NOISE_US = 5_000L
 
         // Sync error update interval
         private const val SYNC_ERROR_UPDATE_INTERVAL = 5  // Update every N chunks
@@ -158,7 +161,13 @@ class SyncAudioPlayer(
     private var startTimeCalibrated = false  // Has playbackStartTimeUs been calibrated from AudioTimestamp?
     private var samplesReadSinceStart = 0L  // Total samples consumed since playback started
     @Volatile private var syncErrorUs = 0L  // Current sync error (for display)
-    private var smoothedSyncErrorUs: Double = 0.0  // EMA-smoothed for corrections
+
+    // Kalman filter for sync error smoothing (replaces simple EMA)
+    // Based on Python reference implementation for optimal noise filtering
+    private val syncErrorFilter = SyncErrorFilter(
+        processStdDev = SYNC_ERROR_PROCESS_STD_DEV,
+        measurementNoiseUs = SYNC_ERROR_MEASUREMENT_NOISE_US
+    )
 
     // Sample insert/drop correction state (from Python reference)
     private var insertEveryNFrames: Int = 0      // Insert duplicate frame every N frames (slow down)
@@ -463,7 +472,6 @@ class SyncAudioPlayer(
                 }
             }
 
-            smoothedSyncErrorUs = 0.0
             lastChunkServerTime = 0L
 
             // Reset playback state machine
@@ -480,7 +488,7 @@ class SyncAudioPlayer(
             startTimeCalibrated = false
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
-            smoothedSyncErrorUs = 0.0
+            syncErrorFilter.reset()
 
             // Reset sample insert/drop correction state
             insertEveryNFrames = 0
@@ -800,7 +808,7 @@ class SyncAudioPlayer(
             startTimeCalibrated = false
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
-            smoothedSyncErrorUs = 0.0
+            syncErrorFilter.reset()
 
             // Transition to INITIALIZING to wait for new chunks
             setPlaybackState(PlaybackState.INITIALIZING)
@@ -936,7 +944,7 @@ class SyncAudioPlayer(
      * This implements proportional control: the correction rate is proportional
      * to the error magnitude, capped at MAX_SPEED_CORRECTION (4%).
      *
-     * Uses smoothedSyncErrorUs from updateSyncError() (Windows SDK style):
+     * Uses Kalman-filtered sync error from updateSyncError() (Windows SDK style):
      * - Positive error = behind (haven't read enough) → DROP to catch up
      * - Negative error = ahead (read too much) → INSERT to slow down
      *
@@ -950,8 +958,9 @@ class SyncAudioPlayer(
             return
         }
 
-        // Use the smoothed sync error from updateSyncError()
-        val effectiveErrorUs = smoothedSyncErrorUs
+        // Use the Kalman-filtered sync error from updateSyncError()
+        // This provides optimal smoothing compared to simple EMA
+        val effectiveErrorUs = syncErrorFilter.offsetMicros.toDouble()
         val absErr = abs(effectiveErrorUs)
 
         // Within deadband - no correction needed
@@ -1186,9 +1195,9 @@ class SyncAudioPlayer(
             val rawSyncError = elapsedUs - samplesReadTimeUs
             syncErrorUs = rawSyncError
 
-            // Apply EMA smoothing for correction decisions
-            smoothedSyncErrorUs = SYNC_ERROR_ALPHA * rawSyncError.toDouble() +
-                    (1 - SYNC_ERROR_ALPHA) * smoothedSyncErrorUs
+            // Apply Kalman filter smoothing for correction decisions
+            // This provides optimal noise filtering vs simple EMA
+            syncErrorFilter.update(rawSyncError, nowMicros)
 
         } catch (e: Exception) {
             Log.w(TAG, "Failed to update sync error", e)
@@ -1256,7 +1265,7 @@ class SyncAudioPlayer(
             firstServerTimestampUs = firstServerTimestampUs,
             // Sync error (simplified Windows SDK style)
             syncErrorUs = syncErrorUs,
-            smoothedSyncErrorUs = smoothedSyncErrorUs.toLong(),
+            smoothedSyncErrorUs = syncErrorFilter.offsetMicros,
             startTimeCalibrated = startTimeCalibrated,
             samplesReadSinceStart = samplesReadSinceStart,
             serverTimelineCursorUs = serverTimelineCursor,
