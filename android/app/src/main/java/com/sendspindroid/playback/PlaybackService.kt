@@ -1,5 +1,6 @@
 package com.sendspindroid.playback
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -33,6 +34,7 @@ import coil.request.SuccessResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.sendspindroid.MainActivity
 import com.sendspindroid.ServerRepository
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.model.PlaybackState
@@ -986,7 +988,19 @@ class PlaybackService : MediaLibraryService() {
 
         forwardingPlayer = MetadataForwardingPlayer(player)
 
+        // Create PendingIntent for notification tap - opens MainActivity
+        val sessionActivityIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val sessionActivityPendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            sessionActivityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         mediaSession = MediaLibrarySession.Builder(this, forwardingPlayer!!, LibraryCallback())
+            .setSessionActivity(sessionActivityPendingIntent)
             .build()
 
         Log.d(TAG, "MediaLibrarySession initialized with browse tree support")
