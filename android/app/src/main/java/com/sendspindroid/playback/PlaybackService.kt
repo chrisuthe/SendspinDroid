@@ -408,6 +408,9 @@ class PlaybackService : MediaLibraryService() {
                 Log.d(TAG, "State changed: $state")
                 val newState = PlaybackStateType.fromString(state)
 
+                // Update playWhenReady from server state (without sending command back)
+                sendSpinPlayer?.updatePlayWhenReadyFromServer(newState == PlaybackStateType.PLAYING)
+
                 // Stop audio immediately when server stops/pauses playback
                 if (newState == PlaybackStateType.STOPPED || newState == PlaybackStateType.PAUSED) {
                     Log.d(TAG, "State is stopped/paused - clearing audio buffer")
@@ -427,6 +430,11 @@ class PlaybackService : MediaLibraryService() {
                 val currentState = _playbackState.value
                 val isGroupChange = groupId.isNotEmpty() && groupId != currentState.groupId
                 val newPlaybackState = PlaybackStateType.fromString(playbackState)
+
+                // Update playWhenReady from server state (without sending command back)
+                if (playbackState.isNotEmpty()) {
+                    sendSpinPlayer?.updatePlayWhenReadyFromServer(newPlaybackState == PlaybackStateType.PLAYING)
+                }
 
                 // Handle playback state changes for audio player and notifications
                 if (playbackState.isNotEmpty()) {
