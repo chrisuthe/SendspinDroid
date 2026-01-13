@@ -84,16 +84,19 @@ class SyncAudioPlayer(
         private const val DEADBAND_THRESHOLD_US = 2_000L        // 2ms - no correction needed
         private const val HARD_RESYNC_THRESHOLD_US = 200_000L   // 200ms - hard resync (drop/skip chunks)
 
-        // Sample insert/drop correction constants (from Python reference)
-        private const val MAX_SPEED_CORRECTION = 0.04           // +/-4% max correction rate
-        private const val CORRECTION_TARGET_SECONDS = 2.0       // Fix error over 2 seconds
+        // Sample insert/drop correction constants (matching Windows SDK for stability)
+        private const val MAX_SPEED_CORRECTION = 0.02           // +/-2% max correction rate (was 4%)
+        private const val CORRECTION_TARGET_SECONDS = 3.0       // Fix error over 3 seconds (was 2)
+
+        // Startup grace period - no corrections until timing stabilizes (Windows SDK: 500ms)
+        private const val STARTUP_GRACE_PERIOD_US = 500_000L    // 500ms grace period
 
         // Buffer configuration
         private const val BUFFER_HEADROOM_MS = 200  // Schedule audio 200ms ahead
 
-        // Sync error Kalman filter parameters (from Python reference)
-        // Process noise std dev - how much sync error can change between updates
-        private const val SYNC_ERROR_PROCESS_STD_DEV = 0.01
+        // Sync error Kalman filter parameters
+        // Process noise - increased to match real Android scheduler jitter (was 0.01)
+        private const val SYNC_ERROR_PROCESS_STD_DEV = 10.0
         // Expected measurement noise in microseconds (5ms jitter)
         private const val SYNC_ERROR_MEASUREMENT_NOISE_US = 5_000L
 
@@ -175,6 +178,10 @@ class SyncAudioPlayer(
     private var framesUntilNextInsert: Int = 0   // Countdown to next insert
     private var framesUntilNextDrop: Int = 0     // Countdown to next drop
     private var lastOutputFrame: ByteArray = ByteArray(0)  // Last frame written (for duplication)
+
+    // Startup grace period tracking (Windows SDK style)
+    // No corrections applied until STARTUP_GRACE_PERIOD_US after entering PLAYING state
+    private var playingStateEnteredAtUs = 0L     // When we transitioned to PLAYING state
 
     // Statistics
     private var chunksReceived = 0L
@@ -489,6 +496,7 @@ class SyncAudioPlayer(
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
             syncErrorFilter.reset()
+            playingStateEnteredAtUs = 0L  // Reset grace period
 
             // Reset sample insert/drop correction state
             insertEveryNFrames = 0
@@ -809,6 +817,7 @@ class SyncAudioPlayer(
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
             syncErrorFilter.reset()
+            playingStateEnteredAtUs = 0L  // Reset grace period
 
             // Transition to INITIALIZING to wait for new chunks
             setPlaybackState(PlaybackState.INITIALIZING)
@@ -942,7 +951,7 @@ class SyncAudioPlayer(
      * Update the sample insert/drop correction schedule based on sync error.
      *
      * This implements proportional control: the correction rate is proportional
-     * to the error magnitude, capped at MAX_SPEED_CORRECTION (4%).
+     * to the error magnitude, capped at MAX_SPEED_CORRECTION (2%).
      *
      * Uses Kalman-filtered sync error from updateSyncError() (Windows SDK style):
      * - Positive error = behind (haven't read enough) → DROP to catch up
@@ -956,6 +965,18 @@ class SyncAudioPlayer(
             insertEveryNFrames = 0
             dropEveryNFrames = 0
             return
+        }
+
+        // Skip corrections during startup grace period (Windows SDK: 500ms)
+        // This allows AudioTimestamp calibration to stabilize before corrections
+        if (playingStateEnteredAtUs > 0) {
+            val nowUs = System.nanoTime() / 1000
+            val timeSincePlayingUs = nowUs - playingStateEnteredAtUs
+            if (timeSincePlayingUs < STARTUP_GRACE_PERIOD_US) {
+                insertEveryNFrames = 0
+                dropEveryNFrames = 0
+                return
+            }
         }
 
         // Use the Kalman-filtered sync error from updateSyncError()
@@ -1243,6 +1264,11 @@ class SyncAudioPlayer(
      */
     private fun setPlaybackState(newState: PlaybackState) {
         if (playbackState != newState) {
+            // Track when we enter PLAYING state for grace period calculation
+            if (newState == PlaybackState.PLAYING && playbackState != PlaybackState.PLAYING) {
+                playingStateEnteredAtUs = System.nanoTime() / 1000
+                Log.d(TAG, "Entered PLAYING state - grace period starts (${STARTUP_GRACE_PERIOD_US/1000}ms)")
+            }
             playbackState = newState
             stateCallback?.onPlaybackStateChanged(newState)
         }
