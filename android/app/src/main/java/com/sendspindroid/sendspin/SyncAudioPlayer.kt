@@ -95,10 +95,12 @@ class SyncAudioPlayer(
         private const val BUFFER_HEADROOM_MS = 200  // Schedule audio 200ms ahead
 
         // Sync error Kalman filter parameters
-        // Process noise - increased to match real Android scheduler jitter (was 0.01)
-        private const val SYNC_ERROR_PROCESS_STD_DEV = 10.0
         // Expected measurement noise in microseconds (5ms jitter)
         private const val SYNC_ERROR_MEASUREMENT_NOISE_US = 5_000L
+
+        // DAC calibration parameters
+        private const val MAX_DAC_CALIBRATIONS = 50  // Keep last N calibration pairs
+        private const val MIN_CALIBRATION_INTERVAL_US = 10_000L  // Don't calibrate more often than 10ms
 
         // Sync error update interval
         private const val SYNC_ERROR_UPDATE_INTERVAL = 5  // Update every N chunks
@@ -165,12 +167,17 @@ class SyncAudioPlayer(
     private var samplesReadSinceStart = 0L  // Total samples consumed since playback started
     @Volatile private var syncErrorUs = 0L  // Current sync error (for display)
 
-    // Kalman filter for sync error smoothing (replaces simple EMA)
+    // 2D Kalman filter for sync error smoothing (tracks offset + drift)
     // Based on Python reference implementation for optimal noise filtering
     private val syncErrorFilter = SyncErrorFilter(
-        processStdDev = SYNC_ERROR_PROCESS_STD_DEV,
         measurementNoiseUs = SYNC_ERROR_MEASUREMENT_NOISE_US
     )
+
+    // DAC calibration state - tracks (dacTimeUs, loopTimeUs) pairs for time conversion
+    // Used to convert DAC hardware time to loop/system time
+    private data class DacCalibration(val dacTimeUs: Long, val loopTimeUs: Long)
+    private val dacLoopCalibrations = ArrayDeque<DacCalibration>()
+    private var lastDacCalibrationTimeUs = 0L
 
     // Sample insert/drop correction state (from Python reference)
     private var insertEveryNFrames: Int = 0      // Insert duplicate frame every N frames (slow down)
@@ -496,6 +503,7 @@ class SyncAudioPlayer(
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
             syncErrorFilter.reset()
+            clearDacCalibrations()  // Clear DAC calibration history
             playingStateEnteredAtUs = 0L  // Reset grace period
 
             // Reset sample insert/drop correction state
@@ -817,6 +825,7 @@ class SyncAudioPlayer(
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
             syncErrorFilter.reset()
+            clearDacCalibrations()  // Clear DAC calibration history
             playingStateEnteredAtUs = 0L  // Reset grace period
 
             // Transition to INITIALIZING to wait for new chunks
@@ -1153,76 +1162,191 @@ class SyncAudioPlayer(
     // ========================================================================
 
     /**
-     * Update sync error using simplified Windows SDK style calculation.
+     * Update sync error using server-time-based calculation (sendspin-cli style).
      *
-     * Sync error = elapsed_time - samples_read_time
+     * Continuously queries AudioTimestamp to track DAC position, then:
+     * 1. Stores DAC calibration pairs (dacTime, loopTime)
+     * 2. Converts DAC time → loop time → server time
+     * 3. Calculates: sync_error = playback_position_server - read_cursor_server
      *
-     * On first valid AudioTimestamp, calibrate playbackStartTimeUs to account
-     * for AudioTrack buffer latency.
+     * This approach handles drift between CPU clock and audio hardware clock,
+     * which the previous Windows SDK style approach did not.
      *
-     * Positive error = behind (haven't read enough) → need to DROP
-     * Negative error = ahead (read too much) → need to INSERT
+     * Positive error = DAC ahead of read cursor → need to DROP (read faster)
+     * Negative error = DAC behind read cursor → need to INSERT (slow down output)
      */
     private fun updateSyncError() {
         val track = audioTrack ?: return
         if (playbackState != PlaybackState.PLAYING) return
 
         try {
-            // Get AudioTimestamp for start time calibration (one-time)
-            if (!startTimeCalibrated) {
-                val success = track.getTimestamp(audioTimestamp)
-                if (success) {
-                    val dacTimeMicros = audioTimestamp.nanoTime / 1000
-                    val framePosition = audioTimestamp.framePosition
-
-                    // Sanity check
-                    if (framePosition > 0 && framePosition <= totalFramesWritten) {
-                        // Back-calculate when frame 0 reached the DAC
-                        // This accounts for AudioTrack buffer latency
-                        val frameZeroDacTime = dacTimeMicros - (framePosition * 1_000_000L) / sampleRate
-                        playbackStartTimeUs = frameZeroDacTime
-
-                        // CRITICAL: Align samplesRead with DAC position
-                        // We've fed more samples than have played (rest are in AudioTrack buffer)
-                        // Reset to framePosition so elapsed and samplesRead are in sync
-                        val oldSamplesRead = samplesReadSinceStart
-                        samplesReadSinceStart = framePosition
-
-                        startTimeCalibrated = true
-                        Log.i(TAG, "Calibrated playback start time from AudioTimestamp: " +
-                                "framePos=$framePosition, start=${frameZeroDacTime/1000}ms, " +
-                                "samplesRead adjusted from $oldSamplesRead to $framePosition")
-                    }
-                }
-                // Don't calculate sync error until calibrated
+            // Query AudioTimestamp on every update (not just once)
+            val success = track.getTimestamp(audioTimestamp)
+            if (!success) {
+                // AudioTimestamp not available yet - can't calculate sync error
                 return
             }
 
-            // ================================================================
-            // SIMPLIFIED SYNC ERROR (Windows SDK style)
-            // ================================================================
-            // syncError = elapsedTime - samplesReadTime
-            //
-            // elapsedTime = how much wall clock time since playback started
-            // samplesReadTime = how much audio (as time) we've consumed from buffer
-            //
-            // Positive = we haven't read enough (behind) → DROP to catch up
-            // Negative = we've read too much (ahead) → INSERT to slow down
-            //
-            val nowMicros = System.nanoTime() / 1000
-            val elapsedUs = nowMicros - playbackStartTimeUs
-            val samplesReadTimeUs = (samplesReadSinceStart * 1_000_000L) / sampleRate
+            val dacTimeMicros = audioTimestamp.nanoTime / 1000
+            val framePosition = audioTimestamp.framePosition
+            val loopTimeUs = System.nanoTime() / 1000
 
-            val rawSyncError = elapsedUs - samplesReadTimeUs
+            // Sanity check - framePosition should be reasonable
+            if (framePosition <= 0 || framePosition > totalFramesWritten + sampleRate) {
+                // Invalid frame position
+                return
+            }
+
+            // Store DAC calibration pair for time conversion
+            storeDacCalibration(dacTimeMicros, loopTimeUs)
+
+            // Mark as calibrated after first successful timestamp
+            if (!startTimeCalibrated) {
+                startTimeCalibrated = true
+                Log.i(TAG, "DAC calibration started: framePos=$framePosition, dacTime=${dacTimeMicros/1000}ms")
+            }
+
+            // ================================================================
+            // SYNC ERROR IN SERVER TIME (sendspin-cli style)
+            // ================================================================
+            // sync_error = playback_position_server - read_cursor_server
+            //
+            // playback_position_server = where DAC is currently playing (in server time)
+            // read_cursor_server = where we've read up to (serverTimelineCursor)
+            //
+            // Positive = DAC ahead of read cursor (playing fast) → DROP to catch up
+            // Negative = DAC behind read cursor (playing slow) → INSERT to slow down
+            //
+
+            // Step 1: Estimate loop time corresponding to the DAC timestamp
+            val loopAtDacUs = estimateLoopTimeForDacTime(dacTimeMicros)
+            if (loopAtDacUs == 0L) {
+                // Not enough calibrations yet
+                return
+            }
+
+            // Step 2: Convert loop time to server time
+            val playbackPositionServerUs = computeServerTime(loopAtDacUs)
+
+            // Step 3: Read cursor is serverTimelineCursor (where we've fed audio to)
+            // But we need to account for audio still in the AudioTrack buffer
+            // serverTimelineCursor = where we've fed to
+            // framePosition = how many frames have actually played
+            // The difference is what's buffered
+
+            // Calculate what server time the DAC is currently at based on frame position
+            // We need to find what chunk contains framePosition
+            // For simplicity, use the server timeline cursor minus the buffered amount
+            val framesInBuffer = (totalFramesWritten - framePosition).coerceAtLeast(0)
+            val bufferedTimeUs = (framesInBuffer * 1_000_000L) / sampleRate
+            val readCursorServerUs = serverTimelineCursor - bufferedTimeUs
+
+            // Calculate sync error in server time
+            val rawSyncError = playbackPositionServerUs - readCursorServerUs
             syncErrorUs = rawSyncError
 
-            // Apply Kalman filter smoothing for correction decisions
-            // This provides optimal noise filtering vs simple EMA
-            syncErrorFilter.update(rawSyncError, nowMicros)
+            // Apply 2D Kalman filter smoothing (tracks offset + drift)
+            syncErrorFilter.update(rawSyncError, loopTimeUs)
 
         } catch (e: Exception) {
             Log.w(TAG, "Failed to update sync error", e)
         }
+    }
+
+    // ========================================================================
+    // DAC Calibration - Maps DAC hardware time to loop/system time
+    // ========================================================================
+
+    /**
+     * Store a DAC calibration pair for time conversion.
+     *
+     * Captures the relationship between DAC hardware time (from AudioTimestamp)
+     * and system monotonic time (from System.nanoTime). This allows us to
+     * convert DAC times to loop times and then to server times.
+     *
+     * @param dacTimeUs DAC hardware time in microseconds
+     * @param loopTimeUs System monotonic time in microseconds
+     */
+    private fun storeDacCalibration(dacTimeUs: Long, loopTimeUs: Long) {
+        // Don't store calibrations too frequently
+        if (loopTimeUs - lastDacCalibrationTimeUs < MIN_CALIBRATION_INTERVAL_US) {
+            return
+        }
+
+        dacLoopCalibrations.addLast(DacCalibration(dacTimeUs, loopTimeUs))
+        lastDacCalibrationTimeUs = loopTimeUs
+
+        // Keep only the most recent calibrations
+        while (dacLoopCalibrations.size > MAX_DAC_CALIBRATIONS) {
+            dacLoopCalibrations.removeFirst()
+        }
+    }
+
+    /**
+     * Estimate the loop time that corresponds to a given DAC time.
+     *
+     * Uses linear interpolation between calibration pairs to estimate
+     * what system time corresponds to a DAC hardware timestamp.
+     *
+     * @param dacTimeUs DAC hardware time in microseconds
+     * @return Estimated loop (system) time in microseconds
+     */
+    private fun estimateLoopTimeForDacTime(dacTimeUs: Long): Long {
+        if (dacLoopCalibrations.isEmpty()) {
+            // No calibrations yet - can't estimate
+            return 0L
+        }
+
+        if (dacLoopCalibrations.size == 1) {
+            // Single calibration - use simple offset
+            val cal = dacLoopCalibrations.first()
+            val dacOffset = dacTimeUs - cal.dacTimeUs
+            return cal.loopTimeUs + dacOffset
+        }
+
+        // Find the two calibrations that bracket the target DAC time
+        // or use the nearest pair for extrapolation
+        val sorted = dacLoopCalibrations.sortedBy { it.dacTimeUs }
+
+        // Find where dacTimeUs falls in the sorted list
+        var lower = sorted.first()
+        var upper = sorted.last()
+
+        for (i in 0 until sorted.size - 1) {
+            if (sorted[i].dacTimeUs <= dacTimeUs && sorted[i + 1].dacTimeUs >= dacTimeUs) {
+                lower = sorted[i]
+                upper = sorted[i + 1]
+                break
+            }
+        }
+
+        // Linear interpolation between the two calibration points
+        val dacDelta = upper.dacTimeUs - lower.dacTimeUs
+        if (dacDelta == 0L) {
+            return lower.loopTimeUs
+        }
+
+        val fraction = (dacTimeUs - lower.dacTimeUs).toDouble() / dacDelta
+        val loopDelta = upper.loopTimeUs - lower.loopTimeUs
+        return lower.loopTimeUs + (fraction * loopDelta).toLong()
+    }
+
+    /**
+     * Convert a loop (system) time to server time using the time filter.
+     *
+     * @param loopTimeUs System monotonic time in microseconds
+     * @return Server time in microseconds
+     */
+    private fun computeServerTime(loopTimeUs: Long): Long {
+        return timeFilter.clientToServer(loopTimeUs)
+    }
+
+    /**
+     * Clear DAC calibrations (called on buffer clear/reanchor).
+     */
+    private fun clearDacCalibrations() {
+        dacLoopCalibrations.clear()
+        lastDacCalibrationTimeUs = 0L
     }
 
     /**
