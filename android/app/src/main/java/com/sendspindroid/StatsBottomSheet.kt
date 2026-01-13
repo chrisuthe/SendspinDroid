@@ -170,8 +170,8 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         binding.playbackStateValue.text = playbackState
         binding.playbackStateValue.setTextColor(getColorForPlaybackState(playbackState))
 
-        // Use DAC-based sync error (actual playback position vs expected)
-        val syncErrorUs = bundle.getLong("true_sync_error_us", 0L)
+        // Use simplified sync error (elapsed - samples_read_time)
+        val syncErrorUs = bundle.getLong("sync_error_us", 0L)
         val syncErrorMs = syncErrorUs / 1000.0
         binding.syncErrorValue.text = String.format("%.2f ms", syncErrorMs)
         binding.syncErrorValue.setTextColor(getColorForSyncError(syncErrorUs))
@@ -253,10 +253,10 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         val measurementCount = bundle.getInt("measurement_count", 0)
         binding.measurementCountValue.text = measurementCount.toString()
 
-        val dacCalibrationCount = bundle.getInt("dac_calibration_count", 0)
-        binding.dacCalibrationCountValue.text = dacCalibrationCount.toString()
+        val startTimeCalibrated = bundle.getBoolean("start_time_calibrated", false)
+        binding.dacCalibrationCountValue.text = if (startTimeCalibrated) "Yes" else "No"
         binding.dacCalibrationCountValue.setTextColor(
-            if (dacCalibrationCount > 0) getColorGood() else getColorWarning()
+            if (startTimeCalibrated) getColorGood() else getColorWarning()
         )
     }
 

@@ -21,18 +21,28 @@ data class SyncStats(
     val playbackState: PlaybackState = PlaybackState.INITIALIZING,
     val isPlaying: Boolean = false,
 
-    // === SYNC STATUS ===
+    // === SYNC STATUS (simplified Windows SDK style) ===
     /**
-     * Smoothed sync error in microseconds.
-     * Positive = audio is ahead of schedule, negative = behind.
+     * Raw sync error in microseconds.
+     * syncError = elapsedTime - samplesReadTime
+     * Positive = behind (need DROP), Negative = ahead (need INSERT)
      */
     val syncErrorUs: Long = 0L,
 
     /**
-     * True sync error measured from DAC timestamps.
-     * More accurate than smoothed error as it uses actual hardware timing.
+     * Smoothed sync error for corrections.
      */
-    val trueSyncErrorUs: Long = 0L,
+    val smoothedSyncErrorUs: Long = 0L,
+
+    /**
+     * Whether start time has been calibrated from AudioTimestamp.
+     */
+    val startTimeCalibrated: Boolean = false,
+
+    /**
+     * Samples consumed since playback started.
+     */
+    val samplesReadSinceStart: Long = 0L,
 
     // === BUFFER ===
     val queuedSamples: Long = 0L,
@@ -52,7 +62,6 @@ data class SyncStats(
     val framesInserted: Long = 0L,
     val framesDropped: Long = 0L,
     val syncCorrections: Long = 0L,
-    val correctionErrorUs: Long = 0L,
 
     // === CLOCK SYNC ===
     val clockReady: Boolean = false,
@@ -60,10 +69,8 @@ data class SyncStats(
     val clockErrorUs: Long = 0L,
     val measurementCount: Int = 0,
 
-    // === DAC CALIBRATION ===
-    val dacCalibrationCount: Int = 0,
+    // === PLAYBACK TRACKING ===
     val totalFramesWritten: Long = 0L,
-    val lastKnownPlaybackPositionUs: Long = 0L,
     val serverTimelineCursorUs: Long = 0L,
 
     // === TIMING ===
@@ -80,9 +87,11 @@ data class SyncStats(
             putString("playback_state", playbackState.name)
             putBoolean("is_playing", isPlaying)
 
-            // Sync status
+            // Sync status (simplified)
             putLong("sync_error_us", syncErrorUs)
-            putLong("true_sync_error_us", trueSyncErrorUs)
+            putLong("smoothed_sync_error_us", smoothedSyncErrorUs)
+            putBoolean("start_time_calibrated", startTimeCalibrated)
+            putLong("samples_read_since_start", samplesReadSinceStart)
 
             // Buffer
             putLong("queued_samples", queuedSamples)
@@ -100,7 +109,6 @@ data class SyncStats(
             putLong("frames_inserted", framesInserted)
             putLong("frames_dropped", framesDropped)
             putLong("sync_corrections", syncCorrections)
-            putLong("correction_error_us", correctionErrorUs)
 
             // Clock sync
             putBoolean("clock_ready", clockReady)
@@ -108,10 +116,8 @@ data class SyncStats(
             putLong("clock_error_us", clockErrorUs)
             putInt("measurement_count", measurementCount)
 
-            // DAC calibration
-            putInt("dac_calibration_count", dacCalibrationCount)
+            // Playback tracking
             putLong("total_frames_written", totalFramesWritten)
-            putLong("last_known_playback_position_us", lastKnownPlaybackPositionUs)
             putLong("server_timeline_cursor_us", serverTimelineCursorUs)
 
             // Timing
@@ -132,7 +138,9 @@ data class SyncStats(
                 ),
                 isPlaying = bundle.getBoolean("is_playing", false),
                 syncErrorUs = bundle.getLong("sync_error_us", 0L),
-                trueSyncErrorUs = bundle.getLong("true_sync_error_us", 0L),
+                smoothedSyncErrorUs = bundle.getLong("smoothed_sync_error_us", 0L),
+                startTimeCalibrated = bundle.getBoolean("start_time_calibrated", false),
+                samplesReadSinceStart = bundle.getLong("samples_read_since_start", 0L),
                 queuedSamples = bundle.getLong("queued_samples", 0L),
                 chunksReceived = bundle.getLong("chunks_received", 0L),
                 chunksPlayed = bundle.getLong("chunks_played", 0L),
@@ -146,14 +154,11 @@ data class SyncStats(
                 framesInserted = bundle.getLong("frames_inserted", 0L),
                 framesDropped = bundle.getLong("frames_dropped", 0L),
                 syncCorrections = bundle.getLong("sync_corrections", 0L),
-                correctionErrorUs = bundle.getLong("correction_error_us", 0L),
                 clockReady = bundle.getBoolean("clock_ready", false),
                 clockOffsetUs = bundle.getLong("clock_offset_us", 0L),
                 clockErrorUs = bundle.getLong("clock_error_us", 0L),
                 measurementCount = bundle.getInt("measurement_count", 0),
-                dacCalibrationCount = bundle.getInt("dac_calibration_count", 0),
                 totalFramesWritten = bundle.getLong("total_frames_written", 0L),
-                lastKnownPlaybackPositionUs = bundle.getLong("last_known_playback_position_us", 0L),
                 serverTimelineCursorUs = bundle.getLong("server_timeline_cursor_us", 0L),
                 scheduledStartLoopTimeUs = if (bundle.containsKey("scheduled_start_loop_time_us"))
                     bundle.getLong("scheduled_start_loop_time_us") else null,
