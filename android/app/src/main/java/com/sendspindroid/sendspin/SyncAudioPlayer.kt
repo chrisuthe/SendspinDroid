@@ -1151,9 +1151,17 @@ class SyncAudioPlayer(
                         // This accounts for AudioTrack buffer latency
                         val frameZeroDacTime = dacTimeMicros - (framePosition * 1_000_000L) / sampleRate
                         playbackStartTimeUs = frameZeroDacTime
+
+                        // CRITICAL: Align samplesRead with DAC position
+                        // We've fed more samples than have played (rest are in AudioTrack buffer)
+                        // Reset to framePosition so elapsed and samplesRead are in sync
+                        val oldSamplesRead = samplesReadSinceStart
+                        samplesReadSinceStart = framePosition
+
                         startTimeCalibrated = true
                         Log.i(TAG, "Calibrated playback start time from AudioTimestamp: " +
-                                "framePos=$framePosition, start=${frameZeroDacTime/1000}ms")
+                                "framePos=$framePosition, start=${frameZeroDacTime/1000}ms, " +
+                                "samplesRead adjusted from $oldSamplesRead to $framePosition")
                     }
                 }
                 // Don't calculate sync error until calibrated
