@@ -861,8 +861,10 @@ class PlaybackService : MediaLibraryService() {
         val syncStats = SyncStats(
             playbackState = audioStats.playbackState,
             isPlaying = audioStats.isPlaying,
-            syncErrorUs = audioStats.smoothedSyncErrorUs,
-            trueSyncErrorUs = audioStats.trueSyncErrorUs,
+            syncErrorUs = audioStats.syncErrorUs,
+            smoothedSyncErrorUs = audioStats.smoothedSyncErrorUs,
+            startTimeCalibrated = audioStats.startTimeCalibrated,
+            samplesReadSinceStart = audioStats.samplesReadSinceStart,
             queuedSamples = audioStats.queuedSamples,
             chunksReceived = audioStats.chunksReceived,
             chunksPlayed = audioStats.chunksPlayed,
@@ -876,14 +878,11 @@ class PlaybackService : MediaLibraryService() {
             framesInserted = audioStats.framesInserted,
             framesDropped = audioStats.framesDropped,
             syncCorrections = audioStats.syncCorrections,
-            correctionErrorUs = audioStats.correctionErrorUs,
             clockReady = timeFilter.isReady,
             clockOffsetUs = timeFilter.offsetMicros,
             clockErrorUs = timeFilter.errorMicros,
             measurementCount = timeFilter.measurementCountValue,
-            dacCalibrationCount = audioStats.dacCalibrationCount,
             totalFramesWritten = audioStats.totalFramesWritten,
-            lastKnownPlaybackPositionUs = audioStats.lastKnownPlaybackPositionUs,
             serverTimelineCursorUs = audioStats.serverTimelineCursorUs,
             scheduledStartLoopTimeUs = audioStats.scheduledStartLoopTimeUs,
             firstServerTimestampUs = audioStats.firstServerTimestampUs
@@ -1186,9 +1185,11 @@ class PlaybackService : MediaLibraryService() {
             bundle.putString("playback_state", audioStats.playbackState.name)
             bundle.putBoolean("is_playing", audioStats.isPlaying)
 
-            // Sync status
-            bundle.putLong("sync_error_us", audioStats.smoothedSyncErrorUs)
-            bundle.putLong("true_sync_error_us", audioStats.trueSyncErrorUs)
+            // Sync status (simplified Windows SDK style)
+            bundle.putLong("sync_error_us", audioStats.syncErrorUs)
+            bundle.putLong("smoothed_sync_error_us", audioStats.smoothedSyncErrorUs)
+            bundle.putBoolean("start_time_calibrated", audioStats.startTimeCalibrated)
+            bundle.putLong("samples_read_since_start", audioStats.samplesReadSinceStart)
 
             // Buffer
             bundle.putLong("queued_samples", audioStats.queuedSamples)
@@ -1206,12 +1207,9 @@ class PlaybackService : MediaLibraryService() {
             bundle.putLong("frames_inserted", audioStats.framesInserted)
             bundle.putLong("frames_dropped", audioStats.framesDropped)
             bundle.putLong("sync_corrections", audioStats.syncCorrections)
-            bundle.putLong("correction_error_us", audioStats.correctionErrorUs)
 
-            // DAC calibration
-            bundle.putInt("dac_calibration_count", audioStats.dacCalibrationCount)
+            // Playback tracking
             bundle.putLong("total_frames_written", audioStats.totalFramesWritten)
-            bundle.putLong("last_known_playback_position_us", audioStats.lastKnownPlaybackPositionUs)
             bundle.putLong("server_timeline_cursor_us", audioStats.serverTimelineCursorUs)
 
             // Timing

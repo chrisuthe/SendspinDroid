@@ -216,7 +216,7 @@ object DebugLogger {
         sb.appendLine("--- STATS SUMMARY ---")
         val snapshotList = samples.toList()
         if (snapshotList.isNotEmpty()) {
-            val syncErrors = snapshotList.map { it.stats.trueSyncErrorUs }
+            val syncErrors = snapshotList.map { it.stats.syncErrorUs }
             val avgSyncError = syncErrors.average()
             val maxSyncError = syncErrors.maxOrNull() ?: 0
             val minSyncError = syncErrors.minOrNull() ?: 0
@@ -242,7 +242,7 @@ object DebugLogger {
             sb.appendLine(
                 "${snapshot.relativeTimeMs}," +
                 "${s.playbackState.name}," +
-                "${s.trueSyncErrorUs}," +
+                "${s.syncErrorUs}," +
                 "${s.queuedSamples}," +
                 "${s.clockOffsetUs}," +
                 "${s.clockErrorUs}," +
