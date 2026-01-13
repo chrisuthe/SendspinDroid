@@ -197,6 +197,8 @@ class SyncAudioPlayer(
     private var syncCorrections = 0L
     private var framesInserted = 0L
     private var framesDropped = 0L
+    private var reanchorCount = 0L        // Count of reanchor events
+    private var bufferUnderrunCount = 0L  // Count of times queue was empty during playback
 
     // Gap/overlap handling (from Python reference)
     private var expectedNextTimestampUs: Long? = null  // Expected server timestamp of next chunk
@@ -831,6 +833,7 @@ class SyncAudioPlayer(
             // Transition to INITIALIZING to wait for new chunks
             setPlaybackState(PlaybackState.INITIALIZING)
             syncCorrections++
+            reanchorCount++
 
             return true
         } finally {
@@ -897,7 +900,8 @@ class SyncAudioPlayer(
                 // PLAYING state: process chunks with sync correction
                 val chunk = chunkQueue.peek()
                 if (chunk == null) {
-                    // No chunks available, wait a bit
+                    // No chunks available - buffer underrun
+                    bufferUnderrunCount++
                     delay(5)
                     continue
                 }
@@ -1372,6 +1376,28 @@ class SyncAudioPlayer(
     fun isStartTimeCalibrated(): Boolean = startTimeCalibrated
 
     /**
+     * Get the number of DAC calibration pairs stored.
+     */
+    fun getDacCalibrationCount(): Int = dacLoopCalibrations.size
+
+    /**
+     * Get the sync error filter's drift value.
+     */
+    fun getSyncErrorDrift(): Double = syncErrorFilter.driftValue
+
+    /**
+     * Get the remaining grace period time in microseconds.
+     * Returns -1 if grace period is not active.
+     */
+    fun getGracePeriodRemainingUs(): Long {
+        if (playingStateEnteredAtUs <= 0) return -1
+        val nowUs = System.nanoTime() / 1000
+        val elapsed = nowUs - playingStateEnteredAtUs
+        val remaining = STARTUP_GRACE_PERIOD_US - elapsed
+        return if (remaining > 0) remaining else -1
+    }
+
+    /**
      * Get current playback state.
      */
     fun getPlaybackState(): PlaybackState = playbackState
@@ -1429,7 +1455,13 @@ class SyncAudioPlayer(
             gapsFilled = gapsFilled,
             gapSilenceMs = gapSilenceMs,
             overlapsTrimmed = overlapsTrimmed,
-            overlapTrimmedMs = overlapTrimmedMs
+            overlapTrimmedMs = overlapTrimmedMs,
+            // New stats for comprehensive debugging
+            reanchorCount = reanchorCount,
+            bufferUnderrunCount = bufferUnderrunCount,
+            dacCalibrationCount = dacLoopCalibrations.size,
+            syncErrorDrift = syncErrorFilter.driftValue,
+            gracePeriodRemainingUs = getGracePeriodRemainingUs()
         )
     }
 
@@ -1460,6 +1492,12 @@ class SyncAudioPlayer(
         val gapsFilled: Long = 0,
         val gapSilenceMs: Long = 0,
         val overlapsTrimmed: Long = 0,
-        val overlapTrimmedMs: Long = 0
+        val overlapTrimmedMs: Long = 0,
+        // New stats for comprehensive debugging
+        val reanchorCount: Long = 0,
+        val bufferUnderrunCount: Long = 0,
+        val dacCalibrationCount: Int = 0,
+        val syncErrorDrift: Double = 0.0,
+        val gracePeriodRemainingUs: Long = -1
     )
 }

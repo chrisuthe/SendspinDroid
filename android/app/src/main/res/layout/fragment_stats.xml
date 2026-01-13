@@ -44,7 +44,109 @@
                 app:iconTint="@color/stats_text_secondary" />
         </LinearLayout>
 
-        <!-- Sync Status Section -->
+        <!-- Connection Section -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="8dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="CONNECTION"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="@color/stats_section_header"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingBottom="12dp" />
+
+                <!-- Server Name -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Server"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/serverNameValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="--"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Server Address -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Address"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/serverAddressValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="--"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Connection State -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Status"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/connectionStateValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Disconnected"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_bad"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Sync Error Section -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -94,7 +196,7 @@
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
-                <!-- Sync Error (DAC-based) -->
+                <!-- Sync Error -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -114,6 +216,385 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="0 ms"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_good"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Sync Error Drift -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Error Drift"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/syncErrorDriftValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Grace Period -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Grace Period"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/gracePeriodValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Inactive"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_good"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Clock Sync Section -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="8dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/stats_section_clock_sync"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="@color/stats_section_header"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingBottom="12dp" />
+
+                <!-- Clock Offset -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/stats_clock_offset"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/clockOffsetValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0 ms"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Clock Drift -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Clock Drift"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/clockDriftValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0 ppm"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Clock Error -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/stats_clock_error"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/clockErrorValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0 ms"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Converged -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Converged"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/clockConvergedValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="No"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_warning"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Measurements -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/stats_measurement_count"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/measurementCountValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Last Sync -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Last Sync"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/lastTimeSyncValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="--"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- DAC/Audio Section -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="8dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="DAC / AUDIO"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="@color/stats_section_header"
+                    android:fontFamily="sans-serif-medium"
+                    android:paddingBottom="12dp" />
+
+                <!-- DAC Calibrated -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="DAC Calibrated"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/dacCalibratedValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="No"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_warning"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- DAC Calibrations -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Calibrations"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/dacCalibrationCountValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Frames Written -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Frames Written"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/framesWrittenValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Server Position -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Stream Position"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/serverPositionValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0s"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Buffer Underruns -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Underruns"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/bufferUnderrunsValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:textColor="@color/stats_value_good"
                         android:fontFamily="monospace" />
@@ -421,35 +902,8 @@
                         android:textColor="@color/stats_value_neutral"
                         android:fontFamily="monospace" />
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
-        <!-- Clock Sync Section -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
-            app:cardElevation="2dp"
-            app:cardCornerRadius="8dp"
-            app:strokeWidth="0dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/stats_section_clock_sync"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
-                    android:fontFamily="sans-serif-medium"
-                    android:paddingBottom="12dp" />
-
-                <!-- Clock Ready -->
+                <!-- Reanchors -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -459,118 +913,18 @@
                     <TextView
                         android:layout_width="140dp"
                         android:layout_height="wrap_content"
-                        android:text="@string/stats_clock_ready"
+                        android:text="Reanchors"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:textColor="@color/stats_text_secondary" />
 
                     <TextView
-                        android:id="@+id/clockReadyValue"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="No"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_bad"
-                        android:fontFamily="monospace" />
-                </LinearLayout>
-
-                <!-- Clock Offset -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingVertical="4dp">
-
-                    <TextView
-                        android:layout_width="140dp"
-                        android:layout_height="wrap_content"
-                        android:text="@string/stats_clock_offset"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/clockOffsetValue"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="0 µs"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
-                        android:fontFamily="monospace" />
-                </LinearLayout>
-
-                <!-- Clock Error -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingVertical="4dp">
-
-                    <TextView
-                        android:layout_width="140dp"
-                        android:layout_height="wrap_content"
-                        android:text="@string/stats_clock_error"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/clockErrorValue"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="0 µs"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
-                        android:fontFamily="monospace" />
-                </LinearLayout>
-
-                <!-- Measurement Count -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingVertical="4dp">
-
-                    <TextView
-                        android:layout_width="140dp"
-                        android:layout_height="wrap_content"
-                        android:text="@string/stats_measurement_count"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/measurementCountValue"
+                        android:id="@+id/reanchorsValue"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
-                        android:fontFamily="monospace" />
-                </LinearLayout>
-
-                <!-- DAC Calibration Count -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:paddingVertical="4dp">
-
-                    <TextView
-                        android:layout_width="140dp"
-                        android:layout_height="wrap_content"
-                        android:text="@string/stats_dac_calibration_count"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
-
-                    <TextView
-                        android:id="@+id/dacCalibrationCountValue"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="0"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="@color/stats_value_good"
                         android:fontFamily="monospace" />
                 </LinearLayout>
             </LinearLayout>

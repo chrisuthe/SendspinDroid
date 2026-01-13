@@ -55,6 +55,16 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         private const val CLOCK_ERROR_GOOD_US = 1_000L     // <1ms = green
         private const val CLOCK_ERROR_WARNING_US = 5_000L  // 1-5ms = yellow
         // >5ms = red
+
+        // Clock drift thresholds in ppm
+        private const val CLOCK_DRIFT_GOOD_PPM = 10.0      // <10 ppm = green
+        private const val CLOCK_DRIFT_WARNING_PPM = 50.0   // 10-50 ppm = yellow
+        // >50 ppm = red
+
+        // Last sync age thresholds in ms
+        private const val LAST_SYNC_GOOD_MS = 2_000L       // <2s = green
+        private const val LAST_SYNC_WARNING_MS = 10_000L   // 2-10s = yellow
+        // >10s = red
     }
 
     private var _binding: FragmentStatsBinding? = null
@@ -165,16 +175,99 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
      * Updates the UI with stats from the bundle.
      */
     private fun updateStatsUI(bundle: Bundle) {
-        // === SYNC STATUS ===
+        // === CONNECTION ===
+        val serverName = bundle.getString("server_name", null)
+        binding.serverNameValue.text = serverName ?: "--"
+        binding.serverNameValue.setTextColor(
+            if (serverName != null) getColorNeutral() else getColorWarning()
+        )
+
+        val serverAddress = bundle.getString("server_address", null)
+        binding.serverAddressValue.text = serverAddress ?: "--"
+        binding.serverAddressValue.setTextColor(getColorNeutral())
+
+        val connectionState = bundle.getString("connection_state", "Unknown")
+        binding.connectionStateValue.text = connectionState
+        binding.connectionStateValue.setTextColor(getColorForConnectionState(connectionState))
+
+        // === SYNC ERROR ===
         val playbackState = bundle.getString("playback_state", "UNKNOWN")
         binding.playbackStateValue.text = playbackState
         binding.playbackStateValue.setTextColor(getColorForPlaybackState(playbackState))
 
-        // Use simplified sync error (elapsed - samples_read_time)
         val syncErrorUs = bundle.getLong("sync_error_us", 0L)
         val syncErrorMs = syncErrorUs / 1000.0
-        binding.syncErrorValue.text = String.format("%.2f ms", syncErrorMs)
+        binding.syncErrorValue.text = String.format("%+.2f ms", syncErrorMs)
         binding.syncErrorValue.setTextColor(getColorForSyncError(syncErrorUs))
+
+        val syncErrorDrift = bundle.getDouble("sync_error_drift", 0.0)
+        binding.syncErrorDriftValue.text = String.format("%+.4f", syncErrorDrift)
+        binding.syncErrorDriftValue.setTextColor(getColorForDrift(syncErrorDrift))
+
+        val gracePeriodRemainingUs = bundle.getLong("grace_period_remaining_us", -1L)
+        if (gracePeriodRemainingUs >= 0) {
+            val gracePeriodMs = gracePeriodRemainingUs / 1000.0
+            binding.gracePeriodValue.text = String.format("%.1fs", gracePeriodMs / 1000.0)
+            binding.gracePeriodValue.setTextColor(getColorWarning())
+        } else {
+            binding.gracePeriodValue.text = "Inactive"
+            binding.gracePeriodValue.setTextColor(getColorGood())
+        }
+
+        // === CLOCK SYNC ===
+        val clockOffsetUs = bundle.getLong("clock_offset_us", 0L)
+        val clockOffsetMs = clockOffsetUs / 1000.0
+        binding.clockOffsetValue.text = String.format("%+.2f ms", clockOffsetMs)
+
+        val clockDriftPpm = bundle.getDouble("clock_drift_ppm", 0.0)
+        binding.clockDriftValue.text = String.format("%+.3f ppm", clockDriftPpm)
+        binding.clockDriftValue.setTextColor(getColorForClockDrift(clockDriftPpm))
+
+        val clockErrorUs = bundle.getLong("clock_error_us", 0L)
+        val clockErrorMs = clockErrorUs / 1000.0
+        binding.clockErrorValue.text = String.format("±%.2f ms", clockErrorMs)
+        binding.clockErrorValue.setTextColor(getColorForClockError(clockErrorUs))
+
+        val clockConverged = bundle.getBoolean("clock_converged", false)
+        binding.clockConvergedValue.text = if (clockConverged) "Yes" else "No"
+        binding.clockConvergedValue.setTextColor(
+            if (clockConverged) getColorGood() else getColorWarning()
+        )
+
+        val measurementCount = bundle.getInt("measurement_count", 0)
+        binding.measurementCountValue.text = measurementCount.toString()
+
+        val lastTimeSyncAgeMs = bundle.getLong("last_time_sync_age_ms", -1L)
+        if (lastTimeSyncAgeMs >= 0) {
+            binding.lastTimeSyncValue.text = String.format("%.1fs ago", lastTimeSyncAgeMs / 1000.0)
+            binding.lastTimeSyncValue.setTextColor(getColorForLastSync(lastTimeSyncAgeMs))
+        } else {
+            binding.lastTimeSyncValue.text = "--"
+            binding.lastTimeSyncValue.setTextColor(getColorWarning())
+        }
+
+        // === DAC / AUDIO ===
+        val startTimeCalibrated = bundle.getBoolean("start_time_calibrated", false)
+        binding.dacCalibratedValue.text = if (startTimeCalibrated) "Yes" else "No"
+        binding.dacCalibratedValue.setTextColor(
+            if (startTimeCalibrated) getColorGood() else getColorWarning()
+        )
+
+        val dacCalibrationCount = bundle.getInt("dac_calibration_count", 0)
+        binding.dacCalibrationCountValue.text = dacCalibrationCount.toString()
+
+        val totalFramesWritten = bundle.getLong("total_frames_written", 0L)
+        binding.framesWrittenValue.text = formatNumber(totalFramesWritten)
+
+        val serverTimelineCursorUs = bundle.getLong("server_timeline_cursor_us", 0L)
+        val serverPositionSec = serverTimelineCursorUs / 1_000_000.0
+        binding.serverPositionValue.text = String.format("%.1fs", serverPositionSec)
+
+        val bufferUnderrunCount = bundle.getLong("buffer_underrun_count", 0L)
+        binding.bufferUnderrunsValue.text = bufferUnderrunCount.toString()
+        binding.bufferUnderrunsValue.setTextColor(
+            if (bufferUnderrunCount > 0) getColorBad() else getColorGood()
+        )
 
         // === BUFFER ===
         val queuedSamples = bundle.getLong("queued_samples", 0L)
@@ -232,37 +325,32 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         val syncCorrections = bundle.getLong("sync_corrections", 0L)
         binding.totalCorrectionsValue.text = syncCorrections.toString()
 
-        // === CLOCK SYNC ===
-        val clockReady = bundle.getBoolean("clock_ready", false)
-        binding.clockReadyValue.text = if (clockReady) "Yes" else "No"
-        binding.clockReadyValue.setTextColor(
-            if (clockReady) getColorGood() else getColorBad()
+        val reanchorCount = bundle.getLong("reanchor_count", 0L)
+        binding.reanchorsValue.text = reanchorCount.toString()
+        binding.reanchorsValue.setTextColor(
+            if (reanchorCount > 0) getColorWarning() else getColorGood()
         )
+    }
 
-        val clockOffsetUs = bundle.getLong("clock_offset_us", 0L)
-        val clockOffsetMs = clockOffsetUs / 1000.0
-        binding.clockOffsetValue.text = String.format("%.0f µs (%.2f ms)",
-            clockOffsetUs.toDouble(), clockOffsetMs)
-
-        val clockErrorUs = bundle.getLong("clock_error_us", 0L)
-        val clockErrorMs = clockErrorUs / 1000.0
-        binding.clockErrorValue.text = String.format("%.0f µs (%.2f ms)",
-            clockErrorUs.toDouble(), clockErrorMs)
-        binding.clockErrorValue.setTextColor(getColorForClockError(clockErrorUs))
-
-        val measurementCount = bundle.getInt("measurement_count", 0)
-        binding.measurementCountValue.text = measurementCount.toString()
-
-        val startTimeCalibrated = bundle.getBoolean("start_time_calibrated", false)
-        binding.dacCalibrationCountValue.text = if (startTimeCalibrated) "Yes" else "No"
-        binding.dacCalibrationCountValue.setTextColor(
-            if (startTimeCalibrated) getColorGood() else getColorWarning()
-        )
+    /**
+     * Formats a large number with commas for readability.
+     */
+    private fun formatNumber(value: Long): String {
+        return String.format("%,d", value)
     }
 
     // ========================================================================
     // Color Helpers (matching Windows WPF reference design)
     // ========================================================================
+
+    private fun getColorForConnectionState(state: String): Int {
+        return when {
+            state.contains("Connected", ignoreCase = true) -> getColorGood()
+            state.contains("Connecting", ignoreCase = true) -> getColorWarning()
+            state.contains("Reconnecting", ignoreCase = true) -> getColorWarning()
+            else -> getColorBad()
+        }
+    }
 
     private fun getColorForPlaybackState(state: String): Int {
         return when (state) {
@@ -283,11 +371,37 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
+    private fun getColorForDrift(drift: Double): Int {
+        val absDrift = abs(drift)
+        return when {
+            absDrift < 0.0001 -> getColorGood()    // Very small drift = good
+            absDrift < 0.001 -> getColorWarning()   // Small drift = warning
+            else -> getColorBad()                   // Large drift = bad
+        }
+    }
+
     private fun getColorForClockError(errorUs: Long): Int {
         val absError = abs(errorUs)
         return when {
             absError < CLOCK_ERROR_GOOD_US -> getColorGood()
             absError < CLOCK_ERROR_WARNING_US -> getColorWarning()
+            else -> getColorBad()
+        }
+    }
+
+    private fun getColorForClockDrift(driftPpm: Double): Int {
+        val absDrift = abs(driftPpm)
+        return when {
+            absDrift < CLOCK_DRIFT_GOOD_PPM -> getColorGood()
+            absDrift < CLOCK_DRIFT_WARNING_PPM -> getColorWarning()
+            else -> getColorBad()
+        }
+    }
+
+    private fun getColorForLastSync(ageMs: Long): Int {
+        return when {
+            ageMs < LAST_SYNC_GOOD_MS -> getColorGood()
+            ageMs < LAST_SYNC_WARNING_MS -> getColorWarning()
             else -> getColorBad()
         }
     }

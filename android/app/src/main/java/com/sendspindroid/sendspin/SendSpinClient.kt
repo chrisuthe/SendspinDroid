@@ -177,6 +177,26 @@ class SendSpinClient(
     fun getTimeFilter(): SendspinTimeFilter = timeFilter
 
     /**
+     * Get the connected server's name (from server/hello message).
+     */
+    fun getServerName(): String? = serverName
+
+    /**
+     * Get the connected server's address (host:port).
+     */
+    fun getServerAddress(): String? = serverAddress
+
+    /**
+     * Get milliseconds since the last time sync measurement.
+     */
+    fun getLastTimeSyncAgeMs(): Long {
+        val lastUpdate = timeFilter.lastUpdateTimeUs
+        if (lastUpdate <= 0) return -1
+        val nowUs = System.nanoTime() / 1000
+        return (nowUs - lastUpdate) / 1000
+    }
+
+    /**
      * Called when the network changes (e.g., WiFi to mobile, different AP).
      *
      * Resets the time filter to force re-synchronization, since network latency

@@ -113,6 +113,19 @@ class SendspinTimeFilter {
         get() = measurementCount
 
     /**
+     * Current drift in parts per million (ppm).
+     * Positive = server clock running faster than client.
+     */
+    val driftPpm: Double
+        get() = drift * 1_000_000.0
+
+    /**
+     * Time of last measurement update in microseconds (client time).
+     */
+    val lastUpdateTimeUs: Long
+        get() = lastUpdateTime
+
+    /**
      * Static delay in milliseconds for speaker synchronization.
      * Positive = delay playback (plays later), Negative = advance (plays earlier).
      * Used by GroupSync calibration tool.
