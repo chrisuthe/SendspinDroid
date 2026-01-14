@@ -278,26 +278,20 @@ class SendspinTimeFilter {
      * Convert server time to client time.
      * Includes static delay offset for speaker synchronization.
      *
-     * Uses relative time calculation to prevent drift accumulation over long periods.
-     * The baseline time (set on first measurement) is used as reference point.
+     * NOTE: Drift is intentionally NOT used in time conversion (matching Python reference).
+     * The sync correction feedback loop handles clock rate differences naturally through
+     * sample insert/drop. Using drift here caused sync error oscillation because noisy
+     * drift estimates fed back into the sync error calculation, creating instability.
+     *
+     * Drift is still tracked and displayed in Stats for Nerds for debugging purposes.
      *
      * @param serverTimeMicros Server timestamp in microseconds
      * @return Equivalent client timestamp in microseconds
      */
     fun serverToClient(serverTimeMicros: Long): Long {
-        // Use relative time from baseline to prevent drift accumulation
-        // The drift term now operates on bounded time deltas instead of absolute time
-        //
-        // Original formula: T_client = (T_server - offset + drift * T_last) / (1 + drift)
-        // Rewritten as relative: T_client = T_server - offset + drift * (T_last - baseline)
-        //
-        // This bounds the drift correction term to the time since baseline, not time since epoch
-        val timeSinceBaseline = (lastUpdateTime - baselineClientTime).toDouble()
-        val driftCorrection = drift * timeSinceBaseline
-
-        // Simplified calculation: T_client ≈ T_server - offset + drift_correction
-        // The (1 + drift) divisor is essentially 1.0 for realistic drift values (±500 ppm)
-        val baseResult = serverTimeMicros - offset.toLong() + driftCorrection.toLong()
+        // Simple offset-only conversion (matches Python sendspin-cli)
+        // Drift is NOT applied here - the sync correction loop handles rate differences
+        val baseResult = serverTimeMicros - offset.toLong()
 
         // Apply static delay: positive delay = play later = higher client time
         return baseResult + staticDelayMicros
@@ -306,15 +300,13 @@ class SendspinTimeFilter {
     /**
      * Convert client time to server time.
      *
-     * Uses relative time calculation consistent with serverToClient.
+     * NOTE: Drift is intentionally NOT used (see serverToClient comments).
      *
      * @param clientTimeMicros Client timestamp in microseconds
      * @return Equivalent server timestamp in microseconds
      */
     fun clientToServer(clientTimeMicros: Long): Long {
-        // Inverse of serverToClient, using relative time from baseline
-        val timeSinceBaseline = (lastUpdateTime - baselineClientTime).toDouble()
-        val driftCorrection = drift * timeSinceBaseline
-        return clientTimeMicros + offset.toLong() - driftCorrection.toLong()
+        // Simple offset-only conversion (matches Python sendspin-cli)
+        return clientTimeMicros + offset.toLong() - staticDelayMicros
     }
 }
