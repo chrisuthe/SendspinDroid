@@ -1492,20 +1492,22 @@ class SyncAudioPlayer(
      * @return true if successfully entered draining, false if not applicable
      */
     fun enterDraining(): Boolean {
-        // Only enter draining if we're currently playing or have buffer
-        if (playbackState != PlaybackState.PLAYING && playbackState != PlaybackState.WAITING_FOR_START) {
-            Log.w(TAG, "Cannot enter DRAINING from state $playbackState")
-            return false
+        stateLock.withLock {
+            // Only enter draining if we're currently playing or have buffer
+            if (playbackState != PlaybackState.PLAYING && playbackState != PlaybackState.WAITING_FOR_START) {
+                Log.w(TAG, "Cannot enter DRAINING from state $playbackState")
+                return false
+            }
+
+            stateBeforeDraining = playbackState
+            drainingStartTimeUs = System.nanoTime() / 1000
+            lastBufferWarningTimeUs = 0L
+            setPlaybackState(PlaybackState.DRAINING)
+
+            val bufferedMs = getBufferedDurationMs()
+            Log.i(TAG, "Entering DRAINING state - buffer: ${bufferedMs}ms")
+            return true
         }
-
-        stateBeforeDraining = playbackState
-        drainingStartTimeUs = System.nanoTime() / 1000
-        lastBufferWarningTimeUs = 0L
-        setPlaybackState(PlaybackState.DRAINING)
-
-        val bufferedMs = getBufferedDurationMs()
-        Log.i(TAG, "Entering DRAINING state - buffer: ${bufferedMs}ms")
-        return true
     }
 
     /**
@@ -1519,18 +1521,20 @@ class SyncAudioPlayer(
      * @return true if successfully exited draining, false if not in draining state
      */
     fun exitDraining(): Boolean {
-        if (playbackState != PlaybackState.DRAINING) {
-            Log.w(TAG, "Cannot exit DRAINING - current state is $playbackState")
-            return false
+        stateLock.withLock {
+            if (playbackState != PlaybackState.DRAINING) {
+                Log.w(TAG, "Cannot exit DRAINING - current state is $playbackState")
+                return false
+            }
+
+            val drainingDurationMs = (System.nanoTime() / 1000 - drainingStartTimeUs) / 1000
+            Log.i(TAG, "Exiting DRAINING state after ${drainingDurationMs}ms - resuming normal playback")
+
+            // Transition back to PLAYING (the normal state for active playback)
+            setPlaybackState(PlaybackState.PLAYING)
+            stateBeforeDraining = null
+            return true
         }
-
-        val drainingDurationMs = (System.nanoTime() / 1000 - drainingStartTimeUs) / 1000
-        Log.i(TAG, "Exiting DRAINING state after ${drainingDurationMs}ms - resuming normal playback")
-
-        // Transition back to PLAYING (the normal state for active playback)
-        setPlaybackState(PlaybackState.PLAYING)
-        stateBeforeDraining = null
-        return true
     }
 
     /**
