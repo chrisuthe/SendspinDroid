@@ -119,7 +119,9 @@ class SendSpinPlayer : Player {
             SyncPlaybackState.WAITING_FOR_START -> {
                 updatePlaybackStateInternal(Player.STATE_BUFFERING, playWhenReady)
             }
-            SyncPlaybackState.PLAYING -> {
+            SyncPlaybackState.PLAYING,
+            SyncPlaybackState.DRAINING -> {
+                // DRAINING is still actively playing from buffer, so STATE_READY
                 updatePlaybackStateInternal(Player.STATE_READY, true)
             }
             SyncPlaybackState.REANCHORING -> {
@@ -146,7 +148,9 @@ class SendSpinPlayer : Player {
                 SyncPlaybackState.WAITING_FOR_START -> {
                     updatePlaybackStateInternal(Player.STATE_BUFFERING, playWhenReady)
                 }
-                SyncPlaybackState.PLAYING -> {
+                SyncPlaybackState.PLAYING,
+                SyncPlaybackState.DRAINING -> {
+                    // DRAINING is still actively playing from buffer, so STATE_READY
                     updatePlaybackStateInternal(Player.STATE_READY, true)
                 }
                 SyncPlaybackState.REANCHORING -> {

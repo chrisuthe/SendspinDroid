@@ -77,6 +77,20 @@ class SendspinTimeFilter {
     // Positive = delay playback (plays later), Negative = advance (plays earlier)
     private var staticDelayMicros: Long = 0
 
+    // Frozen state for reconnection - preserves sync across network drops
+    private var frozenState: FrozenState? = null
+
+    private data class FrozenState(
+        val offset: Double,
+        val drift: Double,
+        val p00: Double,
+        val p01: Double,
+        val p10: Double,
+        val p11: Double,
+        val measurementCount: Int,
+        val baselineClientTime: Long
+    )
+
     /**
      * Whether enough measurements have been collected for reliable time conversion.
      * This is the minimum threshold - playback can start, but may need corrections.
@@ -149,6 +163,68 @@ class SendspinTimeFilter {
         lastUpdateTime = 0
         measurementCount = 0
         baselineClientTime = 0
+    }
+
+    /**
+     * Whether the filter has frozen state that can be restored.
+     */
+    val isFrozen: Boolean
+        get() = frozenState != null
+
+    /**
+     * Freeze the current filter state for reconnection.
+     * Preserves the converged time sync across network drops so playback
+     * can continue from buffer without losing synchronization.
+     *
+     * Call this when connection is lost but reconnection will be attempted.
+     */
+    fun freeze() {
+        if (!isReady) return  // Nothing worth preserving
+
+        frozenState = FrozenState(
+            offset = offset,
+            drift = drift,
+            p00 = p00,
+            p01 = p01,
+            p10 = p10,
+            p11 = p11,
+            measurementCount = measurementCount,
+            baselineClientTime = baselineClientTime
+        )
+    }
+
+    /**
+     * Restore frozen state after reconnection.
+     * Increases covariance to allow faster adaptation to potentially
+     * changed network conditions while preserving the general sync estimate.
+     *
+     * Call this after successful reconnection, before resuming time sync.
+     */
+    fun thaw() {
+        val frozen = frozenState ?: return
+
+        offset = frozen.offset
+        drift = frozen.drift
+        // Increase covariance by 10x to allow faster adaptation
+        // while preserving the general sync estimate
+        p00 = frozen.p00 * 10.0
+        p01 = frozen.p01 * 3.0
+        p10 = frozen.p10 * 3.0
+        p11 = frozen.p11 * 10.0
+        measurementCount = frozen.measurementCount
+        baselineClientTime = frozen.baselineClientTime
+        // Don't reset lastUpdateTime - will be updated on next measurement
+
+        frozenState = null
+    }
+
+    /**
+     * Discard frozen state and perform full reset.
+     * Call this when reconnection fails and we need to start fresh.
+     */
+    fun resetAndDiscard() {
+        frozenState = null
+        reset()
     }
 
     /**

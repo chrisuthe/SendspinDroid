@@ -80,6 +80,9 @@ class MainActivity : AppCompatActivity() {
     private var showManualButtonRunnable: Runnable? = null
     private var countdownRunnable: Runnable? = null
 
+    // Reconnecting indicator - persists while reconnection is in progress
+    private var reconnectingSnackbar: Snackbar? = null
+
     // Network state monitoring
     private val connectivityManager by lazy {
         getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -242,6 +245,48 @@ class MainActivity : AppCompatActivity() {
             message,
             Snackbar.LENGTH_SHORT
         ).show()
+    }
+
+    /**
+     * Shows an indicator that we're reconnecting to the server.
+     * Playback continues from buffer during this time.
+     *
+     * @param attempt Current reconnection attempt number
+     * @param bufferMs Remaining audio buffer in milliseconds
+     */
+    private fun showReconnectingIndicator(attempt: Int, bufferMs: Long) {
+        // Dismiss any existing reconnecting snackbar
+        reconnectingSnackbar?.dismiss()
+
+        val bufferSec = bufferMs / 1000
+        val message = if (bufferSec > 0) {
+            "Reconnecting (attempt $attempt)... ${bufferSec}s buffer"
+        } else {
+            "Reconnecting (attempt $attempt)..."
+        }
+
+        reconnectingSnackbar = Snackbar.make(
+            binding.coordinatorLayout,
+            message,
+            Snackbar.LENGTH_INDEFINITE
+        ).apply {
+            // Use warning/info color instead of error
+            view.setBackgroundColor(
+                ContextCompat.getColor(this@MainActivity, com.google.android.material.R.color.design_default_color_primary)
+            )
+            show()
+        }
+
+        // Announce for accessibility
+        announceForAccessibility("Reconnecting to server. Playback continuing from buffer.")
+    }
+
+    /**
+     * Hides the reconnecting indicator (on successful reconnection or error).
+     */
+    private fun hideReconnectingIndicator() {
+        reconnectingSnackbar?.dismiss()
+        reconnectingSnackbar = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -863,17 +908,47 @@ class MainActivity : AppCompatActivity() {
                 val serverName = extras.getString(PlaybackService.EXTRA_SERVER_NAME, "Unknown Server")
                 Log.d(TAG, "Connected to: $serverName")
 
-                // Get address from current connecting state, or use empty string
-                val address = (connectionState as? AppConnectionState.Connecting)?.serverAddress ?: ""
+                // Get address from current connecting state or reconnecting state
+                val address = when (val currentState = connectionState) {
+                    is AppConnectionState.Connecting -> currentState.serverAddress
+                    is AppConnectionState.Reconnecting -> currentState.serverAddress
+                    else -> ""
+                }
 
                 connectionState = AppConnectionState.Connected(serverName, address)
                 showNowPlayingView(serverName)
                 enablePlaybackControls(true)
                 hideConnectionLoading()
+                hideReconnectingIndicator()  // Hide any reconnecting indicator
                 invalidateOptionsMenu() // Show "Switch Server" menu option
 
                 // Announce connection for accessibility
                 announceForAccessibility(getString(R.string.accessibility_connected))
+            }
+            PlaybackService.STATE_RECONNECTING -> {
+                val serverName = extras.getString(PlaybackService.EXTRA_SERVER_NAME, "Unknown Server")
+                val attempt = extras.getInt("reconnect_attempt", 1)
+                val bufferMs = extras.getLong("buffer_remaining_ms", 0)
+                Log.d(TAG, "Reconnecting to: $serverName (attempt $attempt, buffer ${bufferMs}ms)")
+
+                // Preserve server address from previous state
+                val address = when (val currentState = connectionState) {
+                    is AppConnectionState.Connected -> currentState.serverAddress
+                    is AppConnectionState.Reconnecting -> currentState.serverAddress
+                    else -> ""
+                }
+
+                connectionState = AppConnectionState.Reconnecting(
+                    serverName = serverName,
+                    serverAddress = address,
+                    attempt = attempt,
+                    nextRetrySeconds = (1 shl (attempt - 1)).coerceAtMost(30)
+                )
+
+                // Show reconnecting indicator without disrupting playback view
+                showReconnectingIndicator(attempt, bufferMs)
+
+                // Keep playback controls enabled - playback continues from buffer
             }
             PlaybackService.STATE_DISCONNECTED -> {
                 Log.d(TAG, "Disconnected from server")
