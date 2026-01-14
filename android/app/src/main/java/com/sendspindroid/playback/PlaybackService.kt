@@ -233,6 +233,7 @@ class PlaybackService : MediaLibraryService() {
         const val STATE_DISCONNECTED = "disconnected"
         const val STATE_CONNECTING = "connecting"
         const val STATE_CONNECTED = "connected"
+        const val STATE_RECONNECTING = "reconnecting"
         const val STATE_ERROR = "error"
 
         // Android Auto browse tree media IDs
@@ -250,6 +251,8 @@ class PlaybackService : MediaLibraryService() {
         object Disconnected : ConnectionState()
         object Connecting : ConnectionState()
         data class Connected(val serverName: String) : ConnectionState()
+        /** Connection lost, reconnecting - playback continues from buffer */
+        data class Reconnecting(val serverName: String, val attempt: Int) : ConnectionState()
         data class Error(val message: String) : ConnectionState()
     }
 
@@ -360,6 +363,34 @@ class PlaybackService : MediaLibraryService() {
                 Log.d(TAG, "SyncAudioPlayer state changed: $state")
                 // Update SendSpinPlayer so it notifies MediaSession listeners
                 sendSpinPlayer?.updateStateFromPlayer()
+            }
+        }
+
+        override fun onBufferLow(remainingMs: Long) {
+            Log.w(TAG, "Buffer low during reconnection: ${remainingMs}ms remaining")
+            // Update session extras so UI can show buffer status
+            mainHandler.post {
+                broadcastSessionExtras()
+            }
+        }
+
+        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        override fun onBufferExhausted() {
+            Log.e(TAG, "Buffer exhausted during reconnection - stopping playback")
+            mainHandler.post {
+                // Stop audio playback
+                syncAudioPlayer?.stop()
+                releaseWakeLock()
+
+                // Update connection state to error
+                _connectionState.value = ConnectionState.Error("Connection lost. Buffer exhausted.")
+                broadcastConnectionState(STATE_ERROR, errorMessage = "Connection lost")
+
+                // Clear playback state
+                _playbackState.value = _playbackState.value.copy(
+                    playbackState = PlaybackStateType.STOPPED
+                )
+                sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
             }
         }
     }
@@ -672,6 +703,30 @@ class PlaybackService : MediaLibraryService() {
                 syncAudioPlayer?.clearBuffer()
             }
         }
+
+        override fun onReconnecting(attempt: Int, serverName: String) {
+            android.util.Log.i(TAG, "Reconnecting to $serverName (attempt $attempt) - entering DRAINING mode")
+            mainHandler.post {
+                // Enter draining mode - continue playing from buffer
+                syncAudioPlayer?.enterDraining()
+
+                // Update connection state for UI (shows "Reconnecting..." indicator)
+                _connectionState.value = ConnectionState.Reconnecting(serverName, attempt)
+
+                // Broadcast to UI
+                broadcastConnectionState(STATE_RECONNECTING, serverName)
+            }
+        }
+
+        override fun onReconnected() {
+            android.util.Log.i(TAG, "Reconnected successfully - exiting DRAINING mode")
+            mainHandler.post {
+                // Exit draining mode - new stream will arrive shortly
+                syncAudioPlayer?.exitDraining()
+
+                // Connection state will be updated by onConnected() callback which follows
+            }
+        }
     }
 
     /**
@@ -791,6 +846,15 @@ class PlaybackService : MediaLibraryService() {
                 is ConnectionState.Connected -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_CONNECTED)
                     putString(EXTRA_SERVER_NAME, connState.serverName)
+                }
+                is ConnectionState.Reconnecting -> {
+                    putString(EXTRA_CONNECTION_STATE, STATE_RECONNECTING)
+                    putString(EXTRA_SERVER_NAME, connState.serverName)
+                    putInt("reconnect_attempt", connState.attempt)
+                    // Include buffer info if available
+                    syncAudioPlayer?.getBufferedDurationMs()?.let {
+                        putLong("buffer_remaining_ms", it)
+                    }
                 }
                 is ConnectionState.Error -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_ERROR)

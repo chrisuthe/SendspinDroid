@@ -136,6 +136,21 @@ class SendSpinClient(
 
         // Network change callback - called when network changes and time filter is reset
         fun onNetworkChanged()
+
+        /**
+         * Called when connection is lost but reconnection is being attempted.
+         * Playback should continue from buffer while showing "Reconnecting..." indicator.
+         *
+         * @param attempt Current reconnection attempt number
+         * @param serverName Name of the server we're reconnecting to
+         */
+        fun onReconnecting(attempt: Int, serverName: String)
+
+        /**
+         * Called when reconnection succeeds.
+         * The time filter has been restored and new audio should arrive shortly.
+         */
+        fun onReconnected()
     }
 
     // Connection state
@@ -401,10 +416,14 @@ class SendSpinClient(
     /**
      * Attempt to reconnect to the last server.
      * Uses exponential backoff with a maximum number of attempts.
+     *
+     * IMPORTANT: Time filter is preserved (frozen) during reconnection so that
+     * playback can continue from buffer with valid timestamps.
      */
     private fun attemptReconnect() {
         val address = serverAddress
         val path = serverPath ?: ENDPOINT_PATH
+        val savedServerName = serverName ?: address ?: "Unknown"
 
         if (address == null) {
             Log.w(TAG, "Cannot reconnect: no server address saved")
@@ -417,11 +436,21 @@ class SendSpinClient(
         }
 
         val attempts = reconnectAttempts.incrementAndGet()
+
+        // On first reconnection attempt, freeze the time filter to preserve sync
+        if (attempts == 1) {
+            timeFilter.freeze()
+            Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
+        }
+
         if (attempts > MAX_RECONNECT_ATTEMPTS) {
             Log.w(TAG, "Max reconnection attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
             reconnecting = false
+            // Discard frozen state since we're giving up
+            timeFilter.resetAndDiscard()
             _connectionState.value = ConnectionState.Error("Connection lost. Please reconnect manually.")
             callback.onError("Connection lost after $MAX_RECONNECT_ATTEMPTS reconnection attempts")
+            callback.onDisconnected()  // Signal final disconnect
             return
         }
 
@@ -433,6 +462,9 @@ class SendSpinClient(
         reconnecting = true
         _connectionState.value = ConnectionState.Connecting
 
+        // Notify callback that we're reconnecting (playback should continue from buffer)
+        callback.onReconnecting(attempts, savedServerName)
+
         scope.launch {
             delay(delayMs)
 
@@ -443,10 +475,10 @@ class SendSpinClient(
 
             Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
 
-            // Reset state for new connection attempt
+            // Reset handshake state but PRESERVE time filter (it's frozen)
             handshakeComplete = false
             timeSyncRunning = false
-            timeFilter.reset()
+            // NOTE: timeFilter is NOT reset - we'll thaw it on successful reconnection
 
             val wsUrl = "ws://$address$path"
             val request = Request.Builder()
@@ -774,7 +806,9 @@ class SendSpinClient(
 
             // If not user-initiated and was previously connected, try to reconnect
             if (!userInitiatedDisconnect.get() && handshakeComplete) {
-                Log.i(TAG, "Unexpected closure, attempting reconnection")
+                Log.i(TAG, "Unexpected closure, attempting reconnection (buffer playback continues)")
+                // NOTE: We don't call callback.onDisconnected() here - playback continues from buffer
+                // The callback.onReconnecting() will be called by attemptReconnect()
                 attemptReconnect()
             } else {
                 _connectionState.value = ConnectionState.Disconnected
@@ -917,10 +951,26 @@ class SendSpinClient(
         Log.i(TAG, "server/hello received: name=$serverName, id=$serverId, reason=$connectionReason")
         Log.d(TAG, "Active roles: $activeRoles")
 
+        // Check if this is a reconnection (time filter was frozen)
+        val wasReconnecting = timeFilter.isFrozen || reconnecting
+
+        if (timeFilter.isFrozen) {
+            // Restore frozen time sync state (with increased covariance for adaptation)
+            timeFilter.thaw()
+            Log.i(TAG, "Time filter thawed after reconnection - sync preserved")
+        }
+
         handshakeComplete = true
         reconnecting = false
         reconnectAttempts.set(0) // Reset reconnection counter on successful connection
         _connectionState.value = ConnectionState.Connected(serverName!!)
+
+        if (wasReconnecting) {
+            // Notify that reconnection succeeded - playback can transition from DRAINING
+            callback.onReconnected()
+            Log.i(TAG, "Reconnection successful - onReconnected callback sent")
+        }
+
         callback.onConnected(serverName!!)
 
         // Start time synchronization and send initial state

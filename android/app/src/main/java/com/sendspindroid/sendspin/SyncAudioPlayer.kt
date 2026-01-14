@@ -30,12 +30,15 @@ import kotlin.math.abs
  * - WAITING_FOR_START: Buffer filling, scheduled start computed
  * - PLAYING: Active playback with sync corrections
  * - REANCHORING: Large error exceeded threshold, resetting
+ * - DRAINING: Connection lost, playing from buffer while reconnecting
  */
 enum class PlaybackState {
     INITIALIZING,
     WAITING_FOR_START,
     PLAYING,
-    REANCHORING
+    REANCHORING,
+    /** Playing from buffer only - no new chunks arriving. Network disconnected, draining existing buffer. */
+    DRAINING
 }
 
 /**
@@ -46,6 +49,20 @@ interface SyncAudioPlayerCallback {
      * Called when the playback state changes.
      */
     fun onPlaybackStateChanged(state: PlaybackState)
+
+    /**
+     * Called when buffer is running low during DRAINING state.
+     * This is a warning that playback may stop soon if reconnection doesn't succeed.
+     *
+     * @param remainingMs Remaining buffer duration in milliseconds
+     */
+    fun onBufferLow(remainingMs: Long) {}
+
+    /**
+     * Called when buffer has been exhausted during DRAINING state.
+     * Playback will stop - the connection was lost and buffer ran out.
+     */
+    fun onBufferExhausted() {}
 }
 
 /**
@@ -109,6 +126,11 @@ class SyncAudioPlayer(
         private const val MIN_BUFFER_BEFORE_START_MS = 200  // Wait for 200ms buffer before scheduling
         private const val REANCHOR_THRESHOLD_US = 500_000L  // 500ms error triggers reanchor
         private const val REANCHOR_COOLDOWN_US = 5_000_000L // 5 second cooldown between reanchors
+
+        // Buffer exhaustion thresholds for DRAINING state
+        private const val BUFFER_WARNING_MS = 1000L   // Warn when buffer drops below 1 second
+        private const val BUFFER_CRITICAL_MS = 200L   // Critical warning at 200ms
+        private const val BUFFER_WARNING_INTERVAL_US = 500_000L  // Rate limit warnings to 500ms
     }
 
     /**
@@ -142,6 +164,11 @@ class SyncAudioPlayer(
     private var scheduledStartLoopTimeUs: Long? = null   // When to start in loop time
     private var firstServerTimestampUs: Long? = null     // First chunk's server timestamp
     private var lastReanchorTimeUs: Long = 0             // Cooldown tracking for reanchor
+
+    // DRAINING state tracking - for seamless reconnection
+    private var drainingStartTimeUs: Long = 0            // When we entered DRAINING state
+    private var lastBufferWarningTimeUs: Long = 0        // Rate limiting for buffer warnings
+    private var stateBeforeDraining: PlaybackState? = null  // State to restore if exitDraining during non-PLAYING
 
     // Chunk queue
     private val chunkQueue = ConcurrentLinkedQueue<AudioChunk>()
@@ -673,8 +700,10 @@ class SyncAudioPlayer(
                 setPlaybackState(PlaybackState.WAITING_FOR_START)
                 Log.i(TAG, "Reanchoring: new first chunk at serverTime=${workingServerTimeMicros/1000}ms")
             }
-            PlaybackState.PLAYING -> {
+            PlaybackState.PLAYING,
+            PlaybackState.DRAINING -> {
                 // Normal operation - nothing special needed
+                // DRAINING receives chunks when reconnected, seamlessly spliced via gap/overlap handling
             }
         }
 
@@ -892,15 +921,47 @@ class SyncAudioPlayer(
                         continue
                     }
 
+                    PlaybackState.DRAINING -> {
+                        // Connection lost - playing from buffer only
+                        // Monitor buffer level and notify if running low
+                        val bufferedMs = getBufferedDurationMs()
+
+                        if (bufferedMs <= 0) {
+                            // Buffer exhausted - notify and stop
+                            Log.e(TAG, "Buffer exhausted during DRAINING - stopping playback")
+                            stateCallback?.onBufferExhausted()
+                            setPlaybackState(PlaybackState.INITIALIZING)
+                            delay(10)
+                            continue
+                        }
+
+                        // Rate-limited buffer warnings
+                        if (bufferedMs < BUFFER_WARNING_MS) {
+                            val nowUs = System.nanoTime() / 1000
+                            if (nowUs - lastBufferWarningTimeUs > BUFFER_WARNING_INTERVAL_US) {
+                                lastBufferWarningTimeUs = nowUs
+                                stateCallback?.onBufferLow(bufferedMs)
+                                Log.w(TAG, "Buffer low during DRAINING: ${bufferedMs}ms remaining")
+                            }
+                        }
+
+                        // Continue playing from buffer (fall through to chunk processing)
+                    }
+
                     PlaybackState.PLAYING -> {
                         // Normal playback - handled below
                     }
                 }
 
-                // PLAYING state: process chunks with sync correction
+                // PLAYING/DRAINING state: process chunks with sync correction
                 val chunk = chunkQueue.peek()
                 if (chunk == null) {
                     // No chunks available - buffer underrun
+                    if (playbackState == PlaybackState.DRAINING) {
+                        // In DRAINING, empty queue means we're exhausted (already handled above)
+                        delay(5)
+                        continue
+                    }
                     bufferUnderrunCount++
                     delay(5)
                     continue
@@ -1401,6 +1462,76 @@ class SyncAudioPlayer(
      * Get current playback state.
      */
     fun getPlaybackState(): PlaybackState = playbackState
+
+    /**
+     * Get current buffered duration in milliseconds.
+     * Useful for monitoring buffer status during DRAINING state.
+     */
+    fun getBufferedDurationMs(): Long {
+        return (totalQueuedSamples.get() * 1000) / sampleRate
+    }
+
+    /**
+     * Get the expected next timestamp in server time.
+     * This is where the next audio chunk should start to maintain continuity.
+     * Used for seamless stream handoff during reconnection.
+     *
+     * @return Expected next server timestamp in microseconds, or null if not set
+     */
+    fun getExpectedNextTimestampUs(): Long? = expectedNextTimestampUs
+
+    /**
+     * Enter draining mode - continue playing from buffer while disconnected.
+     * Called when connection is lost but reconnection is being attempted.
+     *
+     * In DRAINING state:
+     * - Playback continues from existing buffer
+     * - Buffer exhaustion is monitored and reported
+     * - No new chunks are expected until exitDraining() is called
+     *
+     * @return true if successfully entered draining, false if not applicable
+     */
+    fun enterDraining(): Boolean {
+        // Only enter draining if we're currently playing or have buffer
+        if (playbackState != PlaybackState.PLAYING && playbackState != PlaybackState.WAITING_FOR_START) {
+            Log.w(TAG, "Cannot enter DRAINING from state $playbackState")
+            return false
+        }
+
+        stateBeforeDraining = playbackState
+        drainingStartTimeUs = System.nanoTime() / 1000
+        lastBufferWarningTimeUs = 0L
+        setPlaybackState(PlaybackState.DRAINING)
+
+        val bufferedMs = getBufferedDurationMs()
+        Log.i(TAG, "Entering DRAINING state - buffer: ${bufferedMs}ms")
+        return true
+    }
+
+    /**
+     * Exit draining mode - new stream is available.
+     * Called after successful reconnection when new audio stream starts.
+     *
+     * The existing buffer will continue to be played, and new chunks will be
+     * appended. The gap/overlap handling in queueChunk() will handle any
+     * discontinuity at the splice point.
+     *
+     * @return true if successfully exited draining, false if not in draining state
+     */
+    fun exitDraining(): Boolean {
+        if (playbackState != PlaybackState.DRAINING) {
+            Log.w(TAG, "Cannot exit DRAINING - current state is $playbackState")
+            return false
+        }
+
+        val drainingDurationMs = (System.nanoTime() / 1000 - drainingStartTimeUs) / 1000
+        Log.i(TAG, "Exiting DRAINING state after ${drainingDurationMs}ms - resuming normal playback")
+
+        // Transition back to PLAYING (the normal state for active playback)
+        setPlaybackState(PlaybackState.PLAYING)
+        stateBeforeDraining = null
+        return true
+    }
 
     /**
      * Set the callback for playback state changes.
