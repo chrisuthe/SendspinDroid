@@ -3,6 +3,7 @@ package com.sendspindroid
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -388,6 +389,31 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         unregisterNetworkCallback()
+    }
+
+    /**
+     * Called when activity comes to foreground.
+     * Re-syncs UI with current playback state to handle cases where:
+     * - User returns from another app
+     * - Screen was turned off and on
+     * - Activity was in background while playback continued
+     */
+    override fun onResume() {
+        super.onResume()
+        // Re-sync UI state with MediaController
+        syncUIWithPlayerState()
+    }
+
+    /**
+     * Called when activity receives a new intent while already running.
+     * This happens when user taps the notification (FLAG_ACTIVITY_SINGLE_TOP).
+     * Without this, the activity doesn't know it was re-launched and UI can get stuck.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Re-sync UI state with MediaController
+        syncUIWithPlayerState()
     }
 
     // ============================================================================
@@ -968,6 +994,8 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Syncs UI with current player state when controller connects.
+     * Also restores the correct view (now playing vs searching) based on playback state.
+     * Called from onResume(), onNewIntent(), and when MediaController first connects.
      */
     private fun syncUIWithPlayerState() {
         mediaController?.let { controller ->
@@ -975,21 +1003,31 @@ class MainActivity : AppCompatActivity() {
             val state = controller.playbackState
 
             runOnUiThread {
-                when {
-                    isPlaying -> {
+                // Check if we're actively connected (playing or ready to play)
+                val isConnected = isPlaying || state == Player.STATE_READY || state == Player.STATE_BUFFERING
+
+                if (isConnected) {
+                    // Restore connection state if needed (e.g., after activity recreation)
+                    if (connectionState !is AppConnectionState.Connected) {
+                        // Get server name from toolbar subtitle or use default
+                        val serverName = supportActionBar?.subtitle?.toString() ?: "Connected"
+                        connectionState = AppConnectionState.Connected(serverName, "")
+                        showNowPlayingView(serverName)
+                        invalidateOptionsMenu()
+                    }
+
+                    // Update playback state
+                    if (isPlaying) {
                         updatePlaybackState("playing")
-                        enablePlaybackControls(true)
-                    }
-                    state == Player.STATE_READY -> {
+                    } else {
                         updatePlaybackState("paused")
-                        enablePlaybackControls(true)
                     }
-                    else -> {
-                        enablePlaybackControls(false)
-                    }
+                    enablePlaybackControls(true)
+                } else {
+                    enablePlaybackControls(false)
                 }
 
-                // Sync play/pause button text
+                // Sync play/pause button icon
                 updatePlayPauseButton(isPlaying)
 
                 // Sync metadata and artwork

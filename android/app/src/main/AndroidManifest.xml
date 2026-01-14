@@ -118,10 +118,14 @@
 
         <!-- MainActivity: Primary activity and app entry point
              - exported: Allow external apps to launch (required for MAIN/LAUNCHER intent-filter)
+             - configChanges: Handle these changes without recreating activity
+               Prevents playback UI disruption on rotation/resize
              - Security: Only export activities that should be accessible externally -->
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:exported="true"
+            android:launchMode="singleTop">
 
             <!-- intent-filter: Defines how this activity can be started
                  This combination makes MainActivity the app's launcher icon -->
