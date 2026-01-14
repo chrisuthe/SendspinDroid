@@ -532,7 +532,7 @@ class SendSpinClient(
             }
         }
 
-        Log.d(TAG, "Codec order: $codecOrder (preferred: $preferredCodec)")
+        Log.i(TAG, "Building supported_formats: preferred=$preferredCodec, order=$codecOrder, device_supported=${AudioDecoderFactory.getSupportedCodecs()}")
 
         // Build format entries for each codec (stereo and mono)
         for (codec in codecOrder) {
@@ -1141,7 +1141,8 @@ class SendSpinClient(
                 }
             }
 
-            Log.i(TAG, "Stream started: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
+            val preferredCodec = com.sendspindroid.UserSettings.getPreferredCodec()
+            Log.i(TAG, "Stream started: server chose codec=$codec (we preferred=$preferredCodec), rate=$sampleRate, ch=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
             callback.onStreamStart(codec, sampleRate, channels, bitDepth, codecHeader)
         }
     }

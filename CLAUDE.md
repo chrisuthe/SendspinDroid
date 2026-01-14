@@ -70,6 +70,14 @@ cd android
 ./gradlew assembleDebug
 ```
 
+## Release Process
+
+**IMPORTANT**: Before creating a new version tag (e.g., `v1.0.25`):
+1. Update `versionCode` and `versionName` in `app/build.gradle.kts`
+2. Build and test
+3. Commit the version bump
+4. Then create and push the tag
+
 ## Reference Implementation
 
 Python CLI player location: `C:\Users\chris\Downloads\sendspin-cli-main\sendspin-cli-main`
