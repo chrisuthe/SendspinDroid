@@ -26,6 +26,16 @@
             android:summary="@string/pref_sync_offset_summary"
             app:iconSpaceReserved="false" />
 
+        <ListPreference
+            android:key="preferred_codec"
+            android:title="@string/pref_codec_title"
+            android:summary="@string/pref_codec_summary"
+            android:entries="@array/codec_entries"
+            android:entryValues="@array/codec_values"
+            android:defaultValue="pcm"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true" />
+
     </PreferenceCategory>
 
     <PreferenceCategory

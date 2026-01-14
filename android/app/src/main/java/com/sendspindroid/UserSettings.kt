@@ -15,6 +15,7 @@ object UserSettings {
     const val KEY_PLAYER_NAME = "player_name"
     const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
     const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
+    const val KEY_PREFERRED_CODEC = "preferred_codec"
 
     // Sync offset range limits (milliseconds)
     const val SYNC_OFFSET_MIN = -5000
@@ -85,4 +86,20 @@ object UserSettings {
      */
     val lowMemoryMode: Boolean
         get() = prefs?.getBoolean(KEY_LOW_MEMORY_MODE, false) ?: false
+
+    /**
+     * Gets the preferred audio codec for streaming.
+     * The server will be asked for this codec first; if unavailable, falls back to others.
+     * Values: "pcm" (default), "flac", "opus"
+     */
+    fun getPreferredCodec(): String {
+        return prefs?.getString(KEY_PREFERRED_CODEC, "pcm") ?: "pcm"
+    }
+
+    /**
+     * Sets the preferred audio codec for streaming.
+     */
+    fun setPreferredCodec(codec: String) {
+        prefs?.edit()?.putString(KEY_PREFERRED_CODEC, codec)?.apply()
+    }
 }

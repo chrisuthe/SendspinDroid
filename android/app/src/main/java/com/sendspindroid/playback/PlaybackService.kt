@@ -44,6 +44,8 @@ import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
+import com.sendspindroid.sendspin.decoder.AudioDecoder
+import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -89,6 +91,7 @@ class PlaybackService : MediaLibraryService() {
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
     private var syncAudioPlayer: SyncAudioPlayer? = null
+    private var audioDecoder: AudioDecoder? = null
 
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -554,12 +557,23 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int) {
+        override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
             mainHandler.post {
-                Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth")
+                Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
 
                 // Stop existing player if any
                 syncAudioPlayer?.release()
+
+                // Release existing decoder and create new one for this stream
+                audioDecoder?.release()
+                try {
+                    audioDecoder = AudioDecoderFactory.create(codec)
+                    audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
+                    Log.i(TAG, "Audio decoder created: $codec")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
+                    audioDecoder = AudioDecoderFactory.create("pcm")
+                }
 
                 // Get the time filter from SendSpinClient
                 val timeFilter = sendSpinClient?.getTimeFilter()
@@ -591,13 +605,21 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onStreamClear() {
             mainHandler.post {
-                Log.d(TAG, "Stream clear - flushing audio buffers")
+                Log.d(TAG, "Stream clear - flushing audio and decoder buffers")
+                audioDecoder?.flush()
                 syncAudioPlayer?.clearBuffer()
             }
         }
 
-        override fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray) {
-            // Queue chunk directly - SyncAudioPlayer handles threading internally
+        override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {
+            // Decode compressed data to PCM (pass-through for PCM codec)
+            val pcmData = try {
+                audioDecoder?.decode(audioData) ?: audioData
+            } catch (e: Exception) {
+                Log.e(TAG, "Decode error, dropping chunk", e)
+                return
+            }
+            // Queue decoded PCM - SyncAudioPlayer handles threading internally
             syncAudioPlayer?.queueChunk(serverTimeMicros, pcmData)
         }
 
@@ -1531,7 +1553,9 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.cancel()
         imageLoader?.shutdown()
 
-        // Release audio player and wake lock
+        // Release audio decoder and player, then wake lock
+        audioDecoder?.release()
+        audioDecoder = null
         syncAudioPlayer?.release()
         syncAudioPlayer = null
         releaseWakeLock()

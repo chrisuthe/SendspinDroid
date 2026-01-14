@@ -28,6 +28,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLHandshakeException
@@ -123,7 +124,7 @@ class SendSpinClient(
         fun onError(message: String)
 
         // Audio streaming callbacks
-        fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int)
+        fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?)
         fun onStreamClear()
         fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray)
 
@@ -463,6 +464,7 @@ class SendSpinClient(
      *
      * This is the first message after WebSocket opens.
      * Declares our capabilities and supported audio formats.
+     * Formats are ordered by user preference (preferred codec first).
      */
     private fun sendClientHello() {
         val deviceInfo = JSONObject().apply {
@@ -471,26 +473,11 @@ class SendSpinClient(
             put("software_version", "1.0.0")
         }
 
-        val supportedFormat = JSONObject().apply {
-            put("codec", AUDIO_CODEC)
-            put("sample_rate", AUDIO_SAMPLE_RATE)
-            put("channels", AUDIO_CHANNELS)
-            put("bit_depth", AUDIO_BIT_DEPTH)
-        }
-
-        // Also support mono
-        val monoFormat = JSONObject().apply {
-            put("codec", AUDIO_CODEC)
-            put("sample_rate", AUDIO_SAMPLE_RATE)
-            put("channels", 1)
-            put("bit_depth", AUDIO_BIT_DEPTH)
-        }
+        // Build supported formats list, ordered by user preference
+        val supportedFormats = buildSupportedFormats()
 
         val playerSupport = JSONObject().apply {
-            put("supported_formats", JSONArray().apply {
-                put(supportedFormat)
-                put(monoFormat)
-            })
+            put("supported_formats", supportedFormats)
             put("buffer_capacity", getBufferCapacity())
             put("supported_commands", JSONArray().apply {
                 put("volume")
@@ -519,6 +506,54 @@ class SendSpinClient(
 
         sendMessage(message)
         Log.d(TAG, "Sent client/hello: client_id=$clientId")
+    }
+
+    /**
+     * Build the supported_formats array for client/hello.
+     * Formats are ordered by user preference (preferred codec first).
+     * Server will use the first format it supports.
+     */
+    private fun buildSupportedFormats(): JSONArray {
+        val formats = JSONArray()
+        val preferredCodec = com.sendspindroid.UserSettings.getPreferredCodec()
+
+        // Get list of codecs to advertise, with preferred first
+        val codecOrder = mutableListOf<String>()
+
+        // Add preferred codec first
+        if (AudioDecoderFactory.isCodecSupported(preferredCodec)) {
+            codecOrder.add(preferredCodec)
+        }
+
+        // Add remaining codecs
+        for (codec in listOf("pcm", "flac", "opus")) {
+            if (codec != preferredCodec && AudioDecoderFactory.isCodecSupported(codec)) {
+                codecOrder.add(codec)
+            }
+        }
+
+        Log.d(TAG, "Codec order: $codecOrder (preferred: $preferredCodec)")
+
+        // Build format entries for each codec (stereo and mono)
+        for (codec in codecOrder) {
+            // Stereo format
+            formats.put(JSONObject().apply {
+                put("codec", codec)
+                put("sample_rate", AUDIO_SAMPLE_RATE)
+                put("channels", AUDIO_CHANNELS)
+                put("bit_depth", AUDIO_BIT_DEPTH)
+            })
+
+            // Mono format
+            formats.put(JSONObject().apply {
+                put("codec", codec)
+                put("sample_rate", AUDIO_SAMPLE_RATE)
+                put("channels", 1)
+                put("bit_depth", AUDIO_BIT_DEPTH)
+            })
+        }
+
+        return formats
     }
 
     /**
@@ -1095,8 +1130,19 @@ class SendSpinClient(
             val channels = player.optInt("channels", AUDIO_CHANNELS)
             val bitDepth = player.optInt("bit_depth", AUDIO_BIT_DEPTH)
 
-            Log.i(TAG, "Stream started: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth")
-            callback.onStreamStart(codec, sampleRate, channels, bitDepth)
+            // Extract and decode codec_header if present (e.g., FLAC STREAMINFO, Opus header)
+            val codecHeaderBase64 = player.optString("codec_header", null)
+            val codecHeader = codecHeaderBase64?.let {
+                try {
+                    android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to decode codec_header", e)
+                    null
+                }
+            }
+
+            Log.i(TAG, "Stream started: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
+            callback.onStreamStart(codec, sampleRate, channels, bitDepth, codecHeader)
         }
     }
 
