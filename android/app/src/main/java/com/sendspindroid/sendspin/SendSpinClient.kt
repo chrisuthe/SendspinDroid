@@ -68,11 +68,11 @@ class SendSpinClient(
         private const val MSG_TYPE_ARTWORK_BASE = 8 // 8-11 for channels 0-3
 
         // Time sync configuration
-        // More frequent sync (4Hz) helps prevent drift accumulation and provides
-        // faster correction when network conditions change
+        // Uses NTP-style best-of-N: send N packets, pick the one with lowest RTT
+        // This filters out network jitter by selecting the measurement with least congestion
         private const val TIME_SYNC_INTERVAL_MS = 250L // Send time sync 4x per second
-        private const val INITIAL_TIME_SYNC_COUNT = 10 // Send 10 rapid syncs initially for fast convergence
-        private const val INITIAL_TIME_SYNC_DELAY_MS = 100L
+        private const val TIME_SYNC_BURST_COUNT = 10   // Send 10 packets per burst
+        private const val TIME_SYNC_BURST_DELAY_MS = 50L // 50ms between burst packets
 
         // Reconnection configuration
         private const val MAX_RECONNECT_ATTEMPTS = 5
@@ -166,6 +166,17 @@ class SendSpinClient(
 
     // Time synchronization (Kalman filter)
     private val timeFilter = SendspinTimeFilter()
+
+    // NTP-style burst measurement collection
+    // We send N packets and pick the one with lowest RTT (least network congestion)
+    private data class TimeMeasurement(
+        val offset: Long,
+        val rtt: Long,
+        val clientReceived: Long
+    )
+    private val pendingBurstMeasurements = mutableListOf<TimeMeasurement>()
+    private var burstInProgress = false
+    private var expectedBurstResponses = 0
 
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
@@ -525,27 +536,86 @@ class SendSpinClient(
 
     /**
      * Start the continuous time sync loop.
-     * Sends rapid initial syncs for fast convergence, then periodic updates.
+     * Uses NTP-style best-of-N: sends burst of packets, picks lowest RTT measurement.
      */
     private fun startTimeSyncLoop() {
         if (timeSyncRunning) return
         timeSyncRunning = true
 
         scope.launch {
-            // Send initial rapid syncs for fast clock convergence
-            repeat(INITIAL_TIME_SYNC_COUNT) {
-                if (!timeSyncRunning || !isActive) return@launch
-                sendClientTime()
-                delay(INITIAL_TIME_SYNC_DELAY_MS)
-            }
+            // Initial burst for fast convergence
+            sendTimeSyncBurst()
 
-            // Then periodic syncs to maintain accuracy
+            // Then periodic bursts to maintain accuracy
             while (timeSyncRunning && isActive) {
                 delay(TIME_SYNC_INTERVAL_MS)
                 if (timeSyncRunning) {
-                    sendClientTime()
+                    sendTimeSyncBurst()
                 }
             }
+        }
+    }
+
+    /**
+     * Send a burst of time sync packets.
+     * The responses will be collected and the best one (lowest RTT) used.
+     */
+    private suspend fun sendTimeSyncBurst() {
+        // Start a new burst
+        synchronized(pendingBurstMeasurements) {
+            pendingBurstMeasurements.clear()
+            burstInProgress = true
+            expectedBurstResponses = TIME_SYNC_BURST_COUNT
+        }
+
+        // Send N packets at 50ms intervals
+        repeat(TIME_SYNC_BURST_COUNT) {
+            if (!timeSyncRunning) return
+            sendClientTime()
+            delay(TIME_SYNC_BURST_DELAY_MS)
+        }
+
+        // Wait a bit for final responses to arrive
+        delay(TIME_SYNC_BURST_DELAY_MS * 2)
+
+        // Process the burst results
+        processBurstResults()
+    }
+
+    /**
+     * Process collected burst measurements and pick the best one.
+     * Best = lowest RTT (least network congestion).
+     */
+    private fun processBurstResults() {
+        synchronized(pendingBurstMeasurements) {
+            burstInProgress = false
+
+            if (pendingBurstMeasurements.isEmpty()) {
+                Log.w(TAG, "No time sync responses received in burst")
+                return
+            }
+
+            // Find measurement with lowest RTT
+            val best = pendingBurstMeasurements.minByOrNull { it.rtt }
+            if (best == null) {
+                Log.w(TAG, "Failed to find best measurement")
+                return
+            }
+
+            val maxError = best.rtt / 2
+
+            Log.d(TAG, "Time sync burst: ${pendingBurstMeasurements.size}/$TIME_SYNC_BURST_COUNT responses, " +
+                    "best RTT=${best.rtt}μs, offset=${best.offset}μs")
+
+            // Feed only the best measurement to the Kalman filter
+            timeFilter.addMeasurement(best.offset, maxError, best.clientReceived)
+
+            if (timeFilter.isReady) {
+                Log.d(TAG, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs, " +
+                        "drift=${String.format("%.3f", timeFilter.driftPpm)}ppm")
+            }
+
+            pendingBurstMeasurements.clear()
         }
     }
 
@@ -811,6 +881,9 @@ class SendSpinClient(
      *   T2 = server_received
      *   T3 = server_transmitted
      *   T4 = now (when we received)
+     *
+     * During burst mode, measurements are collected and the best one (lowest RTT)
+     * is selected at the end of the burst. This filters out network jitter.
      */
     private fun handleServerTime(payload: JSONObject?) {
         if (payload == null) return
@@ -829,11 +902,19 @@ class SendSpinClient(
         // offset = ((server_received - client_transmitted) + (server_transmitted - client_received)) / 2
         val offset = ((serverReceived - clientTransmitted) + (serverTransmitted - clientReceived)) / 2
 
-        // Round-trip time / 2 gives us the uncertainty
+        // Round-trip time = total elapsed - server processing time
         val rtt = (clientReceived - clientTransmitted) - (serverTransmitted - serverReceived)
-        val maxError = rtt / 2
 
-        // Update the Kalman filter
+        // During burst mode, collect measurements for later selection
+        synchronized(pendingBurstMeasurements) {
+            if (burstInProgress) {
+                pendingBurstMeasurements.add(TimeMeasurement(offset, rtt, clientReceived))
+                return
+            }
+        }
+
+        // Outside burst mode (shouldn't happen normally, but handle gracefully)
+        val maxError = rtt / 2
         timeFilter.addMeasurement(offset, maxError, clientReceived)
 
         if (timeFilter.isReady) {
