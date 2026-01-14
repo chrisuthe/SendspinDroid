@@ -14,6 +14,7 @@ object UserSettings {
     // Preference keys - must match keys in preferences.xml
     const val KEY_PLAYER_NAME = "player_name"
     const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
+    const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
 
     // Sync offset range limits (milliseconds)
     const val SYNC_OFFSET_MIN = -5000
@@ -73,4 +74,15 @@ object UserSettings {
         val clamped = offsetMs.coerceIn(SYNC_OFFSET_MIN, SYNC_OFFSET_MAX)
         prefs?.edit()?.putInt(KEY_SYNC_OFFSET_MS, clamped)?.apply()
     }
+
+    /**
+     * Whether Low Memory Mode is enabled.
+     * When enabled:
+     * - Album artwork is not fetched (uses placeholder)
+     * - Audio buffer is reduced from 32MB to 8MB
+     * - Coil ImageLoader is not initialized
+     * Use when controlling playback from the server and UI isn't needed.
+     */
+    val lowMemoryMode: Boolean
+        get() = prefs?.getBoolean(KEY_LOW_MEMORY_MODE, false) ?: false
 }

@@ -9,7 +9,9 @@ import androidx.preference.EditTextPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.sendspindroid.debug.DebugLogger
+import kotlin.system.exitProcess
 
 // Note: SyncOffsetPreference is a custom preference that handles its own UI
 
@@ -76,6 +78,27 @@ class SettingsFragment : PreferenceFragmentCompat() {
             setOnPreferenceClickListener {
                 exportDebugLogs()
                 true
+            }
+        }
+
+        // Set up low memory mode toggle with restart dialog
+        findPreference<SwitchPreferenceCompat>(UserSettings.KEY_LOW_MEMORY_MODE)?.apply {
+            setOnPreferenceChangeListener { _, _ ->
+                // Show restart dialog after preference is changed
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(R.string.pref_low_memory_restart_title)
+                    .setMessage(R.string.pref_low_memory_restart_message)
+                    .setPositiveButton(R.string.pref_low_memory_restart_now) { _, _ ->
+                        // Restart the app
+                        val intent = requireContext().packageManager
+                            .getLaunchIntentForPackage(requireContext().packageName)
+                        intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        requireContext().startActivity(intent)
+                        exitProcess(0)
+                    }
+                    .setNegativeButton(R.string.pref_low_memory_restart_later, null)
+                    .show()
+                true  // Accept the preference change
             }
         }
     }

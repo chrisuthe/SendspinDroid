@@ -1424,8 +1424,16 @@ class MainActivity : AppCompatActivity() {
     /**
      * Loads artwork from a URL using Coil.
      * Called when we receive artwork URL via session extras.
+     * Skipped in low memory mode - shows placeholder instead.
      */
     private fun loadArtworkFromUrl(url: String) {
+        // Skip artwork loading in low memory mode
+        if (UserSettings.lowMemoryMode) {
+            binding.albumArtView.setImageResource(R.drawable.placeholder_album)
+            resetSliderColors()
+            return
+        }
+
         Log.d(TAG, "Loading artwork from URL: $url")
         binding.albumArtView.load(url) {
             crossfade(true)
@@ -1446,12 +1454,19 @@ class MainActivity : AppCompatActivity() {
     /**
      * Extracts dominant colors from artwork and applies them to UI elements.
      * Uses the Palette library to analyze the image.
+     * Skipped in low memory mode to save memory.
      *
      * Applies colors to:
      * - Volume slider (vibrant/muted color)
      * - Background (dark muted color for ambient effect)
      */
     private fun extractAndApplyColors(bitmap: Bitmap) {
+        // Skip Palette extraction in low memory mode
+        if (UserSettings.lowMemoryMode) {
+            resetSliderColors()
+            return
+        }
+
         Palette.from(bitmap).generate { palette ->
             palette?.let {
                 // Get the vibrant swatch for slider, or fall back to muted, then dominant

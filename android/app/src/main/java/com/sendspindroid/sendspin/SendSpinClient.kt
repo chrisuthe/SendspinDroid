@@ -84,7 +84,21 @@ class SendSpinClient(
         private const val AUDIO_SAMPLE_RATE = 48000
         private const val AUDIO_CHANNELS = 2
         private const val AUDIO_BIT_DEPTH = 16
-        private const val BUFFER_CAPACITY = 32_000_000 // 32MB buffer
+
+        // Buffer capacity - reduced in low memory mode
+        private const val BUFFER_CAPACITY_NORMAL = 32_000_000   // 32MB (~2.8 min at 48kHz stereo)
+        private const val BUFFER_CAPACITY_LOW_MEM = 8_000_000   // 8MB (~40 sec at 48kHz stereo)
+
+        /**
+         * Gets the appropriate buffer capacity based on low memory mode setting.
+         */
+        fun getBufferCapacity(): Int {
+            return if (com.sendspindroid.UserSettings.lowMemoryMode) {
+                BUFFER_CAPACITY_LOW_MEM
+            } else {
+                BUFFER_CAPACITY_NORMAL
+            }
+        }
     }
 
     /**
@@ -469,7 +483,7 @@ class SendSpinClient(
                 put(supportedFormat)
                 put(monoFormat)
             })
-            put("buffer_capacity", BUFFER_CAPACITY)
+            put("buffer_capacity", getBufferCapacity())
             put("supported_commands", JSONArray().apply {
                 put("volume")
                 put("mute")

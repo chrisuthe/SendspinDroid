@@ -152,6 +152,15 @@
     <string name="permission_bind_playback_service_label">Bind to SendSpin Playback Service</string>
     <string name="permission_bind_playback_service_description">Allows the app to bind to the SendSpin playback service for audio control. Only apps signed with the same certificate can use this permission.</string>
 
+    <!-- Performance -->
+    <string name="pref_category_performance">Performance</string>
+    <string name="pref_low_memory_title">Low Memory Mode</string>
+    <string name="pref_low_memory_summary">Reduces memory by skipping album artwork and reducing audio buffer. Use when controlling from server.</string>
+    <string name="pref_low_memory_restart_title">Restart Required</string>
+    <string name="pref_low_memory_restart_message">Low Memory Mode requires a restart to take full effect.</string>
+    <string name="pref_low_memory_restart_now">Restart Now</string>
+    <string name="pref_low_memory_restart_later">Later</string>
+
     <!-- Debug logging -->
     <string name="pref_category_debug">Debug</string>
     <string name="pref_debug_logging_title">Debug Logging</string>

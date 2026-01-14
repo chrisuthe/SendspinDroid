@@ -70,11 +70,11 @@ android {
 
         // versionCode: Integer version for Google Play (auto-increment for each release)
         // Users never see this, but must increase with each update
-        versionCode = 20
+        versionCode = 21
 
         // versionName: User-visible version string
         // Follows semantic versioning (major.minor.patch)
-        versionName = "1.0.20"
+        versionName = "1.0.21"
 
         // TODO: Add testInstrumentationRunner for UI tests
         // testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

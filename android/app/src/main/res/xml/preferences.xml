@@ -29,6 +29,19 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/pref_category_performance"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            android:key="low_memory_mode"
+            android:title="@string/pref_low_memory_title"
+            android:summary="@string/pref_low_memory_summary"
+            android:defaultValue="false"
+            app:iconSpaceReserved="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/pref_category_debug"
         app:iconSpaceReserved="false">
 

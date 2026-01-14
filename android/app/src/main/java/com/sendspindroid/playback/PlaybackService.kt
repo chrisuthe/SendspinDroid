@@ -104,7 +104,8 @@ class PlaybackService : MediaLibraryService() {
     // Artwork state
     private var lastArtworkUrl: String? = null
     private var currentArtwork: Bitmap? = null
-    private lateinit var imageLoader: ImageLoader
+    // ImageLoader is null when low memory mode is enabled
+    private var imageLoader: ImageLoader? = null
 
     // Coroutine scope for background tasks (artwork loading)
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -249,13 +250,17 @@ class PlaybackService : MediaLibraryService() {
                 .build()
         )
 
-        // Initialize Coil ImageLoader for artwork fetching
-        imageLoader = ImageLoader.Builder(this)
-            .crossfade(true)
-            .build()
-
-        // Initialize UserSettings for player name preference
+        // Initialize UserSettings for player name preference (must be before lowMemoryMode check)
         com.sendspindroid.UserSettings.initialize(this)
+
+        // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)
+        if (!com.sendspindroid.UserSettings.lowMemoryMode) {
+            imageLoader = ImageLoader.Builder(this)
+                .crossfade(true)
+                .build()
+        } else {
+            Log.i(TAG, "Low Memory Mode: Skipping ImageLoader initialization")
+        }
 
         // Initialize SendSpinPlayer
         initializePlayer()
@@ -513,6 +518,11 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onArtwork(imageData: ByteArray) {
+            // Skip artwork processing in low memory mode
+            if (com.sendspindroid.UserSettings.lowMemoryMode) {
+                return
+            }
+
             mainHandler.post {
                 Log.d(TAG, "Artwork received: ${imageData.size} bytes")
                 try {
@@ -620,8 +630,16 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Fetches artwork from a URL using Coil.
+     * Skipped in low memory mode.
      */
     private fun fetchArtwork(url: String) {
+        // Skip artwork loading in low memory mode
+        if (com.sendspindroid.UserSettings.lowMemoryMode) {
+            return
+        }
+
+        val loader = imageLoader ?: return
+
         if (!isValidArtworkUrl(url)) {
             return
         }
@@ -632,7 +650,7 @@ class PlaybackService : MediaLibraryService() {
                     .data(url)
                     .build()
 
-                val result = imageLoader.execute(request)
+                val result = loader.execute(request)
                 if (result is SuccessResult) {
                     val bitmap = result.drawable.toBitmap()
                     mainHandler.post {
@@ -1463,7 +1481,7 @@ class PlaybackService : MediaLibraryService() {
         unregisterNetworkCallback()
 
         serviceScope.cancel()
-        imageLoader.shutdown()
+        imageLoader?.shutdown()
 
         // Release audio player and wake lock
         syncAudioPlayer?.release()
