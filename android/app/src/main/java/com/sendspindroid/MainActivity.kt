@@ -255,6 +255,11 @@ class MainActivity : AppCompatActivity() {
      * @param bufferMs Remaining audio buffer in milliseconds
      */
     private fun showReconnectingIndicator(attempt: Int, bufferMs: Long) {
+        // Don't show UI if activity is finishing or destroyed
+        if (isFinishing || isDestroyed) {
+            return
+        }
+
         // Dismiss any existing reconnecting snackbar
         reconnectingSnackbar?.dismiss()
 
@@ -265,20 +270,24 @@ class MainActivity : AppCompatActivity() {
             "Reconnecting (attempt $attempt)..."
         }
 
-        reconnectingSnackbar = Snackbar.make(
-            binding.coordinatorLayout,
-            message,
-            Snackbar.LENGTH_INDEFINITE
-        ).apply {
-            // Use warning/info color instead of error
-            view.setBackgroundColor(
-                ContextCompat.getColor(this@MainActivity, com.google.android.material.R.color.design_default_color_primary)
-            )
-            show()
-        }
+        try {
+            reconnectingSnackbar = Snackbar.make(
+                binding.coordinatorLayout,
+                message,
+                Snackbar.LENGTH_INDEFINITE
+            ).apply {
+                // Use warning/info color instead of error
+                view.setBackgroundColor(
+                    ContextCompat.getColor(this@MainActivity, com.google.android.material.R.color.design_default_color_primary)
+                )
+                show()
+            }
 
-        // Announce for accessibility
-        announceForAccessibility("Reconnecting to server. Playback continuing from buffer.")
+            // Announce for accessibility
+            announceForAccessibility("Reconnecting to server. Playback continuing from buffer.")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show reconnecting indicator", e)
+        }
     }
 
     /**
@@ -895,6 +904,12 @@ class MainActivity : AppCompatActivity() {
      * Updates the UI state machine based on the connection state.
      */
     private fun handleConnectionStateChange(stateStr: String, extras: Bundle) {
+        // Don't update UI if activity is finishing or destroyed
+        if (isFinishing || isDestroyed) {
+            Log.d(TAG, "Ignoring connection state change - activity finishing/destroyed")
+            return
+        }
+
         Log.d(TAG, "Connection state changed: $stateStr")
 
         when (stateStr) {
