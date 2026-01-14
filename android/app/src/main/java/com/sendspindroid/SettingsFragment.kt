@@ -5,7 +5,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import android.util.Log
 import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
@@ -22,6 +24,8 @@ import kotlin.system.exitProcess
 class SettingsFragment : PreferenceFragmentCompat() {
 
     companion object {
+        private const val TAG = "SettingsFragment"
+
         // Debug logging keys
         private const val KEY_DEBUG_LOGGING = "debug_logging_enabled"
         private const val KEY_EXPORT_LOGS = "export_debug_logs"
@@ -97,6 +101,22 @@ class SettingsFragment : PreferenceFragmentCompat() {
                         exitProcess(0)
                     }
                     .setNegativeButton(R.string.pref_low_memory_restart_later, null)
+                    .show()
+                true  // Accept the preference change
+            }
+        }
+
+        // Set up preferred codec with reconnect dialog
+        findPreference<ListPreference>(UserSettings.KEY_PREFERRED_CODEC)?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                val codec = newValue as String
+                Log.i(TAG, "Preferred codec changed to: $codec")
+
+                // Show reconnect dialog after preference is changed
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(R.string.pref_codec_reconnect_title)
+                    .setMessage(R.string.pref_codec_reconnect_message)
+                    .setPositiveButton(android.R.string.ok, null)
                     .show()
                 true  // Accept the preference change
             }

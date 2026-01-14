@@ -190,6 +190,10 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         binding.connectionStateValue.text = connectionState
         binding.connectionStateValue.setTextColor(getColorForConnectionState(connectionState))
 
+        val audioCodec = bundle.getString("audio_codec", "--")
+        binding.audioCodecValue.text = audioCodec
+        binding.audioCodecValue.setTextColor(getColorNeutral())
+
         // === SYNC ERROR ===
         val playbackState = bundle.getString("playback_state", "UNKNOWN")
         binding.playbackStateValue.text = playbackState

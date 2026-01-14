@@ -101,6 +101,9 @@
     <string name="stats_section_sync_correction">SYNC CORRECTION</string>
     <string name="stats_section_clock_sync">CLOCK SYNC</string>
 
+    <!-- Stats labels - Connection -->
+    <string name="stats_audio_codec">Codec</string>
+
     <!-- Stats labels - Sync Status -->
     <string name="stats_playback_state">Playback State</string>
     <string name="stats_sync_error">Sync Error</string>
@@ -156,6 +159,8 @@
         <item>flac</item>
         <item>opus</item>
     </string-array>
+    <string name="pref_codec_reconnect_title">Reconnect Required</string>
+    <string name="pref_codec_reconnect_message">The new codec preference will be used the next time you connect to a server.</string>
 
     <!-- Disconnect dialog -->
     <string name="disconnect_dialog_title">Disconnect from server?</string>
