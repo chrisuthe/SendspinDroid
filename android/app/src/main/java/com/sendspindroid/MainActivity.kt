@@ -3,6 +3,7 @@ package com.sendspindroid
 import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -388,6 +389,31 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         unregisterNetworkCallback()
+    }
+
+    /**
+     * Called when activity comes to foreground.
+     * Re-syncs UI with current playback state to handle cases where:
+     * - User returns from another app
+     * - Screen was turned off and on
+     * - Activity was in background while playback continued
+     */
+    override fun onResume() {
+        super.onResume()
+        // Re-sync UI state with MediaController
+        syncUIWithPlayerState()
+    }
+
+    /**
+     * Called when activity receives a new intent while already running.
+     * This happens when user taps the notification (FLAG_ACTIVITY_SINGLE_TOP).
+     * Without this, the activity doesn't know it was re-launched and UI can get stuck.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // Re-sync UI state with MediaController
+        syncUIWithPlayerState()
     }
 
     // ============================================================================
