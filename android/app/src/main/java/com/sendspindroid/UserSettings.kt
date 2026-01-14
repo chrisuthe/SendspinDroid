@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
 import androidx.preference.PreferenceManager
+import com.sendspindroid.network.TransportType
 
 /**
  * Centralized access to user settings stored in SharedPreferences.
@@ -16,6 +17,10 @@ object UserSettings {
     const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
     const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
     const val KEY_PREFERRED_CODEC = "preferred_codec"
+
+    // Network-specific codec preference keys
+    const val KEY_CODEC_WIFI = "codec_wifi"
+    const val KEY_CODEC_CELLULAR = "codec_cellular"
 
     // Sync offset range limits (milliseconds)
     const val SYNC_OFFSET_MIN = -5000
@@ -101,5 +106,37 @@ object UserSettings {
      */
     fun setPreferredCodec(codec: String) {
         prefs?.edit()?.putString(KEY_PREFERRED_CODEC, codec)?.apply()
+    }
+
+    /**
+     * Gets the preferred codec for a specific network type.
+     * Falls back to the global preferred codec if no network-specific preference is set.
+     *
+     * @param transportType The current network transport type
+     * @return The codec to use (pcm, flac, or opus)
+     */
+    fun getCodecForNetwork(transportType: TransportType): String {
+        val key = when (transportType) {
+            TransportType.WIFI -> KEY_CODEC_WIFI
+            TransportType.CELLULAR -> KEY_CODEC_CELLULAR
+            else -> KEY_PREFERRED_CODEC
+        }
+        // Fall back to global preferred codec if network-specific not set
+        return prefs?.getString(key, null) ?: getPreferredCodec()
+    }
+
+    /**
+     * Sets the preferred codec for a specific network type.
+     *
+     * @param transportType The network transport type
+     * @param codec The codec to use (pcm, flac, or opus)
+     */
+    fun setCodecForNetwork(transportType: TransportType, codec: String) {
+        val key = when (transportType) {
+            TransportType.WIFI -> KEY_CODEC_WIFI
+            TransportType.CELLULAR -> KEY_CODEC_CELLULAR
+            else -> KEY_PREFERRED_CODEC
+        }
+        prefs?.edit()?.putString(key, codec)?.apply()
     }
 }

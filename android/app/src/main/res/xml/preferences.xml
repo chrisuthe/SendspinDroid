@@ -39,6 +39,30 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/pref_category_network_codecs"
+        app:iconSpaceReserved="false">
+
+        <ListPreference
+            android:key="codec_wifi"
+            android:title="@string/pref_codec_wifi_title"
+            android:summary="@string/pref_codec_wifi_summary"
+            android:entries="@array/codec_entries"
+            android:entryValues="@array/codec_values"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true" />
+
+        <ListPreference
+            android:key="codec_cellular"
+            android:title="@string/pref_codec_cellular_title"
+            android:summary="@string/pref_codec_cellular_summary"
+            android:entries="@array/codec_entries"
+            android:entryValues="@array/codec_values"
+            app:iconSpaceReserved="false"
+            app:useSimpleSummaryProvider="true" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/pref_category_performance"
         app:iconSpaceReserved="false">
 

@@ -162,6 +162,13 @@
     <string name="pref_codec_reconnect_title">Reconnect Required</string>
     <string name="pref_codec_reconnect_message">The new codec preference will be used the next time you connect to a server.</string>
 
+    <!-- Network-specific codec preferences -->
+    <string name="pref_category_network_codecs">Network Codec Preferences</string>
+    <string name="pref_codec_wifi_title">Codec on WiFi</string>
+    <string name="pref_codec_wifi_summary">Audio codec when connected via WiFi (leave unset to use default)</string>
+    <string name="pref_codec_cellular_title">Codec on Cellular</string>
+    <string name="pref_codec_cellular_summary">Audio codec when connected via cellular data (leave unset to use default)</string>
+
     <!-- Disconnect dialog -->
     <string name="disconnect_dialog_title">Disconnect from server?</string>
     <string name="disconnect_dialog_message">This will stop playback on this device. You can reconnect at any time.</string>

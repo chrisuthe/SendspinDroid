@@ -194,6 +194,61 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         binding.audioCodecValue.text = audioCodec
         binding.audioCodecValue.setTextColor(getColorNeutral())
 
+        // === NETWORK ===
+        val networkType = bundle.getString("network_type", "UNKNOWN")
+        binding.networkTypeValue.text = networkType
+        binding.networkTypeValue.setTextColor(getColorForNetworkType(networkType))
+
+        val networkQuality = bundle.getString("network_quality", "UNKNOWN")
+        binding.networkQualityValue.text = networkQuality
+        binding.networkQualityValue.setTextColor(getColorForNetworkQuality(networkQuality))
+
+        val networkMetered = bundle.getBoolean("network_metered", true)
+        binding.networkMeteredValue.text = if (networkMetered) "Yes" else "No"
+        binding.networkMeteredValue.setTextColor(if (networkMetered) getColorWarning() else getColorGood())
+
+        // Show WiFi-specific rows only when on WiFi
+        val isWifi = networkType == "WIFI"
+        binding.wifiRssiRow.visibility = if (isWifi) View.VISIBLE else View.GONE
+        binding.wifiSpeedRow.visibility = if (isWifi) View.VISIBLE else View.GONE
+
+        if (isWifi) {
+            val wifiRssi = bundle.getInt("wifi_rssi", Int.MIN_VALUE)
+            if (wifiRssi != Int.MIN_VALUE) {
+                binding.wifiRssiValue.text = "$wifiRssi dBm"
+                binding.wifiRssiValue.setTextColor(getColorForWifiRssi(wifiRssi))
+            } else {
+                binding.wifiRssiValue.text = "--"
+                binding.wifiRssiValue.setTextColor(getColorNeutral())
+            }
+
+            val wifiSpeed = bundle.getInt("wifi_link_speed", -1)
+            if (wifiSpeed > 0) {
+                binding.wifiSpeedValue.text = "$wifiSpeed Mbps"
+                binding.wifiSpeedValue.setTextColor(getColorNeutral())
+            } else {
+                binding.wifiSpeedValue.text = "--"
+                binding.wifiSpeedValue.setTextColor(getColorNeutral())
+            }
+        }
+
+        // Show Cellular-specific row only when on Cellular
+        val isCellular = networkType == "CELLULAR"
+        binding.cellularTypeRow.visibility = if (isCellular) View.VISIBLE else View.GONE
+
+        if (isCellular) {
+            val cellularType = bundle.getString("cellular_type", null)
+            if (cellularType != null) {
+                // Format cellular type for display (TYPE_LTE -> LTE)
+                val displayType = cellularType.removePrefix("TYPE_")
+                binding.cellularTypeValue.text = displayType
+                binding.cellularTypeValue.setTextColor(getColorForCellularType(cellularType))
+            } else {
+                binding.cellularTypeValue.text = "--"
+                binding.cellularTypeValue.setTextColor(getColorNeutral())
+            }
+        }
+
         // === SYNC ERROR ===
         val playbackState = bundle.getString("playback_state", "UNKNOWN")
         binding.playbackStateValue.text = playbackState
@@ -415,6 +470,45 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
             ms < 50 -> getColorBad()     // <50ms = low buffer (red)
             ms < 200 -> getColorWarning() // 50-200ms = medium (yellow)
             else -> getColorGood()         // >200ms = healthy (green)
+        }
+    }
+
+    private fun getColorForNetworkType(type: String): Int {
+        return when (type) {
+            "WIFI" -> getColorGood()
+            "ETHERNET" -> getColorGood()
+            "CELLULAR" -> getColorWarning()
+            "VPN" -> getColorNeutral()
+            else -> getColorNeutral()
+        }
+    }
+
+    private fun getColorForNetworkQuality(quality: String): Int {
+        return when (quality) {
+            "EXCELLENT" -> getColorGood()
+            "GOOD" -> getColorGood()
+            "FAIR" -> getColorWarning()
+            "POOR" -> getColorBad()
+            else -> getColorNeutral()
+        }
+    }
+
+    private fun getColorForWifiRssi(rssi: Int): Int {
+        return when {
+            rssi > -50 -> getColorGood()     // Excellent
+            rssi > -65 -> getColorGood()     // Good
+            rssi > -75 -> getColorWarning()  // Fair
+            else -> getColorBad()             // Poor
+        }
+    }
+
+    private fun getColorForCellularType(type: String): Int {
+        return when (type) {
+            "TYPE_5G" -> getColorGood()
+            "TYPE_LTE" -> getColorGood()
+            "TYPE_3G" -> getColorWarning()
+            "TYPE_2G" -> getColorBad()
+            else -> getColorNeutral()
         }
     }
 

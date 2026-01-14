@@ -46,6 +46,8 @@ import com.sendspindroid.sendspin.SyncAudioPlayerCallback
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.network.NetworkEvaluator
+import com.sendspindroid.network.NetworkState
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -148,12 +150,17 @@ class PlaybackService : MediaLibraryService() {
     // Network change detection - resets time filter when network changes
     private var connectivityManager: ConnectivityManager? = null
     private var lastNetworkId: Int = -1
+    private var networkEvaluator: NetworkEvaluator? = null
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             val networkId = network.hashCode()
             Log.d(TAG, "Network available: id=$networkId (last=$lastNetworkId)")
 
-            // Only trigger if we had a previous network and it changed
+            // Evaluate network conditions
+            networkEvaluator?.evaluateCurrentNetwork(network)
+
+            // Only trigger time filter reset if we had a previous network and it changed
             if (lastNetworkId != -1 && lastNetworkId != networkId) {
                 Log.i(TAG, "Network changed from $lastNetworkId to $networkId")
                 sendSpinClient?.onNetworkChanged()
@@ -164,11 +171,14 @@ class PlaybackService : MediaLibraryService() {
         override fun onLost(network: Network) {
             Log.d(TAG, "Network lost: id=${network.hashCode()}")
             // Don't reset lastNetworkId here - we want to detect when a new network comes up
+            // Update network evaluator to reflect disconnected state
+            networkEvaluator?.evaluateCurrentNetwork(null)
         }
 
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            // Could also detect WiFi SSID changes here if needed
+            // Re-evaluate network conditions when capabilities change (e.g., signal strength)
             Log.d(TAG, "Network capabilities changed: id=${network.hashCode()}")
+            networkEvaluator?.evaluateCurrentNetwork(network)
         }
     }
 
@@ -279,8 +289,14 @@ class PlaybackService : MediaLibraryService() {
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
 
+        // Initialize network evaluator for passive network monitoring
+        networkEvaluator = NetworkEvaluator(this)
+
         // Register network callback to detect network changes
         registerNetworkCallback()
+
+        // Perform initial network evaluation
+        networkEvaluator?.evaluateCurrentNetwork()
     }
 
     /**
@@ -1365,6 +1381,19 @@ class PlaybackService : MediaLibraryService() {
             bundle.putLong("clock_error_us", timeFilter.errorMicros)
             bundle.putInt("measurement_count", timeFilter.measurementCountValue)
             bundle.putLong("last_time_sync_age_ms", client.getLastTimeSyncAgeMs())
+        }
+
+        // Get network stats from NetworkEvaluator
+        networkEvaluator?.networkState?.value?.let { netState ->
+            bundle.putString("network_type", netState.transportType.name)
+            bundle.putString("network_quality", netState.quality.name)
+            bundle.putBoolean("network_metered", netState.isMetered)
+            bundle.putBoolean("network_connected", netState.isConnected)
+            netState.wifiRssi?.let { bundle.putInt("wifi_rssi", it) }
+            netState.wifiLinkSpeedMbps?.let { bundle.putInt("wifi_link_speed", it) }
+            netState.wifiFrequencyMhz?.let { bundle.putInt("wifi_frequency", it) }
+            netState.cellularType?.let { bundle.putString("cellular_type", it.name) }
+            netState.downstreamBandwidthKbps?.let { bundle.putInt("bandwidth_down_kbps", it) }
         }
 
         return bundle
