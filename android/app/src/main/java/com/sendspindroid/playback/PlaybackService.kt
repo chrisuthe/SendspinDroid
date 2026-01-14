@@ -92,6 +92,7 @@ class PlaybackService : MediaLibraryService() {
     private var sendSpinClient: SendSpinClient? = null
     private var syncAudioPlayer: SyncAudioPlayer? = null
     private var audioDecoder: AudioDecoder? = null
+    private var currentCodec: String = "pcm"  // Track current stream codec for stats
 
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -560,6 +561,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
             mainHandler.post {
                 Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
+                currentCodec = codec
 
                 // Stop existing player if any
                 syncAudioPlayer?.release()
@@ -1293,8 +1295,10 @@ class PlaybackService : MediaLibraryService() {
             bundle.putString("server_name", client.getServerName())
             bundle.putString("server_address", client.getServerAddress())
             bundle.putString("connection_state", client.connectionState.value.toString())
+            bundle.putString("audio_codec", currentCodec.uppercase())
         } ?: run {
             bundle.putString("connection_state", "Disconnected")
+            bundle.putString("audio_codec", "--")
         }
 
         // Get stats from SyncAudioPlayer

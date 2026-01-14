@@ -143,6 +143,31 @@
                         android:textColor="@color/stats_value_bad"
                         android:fontFamily="monospace" />
                 </LinearLayout>
+
+                <!-- Audio Codec -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="@string/stats_audio_codec"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/audioCodecValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="--"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
