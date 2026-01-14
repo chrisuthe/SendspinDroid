@@ -8,7 +8,9 @@
     <string name="pause">Pause</string>
     <string name="previous">Previous</string>
     <string name="next">Next</string>
+    <string name="switch_group">Switch Group</string>
     <string name="volume">Volume</string>
+    <string name="group_label">Group: %s</string>
     <string name="not_connected">Not Connected</string>
     <string name="discovering">Discovering servers...</string>
     <string name="no_servers_found">No servers found</string>
@@ -28,6 +30,7 @@
     <string name="accessibility_pause_button">Pause button</string>
     <string name="accessibility_previous_button">Previous track button</string>
     <string name="accessibility_next_button">Next track button</string>
+    <string name="accessibility_switch_group_button">Switch to next playback group</string>
     <string name="accessibility_volume_slider">Volume slider</string>
     <string name="accessibility_volume_percent">Volume %1$d percent</string>
     <string name="accessibility_progress_slider">Track progress slider</string>

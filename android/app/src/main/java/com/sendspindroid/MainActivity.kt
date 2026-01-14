@@ -358,6 +358,10 @@ class MainActivity : AppCompatActivity() {
             onNextClicked()
         }
 
+        binding.switchGroupButton.setOnClickListener {
+            onSwitchGroupClicked()
+        }
+
         // Volume slider with accessibility updates and haptic feedback
         binding.volumeSlider.addOnChangeListener { slider, value, fromUser ->
             if (fromUser) {
@@ -830,6 +834,13 @@ class MainActivity : AppCompatActivity() {
                     binding.volumeSlider.value = volume.toFloat()
                     updateVolumeAccessibility(volume)
                 }
+
+                // Handle group name updates
+                val groupName = extras.getString(PlaybackService.EXTRA_GROUP_NAME)
+                if (groupName != null) {
+                    Log.d(TAG, "Group name update received: $groupName")
+                    updateGroupName(groupName)
+                }
             }
         }
     }
@@ -1193,6 +1204,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Handles switch group button click.
+     * Sends switch group command to PlaybackService to cycle to next available group.
+     */
+    private fun onSwitchGroupClicked() {
+        Log.d(TAG, "Switch group clicked")
+        val controller = mediaController ?: return
+        val command = SessionCommand(PlaybackService.COMMAND_SWITCH_GROUP, Bundle.EMPTY)
+        controller.sendCustomCommand(command, Bundle.EMPTY)
+    }
+
+    /**
      * Handles disconnect button click.
      * Shows confirmation dialog before disconnecting.
      */
@@ -1313,7 +1335,21 @@ class MainActivity : AppCompatActivity() {
         binding.previousButton.isEnabled = enabled
         binding.playPauseButton.isEnabled = enabled
         binding.nextButton.isEnabled = enabled
+        binding.switchGroupButton.isEnabled = enabled
         binding.volumeSlider.isEnabled = enabled
+    }
+
+    /**
+     * Updates the group name display.
+     * Shows the group name TextView if a group name is provided, hides it otherwise.
+     */
+    private fun updateGroupName(groupName: String) {
+        if (groupName.isNotEmpty()) {
+            binding.groupNameText.text = getString(R.string.group_label, groupName)
+            binding.groupNameText.visibility = View.VISIBLE
+        } else {
+            binding.groupNameText.visibility = View.GONE
+        }
     }
 
     private fun updatePlaybackState(state: String) {

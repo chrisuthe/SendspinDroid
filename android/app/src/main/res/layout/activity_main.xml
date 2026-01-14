@@ -356,6 +356,24 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@id/nowPlayingText" />
 
+                <!-- Group name display -->
+                <TextView
+                    android:id="@+id/groupNameText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/spacing_sm"
+                    android:gravity="center"
+                    android:text=""
+                    android:textSize="12sp"
+                    android:textColor="?attr/colorPrimary"
+                    android:alpha="0.9"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:visibility="gone"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/metadataText" />
+
                 <!-- Playback Controls with Icon Buttons -->
                 <LinearLayout
                     android:id="@+id/playbackControlsContainer"
@@ -366,7 +384,7 @@
                     android:gravity="center"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/metadataText">
+                    app:layout_constraintTop_toBottomOf="@id/groupNameText">
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/previousButton"
@@ -398,6 +416,17 @@
                         android:contentDescription="@string/accessibility_next_button"
                         android:enabled="false"
                         app:icon="@drawable/ic_skip_next"
+                        app:iconSize="@dimen/playback_icon_size_small" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/switchGroupButton"
+                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                        android:layout_width="@dimen/playback_button_size_small"
+                        android:layout_height="@dimen/playback_button_size_small"
+                        android:layout_marginStart="@dimen/playback_button_spacing"
+                        android:contentDescription="@string/accessibility_switch_group_button"
+                        android:enabled="false"
+                        app:icon="@drawable/ic_swap_horiz"
                         app:iconSize="@dimen/playback_icon_size_small" />
 
                 </LinearLayout>

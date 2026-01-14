@@ -321,6 +321,14 @@ class SendSpinClient(
     }
 
     /**
+     * Switch to next playback group.
+     * The server cycles through available groups.
+     */
+    fun switchGroup() {
+        sendCommand("switch")
+    }
+
+    /**
      * Set playback volume.
      *
      * @param volume Volume level from 0.0 to 1.0

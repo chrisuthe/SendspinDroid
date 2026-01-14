@@ -187,6 +187,7 @@ class PlaybackService : MediaLibraryService() {
         const val COMMAND_SET_VOLUME = "com.sendspindroid.SET_VOLUME"
         const val COMMAND_NEXT = "com.sendspindroid.NEXT"
         const val COMMAND_PREVIOUS = "com.sendspindroid.PREVIOUS"
+        const val COMMAND_SWITCH_GROUP = "com.sendspindroid.SWITCH_GROUP"
         const val COMMAND_GET_STATS = "com.sendspindroid.GET_STATS"
 
         // Command arguments
@@ -210,6 +211,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Session extras keys for volume (server → controller)
         const val EXTRA_VOLUME = "volume"
+
+        // Session extras keys for group info
+        const val EXTRA_GROUP_NAME = "group_name"
 
         // Connection state values
         const val STATE_DISCONNECTED = "disconnected"
@@ -476,6 +480,9 @@ class PlaybackService : MediaLibraryService() {
                     )
                 }
                 _playbackState.value = newState
+
+                // Broadcast all state including group name to controllers (MainActivity)
+                broadcastSessionExtras()
             }
         }
 
@@ -599,11 +606,10 @@ class PlaybackService : MediaLibraryService() {
                 // Convert from 0-100 to 0.0-1.0 and apply to local audio player
                 val volumeFloat = volume / 100f
                 syncAudioPlayer?.setVolume(volumeFloat)
-                // Broadcast volume to UI controllers
-                val extras = Bundle().apply {
-                    putInt(EXTRA_VOLUME, volume)
-                }
-                mediaSession?.setSessionExtras(extras)
+                // Update playback state with new volume
+                _playbackState.value = _playbackState.value.copy(volume = volume)
+                // Broadcast all state including volume to UI controllers
+                broadcastSessionExtras()
             }
         }
 
@@ -720,14 +726,53 @@ class PlaybackService : MediaLibraryService() {
         durationMs: Long,
         positionMs: Long
     ) {
+        // Use unified broadcast to avoid overwriting other extras
+        broadcastSessionExtras()
+    }
+
+    /**
+     * Broadcasts all session state to MediaControllers via session extras.
+     *
+     * This unified method ensures all state (connection, metadata, group, volume)
+     * is broadcast together, preventing individual setSessionExtras calls from
+     * overwriting each other.
+     *
+     * Call this method whenever any state changes that needs to be reflected in the UI.
+     */
+    private fun broadcastSessionExtras() {
+        val playbackState = _playbackState.value
+        val connState = _connectionState.value
+
         val extras = Bundle().apply {
-            putString(EXTRA_TITLE, title)
-            putString(EXTRA_ARTIST, artist)
-            putString(EXTRA_ALBUM, album)
-            putString(EXTRA_ARTWORK_URL, artworkUrl ?: "")
-            putLong(EXTRA_DURATION_MS, durationMs)
-            putLong(EXTRA_POSITION_MS, positionMs)
+            // Connection state
+            when (connState) {
+                is ConnectionState.Disconnected -> putString(EXTRA_CONNECTION_STATE, STATE_DISCONNECTED)
+                is ConnectionState.Connecting -> putString(EXTRA_CONNECTION_STATE, STATE_CONNECTING)
+                is ConnectionState.Connected -> {
+                    putString(EXTRA_CONNECTION_STATE, STATE_CONNECTED)
+                    putString(EXTRA_SERVER_NAME, connState.serverName)
+                }
+                is ConnectionState.Error -> {
+                    putString(EXTRA_CONNECTION_STATE, STATE_ERROR)
+                    putString(EXTRA_ERROR_MESSAGE, connState.message)
+                }
+            }
+
+            // Metadata
+            putString(EXTRA_TITLE, playbackState.title ?: "")
+            putString(EXTRA_ARTIST, playbackState.artist ?: "")
+            putString(EXTRA_ALBUM, playbackState.album ?: "")
+            putString(EXTRA_ARTWORK_URL, playbackState.artworkUrl ?: "")
+            putLong(EXTRA_DURATION_MS, playbackState.durationMs)
+            putLong(EXTRA_POSITION_MS, playbackState.positionMs)
+
+            // Group info
+            playbackState.groupName?.let { putString(EXTRA_GROUP_NAME, it) }
+
+            // Volume
+            putInt(EXTRA_VOLUME, playbackState.volume)
         }
+
         mediaSession?.setSessionExtras(extras)
     }
 
@@ -773,12 +818,8 @@ class PlaybackService : MediaLibraryService() {
         serverName: String? = null,
         errorMessage: String? = null
     ) {
-        val extras = Bundle().apply {
-            putString(EXTRA_CONNECTION_STATE, state)
-            serverName?.let { putString(EXTRA_SERVER_NAME, it) }
-            errorMessage?.let { putString(EXTRA_ERROR_MESSAGE, it) }
-        }
-        mediaSession?.setSessionExtras(extras)
+        // Use unified broadcast to avoid overwriting other extras
+        broadcastSessionExtras()
     }
 
     /**
@@ -1132,6 +1173,7 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(COMMAND_SET_VOLUME, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_NEXT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_PREVIOUS, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_SWITCH_GROUP, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_GET_STATS, Bundle.EMPTY))
                 .build()
 
@@ -1195,6 +1237,12 @@ class PlaybackService : MediaLibraryService() {
                 COMMAND_PREVIOUS -> {
                     Log.d(TAG, "Previous track command received")
                     sendSpinClient?.previous()
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                COMMAND_SWITCH_GROUP -> {
+                    Log.d(TAG, "Switch group command received")
+                    sendSpinClient?.switchGroup()
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
