@@ -211,8 +211,13 @@
     <!--
         TODO for v2: Add feature declarations for Google Play filtering:
         <uses-feature android:name="android.hardware.wifi" android:required="true" />
-        <uses-feature android:name="android.hardware.audio.output" android:required="true" />
         <uses-feature android:name="android.software.leanback" android:required="false" /> (for Android TV)
     -->
+
+    <!-- AUDIO OUTPUT: Required for Android Auto app discovery
+         Permission level: Feature declaration (not a permission)
+         Required by: Android Auto to recognize this as a media app
+         Note: required="false" allows app to work on phones without speakers -->
+    <uses-feature android:name="android.hardware.audio.output" android:required="false" />
 
 </manifest>
