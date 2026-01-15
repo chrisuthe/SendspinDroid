@@ -4,6 +4,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.database.ContentObserver
+import android.media.AudioManager
+import android.provider.Settings
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
@@ -151,6 +154,11 @@ class PlaybackService : MediaLibraryService() {
     private var connectivityManager: ConnectivityManager? = null
     private var lastNetworkId: Int = -1
     private var networkEvaluator: NetworkEvaluator? = null
+
+    // AudioManager for device volume control (Spotify-style hybrid approach)
+    private var audioManager: AudioManager? = null
+    private var volumeObserver: ContentObserver? = null
+    private var lastKnownVolume: Int = -1  // Track to detect external volume changes
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -300,6 +308,60 @@ class PlaybackService : MediaLibraryService() {
 
         // Perform initial network evaluation
         networkEvaluator?.evaluateCurrentNetwork()
+
+        // Initialize AudioManager for device volume control
+        initializeVolumeControl()
+    }
+
+    /**
+     * Initializes device volume control (Spotify-style hybrid approach).
+     *
+     * This sets up:
+     * - AudioManager for reading/writing device STREAM_MUSIC volume
+     * - ContentObserver to detect hardware volume button presses and sync to server
+     *
+     * Hardware volume buttons now control playback volume, and changes are
+     * synced to the SendSpin server for multi-client coordination.
+     */
+    private fun initializeVolumeControl() {
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+
+        // Track current volume to detect external changes
+        lastKnownVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
+
+        // Create observer to detect volume changes from hardware buttons
+        volumeObserver = object : ContentObserver(mainHandler) {
+            override fun onChange(selfChange: Boolean) {
+                val currentVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: return
+
+                // Only sync to server if volume actually changed (not our own change)
+                if (currentVolume != lastKnownVolume) {
+                    lastKnownVolume = currentVolume
+
+                    // Convert to normalized 0.0-1.0 and sync to server
+                    val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
+                    val normalizedVolume = currentVolume.toFloat() / maxVolume
+                    Log.d(TAG, "Device volume changed via hardware buttons: $currentVolume/$maxVolume ($normalizedVolume)")
+
+                    // Sync to server (for multi-client coordination)
+                    sendSpinClient?.setVolume(normalizedVolume.toDouble())
+
+                    // Update playback state for UI sync
+                    val volumePercent = (normalizedVolume * 100).toInt()
+                    _playbackState.value = _playbackState.value.copy(volume = volumePercent)
+                    broadcastSessionExtras()
+                }
+            }
+        }
+
+        // Register the volume observer
+        contentResolver.registerContentObserver(
+            Settings.System.CONTENT_URI,
+            true,
+            volumeObserver!!
+        )
+
+        Log.d(TAG, "Volume control initialized - using device STREAM_MUSIC")
     }
 
     /**
@@ -674,9 +736,9 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onVolumeChanged(volume: Int) {
             mainHandler.post {
-                // Convert from 0-100 to 0.0-1.0 and apply to local audio player
+                // Convert from 0-100 to 0.0-1.0 and apply to device volume
                 val volumeFloat = volume / 100f
-                syncAudioPlayer?.setVolume(volumeFloat)
+                setVolume(volumeFloat)  // Sets device STREAM_MUSIC volume
                 // Update playback state with new volume
                 _playbackState.value = _playbackState.value.copy(volume = volume)
                 // Broadcast all state including volume to UI controllers
@@ -935,12 +997,26 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Sets the playback volume.
-     * Volume is controlled locally on the audio player, not sent to the server.
+     * Sets the playback volume via device STREAM_MUSIC (Spotify-style).
+     *
+     * Volume is controlled via the device's media stream, not per-app gain.
+     * This enables hardware volume button support and follows best practices
+     * used by Spotify, Plexamp, and other major media apps.
+     *
+     * @param volume Normalized volume from 0.0 (mute) to 1.0 (full)
      */
     fun setVolume(volume: Float) {
-        Log.d(TAG, "Setting volume: $volume")
-        syncAudioPlayer?.setVolume(volume)
+        val am = audioManager ?: return
+        val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val newVolume = (volume * maxVolume).toInt().coerceIn(0, maxVolume)
+
+        Log.d(TAG, "Setting device volume: $newVolume/$maxVolume (normalized: $volume)")
+
+        // Update tracking to prevent echo in observer
+        lastKnownVolume = newVolume
+
+        // Set device volume (no flags = silent, no UI popup)
+        am.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
     }
 
     /**
@@ -1646,6 +1722,10 @@ class PlaybackService : MediaLibraryService() {
 
         // Unregister network callback
         unregisterNetworkCallback()
+
+        // Unregister volume observer
+        volumeObserver?.let { contentResolver.unregisterContentObserver(it) }
+        volumeObserver = null
 
         serviceScope.cancel()
         imageLoader?.shutdown()

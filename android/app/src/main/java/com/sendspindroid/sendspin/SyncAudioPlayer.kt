@@ -369,12 +369,18 @@ class SyncAudioPlayer(
     /**
      * Set the playback volume.
      *
-     * @param volume Volume level from 0.0 (mute) to 1.0 (full volume)
+     * Note: Volume is now controlled via device STREAM_MUSIC (AudioManager),
+     * not per-AudioTrack gain. This method is kept for API compatibility but
+     * AudioTrack always plays at full volume. Device volume handles attenuation.
+     *
+     * @param volume Volume level from 0.0 (mute) to 1.0 (full volume) - ignored
      */
+    @Suppress("UNUSED_PARAMETER")
     fun setVolume(volume: Float) {
-        val clampedVolume = volume.coerceIn(0f, 1f)
-        audioTrack?.setVolume(clampedVolume)
-        Log.d(TAG, "Volume set to: $clampedVolume")
+        // Volume is now controlled via device STREAM_MUSIC, not AudioTrack gain.
+        // AudioTrack plays at full volume; device media stream handles attenuation.
+        // This follows Spotify/Plexamp best practices for hardware volume button support.
+        Log.d(TAG, "setVolume called (ignored - using device volume): $volume")
     }
 
     /**
