@@ -312,6 +312,13 @@ class SendSpinPlayer : Player {
             android.util.Log.i(TAG, "updatePlayWhenReadyFromServer: $playing (was ${this.playWhenReady})")
             this.playWhenReady = playing
             listeners.forEach { it.onPlayWhenReadyChanged(playing, Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE) }
+
+            // Also update isPlaying state and notify listeners
+            val newIsPlaying = playing && currentPlaybackState == Player.STATE_READY
+            if (newIsPlaying != currentlyPlaying) {
+                currentlyPlaying = newIsPlaying
+                listeners.forEach { it.onIsPlayingChanged(newIsPlaying) }
+            }
         }
     }
 

@@ -621,13 +621,14 @@ class MainActivity : AppCompatActivity() {
     /**
      * Shows the now playing view (album art, playback controls).
      * Called when connected to a server.
-     * Connection status is shown in the toolbar subtitle.
      */
     private fun showNowPlayingView(serverName: String) {
         cancelManualButtonTimeout()
 
-        // Show server name in toolbar subtitle
-        supportActionBar?.subtitle = serverName
+        // Set toolbar state based on current playing state, no subtitle
+        val isPlaying = mediaController?.isPlaying == true
+        supportActionBar?.title = if (isPlaying) "Playing" else "Paused"
+        supportActionBar?.subtitle = null
 
         binding.searchingView.visibility = View.GONE
         binding.manualEntryView.visibility = View.GONE
@@ -639,6 +640,12 @@ class MainActivity : AppCompatActivity() {
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
+
+        // Sync volume slider with current device volume
+        syncSliderWithDeviceVolume()
+
+        // Sync play/pause button with current state
+        updatePlayPauseButton(isPlaying)
     }
 
     /**
@@ -1401,9 +1408,13 @@ class MainActivity : AppCompatActivity() {
      * Called on startup and when returning from background.
      */
     private fun syncSliderWithDeviceVolume() {
+        // Safety check - observer callback can fire during lifecycle transitions
+        if (!::binding.isInitialized) return
+
         val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        val sliderValue = (currentVolume.toFloat() / maxVolume) * 100
+        // Round to nearest integer - slider has stepSize=1.0 and crashes on decimal values
+        val sliderValue = ((currentVolume.toFloat() / maxVolume) * 100).toInt().toFloat()
         binding.volumeSlider.value = sliderValue
         Log.d(TAG, "Synced slider with device volume: $currentVolume/$maxVolume ($sliderValue%)")
     }
@@ -1526,7 +1537,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updatePlaybackState(state: String) {
-        binding.nowPlayingText.text = when (state) {
+        // Show playback state in the toolbar title
+        supportActionBar?.title = when (state) {
             "playing" -> "Playing"
             "paused" -> "Paused"
             "stopped" -> "Stopped"
@@ -1536,27 +1548,30 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Updates the play/pause button icon and content description based on playing state.
+     * Also updates toolbar title to keep UI in sync.
      * Shows pause icon when playing, play icon when paused.
      */
     private fun updatePlayPauseButton(isPlaying: Boolean) {
         if (isPlaying) {
             binding.playPauseButton.setIconResource(R.drawable.ic_pause)
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_pause_button)
+            supportActionBar?.title = "Playing"
         } else {
             binding.playPauseButton.setIconResource(R.drawable.ic_play)
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_play_button)
+            supportActionBar?.title = "Paused"
         }
     }
 
     private fun updateMetadata(title: String, artist: String, album: String) {
+        // Song title goes in the large text field
+        binding.nowPlayingText.text = if (title.isNotEmpty()) title else getString(R.string.not_playing)
+
+        // Artist and album info in the smaller metadata field
         val metadata = buildString {
-            if (title.isNotEmpty()) append(title)
-            if (artist.isNotEmpty()) {
-                if (isNotEmpty()) append(" - ")
-                append(artist)
-            }
+            if (artist.isNotEmpty()) append(artist)
             if (album.isNotEmpty()) {
-                if (isNotEmpty()) append("\n")
+                if (isNotEmpty()) append(" \u2022 ")  // bullet separator
                 append(album)
             }
         }
@@ -1706,8 +1721,9 @@ class MainActivity : AppCompatActivity() {
                     ContextCompat.getColor(this, R.color.md_theme_dark_background)
                 }
 
-                binding.nowPlayingView.setBackgroundColor(backgroundColor)
-                Log.d(TAG, "Applied background color: ${Integer.toHexString(backgroundColor)}")
+                // Apply background color to entire window (root CoordinatorLayout)
+                binding.coordinatorLayout.setBackgroundColor(backgroundColor)
+                Log.d(TAG, "Applied background color to window: ${Integer.toHexString(backgroundColor)}")
             }
         }
     }
@@ -1734,9 +1750,9 @@ class MainActivity : AppCompatActivity() {
         binding.volumeSlider.trackActiveTintList = ColorStateList.valueOf(primaryColor)
         binding.volumeSlider.thumbTintList = ColorStateList.valueOf(primaryColor)
 
-        // Reset background to default theme color
+        // Reset background to default theme color for entire window
         val backgroundColor = ContextCompat.getColor(this, R.color.md_theme_dark_background)
-        binding.nowPlayingView.setBackgroundColor(backgroundColor)
+        binding.coordinatorLayout.setBackgroundColor(backgroundColor)
     }
 
     /**

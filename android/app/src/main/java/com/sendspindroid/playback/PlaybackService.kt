@@ -961,6 +961,16 @@ class PlaybackService : MediaLibraryService() {
                 sendSpinClient?.disconnect()
             }
 
+            // Read current device volume and set as initial volume for server
+            val am = audioManager
+            if (am != null) {
+                val currentDeviceVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val volumePercent = ((currentDeviceVolume.toFloat() / maxVolume) * 100).toInt()
+                Log.d(TAG, "Setting initial volume from device: $currentDeviceVolume/$maxVolume = $volumePercent%")
+                sendSpinClient?.setInitialVolume(volumePercent)
+            }
+
             sendSpinClient?.connect(address, path)
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to server", e)

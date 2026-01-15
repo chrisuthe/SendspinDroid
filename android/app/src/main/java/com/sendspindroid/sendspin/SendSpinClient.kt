@@ -300,7 +300,7 @@ class SendSpinClient(
         userInitiatedDisconnect.set(true)
         timeSyncRunning = false
         reconnecting = false
-        sendGoodbye("user_disconnect")
+        sendGoodbye("user_request")
         webSocket?.close(1000, "User disconnect")
         webSocket = null
         handshakeComplete = false
@@ -368,15 +368,17 @@ class SendSpinClient(
 
     /**
      * Send the current player state (volume/muted) to the server.
-     * Format: {"type": "client/state", "payload": {"state": "synchronized", "volume": 75, "muted": false}}
+     * Format: {"type": "client/state", "payload": {"state": "synchronized", "player": {"volume": 75, "muted": false}}}
      */
     private fun sendPlayerStateUpdate(volume: Int, muted: Boolean) {
         val message = JSONObject().apply {
             put("type", "client/state")
             put("payload", JSONObject().apply {
                 put("state", "synchronized")
-                put("volume", volume)
-                put("muted", muted)
+                put("player", JSONObject().apply {
+                    put("volume", volume)
+                    put("muted", muted)
+                })
             })
         }
         sendMessage(message)
@@ -527,8 +529,7 @@ class SendSpinClient(
                 put("metadata@v1")    // Needed to receive track metadata
             })
             put("device_info", deviceInfo)
-            // Note: aiosendspin uses "player_support" not "player@v1_support"
-            put("player_support", playerSupport)
+            put("player@v1_support", playerSupport)
         }
 
         val message = JSONObject().apply {
@@ -710,10 +711,24 @@ class SendSpinClient(
 
     /**
      * Send initial player state after handshake.
+     * Uses the current volume and muted state (set via setInitialVolume or defaults).
      */
     private fun sendPlayerState() {
-        // Send default player state (100% volume, not muted)
-        sendPlayerStateUpdate(100, false)
+        Log.d(TAG, "Sending initial player state: volume=$currentVolume, muted=$currentMuted")
+        sendPlayerStateUpdate(currentVolume, currentMuted)
+    }
+
+    /**
+     * Set initial volume before connecting.
+     * Call this before connect() to ensure server receives correct initial volume.
+     *
+     * @param volume Volume level from 0 to 100
+     * @param muted Whether audio is muted
+     */
+    fun setInitialVolume(volume: Int, muted: Boolean = false) {
+        currentVolume = volume.coerceIn(0, 100)
+        currentMuted = muted
+        Log.d(TAG, "Initial volume set: $currentVolume, muted=$currentMuted")
     }
 
     /**
