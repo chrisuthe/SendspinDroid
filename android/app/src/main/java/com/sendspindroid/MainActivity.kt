@@ -5,6 +5,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.database.ContentObserver
+import android.media.AudioManager
+import android.provider.Settings
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
@@ -88,6 +91,12 @@ class MainActivity : AppCompatActivity() {
         getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    // Volume control - uses device STREAM_MUSIC (Spotify-style)
+    private val audioManager by lazy {
+        getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+    private var volumeObserver: ContentObserver? = null
 
     // Permission request launcher for POST_NOTIFICATIONS (Android 13+)
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -416,7 +425,10 @@ class MainActivity : AppCompatActivity() {
             onSwitchGroupClicked()
         }
 
-        // Volume slider with accessibility updates and haptic feedback
+        // Volume slider - controls device STREAM_MUSIC (Spotify-style)
+        // Initialize slider to current device volume
+        syncSliderWithDeviceVolume()
+
         binding.volumeSlider.addOnChangeListener { slider, value, fromUser ->
             if (fromUser) {
                 onVolumeChanged(value / 100f)
@@ -442,11 +454,13 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         registerNetworkCallback()
+        registerVolumeObserver()
     }
 
     override fun onStop() {
         super.onStop()
         unregisterNetworkCallback()
+        unregisterVolumeObserver()
     }
 
     /**
@@ -460,6 +474,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         // Re-sync UI state with MediaController
         syncUIWithPlayerState()
+        // Re-sync volume slider with device volume (may have changed while in background)
+        syncSliderWithDeviceVolume()
     }
 
     /**
@@ -1357,18 +1373,72 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Handles volume slider changes.
-     * Sends SET_VOLUME command to PlaybackService via MediaController.
+     *
+     * Sets device STREAM_MUSIC volume directly (Spotify-style) AND syncs to server
+     * via PlaybackService custom command for multi-client coordination.
+     *
+     * @param volume Normalized volume from 0.0 to 1.0
      */
     private fun onVolumeChanged(volume: Float) {
         Log.d(TAG, "Volume changed: $volume")
 
-        val controller = mediaController ?: return
+        // Set device volume directly (Spotify-style)
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val newVolume = (volume * maxVolume).toInt().coerceIn(0, maxVolume)
+        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
 
+        // Also notify PlaybackService to sync to server (for multi-client coordination)
+        val controller = mediaController ?: return
         val args = Bundle().apply {
             putFloat(PlaybackService.ARG_VOLUME, volume)
         }
         val command = SessionCommand(PlaybackService.COMMAND_SET_VOLUME, Bundle.EMPTY)
         controller.sendCustomCommand(command, args)
+    }
+
+    /**
+     * Syncs the volume slider with the current device STREAM_MUSIC volume.
+     * Called on startup and when returning from background.
+     */
+    private fun syncSliderWithDeviceVolume() {
+        val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        val sliderValue = (currentVolume.toFloat() / maxVolume) * 100
+        binding.volumeSlider.value = sliderValue
+        Log.d(TAG, "Synced slider with device volume: $currentVolume/$maxVolume ($sliderValue%)")
+    }
+
+    /**
+     * Registers a ContentObserver to detect device volume changes from hardware buttons.
+     * This keeps the UI slider in sync when user presses hardware volume buttons.
+     */
+    private fun registerVolumeObserver() {
+        if (volumeObserver != null) return  // Already registered
+
+        volumeObserver = object : ContentObserver(handler) {
+            override fun onChange(selfChange: Boolean) {
+                // Sync slider to device volume when hardware buttons are pressed
+                syncSliderWithDeviceVolume()
+            }
+        }
+
+        contentResolver.registerContentObserver(
+            Settings.System.CONTENT_URI,
+            true,
+            volumeObserver!!
+        )
+        Log.d(TAG, "Volume observer registered")
+    }
+
+    /**
+     * Unregisters the volume ContentObserver.
+     */
+    private fun unregisterVolumeObserver() {
+        volumeObserver?.let {
+            contentResolver.unregisterContentObserver(it)
+            volumeObserver = null
+            Log.d(TAG, "Volume observer unregistered")
+        }
     }
 
     /**
