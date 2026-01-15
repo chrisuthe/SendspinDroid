@@ -1109,7 +1109,9 @@ class MainActivity : AppCompatActivity() {
 
                 if (isConnected) {
                     // Restore connection state if needed (e.g., after activity recreation)
-                    if (connectionState !is AppConnectionState.Connected) {
+                    // Don't overwrite Reconnecting state - it's still valid while playing from buffer
+                    if (connectionState !is AppConnectionState.Connected &&
+                        connectionState !is AppConnectionState.Reconnecting) {
                         // Get server name from toolbar subtitle or use default
                         val serverName = supportActionBar?.subtitle?.toString() ?: "Connected"
                         connectionState = AppConnectionState.Connected(serverName, "")
