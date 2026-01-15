@@ -65,12 +65,14 @@ jobs:
         run: |
           gh release delete dev-latest --yes || true
           git push origin :refs/tags/dev-latest || true
+          git tag -d dev-latest || true
 
       - name: Create dev release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create dev-latest \
+            --target ${{ github.sha }} \
             --title "DEVELOPMENT BUILD" \
             --notes "Automated development build from commit ${{ github.sha }}" \
             --prerelease \
