@@ -1128,6 +1128,17 @@ class MainActivity : AppCompatActivity() {
                     enablePlaybackControls(true)
                 } else {
                     enablePlaybackControls(false)
+
+                    // If we were showing connected/connecting state but player is now disconnected,
+                    // transition back to manual entry view to prevent stale UI state
+                    if (connectionState is AppConnectionState.Connected ||
+                        connectionState is AppConnectionState.Reconnecting ||
+                        connectionState is AppConnectionState.Connecting) {
+                        Log.d(TAG, "Player disconnected but UI shows connected - resetting to manual entry")
+                        connectionState = AppConnectionState.ManualEntry
+                        showManualEntryView()
+                        invalidateOptionsMenu()
+                    }
                 }
 
                 // Sync play/pause button icon

@@ -325,10 +325,11 @@
                     android:layout_marginTop="@dimen/title_margin_top"
                     android:gravity="center"
                     android:text="@string/not_playing"
-                    android:textSize="22sp"
+                    android:textSize="24sp"
                     android:textStyle="bold"
                     android:textColor="?attr/colorOnBackground"
-                    android:letterSpacing="-0.01"
+                    android:letterSpacing="-0.02"
+                    android:lineSpacingMultiplier="1.1"
                     android:maxLines="2"
                     android:ellipsize="end"
                     android:importantForAccessibility="yes"
@@ -347,7 +348,8 @@
                     android:text=""
                     android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
-                    android:alpha="0.8"
+                    android:alpha="0.9"
+                    android:letterSpacing="0.01"
                     android:maxLines="2"
                     android:ellipsize="end"
                     android:importantForAccessibility="yes"
@@ -374,60 +376,71 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@id/metadataText" />
 
-                <!-- Playback Controls with Icon Buttons -->
+                <!-- Playback Controls Container -->
                 <LinearLayout
                     android:id="@+id/playbackControlsContainer"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/controls_margin_top"
-                    android:orientation="horizontal"
-                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@id/groupNameText">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/previousButton"
-                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="@dimen/playback_button_size_small"
-                        android:layout_height="@dimen/playback_button_size_small"
-                        android:layout_marginEnd="@dimen/playback_button_spacing"
-                        android:contentDescription="@string/accessibility_previous_button"
-                        android:enabled="false"
-                        app:icon="@drawable/ic_skip_previous"
-                        app:iconSize="@dimen/playback_icon_size_small" />
+                    <!-- Main Controls Row: Previous, Play/Pause, Next -->
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/playPauseButton"
-                        style="@style/Widget.Material3.Button.IconButton.Filled"
-                        android:layout_width="@dimen/playback_button_size_large"
-                        android:layout_height="@dimen/playback_button_size_large"
-                        android:contentDescription="@string/accessibility_play_button"
-                        android:enabled="false"
-                        app:icon="@drawable/ic_play"
-                        app:iconSize="@dimen/playback_icon_size_large" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/previousButton"
+                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                            android:layout_width="@dimen/playback_button_size_small"
+                            android:layout_height="@dimen/playback_button_size_small"
+                            android:layout_marginEnd="@dimen/playback_button_spacing"
+                            android:contentDescription="@string/accessibility_previous_button"
+                            android:enabled="false"
+                            app:icon="@drawable/ic_skip_previous"
+                            app:iconSize="@dimen/playback_icon_size_small" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/nextButton"
-                        style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="@dimen/playback_button_size_small"
-                        android:layout_height="@dimen/playback_button_size_small"
-                        android:layout_marginStart="@dimen/playback_button_spacing"
-                        android:contentDescription="@string/accessibility_next_button"
-                        android:enabled="false"
-                        app:icon="@drawable/ic_skip_next"
-                        app:iconSize="@dimen/playback_icon_size_small" />
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/playPauseButton"
+                            style="@style/Widget.Material3.Button.IconButton.Filled"
+                            android:layout_width="@dimen/playback_button_size_large"
+                            android:layout_height="@dimen/playback_button_size_large"
+                            android:stateListAnimator="@animator/button_scale"
+                            android:contentDescription="@string/accessibility_play_button"
+                            android:enabled="false"
+                            app:icon="@drawable/ic_play"
+                            app:iconSize="@dimen/playback_icon_size_large" />
 
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/nextButton"
+                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                            android:layout_width="@dimen/playback_button_size_small"
+                            android:layout_height="@dimen/playback_button_size_small"
+                            android:layout_marginStart="@dimen/playback_button_spacing"
+                            android:contentDescription="@string/accessibility_next_button"
+                            android:enabled="false"
+                            app:icon="@drawable/ic_skip_next"
+                            app:iconSize="@dimen/playback_icon_size_small" />
+
+                    </LinearLayout>
+
+                    <!-- Secondary Row: Switch Group Button -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/switchGroupButton"
                         style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                        android:layout_width="@dimen/playback_button_size_small"
-                        android:layout_height="@dimen/playback_button_size_small"
-                        android:layout_marginStart="@dimen/playback_button_spacing"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="@dimen/spacing_sm"
                         android:contentDescription="@string/accessibility_switch_group_button"
                         android:enabled="false"
                         app:icon="@drawable/ic_swap_horiz"
-                        app:iconSize="@dimen/playback_icon_size_small" />
+                        app:iconSize="24dp" />
 
                 </LinearLayout>
 
@@ -438,6 +451,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="@dimen/volume_margin_top"
                     android:layout_marginBottom="@dimen/spacing_md"
+                    android:paddingHorizontal="8dp"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     app:layout_constraintEnd_toEndOf="parent"
@@ -445,19 +459,20 @@
                     app:layout_constraintTop_toBottomOf="@id/playbackControlsContainer">
 
                     <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
                         android:src="@drawable/ic_volume_down"
                         android:contentDescription="@null"
                         android:importantForAccessibility="no"
-                        app:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant"
+                        android:alpha="0.7" />
 
                     <com.google.android.material.slider.Slider
                         android:id="@+id/volumeSlider"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginHorizontal="8dp"
+                        android:layout_marginHorizontal="12dp"
                         android:valueFrom="0"
                         android:valueTo="100"
                         android:value="75"
@@ -466,12 +481,13 @@
                         android:enabled="false" />
 
                     <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
                         android:src="@drawable/ic_volume_up"
                         android:contentDescription="@null"
                         android:importantForAccessibility="no"
-                        app:tint="?attr/colorOnSurfaceVariant" />
+                        app:tint="?attr/colorOnSurfaceVariant"
+                        android:alpha="0.7" />
 
                 </LinearLayout>
 
