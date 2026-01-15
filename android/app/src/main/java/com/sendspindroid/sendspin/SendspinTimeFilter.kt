@@ -53,6 +53,12 @@ class SendspinTimeFilter {
         // Applied every update: drift *= (1 - DRIFT_DECAY_RATE)
         // At 1Hz updates, 0.01 gives ~1% decay per second, ~50% after 70 seconds
         private const val DRIFT_DECAY_RATE = 0.01
+
+        // Continuous forgetting factor - covariance grows by λ² each measurement
+        // This prevents overconfidence and allows smoother adaptation to gradual changes
+        // λ = 1.001 means ~0.2% growth per measurement
+        // At 4 measurements/sec, covariance doubles in ~3 minutes
+        private const val FORGETTING_FACTOR = 1.001
     }
 
     // State vector: [offset, drift]
@@ -281,10 +287,18 @@ class SendspinTimeFilter {
         // Covariance prediction: P = F * P * F^T + Q
         // F = [1, dt; 0, 1] (state transition matrix)
         // Q = [q_offset * dt, 0; 0, q_drift * dt] (process noise)
-        val p00New = p00 + 2 * p01 * dt + p11 * dt * dt + PROCESS_NOISE_OFFSET * dt
-        val p01New = p01 + p11 * dt
-        val p10New = p10 + p11 * dt
-        val p11New = p11 + PROCESS_NOISE_DRIFT * dt
+        var p00New = p00 + 2 * p01 * dt + p11 * dt * dt + PROCESS_NOISE_OFFSET * dt
+        var p01New = p01 + p11 * dt
+        var p10New = p10 + p11 * dt
+        var p11New = p11 + PROCESS_NOISE_DRIFT * dt
+
+        // Apply continuous forgetting factor (prevents overconfidence)
+        // This allows smoother adaptation to gradual changes in network conditions
+        val lambdaSquared = FORGETTING_FACTOR * FORGETTING_FACTOR
+        p00New *= lambdaSquared
+        p01New *= lambdaSquared
+        p10New *= lambdaSquared
+        p11New *= lambdaSquared
 
         // === Innovation (Residual) ===
         val innovation = measurement - offsetPredicted
