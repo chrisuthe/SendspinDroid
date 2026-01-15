@@ -150,7 +150,14 @@ class NetworkEvaluator(private val context: Context) {
 
     @Suppress("DEPRECATION")
     private fun getCellularType(): CellularType {
-        val networkType = telephonyManager?.dataNetworkType ?: return CellularType.UNKNOWN
+        // dataNetworkType requires READ_PHONE_STATE permission on some devices
+        // Catch SecurityException and return UNKNOWN rather than crashing
+        val networkType = try {
+            telephonyManager?.dataNetworkType ?: return CellularType.UNKNOWN
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot get cellular type - permission denied", e)
+            return CellularType.UNKNOWN
+        }
 
         return when (networkType) {
             TelephonyManager.NETWORK_TYPE_GPRS,
