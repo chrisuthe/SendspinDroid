@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write  # Required for creating releases and pushing tags
+
 jobs:
   build:
     runs-on: ubuntu-latest
