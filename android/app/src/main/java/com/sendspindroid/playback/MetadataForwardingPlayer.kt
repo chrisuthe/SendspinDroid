@@ -57,38 +57,54 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
     /**
      * Updates the current track metadata.
      *
-     * Preserves existing values when new values are null (partial updates).
-     * This matches the C# reference implementation pattern.
+     * Handles three cases for each string field:
+     * - null: Don't update (partial update - preserve existing value)
+     * - empty string: Clear the field (track has no data for this field)
+     * - non-empty string: Update with new value
      *
      * Call this when receiving metadata updates from the server.
      * The new metadata will be returned by [getMediaMetadata] for
      * lock screen and notification display.
      *
-     * @param title Track title (null = preserve existing)
-     * @param artist Track artist (null = preserve existing)
-     * @param album Album name (null = preserve existing)
+     * @param title Track title (null = preserve, empty = clear)
+     * @param artist Track artist (null = preserve, empty = clear)
+     * @param album Album name (null = preserve, empty = clear)
      * @param artwork Album artwork bitmap (null = preserve existing)
-     * @param artworkUri Artwork URL (null = preserve existing)
+     * @param artworkUri Artwork URL (null = preserve, empty = clear)
+     * @param clearArtwork If true, clears artwork even when bitmap is null
      */
     fun updateMetadata(
         title: String?,
         artist: String?,
         album: String?,
         artwork: Bitmap? = null,
-        artworkUri: Uri? = null
+        artworkUri: Uri? = null,
+        clearArtwork: Boolean = false
     ) {
-        // Use null-coalescing to preserve existing values during partial updates
-        currentTitle = title ?: currentTitle
-        currentArtist = artist ?: currentArtist
-        currentAlbum = album ?: currentAlbum
-        currentArtworkUri = artworkUri ?: currentArtworkUri
+        // null = preserve, empty = clear, value = update
+        if (title != null) {
+            currentTitle = title.ifEmpty { null }
+        }
+        if (artist != null) {
+            currentArtist = artist.ifEmpty { null }
+        }
+        if (album != null) {
+            currentAlbum = album.ifEmpty { null }
+        }
+        if (artworkUri != null) {
+            currentArtworkUri = if (artworkUri.toString().isEmpty()) null else artworkUri
+        }
 
-        // Only update artwork data if a new bitmap is provided
-        artwork?.let { bitmap ->
+        // Handle artwork bitmap
+        if (artwork != null) {
             currentArtworkData = ByteArrayOutputStream().use { stream ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                artwork.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                 stream.toByteArray()
             }
+        } else if (clearArtwork) {
+            // Explicitly clear artwork (new track has no artwork)
+            currentArtworkData = null
+            currentArtworkUri = null
         }
 
         // Rebuild cached metadata
