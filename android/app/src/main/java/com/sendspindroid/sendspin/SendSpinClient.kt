@@ -1055,10 +1055,11 @@ class SendSpinClient(
         // Extract metadata if present
         val metadata = payload.optJSONObject("metadata")
         if (metadata != null) {
-            val title = metadata.optString("title", "")
-            val artist = metadata.optString("artist", "")
-            val album = metadata.optString("album", "")
-            val artworkUrl = metadata.optString("artwork_url", "")
+            // Note: optString returns literal "null" when JSON has null value, so we filter it
+            val title = metadata.optString("title", "").takeUnless { it == "null" } ?: ""
+            val artist = metadata.optString("artist", "").takeUnless { it == "null" } ?: ""
+            val album = metadata.optString("album", "").takeUnless { it == "null" } ?: ""
+            val artworkUrl = metadata.optString("artwork_url", "").takeUnless { it == "null" } ?: ""
             val durationMs = metadata.optLong("duration_ms", 0)
             val positionMs = metadata.optLong("position_ms", 0)
 
