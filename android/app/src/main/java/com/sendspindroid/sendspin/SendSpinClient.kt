@@ -529,7 +529,9 @@ class SendSpinClient(
                 put("metadata@v1")    // Needed to receive track metadata
             })
             put("device_info", deviceInfo)
-            put("player@v1_support", playerSupport)
+            // Use legacy field name for compatibility with older servers
+            // (newer servers accept both player_support and player@v1_support)
+            put("player_support", playerSupport)
         }
 
         val message = JSONObject().apply {
