@@ -61,6 +61,7 @@ Bytes 9+:   Payload (PCM audio or image data)
 - **Platform**: Windows
 - **IDE**: Android Studio
 - **JAVA_HOME**: `C:\Program Files\Android\Android Studio\jbr`
+- **ADB**: `$LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe` (not in PATH)
 
 ## Build Notes
 

@@ -95,12 +95,13 @@ data class PlaybackState(
     /**
      * Returns a copy with updated metadata from a server/state message.
      *
-     * Preserves existing values when new values are null (partial updates).
-     * This matches the C# reference implementation which uses null-coalescing:
-     * `Title = meta.Title ?? existing.Title`
+     * Handles three cases for each field:
+     * - null: Don't update (partial update - preserve existing value)
+     * - empty string: Clear the field (track has no data for this field)
+     * - non-empty string: Update with new value
      *
-     * The server may send partial updates (e.g., just artwork_url) and we
-     * don't want to lose the title/artist when that happens.
+     * The server sends empty strings for missing metadata (e.g., tracks without
+     * artist info), so we treat empty strings as "clear this field".
      */
     fun withMetadata(
         title: String?,
@@ -110,10 +111,27 @@ data class PlaybackState(
         durationMs: Long,
         positionMs: Long
     ): PlaybackState = copy(
-        title = title ?: this.title,
-        artist = artist ?: this.artist,
-        album = album ?: this.album,
-        artworkUrl = artworkUrl ?: this.artworkUrl,
+        // null = preserve, empty = clear, value = update
+        title = when {
+            title == null -> this.title
+            title.isEmpty() -> null
+            else -> title
+        },
+        artist = when {
+            artist == null -> this.artist
+            artist.isEmpty() -> null
+            else -> artist
+        },
+        album = when {
+            album == null -> this.album
+            album.isEmpty() -> null
+            else -> album
+        },
+        artworkUrl = when {
+            artworkUrl == null -> this.artworkUrl
+            artworkUrl.isEmpty() -> null
+            else -> artworkUrl
+        },
         durationMs = if (durationMs > 0) durationMs else this.durationMs,
         positionMs = positionMs,
         positionUpdatedAt = SystemClock.elapsedRealtime()

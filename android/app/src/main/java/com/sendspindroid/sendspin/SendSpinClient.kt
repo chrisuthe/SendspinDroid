@@ -1071,14 +1071,10 @@ class SendSpinClient(
             callback.onStateChanged(state)
         }
 
-        // Extract volume if present (0-100)
-        if (payload.has("volume")) {
-            val volume = payload.optInt("volume", -1)
-            if (volume in 0..100) {
-                Log.d(TAG, "Server volume update: $volume%")
-                callback.onVolumeChanged(volume)
-            }
-        }
+        // Note: server/state may contain a "volume" field, but per SendSpin protocol spec,
+        // this is the GROUP AVERAGE volume for controller role clients, not the player's
+        // individual volume. Players receive volume commands via server/command messages.
+        // We intentionally don't process volume from server/state to avoid UI desync.
     }
 
     /**
@@ -1171,14 +1167,8 @@ class SendSpinClient(
         Log.d(TAG, "group/update: id=$groupId, name=$groupName, state=$playbackState")
         callback.onGroupUpdate(groupId, groupName, playbackState)
 
-        // Check for volume in group/update as well
-        if (payload.has("volume")) {
-            val volume = payload.optInt("volume", -1)
-            if (volume in 0..100) {
-                Log.d(TAG, "Group volume update: $volume%")
-                callback.onVolumeChanged(volume)
-            }
-        }
+        // Note: Per SendSpin protocol spec, group/update does not contain volume data.
+        // Player volume is controlled exclusively via server/command messages.
     }
 
     /**

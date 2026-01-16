@@ -329,6 +329,11 @@ class PlaybackService : MediaLibraryService() {
         // Track current volume to detect external changes
         lastKnownVolume = audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) ?: 0
 
+        // Initialize playback state with actual device volume (not default 100%)
+        val maxVolume = audioManager?.getStreamMaxVolume(AudioManager.STREAM_MUSIC) ?: 15
+        val volumePercent = ((lastKnownVolume.toFloat() / maxVolume) * 100).toInt()
+        _playbackState.value = _playbackState.value.copy(volume = volumePercent)
+
         // Create observer to detect volume changes from hardware buttons
         volumeObserver = object : ContentObserver(mainHandler) {
             override fun onChange(selfChange: Boolean) {
@@ -628,12 +633,21 @@ class PlaybackService : MediaLibraryService() {
                     durationMs = durationMs
                 )
 
-                updateMediaMetadata(title, artist, album)
-
-                if (artworkUrl.isNotEmpty() && artworkUrl != lastArtworkUrl) {
+                // Handle artwork URL changes
+                // Note: Artwork can also arrive via binary stream (onArtwork callback),
+                // so we only clear artwork URL tracking, not the actual artwork.
+                // The binary artwork path will update artwork separately.
+                if (artworkUrl.isEmpty()) {
+                    // Track has no artwork URL - clear the URL tracker
+                    // but don't clear currentArtwork (binary artwork might arrive)
+                    lastArtworkUrl = null
+                } else if (artworkUrl != lastArtworkUrl) {
+                    // New artwork URL - fetch it
                     lastArtworkUrl = artworkUrl
                     fetchArtwork(artworkUrl)
                 }
+
+                updateMediaMetadata(title, artist, album)
             }
         }
 
@@ -961,7 +975,7 @@ class PlaybackService : MediaLibraryService() {
                 sendSpinClient?.disconnect()
             }
 
-            // Read current device volume and set as initial volume for server
+            // Read current device volume and set as initial volume for server and UI
             val am = audioManager
             if (am != null) {
                 val currentDeviceVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -969,6 +983,8 @@ class PlaybackService : MediaLibraryService() {
                 val volumePercent = ((currentDeviceVolume.toFloat() / maxVolume) * 100).toInt()
                 Log.d(TAG, "Setting initial volume from device: $currentDeviceVolume/$maxVolume = $volumePercent%")
                 sendSpinClient?.setInitialVolume(volumePercent)
+                // Also update playback state so UI shows correct volume from the start
+                _playbackState.value = _playbackState.value.copy(volume = volumePercent)
             }
 
             sendSpinClient?.connect(address, path)
