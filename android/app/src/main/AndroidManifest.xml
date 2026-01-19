@@ -97,12 +97,10 @@
 
         <!-- MainActivity: Primary activity and app entry point
              - exported: Allow external apps to launch (required for MAIN/LAUNCHER intent-filter)
-             - configChanges: Handle these changes without recreating activity
-               Prevents playback UI disruption on rotation/resize
-             - Security: Only export activities that should be accessible externally -->
+             - Security: Only export activities that should be accessible externally
+             Note: No configChanges - activity recreates on rotation to load layout-land -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
             android:exported="true"
             android:launchMode="singleTop">
 
