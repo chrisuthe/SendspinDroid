@@ -2285,7 +2285,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "onStartCommand: action=${intent?.action}")
+        Log.d(TAG, "onStartCommand: action=${intent?.action}, flags=$flags")
 
         when (intent?.action) {
             // Handle Stay Connected start (from boot or settings toggle)
@@ -2300,10 +2300,18 @@ class PlaybackService : MediaLibraryService() {
                 Log.i(TAG, "Stopping listening mode (from intent)")
                 stopListening()
             }
+            null -> {
+                // Service restarted by system after being killed (START_STICKY)
+                // Re-enter listening mode if it was enabled
+                Log.i(TAG, "Service restarted by system, checking Stay Connected")
+                if (com.sendspindroid.UserSettings.stayConnected && !isListeningMode) {
+                    startListening()
+                }
+            }
         }
 
         super.onStartCommand(intent, flags, startId)
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
