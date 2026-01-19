@@ -17,6 +17,7 @@ object UserSettings {
     const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
     const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
     const val KEY_PREFERRED_CODEC = "preferred_codec"
+    const val KEY_STAY_CONNECTED = "stay_connected"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -138,5 +139,20 @@ object UserSettings {
             else -> KEY_PREFERRED_CODEC
         }
         prefs?.edit()?.putString(key, codec)?.apply()
+    }
+
+    /**
+     * Whether Stay Connected mode is enabled.
+     * When enabled, the app advertises itself via mDNS and runs a WebSocket server,
+     * allowing SendSpin servers to discover and connect to initiate playback remotely.
+     */
+    val stayConnected: Boolean
+        get() = prefs?.getBoolean(KEY_STAY_CONNECTED, false) ?: false
+
+    /**
+     * Sets the Stay Connected mode preference.
+     */
+    fun setStayConnected(enabled: Boolean) {
+        prefs?.edit()?.putBoolean(KEY_STAY_CONNECTED, enabled)?.apply()
     }
 }

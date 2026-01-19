@@ -177,6 +177,9 @@ dependencies {
     // Preference - Settings UI with PreferenceFragmentCompat
     implementation("androidx.preference:preference-ktx:1.2.1")
 
+    // Java-WebSocket - Lightweight WebSocket server for server-initiated connections
+    implementation("org.java-websocket:Java-WebSocket:1.6.0")
+
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)
     // implementation("androidx.recyclerview:recyclerview:1.3.x")
