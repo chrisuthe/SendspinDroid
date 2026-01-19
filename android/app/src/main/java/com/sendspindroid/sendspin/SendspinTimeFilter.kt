@@ -31,33 +31,211 @@ import kotlin.math.sqrt
 class SendspinTimeFilter {
 
     companion object {
-        // Process noise - how much we expect the clock to drift
-        private const val PROCESS_NOISE_OFFSET = 100.0 // μs² per second
-        private const val PROCESS_NOISE_DRIFT = 1e-6 // (μs/μs)² per second
+        // ============================================================================
+        // KALMAN FILTER CONSTANTS - Detailed Documentation
+        // ============================================================================
+        //
+        // This Kalman filter tracks two state variables:
+        //   1. offset: Time difference between client and server clocks (microseconds)
+        //   2. drift: Rate of clock divergence (microseconds per microsecond, i.e., dimensionless)
+        //
+        // The filter uses a constant-velocity model where offset evolves according to:
+        //   offset(t+dt) = offset(t) + drift * dt + process_noise
+        //
+        // References:
+        // - NTP clock discipline algorithm (RFC 5905)
+        // - Kalman filter theory: Welch & Bishop, "An Introduction to the Kalman Filter"
+        // - aiosendspin Python reference implementation (time_sync.py)
+        // ============================================================================
 
-        // Minimum measurements before we consider ourselves synchronized
+        // ----------------------------------------------------------------------------
+        // PROCESS_NOISE_OFFSET: Variance added to offset estimate per second (μs²/s)
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Models random jitter in the clock offset measurement.
+        // This accounts for unpredictable variations in network latency, OS scheduling
+        // delays, and other sources of timing noise that cause the apparent offset to
+        // change even when the underlying clocks are stable.
+        //
+        // Value rationale: 100 μs²/s means we expect ~10μs standard deviation of
+        // random offset noise per second. This is typical for WiFi networks where
+        // jitter is 1-10ms. The value was tuned empirically against the Python
+        // reference implementation to achieve similar convergence behavior.
+        //
+        // If too low: Filter becomes overconfident, slow to adapt to real changes
+        //             in network conditions. May take many seconds to correct after
+        //             a WiFi handoff or route change.
+        // If too high: Filter never settles, constantly chasing noise. Sync error
+        //              remains high and playback corrections are frequent.
+        // ----------------------------------------------------------------------------
+        private const val PROCESS_NOISE_OFFSET = 100.0
+
+        // ----------------------------------------------------------------------------
+        // PROCESS_NOISE_DRIFT: Variance added to drift estimate per second ((μs/μs)²/s)
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Models how much we expect the clock frequency ratio to
+        // change over time. Quartz oscillators have stable short-term frequency but
+        // can drift due to temperature changes, aging, and voltage variations.
+        //
+        // Value rationale: 1e-6 (μs/μs)²/s is extremely small because clock drift
+        // changes very slowly - a phone's crystal oscillator won't suddenly change
+        // frequency. This allows the filter to track long-term drift while ignoring
+        // measurement-to-measurement noise in drift estimation.
+        //
+        // If too low: Drift estimate becomes frozen, unable to track real frequency
+        //             changes (e.g., phone warming up, ambient temperature change).
+        // If too high: Drift estimate becomes noisy, oscillating wildly and causing
+        //              the offset prediction to overshoot/undershoot.
+        // ----------------------------------------------------------------------------
+        private const val PROCESS_NOISE_DRIFT = 1e-6
+
+        // ----------------------------------------------------------------------------
+        // MIN_MEASUREMENTS: Minimum measurements before isReady becomes true
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Number of round-trip time measurements needed before
+        // the filter has enough information for basic time conversion.
+        //
+        // Value rationale: 2 measurements are needed because:
+        //   - 1st measurement: Initializes offset (no drift information yet)
+        //   - 2nd measurement: Provides first drift estimate (needs two points)
+        // With only 1 measurement, we have offset but no drift, making predictions
+        // unreliable over time.
+        //
+        // If too low (1): Playback starts with no drift estimate, may drift away
+        //                 from sync before more measurements arrive.
+        // If too high: Unnecessary delay before playback can begin. User waits
+        //              longer for audio to start.
+        // ----------------------------------------------------------------------------
         private const val MIN_MEASUREMENTS = 2
 
-        // Stricter convergence threshold for good sync quality
+        // ----------------------------------------------------------------------------
+        // MIN_MEASUREMENTS_FOR_CONVERGENCE: Measurements for high-confidence sync
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Number of measurements needed before we consider the
+        // filter "converged" to a stable, high-quality estimate.
+        //
+        // Value rationale: 5 measurements provide enough statistical samples for
+        // the Kalman gain to stabilize. After ~5 iterations, the covariance matrix
+        // typically settles to its steady-state value. This matches behavior
+        // observed in the Python reference implementation.
+        //
+        // If too low: isConverged triggers early, possibly before the filter has
+        //             settled. May cause premature "sync locked" indications.
+        // If too high: Takes too long to report convergence. UI may show "syncing"
+        //              status longer than necessary.
+        // ----------------------------------------------------------------------------
         private const val MIN_MEASUREMENTS_FOR_CONVERGENCE = 5
-        private const val MAX_ERROR_FOR_CONVERGENCE_US = 10_000L  // 10ms
 
-        // Forgetting factor - reset if residual exceeds this fraction of max_error
+        // ----------------------------------------------------------------------------
+        // MAX_ERROR_FOR_CONVERGENCE_US: Maximum acceptable uncertainty for convergence
+        // ----------------------------------------------------------------------------
+        // Physical meaning: The standard deviation threshold (in microseconds) below
+        // which we consider the sync estimate reliable. This is derived from the
+        // covariance matrix diagonal element P[0,0].
+        //
+        // Value rationale: 10,000μs (10ms) is chosen because:
+        //   - Human perception: Audio sync errors <20ms are generally imperceptible
+        //   - Sample accuracy: At 48kHz, 10ms = 480 samples - well within correction range
+        //   - Network reality: WiFi jitter is often 5-20ms, so <10ms uncertainty
+        //     indicates the filter has successfully averaged out the noise.
+        //
+        // If too low: Convergence may never be reached on high-jitter networks.
+        //             Filter perpetually reports "not converged".
+        // If too high: Reports convergence even when sync quality is poor.
+        //              Playback may have audible glitches despite "converged" status.
+        // ----------------------------------------------------------------------------
+        private const val MAX_ERROR_FOR_CONVERGENCE_US = 10_000L
+
+        // ----------------------------------------------------------------------------
+        // FORGETTING_THRESHOLD: Normalized residual threshold for step change detection
+        // ----------------------------------------------------------------------------
+        // Physical meaning: When the measurement deviates from prediction by more than
+        // this factor (in normalized units), we suspect a step change in offset (e.g.,
+        // network route change) and increase covariance to adapt faster.
+        //
+        // Value rationale: 0.75 means if the squared normalized innovation exceeds
+        // 0.5625 (0.75²), we boost covariance by 10x. This corresponds roughly to
+        // a 0.75σ deviation, which is fairly sensitive. The threshold is intentionally
+        // low because:
+        //   - Network step changes are common (WiFi handoffs, mobile network switches)
+        //   - Fast adaptation is more important than filtering occasional outliers
+        //   - The 10x covariance boost is moderate, not a full reset
+        //
+        // If too low: Every small fluctuation triggers adaptation mode. Filter
+        //             never settles, constantly in "catching up" state.
+        // If too high: Genuine step changes are ignored. After a route change,
+        //              filter takes many seconds to reconverge.
+        // ----------------------------------------------------------------------------
         private const val FORGETTING_THRESHOLD = 0.75
 
-        // Maximum allowed drift (±500 ppm = ±5e-4)
-        // Real quartz oscillators have drift of ~20-100 ppm, so this is generous
+        // ----------------------------------------------------------------------------
+        // MAX_DRIFT: Maximum allowed drift magnitude (dimensionless, μs/μs)
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Hard limit on clock frequency difference. ±5e-4 means
+        // ±500 parts per million (ppm), or ±0.05% frequency difference.
+        //
+        // Value rationale: 500 ppm is generous for real hardware:
+        //   - Typical quartz oscillators: 20-100 ppm accuracy
+        //   - Phone crystals: Often 10-50 ppm
+        //   - Temperature effects: Can add 10-20 ppm variation
+        // The limit prevents the drift term from growing unbounded due to
+        // measurement noise, which would cause offset predictions to diverge.
+        // At 500 ppm, over 1 hour the drift would only contribute 1.8 seconds
+        // of offset change - well within correctable range.
+        //
+        // If too low: May clip legitimate drift, causing persistent sync error
+        //             if client and server clocks genuinely differ by more.
+        // If too high: Noisy drift estimates can cause wild offset predictions.
+        //              Filter may oscillate around true value.
+        // ----------------------------------------------------------------------------
         private const val MAX_DRIFT = 5e-4
 
-        // Drift decay factor - slowly decay drift towards zero to prevent long-term accumulation
-        // Applied every update: drift *= (1 - DRIFT_DECAY_RATE)
-        // At 1Hz updates, 0.01 gives ~1% decay per second, ~50% after 70 seconds
+        // ----------------------------------------------------------------------------
+        // DRIFT_DECAY_RATE: Per-update decay factor for drift estimate
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Each update, drift is multiplied by (1 - DRIFT_DECAY_RATE),
+        // slowly pulling it toward zero. This implements a "leaky integrator" that
+        // prevents long-term drift accumulation from small estimation errors.
+        //
+        // Value rationale: 0.01 (1% decay per update) was tuned empirically:
+        //   - At 1 Hz updates: Drift halves every ~70 seconds (ln(2)/0.01 ≈ 69)
+        //   - At 4 Hz updates: Drift halves every ~17 seconds
+        // This is slow enough to track real drift but fast enough to prevent
+        // runaway accumulation. The Python reference doesn't use this technique,
+        // but it was found necessary in the Android implementation due to
+        // differences in measurement timing and noise characteristics.
+        //
+        // If too low (0.001): Drift errors accumulate, causing gradual sync
+        //                      divergence over hours of playback.
+        // If too high (0.1): Real drift is suppressed. If clocks genuinely differ,
+        //                    filter constantly fights the true drift, never settling.
+        // ----------------------------------------------------------------------------
         private const val DRIFT_DECAY_RATE = 0.01
 
-        // Continuous forgetting factor - covariance grows by λ² each measurement
-        // This prevents overconfidence and allows smoother adaptation to gradual changes
-        // λ = 1.001 means ~0.2% growth per measurement
-        // At 4 measurements/sec, covariance doubles in ~3 minutes
+        // ----------------------------------------------------------------------------
+        // FORGETTING_FACTOR: Covariance inflation factor per measurement (λ)
+        // ----------------------------------------------------------------------------
+        // Physical meaning: Covariance is multiplied by λ² each update, preventing
+        // the filter from becoming overconfident. This implements "exponential
+        // forgetting" where older measurements have less influence than recent ones.
+        //
+        // Value rationale: λ = 1.001 means:
+        //   - Per measurement: Covariance grows by ~0.2% (1.001² ≈ 1.002)
+        //   - Covariance doubles after ~346 measurements (ln(2)/ln(1.002) ≈ 346)
+        //   - At 4 measurements/sec: Doubles every ~86 seconds (~1.5 minutes)
+        //
+        // This ensures the filter remains responsive to gradual changes in network
+        // conditions (e.g., increasing WiFi congestion) rather than becoming
+        // "locked in" to an outdated estimate.
+        //
+        // If too low (1.0): Filter becomes increasingly confident, eventually
+        //                    ignoring new measurements. Cannot adapt to changing
+        //                    network conditions.
+        // If too high (1.01): Filter never gains confidence. Sync error remains
+        //                     high because it weights all measurements equally.
+        //
+        // Note: This is related to but distinct from FORGETTING_THRESHOLD. The
+        // threshold handles sudden step changes; this factor handles gradual drift.
+        // ----------------------------------------------------------------------------
         private const val FORGETTING_FACTOR = 1.001
     }
 
@@ -84,7 +262,7 @@ class SendspinTimeFilter {
     private var staticDelayMicros: Long = 0
 
     // Frozen state for reconnection - preserves sync across network drops
-    private var frozenState: FrozenState? = null
+    @Volatile private var frozenState: FrozenState? = null
 
     private data class FrozenState(
         val offset: Double,

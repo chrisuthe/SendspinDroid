@@ -25,19 +25,117 @@ import kotlin.math.abs
 /**
  * Playback state machine for synchronized audio.
  *
- * Follows the Python reference implementation pattern:
- * - INITIALIZING: Waiting for first chunk and time sync
- * - WAITING_FOR_START: Buffer filling, scheduled start computed
- * - PLAYING: Active playback with sync corrections
- * - REANCHORING: Large error exceeded threshold, resetting
- * - DRAINING: Connection lost, playing from buffer while reconnecting
+ * Follows the Python reference implementation pattern for start gating and reanchoring.
+ * This state machine ensures synchronized playback by controlling when audio starts
+ * and handling sync errors gracefully.
+ *
+ * ## State Diagram
+ * ```
+ *                              ┌─────────────────────────────────────────────────┐
+ *                              │                                                 │
+ *                              ▼                                                 │
+ *                      ┌──────────────┐                                          │
+ *          ┌──────────►│ INITIALIZING │◄──────────────────────────────┐          │
+ *          │           └──────┬───────┘                               │          │
+ *          │                  │ first chunk received                  │          │
+ *          │                  │ (queueChunk)                          │          │
+ *          │                  ▼                                       │          │
+ *          │      ┌───────────────────────┐                           │          │
+ *          │      │  WAITING_FOR_START    │◄──────┐                   │          │
+ *          │      │  (buffer filling)     │       │                   │          │
+ *          │      └───────────┬───────────┘       │                   │          │
+ *          │                  │ buffer >= 200ms   │                   │          │
+ *          │                  │ AND scheduled     │ reanchor chunk    │          │
+ *          │                  │ start time        │ received          │          │
+ *          │                  │ reached           │                   │          │
+ *          │                  ▼                   │                   │          │
+ *          │           ┌──────────────┐     ┌─────┴──────┐            │          │
+ *          │           │   PLAYING    │────►│ REANCHORING│────────────┘          │
+ *          │           │              │     └────────────┘                       │
+ *          │           └──────┬───────┘      large sync error                    │
+ *          │                  │              (> 500ms)                           │
+ *          │                  │                                                  │
+ *          │                  │ connection lost                                  │
+ *          │                  │ (enterDraining)                                  │
+ *          │                  ▼                                                  │
+ *          │           ┌──────────────┐                                          │
+ *          │           │   DRAINING   │──────────────────────────────────────────┘
+ *          │           │              │  buffer exhausted
+ *          │           └──────┬───────┘
+ *          │                  │ reconnected (exitDraining)
+ *          │                  │ OR new chunks arrive
+ *          │                  ▼
+ *          │           ┌──────────────┐
+ *          └───────────┤   PLAYING    │
+ *            stop()    └──────────────┘
+ *            clearBuffer()
+ * ```
+ *
+ * ## State Transition Table
+ * ```
+ * ┌─────────────────────┬─────────────────────┬─────────────────────────────────────────────────┐
+ * │ From State          │ To State            │ Trigger / Condition                             │
+ * ├─────────────────────┼─────────────────────┼─────────────────────────────────────────────────┤
+ * │ INITIALIZING        │ WAITING_FOR_START   │ First audio chunk received in queueChunk()     │
+ * │ WAITING_FOR_START   │ PLAYING             │ Buffer >= 200ms AND scheduled start time       │
+ * │                     │                     │ reached (handleStartGating)                    │
+ * │ PLAYING             │ REANCHORING         │ Sync error > 500ms (triggerReanchor)           │
+ * │ PLAYING             │ DRAINING            │ Connection lost (enterDraining called)         │
+ * │ REANCHORING         │ INITIALIZING        │ After clearing buffers (triggerReanchor)       │
+ * │ REANCHORING         │ WAITING_FOR_START   │ New chunk received during reanchor             │
+ * │ DRAINING            │ PLAYING             │ Reconnected (exitDraining called)              │
+ * │ DRAINING            │ INITIALIZING        │ Buffer exhausted during drain                  │
+ * │ Any State           │ INITIALIZING        │ stop() or clearBuffer() called                 │
+ * └─────────────────────┴─────────────────────┴─────────────────────────────────────────────────┘
+ * ```
+ *
+ * ## State Descriptions
+ *
+ * ### INITIALIZING
+ * Initial state. Waiting for the first audio chunk and time synchronization.
+ * No audio output occurs. Transitions to WAITING_FOR_START when first chunk arrives.
+ *
+ * ### WAITING_FOR_START
+ * Buffer is being filled with audio chunks. A scheduled start time has been computed
+ * based on the first chunk's server timestamp. Waits until:
+ * - Buffer has at least 200ms of audio (MIN_BUFFER_BEFORE_START_MS)
+ * - Scheduled start time is reached or passed
+ * During this state, the scheduled start time is continuously updated as time sync improves.
+ *
+ * ### PLAYING
+ * Active synchronized playback with sample insert/drop corrections.
+ * Audio is written to AudioTrack with:
+ * - Sync error monitoring (Kalman filtered)
+ * - Sample insertion (slow down) or dropping (speed up) to maintain sync
+ * - 500ms startup grace period before corrections begin
+ *
+ * ### REANCHORING
+ * Transient state triggered by large sync error (> 500ms).
+ * Clears all buffers and resets timing state to recover from severe desync.
+ * Has a 5-second cooldown to prevent thrashing. Transitions to INITIALIZING
+ * immediately, then to WAITING_FOR_START when new chunk arrives.
+ *
+ * ### DRAINING
+ * Connection lost but buffer contains audio. Continues playing from buffer while
+ * reconnection is attempted. Monitors buffer level and notifies via callback:
+ * - onBufferLow() when < 1 second remains
+ * - onBufferExhausted() when buffer runs out
+ * New chunks can still be queued (seamlessly spliced via gap/overlap handling).
  */
 enum class PlaybackState {
+    /** Waiting for first audio chunk and time sync to be ready. */
     INITIALIZING,
+
+    /** Buffer filling, scheduled start time computed. Waiting for enough buffer and start time. */
     WAITING_FOR_START,
+
+    /** Active synchronized playback with sample insert/drop corrections. */
     PLAYING,
+
+    /** Large sync error exceeded threshold. Resetting timing state to recover. */
     REANCHORING,
-    /** Playing from buffer only - no new chunks arriving. Network disconnected, draining existing buffer. */
+
+    /** Connection lost. Playing from buffer only while reconnecting. */
     DRAINING
 }
 
@@ -110,6 +208,7 @@ class SyncAudioPlayer(
 
         // Buffer configuration
         private const val BUFFER_HEADROOM_MS = 200  // Schedule audio 200ms ahead
+        private const val BUFFER_SIZE_MULTIPLIER = 4  // Multiplier for minimum buffer size
 
         // Sync error Kalman filter parameters
         // Expected measurement noise in microseconds (5ms jitter)
@@ -131,6 +230,21 @@ class SyncAudioPlayer(
         private const val BUFFER_WARNING_MS = 1000L   // Warn when buffer drops below 1 second
         private const val BUFFER_CRITICAL_MS = 200L   // Critical warning at 200ms
         private const val BUFFER_WARNING_INTERVAL_US = 500_000L  // Rate limit warnings to 500ms
+
+        // Playback loop timing (milliseconds)
+        private const val STATE_POLL_DELAY_MS = 10L   // Polling interval during state transitions
+        private const val BUFFER_EMPTY_DELAY_MS = 5L  // Short delay when buffer is empty/draining
+        private const val EARLY_CHUNK_DELAY_MS = 50L  // Wait time when chunk is too early
+
+        // Gap/overlap detection
+        private const val GAP_THRESHOLD_US = 10_000L  // 10ms minimum gap before filling with silence
+        private const val DISCONTINUITY_THRESHOLD_US = 100_000L  // 100ms gap indicates discontinuity (for logging)
+
+        // Logging and diagnostics
+        private const val CHUNK_DROP_LOG_INTERVAL = 100  // Log every Nth dropped chunk when time sync not ready
+
+        // Coroutine cancellation
+        private const val PLAYBACK_LOOP_CANCEL_TIMEOUT_MS = 1000L  // Timeout waiting for playback loop to stop
     }
 
     /**
@@ -234,9 +348,6 @@ class SyncAudioPlayer(
     private var overlapsTrimmed = 0L      // Count of overlaps trimmed
     private var overlapTrimmedMs = 0L     // Total milliseconds of audio trimmed
 
-    // Threshold for gap filling - don't fill tiny gaps from network jitter
-    private val GAP_THRESHOLD_US = 10_000L  // 10ms minimum gap before filling
-
     // Bytes per sample (e.g., 2 channels * 2 bytes = 4 bytes per sample frame)
     private val bytesPerFrame = channels * (bitDepth / 8)
 
@@ -279,7 +390,7 @@ class SyncAudioPlayer(
         // Calculate minimum buffer size
         val minBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, encoding)
         // Use larger buffer for scheduling headroom
-        val bufferSize = maxOf(minBufferSize * 4, sampleRate * bytesPerFrame) // ~1 second
+        val bufferSize = maxOf(minBufferSize * BUFFER_SIZE_MULTIPLIER, sampleRate * bytesPerFrame) // ~1 second
 
         try {
             audioTrack = AudioTrack.Builder()
@@ -312,6 +423,9 @@ class SyncAudioPlayer(
 
     /**
      * Start playback.
+     *
+     * This method is thread-safe and handles rapid start/stop cycles by ensuring
+     * any existing coroutine scope is fully cancelled before creating a new one.
      */
     fun start() {
         if (isReleased.get()) {
@@ -331,10 +445,21 @@ class SyncAudioPlayer(
                 return
             }
 
-            // Cancel any existing playback job and scope
+            // Cancel any existing playback job and scope - this ensures complete cleanup
+            // even during rapid start/stop cycles. cancelPlaybackLoop() clears the scope
+            // reference before waiting, so we're guaranteed scope is null after this.
             cancelPlaybackLoop()
 
+            // Defensive check: scope should be null after cancelPlaybackLoop()
+            // This guards against any potential race condition
+            if (scope != null) {
+                Log.e(TAG, "BUG: Scope was not null after cancelPlaybackLoop - forcing cleanup")
+                scope?.cancel()
+                scope = null
+            }
+
             // Create a new scope for this playback session
+            // Using SupervisorJob so child failures don't cancel the scope
             scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
             isPlaying.set(true)
@@ -352,18 +477,22 @@ class SyncAudioPlayer(
      * Pause playback.
      */
     fun pause() {
-        isPaused.set(true)
-        audioTrack?.pause()
-        Log.d(TAG, "Playback paused")
+        stateLock.withLock {
+            isPaused.set(true)
+            audioTrack?.pause()
+            Log.d(TAG, "Playback paused")
+        }
     }
 
     /**
      * Resume playback.
      */
     fun resume() {
-        isPaused.set(false)
-        audioTrack?.play()
-        Log.d(TAG, "Playback resumed")
+        stateLock.withLock {
+            isPaused.set(false)
+            audioTrack?.play()
+            Log.d(TAG, "Playback resumed")
+        }
     }
 
     /**
@@ -417,33 +546,39 @@ class SyncAudioPlayer(
      * Cancel the playback loop coroutine and wait for it to complete.
      *
      * Must be called while holding stateLock or when certain no concurrent access.
+     * This method ensures complete cleanup even during rapid start/stop cycles.
      */
     private fun cancelPlaybackLoop() {
-        val job = playbackJob
         val currentScope = scope
+        val job = playbackJob
 
+        // Clear references immediately to prevent race conditions where a new
+        // start() call could see stale references
+        playbackJob = null
+        scope = null
+
+        if (currentScope == null) {
+            return
+        }
+
+        // Cancel the scope first - this cancels ALL coroutines in the scope,
+        // not just the playback job. This is safer than cancelling individual jobs.
+        currentScope.cancel()
+
+        // Wait for the job to complete if it was active
         if (job != null && job.isActive) {
-            // Cancel the job
-            job.cancel()
-
-            // Wait for the coroutine to finish (with timeout to prevent deadlock)
             try {
                 runBlocking {
-                    withTimeoutOrNull(1000L) {
+                    withTimeoutOrNull(PLAYBACK_LOOP_CANCEL_TIMEOUT_MS) {
                         job.join()
-                    } ?: Log.w(TAG, "Playback loop did not stop within timeout")
+                    } ?: Log.w(TAG, "Playback loop did not stop within timeout - scope was cancelled, coroutines will be cleaned up")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Exception while waiting for playback loop to stop", e)
             }
         }
 
-        // Cancel the scope to clean up any lingering coroutines
-        currentScope?.cancel()
-
-        // Clear references
-        playbackJob = null
-        scope = null
+        Log.v(TAG, "Playback loop cancelled and cleaned up")
     }
 
     /**
@@ -572,7 +707,7 @@ class SyncAudioPlayer(
         // Wait for time sync to be ready
         if (!timeFilter.isReady) {
             chunksDropped++
-            if (chunksDropped % 100 == 1L) {
+            if (chunksDropped % CHUNK_DROP_LOG_INTERVAL == 1L) {
                 Log.v(TAG, "Dropping chunk - time sync not ready (dropped: $chunksDropped)")
             }
             return
@@ -649,8 +784,8 @@ class SyncAudioPlayer(
             val serverGap = serverTimeMicros - lastChunkServerTime
             val expectedGapUs = (pcmData.size.toLong() / bytesPerFrame) * microsPerSample.toLong()
 
-            // If gap is more than 100ms different from expected, log it
-            if (abs(serverGap - expectedGapUs) > 100_000) {
+            // If gap is more than threshold different from expected, log it
+            if (abs(serverGap - expectedGapUs) > DISCONTINUITY_THRESHOLD_US) {
                 Log.w(TAG, "Discontinuity detected: gap=${serverGap}us, expected=${expectedGapUs}us")
             }
         }
@@ -681,10 +816,22 @@ class SyncAudioPlayer(
         val chunkDurationUs = (sampleCount * 1_000_000L) / sampleRate
         expectedNextTimestampUs = workingServerTimeMicros + chunkDurationUs
 
-        // Handle start gating state transitions (from Python reference)
+        // ====================================================================
+        // State Machine Transitions in queueChunk()
+        // ====================================================================
+        // This is where incoming audio chunks trigger state transitions.
+        // The key transitions here are:
+        //   INITIALIZING -> WAITING_FOR_START (first chunk establishes timing)
+        //   REANCHORING  -> WAITING_FOR_START (recovery from large sync error)
+        //
+        // See PlaybackState enum for the complete state diagram.
+        // ====================================================================
         when (playbackState) {
             PlaybackState.INITIALIZING -> {
-                // First chunk received - schedule start time
+                // TRANSITION: INITIALIZING -> WAITING_FOR_START
+                // Trigger: First audio chunk received while time sync is ready
+                // Action: Record the first chunk's server timestamp as anchor point,
+                //         compute scheduled client-time start, begin buffer filling
                 firstServerTimestampUs = workingServerTimeMicros
                 scheduledStartLoopTimeUs = clientPlayTime
                 setPlaybackState(PlaybackState.WAITING_FOR_START)
@@ -692,15 +839,23 @@ class SyncAudioPlayer(
                         "scheduled start at ${clientPlayTime/1000}ms, transitioning to WAITING_FOR_START")
             }
             PlaybackState.WAITING_FOR_START -> {
-                // Update scheduled start time as time sync improves
-                // Use the first server timestamp to maintain consistent anchor
+                // NO TRANSITION - Still in WAITING_FOR_START
+                // Action: Update scheduled start time as time sync improves.
+                // The time filter's offset estimate improves with more samples,
+                // so we recompute the client play time using the original server timestamp.
+                // This ensures the scheduled start aligns with the corrected time sync.
                 val firstTs = firstServerTimestampUs
                 if (firstTs != null) {
                     scheduledStartLoopTimeUs = timeFilter.serverToClient(firstTs)
                 }
+                // Actual transition to PLAYING happens in playback loop's handleStartGating()
+                // when buffer >= 200ms AND scheduled start time is reached.
             }
             PlaybackState.REANCHORING -> {
-                // During reanchor, we're resetting - treat as new first chunk
+                // TRANSITION: REANCHORING -> WAITING_FOR_START
+                // Trigger: New chunk arrives after reanchor cleared all buffers
+                // Action: Treat this as the new "first" chunk, establish new timing anchor.
+                // This completes the reanchor recovery - we have fresh timing reference.
                 firstServerTimestampUs = workingServerTimeMicros
                 scheduledStartLoopTimeUs = clientPlayTime
                 setPlaybackState(PlaybackState.WAITING_FOR_START)
@@ -708,8 +863,12 @@ class SyncAudioPlayer(
             }
             PlaybackState.PLAYING,
             PlaybackState.DRAINING -> {
-                // Normal operation - nothing special needed
-                // DRAINING receives chunks when reconnected, seamlessly spliced via gap/overlap handling
+                // NO TRANSITION - Normal chunk processing
+                // PLAYING: Standard operation, chunks added to queue for playback.
+                // DRAINING: Reconnected! New chunks arrive and are seamlessly spliced
+                //           into the existing buffer via gap/overlap handling above.
+                //           The exitDraining() call (from SendSpinClient) will
+                //           transition back to PLAYING once stream is stable.
             }
         }
 
@@ -893,7 +1052,7 @@ class SyncAudioPlayer(
 
             while (isActive && isPlaying.get()) {
                 if (isPaused.get()) {
-                    delay(10)
+                    delay(STATE_POLL_DELAY_MS)
                     continue
                 }
 
@@ -901,7 +1060,7 @@ class SyncAudioPlayer(
                 when (playbackState) {
                     PlaybackState.INITIALIZING -> {
                         // Waiting for first chunk - nothing to do
-                        delay(10)
+                        delay(STATE_POLL_DELAY_MS)
                         continue
                     }
 
@@ -909,13 +1068,13 @@ class SyncAudioPlayer(
                         // Check if we have enough buffer before starting
                         val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
                         if (bufferedMs < MIN_BUFFER_BEFORE_START_MS) {
-                            delay(10)
+                            delay(STATE_POLL_DELAY_MS)
                             continue
                         }
 
                         // Handle start gating logic
                         if (handleStartGating()) {
-                            delay(10)  // Still waiting for scheduled start
+                            delay(STATE_POLL_DELAY_MS)  // Still waiting for scheduled start
                             continue
                         }
                         // handleStartGating() transitioned us to PLAYING
@@ -923,7 +1082,7 @@ class SyncAudioPlayer(
 
                     PlaybackState.REANCHORING -> {
                         // Waiting for new chunks after reanchor
-                        delay(10)
+                        delay(STATE_POLL_DELAY_MS)
                         continue
                     }
 
@@ -937,7 +1096,7 @@ class SyncAudioPlayer(
                             Log.e(TAG, "Buffer exhausted during DRAINING - stopping playback")
                             stateCallback?.onBufferExhausted()
                             setPlaybackState(PlaybackState.INITIALIZING)
-                            delay(10)
+                            delay(STATE_POLL_DELAY_MS)
                             continue
                         }
 
@@ -965,11 +1124,11 @@ class SyncAudioPlayer(
                     // No chunks available - buffer underrun
                     if (playbackState == PlaybackState.DRAINING) {
                         // In DRAINING, empty queue means we're exhausted (already handled above)
-                        delay(5)
+                        delay(BUFFER_EMPTY_DELAY_MS)
                         continue
                     }
                     bufferUnderrunCount++
-                    delay(5)
+                    delay(BUFFER_EMPTY_DELAY_MS)
                     continue
                 }
 
@@ -982,7 +1141,7 @@ class SyncAudioPlayer(
                 when {
                     // Too early - wait
                     delayMicros > BUFFER_HEADROOM_MS * 1000L -> {
-                        delay(10)
+                        delay(STATE_POLL_DELAY_MS)
                         continue
                     }
 
@@ -1009,7 +1168,7 @@ class SyncAudioPlayer(
                     // Hard resync needed - chunk is way too early
                     delayMicros > HARD_RESYNC_THRESHOLD_US -> {
                         // Chunk is more than 200ms early - wait more
-                        delay(50)
+                        delay(EARLY_CHUNK_DELAY_MS)
                         continue
                     }
 
@@ -1030,25 +1189,102 @@ class SyncAudioPlayer(
     /**
      * Update the sample insert/drop correction schedule based on sync error.
      *
-     * This implements proportional control: the correction rate is proportional
-     * to the error magnitude, capped at MAX_SPEED_CORRECTION (2%).
+     * ## Design Overview
      *
-     * Uses Kalman-filtered sync error from updateSyncError() (Windows SDK style):
-     * - Positive error = behind (haven't read enough) → DROP to catch up
-     * - Negative error = ahead (read too much) → INSERT to slow down
+     * This implements **proportional control** for imperceptible audio sync correction.
+     * Instead of changing playback rate (which causes audible pitch/tempo changes), we
+     * insert or drop individual sample frames. At 48kHz, a single frame is ~21 microseconds
+     * - far below the ~10ms threshold of human perception for audio discontinuities.
      *
-     * @param processingTimeErrorUs Unused - kept for compatibility, sync error comes from updateSyncError()
+     * ## Why Proportional Control?
+     *
+     * A simple on/off correction (always correct at max rate when error exists) would:
+     * - Overshoot the target, causing oscillation around zero
+     * - Create more audible artifacts due to rapid insert/drop transitions
+     *
+     * Proportional control provides:
+     * - Gentle corrections for small errors (most common case)
+     * - Aggressive corrections only when truly needed
+     * - Smooth convergence to zero error without oscillation
+     *
+     * ## The Math: Sync Error to Correction Interval
+     *
+     * Given a sync error in microseconds, we calculate how often to insert/drop frames:
+     *
+     * ```
+     * 1. Convert error to frames:
+     *    framesError = |errorUs| * sampleRate / 1,000,000
+     *    Example: 2ms error at 48kHz = 2000 * 48000 / 1000000 = 96 frames
+     *
+     * 2. Calculate desired corrections per second:
+     *    correctionsPerSec = framesError / CORRECTION_TARGET_SECONDS
+     *    Example: 96 frames / 3 seconds = 32 corrections/sec
+     *
+     * 3. Cap at maximum correction rate:
+     *    maxCorrectionsPerSec = sampleRate * MAX_SPEED_CORRECTION
+     *    Example: 48000 * 0.02 = 960 corrections/sec max
+     *
+     * 4. Calculate interval between corrections:
+     *    intervalFrames = sampleRate / correctionsPerSec
+     *    Example: 48000 / 32 = 1500 frames between corrections
+     *    (drop/insert 1 frame every 1500 frames = 31ms)
+     * ```
+     *
+     * ## Why MAX_SPEED_CORRECTION = 2% (0.02)?
+     *
+     * The 2% limit balances correction speed against audibility:
+     * - Below ~4%: Sample insert/drop is completely imperceptible
+     * - At 2%: Very conservative - even sensitive listeners won't notice
+     * - Correction of 2% at 48kHz = 960 samples/sec = 1 frame every ~1ms
+     * - This can correct up to 960 * 21us = ~20ms of error per second
+     *
+     * Note: The Python reference uses 4%, but 2% provides extra safety margin.
+     *
+     * ## Why CORRECTION_TARGET_SECONDS = 3 seconds?
+     *
+     * This controls the responsiveness vs smoothness tradeoff:
+     * - Shorter (1-2s): More responsive but more aggressive corrections
+     * - Longer (5-10s): Smoother but slow to converge
+     * - 3 seconds: Good balance - corrects typical drift within acceptable time
+     *   while keeping correction rate low for normal operation
+     *
+     * With 3 second target:
+     * - 10ms error -> ~160 corrections/sec -> 1 frame every ~300 frames (6ms)
+     * - 2ms error -> ~32 corrections/sec -> 1 frame every ~1500 frames (31ms)
+     * - This keeps corrections rare and imperceptible in normal conditions
+     *
+     * ## Deadband: Why 2ms Threshold?
+     *
+     * The DEADBAND_THRESHOLD_US (2ms / 2000us) creates a "good enough" zone:
+     * - Errors below 2ms don't trigger any correction
+     * - This prevents constant tiny corrections that waste CPU
+     * - 2ms is well within acceptable sync tolerance for audio
+     * - Human perception of audio/video sync is ~20-80ms; 2ms is imperceptible
+     *
+     * Without a deadband, noise in the sync error measurement would cause
+     * continuous small corrections even when perfectly synced.
+     *
+     * ## Correction Direction
+     *
+     * Uses Kalman-filtered sync error from [updateSyncError]:
+     * - **Positive error** = behind schedule (DAC ahead of read cursor)
+     *   -> DROP frames to catch up (skip input samples, output less)
+     * - **Negative error** = ahead of schedule (DAC behind read cursor)
+     *   -> INSERT duplicate frames to slow down (output more, effective slowdown)
+     *
+     * @param processingTimeErrorUs Unused - kept for API compatibility.
+     *        Sync error is obtained from [syncErrorFilter] (Kalman-filtered).
      */
-    private fun updateCorrectionSchedule(processingTimeErrorUs: Long) {
-        // Skip corrections until start time is calibrated
+    private fun updateCorrectionSchedule(@Suppress("UNUSED_PARAMETER") processingTimeErrorUs: Long) {
+        // Guard: Skip corrections until DAC calibration provides reliable sync error
         if (!startTimeCalibrated) {
             insertEveryNFrames = 0
             dropEveryNFrames = 0
             return
         }
 
-        // Skip corrections during startup grace period (Windows SDK: 500ms)
-        // This allows AudioTimestamp calibration to stabilize before corrections
+        // Guard: Skip corrections during startup grace period (500ms)
+        // AudioTimestamp needs time to stabilize after playback starts
         if (playingStateEnteredAtUs > 0) {
             val nowUs = System.nanoTime() / 1000
             val timeSincePlayingUs = nowUs - playingStateEnteredAtUs
@@ -1059,46 +1295,53 @@ class SyncAudioPlayer(
             }
         }
 
-        // Use the Kalman-filtered sync error from updateSyncError()
-        // This provides optimal smoothing compared to simple EMA
+        // Get Kalman-filtered sync error (smooths measurement noise and tracks drift)
         val effectiveErrorUs = syncErrorFilter.offsetMicros.toDouble()
         val absErr = abs(effectiveErrorUs)
 
-        // Within deadband - no correction needed
+        // Deadband check: errors below 2ms are "good enough" - no correction needed
+        // This prevents oscillation and unnecessary CPU usage for imperceptible errors
         if (absErr <= DEADBAND_THRESHOLD_US) {
             insertEveryNFrames = 0
             dropEveryNFrames = 0
             return
         }
 
-        // Proportional control: correction rate proportional to error
-        // Convert error from microseconds to frames
+        // Step 1: Convert error from microseconds to sample frames
+        // Example: 2000us * 48000Hz / 1,000,000 = 96 frames
         val framesError = absErr * sampleRate / 1_000_000.0
 
-        // How many corrections per second do we want?
-        // We aim to fix the error over CORRECTION_TARGET_SECONDS
+        // Step 2: Calculate desired corrections per second using proportional control
+        // We aim to eliminate the error over CORRECTION_TARGET_SECONDS (3 seconds)
+        // Example: 96 frames / 3 seconds = 32 corrections/sec
         val desiredCorrectionsPerSec = framesError / CORRECTION_TARGET_SECONDS
 
-        // Cap at maximum correction rate (4% of sample rate)
+        // Step 3: Cap at maximum correction rate (2% of sample rate)
+        // Example: 48000 * 0.02 = 960 corrections/sec max
+        // This ensures corrections remain imperceptible even for large errors
         val maxCorrectionsPerSec = sampleRate * MAX_SPEED_CORRECTION
         val correctionsPerSec = minOf(desiredCorrectionsPerSec, maxCorrectionsPerSec)
 
-        // Calculate interval between corrections
+        // Step 4: Calculate interval between corrections (in frames)
+        // Example: 48000 / 32 = 1500 frames between corrections (~31ms at 48kHz)
         val intervalFrames = if (correctionsPerSec > 0) {
             (sampleRate / correctionsPerSec).toInt().coerceAtLeast(1)
         } else {
             0
         }
 
+        // Apply correction in the appropriate direction
         if (effectiveErrorUs > 0) {
-            // Behind schedule (positive error) - drop frames to catch up
+            // Positive error: DAC is ahead of where we've read to
+            // DROP frames to catch up (skip input samples, effectively speeding up)
             dropEveryNFrames = intervalFrames
             insertEveryNFrames = 0
             if (framesUntilNextDrop == 0) {
                 framesUntilNextDrop = intervalFrames
             }
         } else {
-            // Ahead of schedule (negative error) - insert frames to slow down
+            // Negative error: DAC is behind where we've read to
+            // INSERT duplicate frames to slow down (output more samples per input)
             insertEveryNFrames = intervalFrames
             dropEveryNFrames = 0
             if (framesUntilNextInsert == 0) {
@@ -1552,16 +1795,19 @@ class SyncAudioPlayer(
 
     /**
      * Update playback state and notify callback if changed.
+     * Thread-safe via stateLock (ReentrantLock allows re-entry from callers already holding lock).
      */
     private fun setPlaybackState(newState: PlaybackState) {
-        if (playbackState != newState) {
-            // Track when we enter PLAYING state for grace period calculation
-            if (newState == PlaybackState.PLAYING && playbackState != PlaybackState.PLAYING) {
-                playingStateEnteredAtUs = System.nanoTime() / 1000
-                Log.d(TAG, "Entered PLAYING state - grace period starts (${STARTUP_GRACE_PERIOD_US/1000}ms)")
+        stateLock.withLock {
+            if (playbackState != newState) {
+                // Track when we enter PLAYING state for grace period calculation
+                if (newState == PlaybackState.PLAYING && playbackState != PlaybackState.PLAYING) {
+                    playingStateEnteredAtUs = System.nanoTime() / 1000
+                    Log.d(TAG, "Entered PLAYING state - grace period starts (${STARTUP_GRACE_PERIOD_US/1000}ms)")
+                }
+                playbackState = newState
+                stateCallback?.onPlaybackStateChanged(newState)
             }
-            playbackState = newState
-            stateCallback?.onPlaybackStateChanged(newState)
         }
     }
 

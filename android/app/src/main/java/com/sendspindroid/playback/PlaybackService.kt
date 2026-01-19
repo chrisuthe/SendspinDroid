@@ -44,7 +44,9 @@ import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import com.sendspindroid.model.SyncStats
 import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpinServer
 import com.sendspindroid.sendspin.SyncAudioPlayer
+import com.sendspindroid.discovery.NsdAdvertiser
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
@@ -95,12 +97,19 @@ class PlaybackService : MediaLibraryService() {
     private var sendSpinPlayer: SendSpinPlayer? = null
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
+    private var sendSpinServer: SendSpinServer? = null
+    private var nsdAdvertiser: NsdAdvertiser? = null
     private var syncAudioPlayer: SyncAudioPlayer? = null
     private var audioDecoder: AudioDecoder? = null
     private var currentCodec: String = "pcm"  // Track current stream codec for stats
+    private var isListeningMode: Boolean = false  // Whether in server-initiated mode
 
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // Flag to prevent callbacks from executing after service is destroyed
+    @Volatile
+    private var isDestroyed = false
 
     // Connection state exposed as StateFlow for observers
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
@@ -131,9 +140,11 @@ class PlaybackService : MediaLibraryService() {
     // Wake lock refresh runnable - refreshes wake lock periodically during active playback
     private val wakeLockRefreshRunnable = object : Runnable {
         override fun run() {
+            // Prevent callback execution after service destruction
+            if (isDestroyed) return
             refreshWakeLock()
-            // Schedule next refresh if still playing
-            if (isActivelyPlaying()) {
+            // Schedule next refresh if still playing and not destroyed
+            if (!isDestroyed && isActivelyPlaying()) {
                 wakeLockHandler.postDelayed(this, WAKE_LOCK_REFRESH_INTERVAL_MS)
             }
         }
@@ -143,6 +154,8 @@ class PlaybackService : MediaLibraryService() {
     private val debugLogHandler = Handler(Looper.getMainLooper())
     private val debugLogRunnable = object : Runnable {
         override fun run() {
+            // Prevent callback execution after service destruction
+            if (isDestroyed) return
             if (DebugLogger.isEnabled && isConnected()) {
                 logCurrentStats()
                 debugLogHandler.postDelayed(this, DEBUG_LOG_INTERVAL_MS)
@@ -158,6 +171,7 @@ class PlaybackService : MediaLibraryService() {
     // AudioManager for device volume control (Spotify-style hybrid approach)
     private var audioManager: AudioManager? = null
     private var volumeObserver: ContentObserver? = null
+    private var volumeObserverRegistered: Boolean = false  // Track registration state to prevent leaks
     private var lastKnownVolume: Int = -1  // Track to detect external volume changes
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -172,6 +186,13 @@ class PlaybackService : MediaLibraryService() {
             if (lastNetworkId != -1 && lastNetworkId != networkId) {
                 Log.i(TAG, "Network changed from $lastNetworkId to $networkId")
                 sendSpinClient?.onNetworkChanged()
+                sendSpinServer?.onNetworkChanged()
+
+                // Re-register mDNS service on network change if in listening mode
+                if (isListeningMode) {
+                    val playerName = com.sendspindroid.UserSettings.getPlayerName()
+                    nsdAdvertiser?.refresh(playerName, NsdAdvertiser.DEFAULT_PORT)
+                }
             }
             lastNetworkId = networkId
         }
@@ -202,6 +223,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Debug logging interval (1 sample per second)
         private const val DEBUG_LOG_INTERVAL_MS = 1000L
+
+        // Action to stop listening mode (from settings toggle)
+        const val ACTION_STOP_LISTENING = "com.sendspindroid.ACTION_STOP_LISTENING"
 
         // Custom session commands
         const val COMMAND_CONNECT = "com.sendspindroid.CONNECT"
@@ -243,6 +267,7 @@ class PlaybackService : MediaLibraryService() {
         const val STATE_CONNECTED = "connected"
         const val STATE_RECONNECTING = "reconnecting"
         const val STATE_ERROR = "error"
+        const val STATE_LISTENING = "listening"
 
         // Android Auto browse tree media IDs
         private const val MEDIA_ID_ROOT = "root"
@@ -262,6 +287,8 @@ class PlaybackService : MediaLibraryService() {
         /** Connection lost, reconnecting - playback continues from buffer */
         data class Reconnecting(val serverName: String, val attempt: Int) : ConnectionState()
         data class Error(val message: String) : ConnectionState()
+        /** Listening for server-initiated connections (Stay Connected mode) */
+        data class Listening(val port: Int) : ConnectionState()
     }
 
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -324,6 +351,12 @@ class PlaybackService : MediaLibraryService() {
      * synced to the SendSpin server for multi-client coordination.
      */
     private fun initializeVolumeControl() {
+        // Prevent double registration - unregister existing observer first
+        if (volumeObserverRegistered) {
+            Log.w(TAG, "Volume observer already registered, skipping initialization")
+            return
+        }
+
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         // Track current volume to detect external changes
@@ -365,6 +398,7 @@ class PlaybackService : MediaLibraryService() {
             true,
             volumeObserver!!
         )
+        volumeObserverRegistered = true
 
         Log.d(TAG, "Volume control initialized - using device STREAM_MUSIC")
     }
@@ -542,9 +576,13 @@ class PlaybackService : MediaLibraryService() {
 
                 // Stop audio immediately when server stops/pauses playback
                 if (newState == PlaybackStateType.STOPPED || newState == PlaybackStateType.PAUSED) {
-                    Log.d(TAG, "State is stopped/paused - clearing audio buffer")
+                    Log.d(TAG, "State is stopped/paused - clearing audio buffer and releasing wake lock")
                     syncAudioPlayer?.clearBuffer()
                     syncAudioPlayer?.pause()
+                    releaseWakeLock()
+                } else if (newState == PlaybackStateType.PLAYING) {
+                    // Re-acquire wake lock when playback resumes
+                    acquireWakeLock()
                 }
 
                 _playbackState.value = _playbackState.value.copy(playbackState = newState)
@@ -569,14 +607,16 @@ class PlaybackService : MediaLibraryService() {
                 if (playbackState.isNotEmpty()) {
                     when (newPlaybackState) {
                         PlaybackStateType.STOPPED, PlaybackStateType.PAUSED -> {
-                            Log.d(TAG, "Playback stopped/paused - clearing audio buffer")
+                            Log.d(TAG, "Playback stopped/paused - clearing audio buffer and releasing wake lock")
                             syncAudioPlayer?.clearBuffer()
                             syncAudioPlayer?.pause()
+                            releaseWakeLock()
                         }
                         PlaybackStateType.PLAYING -> {
-                            Log.d(TAG, "Playback playing - updating player state")
+                            Log.d(TAG, "Playback playing - updating player state and acquiring wake lock")
                             // Player state will update from SyncAudioPlayer via setSyncAudioPlayer
                             sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
+                            acquireWakeLock()
                         }
                         else -> { /* No action needed */ }
                     }
@@ -691,6 +731,7 @@ class PlaybackService : MediaLibraryService() {
 
                 // Release existing decoder and create new one for this stream
                 audioDecoder?.release()
+                audioDecoder = null
                 try {
                     audioDecoder = AudioDecoderFactory.create(codec)
                     audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
@@ -756,6 +797,23 @@ class PlaybackService : MediaLibraryService() {
                 // Update playback state with new volume
                 _playbackState.value = _playbackState.value.copy(volume = volume)
                 // Broadcast all state including volume to UI controllers
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onMutedChanged(muted: Boolean) {
+            mainHandler.post {
+                // Apply mute by setting volume to 0, or restore previous volume
+                val currentState = _playbackState.value
+                if (muted) {
+                    setVolume(0f)
+                } else {
+                    // Restore volume from state
+                    setVolume(currentState.volume / 100f)
+                }
+                // Update playback state with new mute status
+                _playbackState.value = currentState.copy(muted = muted)
+                // Broadcast all state including mute to UI controllers
                 broadcastSessionExtras()
             }
         }
@@ -936,6 +994,10 @@ class PlaybackService : MediaLibraryService() {
                     putString(EXTRA_CONNECTION_STATE, STATE_ERROR)
                     putString(EXTRA_ERROR_MESSAGE, connState.message)
                 }
+                is ConnectionState.Listening -> {
+                    putString(EXTRA_CONNECTION_STATE, STATE_LISTENING)
+                    putInt("listening_port", connState.port)
+                }
             }
 
             // Metadata
@@ -1020,6 +1082,459 @@ class PlaybackService : MediaLibraryService() {
     fun disconnectFromServer() {
         Log.d(TAG, "Disconnecting from server")
         sendSpinClient?.disconnect()
+    }
+
+    // ========== Stay Connected (Listening) Mode ==========
+
+    /**
+     * Starts listening for server-initiated connections (Stay Connected mode).
+     * - Starts a WebSocket server on port 8928
+     * - Advertises the client via mDNS (_sendspin._tcp)
+     * - Keeps the service in foreground with "Ready for playback" notification
+     */
+    fun startListening() {
+        if (isListeningMode) {
+            Log.w(TAG, "Already in listening mode")
+            return
+        }
+
+        Log.i(TAG, "Starting Stay Connected mode")
+        isListeningMode = true
+
+        // Initialize NsdAdvertiser if needed
+        if (nsdAdvertiser == null) {
+            nsdAdvertiser = NsdAdvertiser(this)
+            nsdAdvertiser?.setListener(NsdAdvertiserListener())
+        }
+
+        // Initialize SendSpinServer if needed
+        if (sendSpinServer == null) {
+            val playerName = com.sendspindroid.UserSettings.getPlayerName()
+            sendSpinServer = SendSpinServer(
+                deviceName = playerName,
+                port = NsdAdvertiser.DEFAULT_PORT,
+                callback = SendSpinServerCallback()
+            )
+        }
+
+        // Start WebSocket server
+        sendSpinServer?.startListening()
+
+        // Start mDNS advertisement
+        val playerName = com.sendspindroid.UserSettings.getPlayerName()
+        nsdAdvertiser?.startAdvertising(playerName, NsdAdvertiser.DEFAULT_PORT)
+
+        // Update connection state
+        _connectionState.value = ConnectionState.Listening(NsdAdvertiser.DEFAULT_PORT)
+
+        // Start foreground service with listening notification
+        startForegroundServiceWithListeningNotification()
+
+        Log.i(TAG, "Stay Connected mode started on port ${NsdAdvertiser.DEFAULT_PORT}")
+    }
+
+    /**
+     * Stops listening for server-initiated connections.
+     */
+    fun stopListening() {
+        if (!isListeningMode) {
+            Log.d(TAG, "Not in listening mode")
+            return
+        }
+
+        Log.i(TAG, "Stopping Stay Connected mode")
+        isListeningMode = false
+
+        // Stop mDNS advertisement
+        nsdAdvertiser?.stopAdvertising()
+
+        // Stop WebSocket server (also disconnects any connected servers)
+        sendSpinServer?.stopListening()
+
+        // Stop audio if playing
+        syncAudioPlayer?.stop()
+        syncAudioPlayer?.release()
+        syncAudioPlayer = null
+        sendSpinPlayer?.setSyncAudioPlayer(null)
+
+        // Release wake lock
+        releaseWakeLock()
+
+        // Update connection state
+        _connectionState.value = ConnectionState.Disconnected
+
+        // Broadcast disconnection
+        broadcastSessionExtras()
+
+        Log.i(TAG, "Stay Connected mode stopped")
+    }
+
+    /**
+     * Returns whether the service is in listening mode.
+     */
+    fun isInListeningMode(): Boolean = isListeningMode
+
+    /**
+     * Starts foreground service with a notification for listening mode.
+     */
+    private fun startForegroundServiceWithListeningNotification() {
+        try {
+            val notification = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_ID)
+                .setContentTitle(getString(com.sendspindroid.R.string.notification_listening_title))
+                .setContentText(getString(com.sendspindroid.R.string.notification_listening_text))
+                .setSmallIcon(com.sendspindroid.R.drawable.ic_launcher_foreground)
+                .setOngoing(true)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .build()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NotificationHelper.NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NotificationHelper.NOTIFICATION_ID, notification)
+            }
+            Log.d(TAG, "Listening notification started")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start listening notification", e)
+        }
+    }
+
+    /**
+     * Listener for NsdAdvertiser events.
+     */
+    private inner class NsdAdvertiserListener : NsdAdvertiser.AdvertiserListener {
+        override fun onServiceRegistered(serviceName: String, port: Int) {
+            mainHandler.post {
+                Log.i(TAG, "mDNS service registered: $serviceName on port $port")
+            }
+        }
+
+        override fun onServiceUnregistered() {
+            mainHandler.post {
+                Log.d(TAG, "mDNS service unregistered")
+            }
+        }
+
+        override fun onRegistrationFailed(errorCode: Int, errorMessage: String) {
+            mainHandler.post {
+                Log.e(TAG, "mDNS registration failed: $errorMessage (code: $errorCode)")
+                _connectionState.value = ConnectionState.Error("mDNS registration failed: $errorMessage")
+            }
+        }
+    }
+
+    /**
+     * Callback for SendSpinServer events.
+     * Mirrors SendSpinClientCallback for consistency.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    private inner class SendSpinServerCallback : SendSpinServer.Callback {
+
+        override fun onServerConnected(serverName: String, serverAddress: String) {
+            mainHandler.post {
+                Log.i(TAG, "Server connected: $serverName at $serverAddress")
+                _connectionState.value = ConnectionState.Connected(serverName)
+                sendSpinPlayer?.updateConnectionState(true, serverName)
+
+                // Apply saved sync offset from settings
+                applySyncOffsetFromSettings()
+
+                // Acquire wake lock
+                acquireWakeLock()
+
+                // Start debug logging session
+                DebugLogger.startSession(serverName, serverAddress)
+                startDebugLogging()
+
+                // Broadcast connection state
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onServerDisconnected(serverAddress: String) {
+            mainHandler.post {
+                Log.d(TAG, "Server disconnected: $serverAddress")
+
+                // Stop debug logging
+                stopDebugLogging()
+                DebugLogger.endSession()
+
+                // Stop audio playback
+                syncAudioPlayer?.stop()
+                syncAudioPlayer?.release()
+                syncAudioPlayer = null
+                sendSpinPlayer?.setSyncAudioPlayer(null)
+                sendSpinPlayer?.updateConnectionState(false, null)
+
+                // Return to listening state if still in listening mode
+                if (isListeningMode) {
+                    _connectionState.value = ConnectionState.Listening(NsdAdvertiser.DEFAULT_PORT)
+                } else {
+                    _connectionState.value = ConnectionState.Disconnected
+                    releaseWakeLock()
+                }
+
+                // Clear playback state
+                _playbackState.value = PlaybackState()
+                lastArtworkUrl = null
+                currentArtwork = null
+
+                // Clear lock screen metadata
+                forwardingPlayer?.clearMetadata()
+
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onStateChanged(state: String) {
+            mainHandler.post {
+                Log.d(TAG, "State changed: $state")
+                val newState = PlaybackStateType.fromString(state)
+
+                sendSpinPlayer?.updatePlayWhenReadyFromServer(newState == PlaybackStateType.PLAYING)
+
+                if (newState == PlaybackStateType.STOPPED || newState == PlaybackStateType.PAUSED) {
+                    Log.d(TAG, "State is stopped/paused - clearing audio buffer and releasing wake lock")
+                    syncAudioPlayer?.clearBuffer()
+                    syncAudioPlayer?.pause()
+                    releaseWakeLock()
+                } else if (newState == PlaybackStateType.PLAYING) {
+                    // Re-acquire wake lock when playback resumes
+                    acquireWakeLock()
+                }
+
+                _playbackState.value = _playbackState.value.copy(playbackState = newState)
+            }
+        }
+
+        override fun onGroupUpdate(groupId: String, groupName: String, playbackState: String) {
+            mainHandler.post {
+                Log.d(TAG, "Group update: id=$groupId name=$groupName state=$playbackState")
+
+                val currentState = _playbackState.value
+                val isGroupChange = groupId.isNotEmpty() && groupId != currentState.groupId
+                val newPlaybackState = PlaybackStateType.fromString(playbackState)
+
+                if (playbackState.isNotEmpty()) {
+                    sendSpinPlayer?.updatePlayWhenReadyFromServer(newPlaybackState == PlaybackStateType.PLAYING)
+                }
+
+                if (playbackState.isNotEmpty()) {
+                    when (newPlaybackState) {
+                        PlaybackStateType.STOPPED, PlaybackStateType.PAUSED -> {
+                            Log.d(TAG, "Playback stopped/paused - clearing audio buffer and releasing wake lock")
+                            syncAudioPlayer?.clearBuffer()
+                            syncAudioPlayer?.pause()
+                            releaseWakeLock()
+                        }
+                        PlaybackStateType.PLAYING -> {
+                            Log.d(TAG, "Playback playing - updating player state and acquiring wake lock")
+                            sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
+                            acquireWakeLock()
+                        }
+                        else -> { }
+                    }
+                }
+
+                val newState = if (isGroupChange) {
+                    currentState.withClearedMetadata().copy(
+                        groupId = groupId,
+                        groupName = groupName.ifEmpty { null },
+                        playbackState = newPlaybackState
+                    )
+                } else {
+                    currentState.copy(
+                        groupId = groupId.ifEmpty { currentState.groupId },
+                        groupName = groupName.ifEmpty { currentState.groupName },
+                        playbackState = if (playbackState.isNotEmpty())
+                            newPlaybackState
+                        else currentState.playbackState
+                    )
+                }
+                _playbackState.value = newState
+
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onMetadataUpdate(
+            title: String,
+            artist: String,
+            album: String,
+            artworkUrl: String,
+            durationMs: Long,
+            positionMs: Long
+        ) {
+            mainHandler.post {
+                Log.d(TAG, "Metadata update: $title / $artist / $album")
+
+                _playbackState.value = _playbackState.value.withMetadata(
+                    title = title.ifEmpty { null },
+                    artist = artist.ifEmpty { null },
+                    album = album.ifEmpty { null },
+                    artworkUrl = artworkUrl.ifEmpty { null },
+                    durationMs = durationMs,
+                    positionMs = positionMs
+                )
+
+                sendSpinPlayer?.updateMediaItem(
+                    title = title.ifEmpty { null },
+                    artist = artist.ifEmpty { null },
+                    album = album.ifEmpty { null },
+                    durationMs = durationMs
+                )
+
+                if (artworkUrl.isEmpty()) {
+                    lastArtworkUrl = null
+                } else if (artworkUrl != lastArtworkUrl) {
+                    lastArtworkUrl = artworkUrl
+                    fetchArtwork(artworkUrl)
+                }
+
+                updateMediaMetadata(title, artist, album)
+            }
+        }
+
+        override fun onArtwork(imageData: ByteArray) {
+            if (com.sendspindroid.UserSettings.lowMemoryMode) return
+
+            mainHandler.post {
+                Log.d(TAG, "Artwork received: ${imageData.size} bytes")
+                try {
+                    val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
+                    if (bitmap != null) {
+                        currentArtwork = bitmap
+                        updateMediaSessionArtwork(bitmap)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to decode artwork", e)
+                }
+            }
+        }
+
+        override fun onError(message: String) {
+            mainHandler.post {
+                Log.e(TAG, "SendSpinServer error: $message")
+                _connectionState.value = ConnectionState.Error(message)
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
+            mainHandler.post {
+                Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth")
+                currentCodec = codec
+
+                syncAudioPlayer?.release()
+
+                audioDecoder?.release()
+                audioDecoder = null
+                try {
+                    audioDecoder = AudioDecoderFactory.create(codec)
+                    audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
+                    audioDecoder = AudioDecoderFactory.create("pcm")
+                }
+
+                val timeFilter = sendSpinServer?.getTimeFilter()
+                if (timeFilter == null) {
+                    Log.e(TAG, "Cannot start audio: time filter not available")
+                    return@post
+                }
+
+                acquireWakeLock()
+
+                syncAudioPlayer = SyncAudioPlayer(
+                    timeFilter = timeFilter,
+                    sampleRate = sampleRate,
+                    channels = channels,
+                    bitDepth = bitDepth
+                ).apply {
+                    setStateCallback(SyncAudioPlayerStateCallback())
+                    initialize()
+                    start()
+                }
+                sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
+
+                Log.i(TAG, "SyncAudioPlayer started: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit")
+            }
+        }
+
+        override fun onStreamClear() {
+            mainHandler.post {
+                Log.d(TAG, "Stream clear - flushing audio and decoder buffers")
+                audioDecoder?.flush()
+                syncAudioPlayer?.clearBuffer()
+            }
+        }
+
+        override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {
+            val pcmData = try {
+                audioDecoder?.decode(audioData) ?: audioData
+            } catch (e: Exception) {
+                Log.e(TAG, "Decode error, dropping chunk", e)
+                return
+            }
+            syncAudioPlayer?.queueChunk(serverTimeMicros, pcmData)
+        }
+
+        override fun onVolumeChanged(volume: Int) {
+            mainHandler.post {
+                val volumeFloat = volume / 100f
+                setVolume(volumeFloat)
+                _playbackState.value = _playbackState.value.copy(volume = volume)
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onMutedChanged(muted: Boolean) {
+            mainHandler.post {
+                val currentState = _playbackState.value
+                if (muted) {
+                    setVolume(0f)
+                } else {
+                    setVolume(currentState.volume / 100f)
+                }
+                _playbackState.value = currentState.copy(muted = muted)
+                broadcastSessionExtras()
+            }
+        }
+
+        override fun onSyncOffsetApplied(offsetMs: Double, source: String) {
+            Log.i(TAG, "Sync offset applied: ${offsetMs}ms from $source")
+            mainHandler.post {
+                val extras = Bundle().apply {
+                    putDouble("sync_offset_ms", offsetMs)
+                    putString("sync_offset_source", source)
+                }
+                mediaSession?.setSessionExtras(extras)
+            }
+        }
+
+        override fun onNetworkChanged() {
+            Log.i(TAG, "Network changed - triggering audio player reanchor")
+            mainHandler.post {
+                syncAudioPlayer?.clearBuffer()
+            }
+        }
+
+        override fun onListeningStarted(port: Int) {
+            mainHandler.post {
+                Log.i(TAG, "WebSocket server listening on port $port")
+            }
+        }
+
+        override fun onListeningStopped() {
+            mainHandler.post {
+                Log.d(TAG, "WebSocket server stopped")
+            }
+        }
     }
 
     /**
@@ -1717,6 +2232,22 @@ class PlaybackService : MediaLibraryService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: action=${intent?.action}")
+
+        when (intent?.action) {
+            // Handle Stay Connected start (from boot or settings toggle)
+            com.sendspindroid.BootReceiver.ACTION_START_LISTENING -> {
+                Log.i(TAG, "Starting in listening mode (from boot or intent)")
+                if (com.sendspindroid.UserSettings.stayConnected) {
+                    startListening()
+                }
+            }
+            // Handle Stay Connected stop (from settings toggle)
+            ACTION_STOP_LISTENING -> {
+                Log.i(TAG, "Stopping listening mode (from intent)")
+                stopListening()
+            }
+        }
+
         super.onStartCommand(intent, flags, startId)
         return START_NOT_STICKY
     }
@@ -1743,14 +2274,25 @@ class PlaybackService : MediaLibraryService() {
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
 
-        // Stop debug logging
+        // Set destroyed flag first to prevent any pending callbacks from executing
+        isDestroyed = true
+
+        // Remove all pending callbacks from all handlers
+        mainHandler.removeCallbacksAndMessages(null)
+        wakeLockHandler.removeCallbacks(wakeLockRefreshRunnable)
+        debugLogHandler.removeCallbacks(debugLogRunnable)
+
+        // Stop debug logging (also removes callbacks, but flag is set above)
         stopDebugLogging()
 
         // Unregister network callback
         unregisterNetworkCallback()
 
-        // Unregister volume observer
-        volumeObserver?.let { contentResolver.unregisterContentObserver(it) }
+        // Unregister volume observer (only if it was registered)
+        if (volumeObserverRegistered) {
+            volumeObserver?.let { contentResolver.unregisterContentObserver(it) }
+            volumeObserverRegistered = false
+        }
         volumeObserver = null
 
         serviceScope.cancel()
@@ -1775,6 +2317,12 @@ class PlaybackService : MediaLibraryService() {
 
         sendSpinClient?.destroy()
         sendSpinClient = null
+
+        // Clean up Stay Connected components
+        nsdAdvertiser?.cleanup()
+        nsdAdvertiser = null
+        sendSpinServer?.destroy()
+        sendSpinServer = null
 
         super.onDestroy()
     }

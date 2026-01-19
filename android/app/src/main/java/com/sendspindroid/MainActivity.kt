@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.provider.Settings
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.net.ConnectivityManager
@@ -33,6 +34,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.updatePadding
 import androidx.palette.graphics.Palette
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -320,6 +324,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Handle window insets for edge-to-edge display
+        setupWindowInsets()
+
         // Set up the toolbar as the action bar
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(false)
@@ -336,6 +343,69 @@ class MainActivity : AppCompatActivity() {
 
         // Request notification permission for Android 13+
         requestNotificationPermission()
+    }
+
+    /**
+     * Handle configuration changes (rotation) manually to prevent Activity recreation.
+     * This avoids the false network change detection that causes disconnects on rotation.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        Log.d(TAG, "Configuration changed: orientation=${newConfig.orientation}")
+
+        // Re-inflate the layout to get the correct orientation-specific layout
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+
+        // Re-apply window insets handling
+        setupWindowInsets()
+
+        // Re-setup toolbar
+        setSupportActionBar(binding.toolbar)
+        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        supportActionBar?.setDisplayShowHomeEnabled(false)
+
+        // Re-setup all UI bindings
+        setupUI()
+
+        // Restore UI state based on current connection state
+        when (val state = connectionState) {
+            is AppConnectionState.Searching -> showSearchingView()
+            is AppConnectionState.ManualEntry -> showManualEntryView()
+            is AppConnectionState.Connecting -> {
+                showConnectionLoading(state.serverName)
+            }
+            is AppConnectionState.Connected -> {
+                showNowPlayingView(state.serverName)
+                enablePlaybackControls(true)
+                // Re-apply any cached metadata/artwork from media controller
+                mediaController?.let { controller ->
+                    controller.mediaMetadata?.let { metadata ->
+                        updateMetadata(
+                            metadata.title?.toString() ?: "",
+                            metadata.artist?.toString() ?: "",
+                            metadata.albumTitle?.toString() ?: ""
+                        )
+                        updateAlbumArt(metadata)
+                    }
+                    // Restore play/pause button state
+                    updatePlayPauseButton(controller.isPlaying)
+                }
+            }
+            is AppConnectionState.Reconnecting -> {
+                showNowPlayingView(state.serverName)
+                enablePlaybackControls(true)
+                showReconnectingIndicator(state.attempt, 0L)
+                // Restore play/pause button state
+                mediaController?.let { controller ->
+                    updatePlayPauseButton(controller.isPlaying)
+                }
+            }
+            is AppConnectionState.Error -> {
+                showManualEntryView()
+                showErrorSnackbar(state.message)
+            }
+        }
     }
 
     /**
@@ -376,6 +446,33 @@ class MainActivity : AppCompatActivity() {
                 .show()
         }
     }
+
+    /**
+     * Set up window insets handling for edge-to-edge display.
+     * Applies system bar padding to the main content area so content doesn't
+     * overlap with status bar, navigation bar, or display cutouts.
+     */
+    private fun setupWindowInsets() {
+        // mainContentArea only exists in landscape layout
+        val contentArea = binding.root.findViewById<View>(R.id.mainContentArea) ?: return
+
+        ViewCompat.setOnApplyWindowInsetsListener(contentArea) { view, windowInsets ->
+            val insets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            // Apply insets as padding, plus some extra spacing for aesthetics
+            view.updatePadding(
+                left = insets.left + 24.dpToPx(),
+                top = insets.top + 16.dpToPx(),
+                right = insets.right + 24.dpToPx(),
+                bottom = insets.bottom + 16.dpToPx()
+            )
+            WindowInsetsCompat.CONSUMED
+        }
+    }
+
+    /** Convert dp to pixels */
+    private fun Int.dpToPx(): Int = (this * resources.displayMetrics.density).toInt()
 
     private fun setupUI() {
         // Setup RecyclerView for servers (in manual entry view)
@@ -579,6 +676,9 @@ class MainActivity : AppCompatActivity() {
         // Clear toolbar subtitle when not connected
         supportActionBar?.subtitle = null
 
+        // Always show app bar in non-playing views
+        binding.appBarLayout.visibility = View.VISIBLE
+
         // Animate view transitions
         if (binding.searchingView.visibility != View.VISIBLE) {
             binding.searchingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
@@ -609,6 +709,9 @@ class MainActivity : AppCompatActivity() {
         // Clear toolbar subtitle when not connected
         supportActionBar?.subtitle = null
 
+        // Always show app bar in non-playing views
+        binding.appBarLayout.visibility = View.VISIBLE
+
         binding.searchingView.visibility = View.GONE
         // Animate view transition
         if (binding.manualEntryView.visibility != View.VISIBLE) {
@@ -629,6 +732,10 @@ class MainActivity : AppCompatActivity() {
         val isPlaying = mediaController?.isPlaying == true
         supportActionBar?.title = if (isPlaying) "Playing" else "Paused"
         supportActionBar?.subtitle = null
+
+        // Hide app bar in landscape for full-height album art
+        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        binding.appBarLayout.visibility = if (isLandscape) View.GONE else View.VISIBLE
 
         binding.searchingView.visibility = View.GONE
         binding.manualEntryView.visibility = View.GONE

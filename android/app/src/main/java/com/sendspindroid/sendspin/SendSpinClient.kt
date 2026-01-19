@@ -1,15 +1,20 @@
 package com.sendspindroid.sendspin
 
-import android.os.Build
 import android.util.Log
+import com.sendspindroid.UserSettings
+import com.sendspindroid.sendspin.protocol.GroupInfo
+import com.sendspindroid.sendspin.protocol.SendSpinProtocol
+import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
+import com.sendspindroid.sendspin.protocol.StreamConfig
+import com.sendspindroid.sendspin.protocol.TrackMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,18 +22,13 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import org.json.JSONArray
-import org.json.JSONObject
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLHandshakeException
@@ -47,64 +47,40 @@ import javax.net.ssl.SSLHandshakeException
  * 5. Receive binary audio chunks (type 4) with microsecond timestamps
  * 6. Play audio at computed client time using Kalman-filtered offset
  *
- * ## Message Types
- * - client/hello: Initial handshake with supported roles/formats
- * - server/hello: Server acknowledgment and role activation
- * - client/time: Clock sync request (client_transmitted μs)
- * - server/time: Clock sync response (client_transmitted, server_received, server_transmitted)
- * - server/state: Metadata and playback state updates
- * - Binary type 4: Audio chunk (8-byte timestamp + PCM data)
+ * This class extends SendSpinProtocolHandler for shared protocol logic
+ * and implements client-specific concerns:
+ * - OkHttp WebSocket transport
+ * - Connection state machine (Disconnected/Connecting/Connected/Error)
+ * - Reconnection with exponential backoff
+ * - Time filter freeze/thaw during reconnection
  */
 class SendSpinClient(
     private val deviceName: String,
     private val callback: Callback
-) {
+) : SendSpinProtocolHandler(TAG) {
+
     companion object {
         private const val TAG = "SendSpinClient"
-        private const val PROTOCOL_VERSION = 1
-        private const val ENDPOINT_PATH = "/sendspin"
-
-        // Binary message types
-        private const val MSG_TYPE_AUDIO = 4
-        private const val MSG_TYPE_ARTWORK_BASE = 8 // 8-11 for channels 0-3
-
-        // Time sync configuration
-        // Uses NTP-style best-of-N: send N packets, pick the one with lowest RTT
-        // This filters out network jitter by selecting the measurement with least congestion
-        private const val TIME_SYNC_INTERVAL_MS = 250L // Send time sync 4x per second
-        private const val TIME_SYNC_BURST_COUNT = 10   // Send 10 packets per burst
-        private const val TIME_SYNC_BURST_DELAY_MS = 50L // 50ms between burst packets
 
         // Reconnection configuration
         private const val MAX_RECONNECT_ATTEMPTS = 5
         private const val INITIAL_RECONNECT_DELAY_MS = 1000L // 1 second
         private const val MAX_RECONNECT_DELAY_MS = 30000L // 30 seconds
 
-        // Audio configuration we support
-        private const val AUDIO_CODEC = "pcm"
-        private const val AUDIO_SAMPLE_RATE = 48000
-        private const val AUDIO_CHANNELS = 2
-        private const val AUDIO_BIT_DEPTH = 16
-
-        // Buffer capacity - reduced in low memory mode
-        private const val BUFFER_CAPACITY_NORMAL = 32_000_000   // 32MB (~2.8 min at 48kHz stereo)
-        private const val BUFFER_CAPACITY_LOW_MEM = 8_000_000   // 8MB (~40 sec at 48kHz stereo)
-
         /**
          * Gets the appropriate buffer capacity based on low memory mode setting.
          */
         fun getBufferCapacity(): Int {
-            return if (com.sendspindroid.UserSettings.lowMemoryMode) {
-                BUFFER_CAPACITY_LOW_MEM
+            return if (UserSettings.lowMemoryMode) {
+                SendSpinProtocol.Buffer.CAPACITY_LOW_MEM
             } else {
-                BUFFER_CAPACITY_NORMAL
+                SendSpinProtocol.Buffer.CAPACITY_NORMAL
             }
         }
     }
 
     /**
      * Callback interface for SendSpin events.
-     * Mirrors the Go PlayerCallback interface.
      */
     interface Callback {
         fun onServerDiscovered(name: String, address: String)
@@ -122,34 +98,14 @@ class SendSpinClient(
         )
         fun onArtwork(imageData: ByteArray)
         fun onError(message: String)
-
-        // Audio streaming callbacks
         fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?)
         fun onStreamClear()
         fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray)
-
-        // Volume callback - called when server sends volume update
         fun onVolumeChanged(volume: Int)
-
-        // Sync offset callback - called when GroupSync calibration offset is applied
+        fun onMutedChanged(muted: Boolean)
         fun onSyncOffsetApplied(offsetMs: Double, source: String)
-
-        // Network change callback - called when network changes and time filter is reset
         fun onNetworkChanged()
-
-        /**
-         * Called when connection is lost but reconnection is being attempted.
-         * Playback should continue from buffer while showing "Reconnecting..." indicator.
-         *
-         * @param attempt Current reconnection attempt number
-         * @param serverName Name of the server we're reconnecting to
-         */
         fun onReconnecting(attempt: Int, serverName: String)
-
-        /**
-         * Called when reconnection succeeds.
-         * The time filter has been restored and new audio should arrive shortly.
-         */
         fun onReconnected()
     }
 
@@ -167,12 +123,10 @@ class SendSpinClient(
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS) // Fail fast if server is unreachable
-        .writeTimeout(15, TimeUnit.SECONDS) // Timeout for sending data
-        // readTimeout must be 0 for WebSocket: OkHttp uses this for reading frames,
-        // and WebSocket connections are long-lived with infrequent messages
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .pingInterval(30, TimeUnit.SECONDS) // Keep connection alive through NAT/routers
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS) // Must be 0 for WebSocket
+        .pingInterval(30, TimeUnit.SECONDS)
         .build()
 
     private var webSocket: WebSocket? = null
@@ -180,50 +134,137 @@ class SendSpinClient(
     private var serverPath: String? = null
     private var serverName: String? = null
 
-    // Protocol state
+    // Client identity
     private val clientId = UUID.randomUUID().toString()
-    private var handshakeComplete = false
-    private var timeSyncRunning = false
-
-    // Reconnection state
-    private val userInitiatedDisconnect = AtomicBoolean(false)
-    private val reconnectAttempts = AtomicInteger(0)
-    private var reconnecting = false
-
-    // Player state (for client/state messages)
-    private var currentVolume: Int = 100
-    private var currentMuted: Boolean = false
 
     // Time synchronization (Kalman filter)
     private val timeFilter = SendspinTimeFilter()
 
-    // NTP-style burst measurement collection
-    // We send N packets and pick the one with lowest RTT (least network congestion)
-    private data class TimeMeasurement(
-        val offset: Long,
-        val rtt: Long,
-        val clientReceived: Long
-    )
-    private val pendingBurstMeasurements = mutableListOf<TimeMeasurement>()
-    private var burstInProgress = false
-    private var expectedBurstResponses = 0
+    // Reconnection state
+    private val userInitiatedDisconnect = AtomicBoolean(false)
+    private val reconnectAttempts = AtomicInteger(0)
+    private val reconnecting = AtomicBoolean(false)
+    private var reconnectJob: Job? = null  // Pending reconnect coroutine - cancelled on disconnect
 
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
-    /**
-     * Access to the time filter for audio synchronization.
-     * The audio player uses this to convert server timestamps to client time.
-     */
-    fun getTimeFilter(): SendspinTimeFilter = timeFilter
+    init {
+        // Initialize time sync manager with our time filter
+        initTimeSyncManager(timeFilter)
+    }
+
+    // ========== SendSpinProtocolHandler Implementation ==========
+
+    override fun sendTextMessage(text: String) {
+        val ws = webSocket
+        if (ws == null) {
+            Log.e(TAG, "Cannot send message - WebSocket is null")
+            return
+        }
+        val success = ws.send(text)
+        if (!success) {
+            Log.w(TAG, "Failed to send message")
+        }
+    }
+
+    override fun getCoroutineScope(): CoroutineScope = scope
+
+    override fun getTimeFilter(): SendspinTimeFilter = timeFilter
+
+    override fun getBufferCapacity(): Int = Companion.getBufferCapacity()
+
+    override fun getClientId(): String = clientId
+
+    override fun getDeviceName(): String = deviceName
+
+    override fun onHandshakeComplete(serverName: String, serverId: String) {
+        this.serverName = serverName
+
+        // Check if this is a reconnection
+        val wasReconnecting = timeFilter.isFrozen || reconnecting.get()
+
+        if (timeFilter.isFrozen) {
+            timeFilter.thaw()
+            Log.i(TAG, "Time filter thawed after reconnection - sync preserved")
+        }
+
+        reconnecting.set(false)
+        reconnectAttempts.set(0)
+        _connectionState.value = ConnectionState.Connected(serverName)
+
+        if (wasReconnecting) {
+            callback.onReconnected()
+            Log.i(TAG, "Reconnection successful")
+        }
+
+        callback.onConnected(serverName)
+    }
+
+    override fun onMetadataUpdate(metadata: TrackMetadata) {
+        callback.onMetadataUpdate(
+            metadata.title,
+            metadata.artist,
+            metadata.album,
+            metadata.artworkUrl,
+            metadata.durationMs,
+            metadata.positionMs
+        )
+    }
+
+    override fun onPlaybackStateChanged(state: String) {
+        callback.onStateChanged(state)
+    }
+
+    override fun onVolumeCommand(volume: Int) {
+        callback.onVolumeChanged(volume)
+    }
+
+    override fun onMuteCommand(muted: Boolean) {
+        callback.onMutedChanged(muted)
+    }
+
+    override fun onGroupUpdate(info: GroupInfo) {
+        callback.onGroupUpdate(info.groupId, info.groupName, info.playbackState)
+    }
+
+    override fun onStreamStart(config: StreamConfig) {
+        val preferredCodec = UserSettings.getPreferredCodec()
+        Log.i(TAG, "Stream started: server chose codec=${config.codec} (we preferred=$preferredCodec)")
+        callback.onStreamStart(
+            config.codec,
+            config.sampleRate,
+            config.channels,
+            config.bitDepth,
+            config.codecHeader
+        )
+    }
+
+    override fun onStreamClear() {
+        callback.onStreamClear()
+    }
+
+    override fun onAudioChunk(timestampMicros: Long, payload: ByteArray) {
+        callback.onAudioChunk(timestampMicros, payload)
+    }
+
+    override fun onArtwork(channel: Int, payload: ByteArray) {
+        callback.onArtwork(payload)
+    }
+
+    override fun onSyncOffsetApplied(offsetMs: Double, source: String) {
+        callback.onSyncOffsetApplied(offsetMs, source)
+    }
+
+    // ========== Public API ==========
 
     /**
-     * Get the connected server's name (from server/hello message).
+     * Get the connected server's name.
      */
     fun getServerName(): String? = serverName
 
     /**
-     * Get the connected server's address (host:port).
+     * Get the connected server's address.
      */
     fun getServerAddress(): String? = serverAddress
 
@@ -238,18 +279,13 @@ class SendSpinClient(
     }
 
     /**
-     * Called when the network changes (e.g., WiFi to mobile, different AP).
-     *
-     * Resets the time filter to force re-synchronization, since network latency
-     * characteristics may have changed significantly.
+     * Called when the network changes.
      */
     fun onNetworkChanged() {
         if (!isConnected) return
 
         Log.i(TAG, "Network changed - resetting time filter for re-sync")
         timeFilter.reset()
-
-        // Notify callback so SyncAudioPlayer can trigger reanchor if needed
         callback.onNetworkChanged()
     }
 
@@ -259,13 +295,12 @@ class SendSpinClient(
      * @param address Server address in "host:port" format
      * @param path WebSocket path (from mDNS TXT or default /sendspin)
      */
-    fun connect(address: String, path: String = ENDPOINT_PATH) {
+    fun connect(address: String, path: String = SendSpinProtocol.ENDPOINT_PATH) {
         if (isConnected) {
             Log.w(TAG, "Already connected, disconnecting first")
             disconnect()
         }
 
-        // Validate and normalize path parameter
         val normalizedPath = normalizePath(path)
 
         Log.d(TAG, "Connecting to: $address path=$normalizedPath")
@@ -273,15 +308,16 @@ class SendSpinClient(
         serverAddress = address
         serverPath = normalizedPath
         handshakeComplete = false
-        timeSyncRunning = false
         timeFilter.reset()
 
-        // Reset reconnection state for new connection
+        // Cancel any pending reconnect from previous connection attempt
+        reconnectJob?.cancel()
+        reconnectJob = null
+
         userInitiatedDisconnect.set(false)
         reconnectAttempts.set(0)
-        reconnecting = false
+        reconnecting.set(false)
 
-        // Construct WebSocket URL using normalized path
         val wsUrl = "ws://$address$normalizedPath"
         Log.d(TAG, "WebSocket URL: $wsUrl")
 
@@ -298,8 +334,13 @@ class SendSpinClient(
     fun disconnect() {
         Log.d(TAG, "Disconnecting (user-initiated)")
         userInitiatedDisconnect.set(true)
-        timeSyncRunning = false
-        reconnecting = false
+
+        // Cancel any pending reconnect coroutine to prevent race condition
+        reconnectJob?.cancel()
+        reconnectJob = null
+
+        stopTimeSync()
+        reconnecting.set(false)
         sendGoodbye("user_request")
         webSocket?.close(1000, "User disconnect")
         webSocket = null
@@ -308,123 +349,64 @@ class SendSpinClient(
         callback.onDisconnected()
     }
 
-    /**
-     * Start audio playback.
-     */
-    fun play() {
-        sendCommand("play")
-    }
-
-    /**
-     * Pause audio playback.
-     */
-    fun pause() {
-        sendCommand("pause")
-    }
-
-    /**
-     * Skip to next track.
-     */
-    fun next() {
-        sendCommand("next")
-    }
-
-    /**
-     * Go to previous track.
-     */
-    fun previous() {
-        sendCommand("previous")
-    }
-
-    /**
-     * Switch to next playback group.
-     * The server cycles through available groups.
-     */
-    fun switchGroup() {
-        sendCommand("switch")
-    }
-
-    /**
-     * Set playback volume.
-     *
-     * @param volume Volume level from 0.0 to 1.0
-     */
-    fun setVolume(volume: Double) {
-        val volumePercent = (volume * 100).toInt().coerceIn(0, 100)
-        currentVolume = volumePercent
-        Log.d(TAG, "setVolume: $volumePercent%")
-        // Use client/state format per SendSpin protocol
-        sendPlayerStateUpdate(volumePercent, currentMuted)
-    }
-
-    /**
-     * Set muted state and send to server.
-     */
-    fun setMuted(muted: Boolean) {
-        currentMuted = muted
-        Log.d(TAG, "setMuted: $muted")
-        sendPlayerStateUpdate(currentVolume, muted)
-    }
-
-    /**
-     * Send the current player state (volume/muted) to the server.
-     * Format: {"type": "client/state", "payload": {"state": "synchronized", "player": {"volume": 75, "muted": false}}}
-     */
-    private fun sendPlayerStateUpdate(volume: Int, muted: Boolean) {
-        val message = JSONObject().apply {
-            put("type", "client/state")
-            put("payload", JSONObject().apply {
-                put("state", "synchronized")
-                put("player", JSONObject().apply {
-                    put("volume", volume)
-                    put("muted", muted)
-                })
-            })
-        }
-        sendMessage(message)
-    }
-
-    /**
-     * Send a media command to the server (play, pause, next, previous, etc).
-     *
-     * Commands are sent as client/command messages with controller object.
-     * Protocol format: {"type": "client/command", "payload": {"controller": {"command": "pause"}}}
-     */
-    fun sendCommand(command: String) {
-        val payload = JSONObject().apply {
-            put("controller", JSONObject().apply {
-                put("command", command)
-            })
-        }
-
-        val message = JSONObject().apply {
-            put("type", "client/command")
-            put("payload", payload)
-        }
-
-        sendMessage(message)
-    }
+    fun play() = sendCommand("play")
+    fun pause() = sendCommand("pause")
+    fun next() = sendCommand("next")
+    fun previous() = sendCommand("previous")
+    fun switchGroup() = sendCommand("switch")
 
     /**
      * Clean up resources.
      */
     fun destroy() {
-        timeSyncRunning = false
-        userInitiatedDisconnect.set(true) // Prevent reconnection during destroy
-        reconnecting = false
+        stopTimeSync()
+        userInitiatedDisconnect.set(true)
+
+        // Cancel any pending reconnect coroutine
+        reconnectJob?.cancel()
+        reconnectJob = null
+
+        reconnecting.set(false)
         disconnect()
     }
 
+    // ========== Private Methods ==========
+
     /**
-     * Attempt to reconnect to the last server.
-     * Uses exponential backoff with a maximum number of attempts.
-     *
-     * IMPORTANT: Time filter is preserved (frozen) during reconnection so that
-     * playback can continue from buffer with valid timestamps.
+     * Normalize and validate the WebSocket path parameter.
+     */
+    private fun normalizePath(path: String): String {
+        if (path.isEmpty()) {
+            Log.d(TAG, "Empty path provided, using default: ${SendSpinProtocol.ENDPOINT_PATH}")
+            return SendSpinProtocol.ENDPOINT_PATH
+        }
+
+        val pathWithoutQuery = path.substringBefore("?")
+        if (pathWithoutQuery != path) {
+            Log.d(TAG, "Removed query string from path: '$path' -> '$pathWithoutQuery'")
+        }
+
+        if (pathWithoutQuery.isEmpty()) {
+            Log.d(TAG, "Path empty after removing query string, using default: ${SendSpinProtocol.ENDPOINT_PATH}")
+            return SendSpinProtocol.ENDPOINT_PATH
+        }
+
+        val normalizedPath = if (!pathWithoutQuery.startsWith("/")) {
+            Log.d(TAG, "Path missing leading slash, prepending: '/$pathWithoutQuery'")
+            "/$pathWithoutQuery"
+        } else {
+            pathWithoutQuery
+        }
+
+        return normalizedPath
+    }
+
+    /**
+     * Attempt reconnection with exponential backoff.
      */
     private fun attemptReconnect() {
         val address = serverAddress
-        val path = serverPath ?: ENDPOINT_PATH
+        val path = serverPath ?: SendSpinProtocol.ENDPOINT_PATH
         val savedServerName = serverName ?: address ?: "Unknown"
 
         if (address == null) {
@@ -439,7 +421,7 @@ class SendSpinClient(
 
         val attempts = reconnectAttempts.incrementAndGet()
 
-        // On first reconnection attempt, freeze the time filter to preserve sync
+        // On first reconnection attempt, freeze the time filter
         if (attempts == 1) {
             timeFilter.freeze()
             Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
@@ -447,40 +429,36 @@ class SendSpinClient(
 
         if (attempts > MAX_RECONNECT_ATTEMPTS) {
             Log.w(TAG, "Max reconnection attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
-            reconnecting = false
-            // Discard frozen state since we're giving up
+            reconnecting.set(false)
             timeFilter.resetAndDiscard()
             _connectionState.value = ConnectionState.Error("Connection lost. Please reconnect manually.")
             callback.onError("Connection lost after $MAX_RECONNECT_ATTEMPTS reconnection attempts")
-            callback.onDisconnected()  // Signal final disconnect
+            callback.onDisconnected()
             return
         }
 
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s (capped at 30s)
         val delayMs = (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
             .coerceAtMost(MAX_RECONNECT_DELAY_MS)
 
         Log.i(TAG, "Attempting reconnection $attempts/$MAX_RECONNECT_ATTEMPTS in ${delayMs}ms")
-        reconnecting = true
+        reconnecting.set(true)
         _connectionState.value = ConnectionState.Connecting
 
-        // Notify callback that we're reconnecting (playback should continue from buffer)
         callback.onReconnecting(attempts, savedServerName)
 
-        scope.launch {
+        // Store the job so it can be cancelled if user disconnects during the delay
+        reconnectJob = scope.launch {
             delay(delayMs)
 
-            if (userInitiatedDisconnect.get() || !reconnecting) {
+            if (userInitiatedDisconnect.get() || !reconnecting.get()) {
                 Log.d(TAG, "Reconnection cancelled")
                 return@launch
             }
 
             Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
 
-            // Reset handshake state but PRESERVE time filter (it's frozen)
             handshakeComplete = false
-            timeSyncRunning = false
-            // NOTE: timeFilter is NOT reset - we'll thaw it on successful reconnection
+            stopTimeSync()
 
             val wsUrl = "ws://$address$path"
             val request = Request.Builder()
@@ -491,317 +469,63 @@ class SendSpinClient(
         }
     }
 
-    // ========== Protocol Messages ==========
-
     /**
-     * Send client/hello message.
-     *
-     * This is the first message after WebSocket opens.
-     * Declares our capabilities and supported audio formats.
-     * Formats are ordered by user preference (preferred codec first).
+     * Check if an error is recoverable (should trigger reconnection).
      */
-    private fun sendClientHello() {
-        val deviceInfo = JSONObject().apply {
-            put("product_name", "SendSpinDroid")
-            put("manufacturer", Build.MANUFACTURER)
-            put("software_version", "1.0.0")
+    private fun isRecoverableError(t: Throwable): Boolean {
+        val cause = t.cause ?: t
+        val message = t.message?.lowercase() ?: ""
+
+        return when {
+            cause is SocketException -> true
+            cause is java.io.EOFException -> true
+            message.contains("reset") -> true
+            message.contains("abort") -> true
+            message.contains("broken pipe") -> true
+            message.contains("connection closed") -> true
+            cause is SocketTimeoutException -> true
+            cause is UnknownHostException -> false
+            cause is SSLHandshakeException -> false
+            message.contains("refused") -> false
+            else -> true
         }
-
-        // Build supported formats list, ordered by user preference
-        val supportedFormats = buildSupportedFormats()
-
-        val playerSupport = JSONObject().apply {
-            put("supported_formats", supportedFormats)
-            put("buffer_capacity", getBufferCapacity())
-            put("supported_commands", JSONArray().apply {
-                put("volume")
-                put("mute")
-            })
-        }
-
-        val payload = JSONObject().apply {
-            put("client_id", clientId)
-            put("name", deviceName)
-            put("version", PROTOCOL_VERSION)
-            put("supported_roles", JSONArray().apply {
-                put("player@v1")
-                put("controller@v1")  // Needed to send play/pause/next/previous commands
-                put("metadata@v1")    // Needed to receive track metadata
-            })
-            put("device_info", deviceInfo)
-            // Use legacy field name for compatibility with older servers
-            // (newer servers accept both player_support and player@v1_support)
-            put("player_support", playerSupport)
-        }
-
-        val message = JSONObject().apply {
-            put("type", "client/hello")
-            put("payload", payload)
-        }
-
-        sendMessage(message)
-        Log.d(TAG, "Sent client/hello: client_id=$clientId")
     }
 
     /**
-     * Build the supported_formats array for client/hello.
-     * Formats are ordered by user preference (preferred codec first).
-     * Server will use the first format it supports.
+     * Map exception to user-friendly error message.
      */
-    private fun buildSupportedFormats(): JSONArray {
-        val formats = JSONArray()
-        val preferredCodec = com.sendspindroid.UserSettings.getPreferredCodec()
+    private fun getSpecificErrorMessage(t: Throwable): String {
+        val cause = t.cause ?: t
 
-        // Get list of codecs to advertise, with preferred first
-        val codecOrder = mutableListOf<String>()
-
-        // Add preferred codec first
-        if (AudioDecoderFactory.isCodecSupported(preferredCodec)) {
-            codecOrder.add(preferredCodec)
-        }
-
-        // Add remaining codecs
-        for (codec in listOf("pcm", "flac", "opus")) {
-            if (codec != preferredCodec && AudioDecoderFactory.isCodecSupported(codec)) {
-                codecOrder.add(codec)
-            }
-        }
-
-        Log.i(TAG, "Building supported_formats: preferred=$preferredCodec, order=$codecOrder, device_supported=${AudioDecoderFactory.getSupportedCodecs()}")
-
-        // Build format entries for each codec (stereo and mono)
-        for (codec in codecOrder) {
-            // Stereo format
-            formats.put(JSONObject().apply {
-                put("codec", codec)
-                put("sample_rate", AUDIO_SAMPLE_RATE)
-                put("channels", AUDIO_CHANNELS)
-                put("bit_depth", AUDIO_BIT_DEPTH)
-            })
-
-            // Mono format
-            formats.put(JSONObject().apply {
-                put("codec", codec)
-                put("sample_rate", AUDIO_SAMPLE_RATE)
-                put("channels", 1)
-                put("bit_depth", AUDIO_BIT_DEPTH)
-            })
-        }
-
-        return formats
-    }
-
-    /**
-     * Send goodbye message before disconnecting.
-     */
-    private fun sendGoodbye(reason: String) {
-        if (webSocket == null || !handshakeComplete) return
-
-        val message = JSONObject().apply {
-            put("type", "client/goodbye")
-            put("payload", JSONObject().apply {
-                put("reason", reason)
-            })
-        }
-        sendMessage(message)
-    }
-
-    /**
-     * Send client/time for clock synchronization.
-     *
-     * The server will respond with server/time containing:
-     * - client_transmitted: our timestamp echoed back
-     * - server_received: when server got our message
-     * - server_transmitted: when server sent its response
-     */
-    private fun sendClientTime() {
-        val clientTransmitted = System.nanoTime() / 1000 // Convert to microseconds
-
-        val message = JSONObject().apply {
-            put("type", "client/time")
-            put("payload", JSONObject().apply {
-                put("client_transmitted", clientTransmitted)
-            })
-        }
-        sendMessage(message)
-    }
-
-    /**
-     * Start the continuous time sync loop.
-     * Uses NTP-style best-of-N: sends burst of packets, picks lowest RTT measurement.
-     */
-    private fun startTimeSyncLoop() {
-        if (timeSyncRunning) return
-        timeSyncRunning = true
-
-        scope.launch {
-            // Initial burst for fast convergence
-            sendTimeSyncBurst()
-
-            // Then periodic bursts to maintain accuracy
-            while (timeSyncRunning && isActive) {
-                delay(TIME_SYNC_INTERVAL_MS)
-                if (timeSyncRunning) {
-                    sendTimeSyncBurst()
+        return when (cause) {
+            is ConnectException -> "Server refused connection. Check if SendSpin is running."
+            is UnknownHostException -> "Server not found. Check the address."
+            is SocketTimeoutException -> "Connection timeout. Server not responding."
+            is NoRouteToHostException -> "Network unreachable. Check WiFi connection."
+            is SSLHandshakeException -> "Secure connection failed."
+            is SocketException -> "Connection lost. Check your network."
+            else -> {
+                val message = t.message?.lowercase() ?: ""
+                when {
+                    message.contains("refused") -> "Server refused connection. Check if SendSpin is running."
+                    message.contains("timeout") -> "Connection timeout. Server not responding."
+                    message.contains("unreachable") -> "Network unreachable. Check WiFi connection."
+                    message.contains("host") -> "Server not found. Check the address."
+                    message.contains("abort") -> "Connection dropped. Reconnecting..."
+                    message.contains("reset") -> "Connection reset. Reconnecting..."
+                    message.contains("broken pipe") -> "Connection lost. Reconnecting..."
+                    else -> t.message ?: "Connection failed"
                 }
             }
         }
     }
 
-    /**
-     * Send a burst of time sync packets.
-     * The responses will be collected and the best one (lowest RTT) used.
-     */
-    private suspend fun sendTimeSyncBurst() {
-        // Start a new burst
-        synchronized(pendingBurstMeasurements) {
-            pendingBurstMeasurements.clear()
-            burstInProgress = true
-            expectedBurstResponses = TIME_SYNC_BURST_COUNT
-        }
+    // ========== WebSocket Event Listener ==========
 
-        // Send N packets at 50ms intervals
-        repeat(TIME_SYNC_BURST_COUNT) {
-            if (!timeSyncRunning) return
-            sendClientTime()
-            delay(TIME_SYNC_BURST_DELAY_MS)
-        }
-
-        // Wait a bit for final responses to arrive
-        delay(TIME_SYNC_BURST_DELAY_MS * 2)
-
-        // Process the burst results
-        processBurstResults()
-    }
-
-    /**
-     * Process collected burst measurements and pick the best one.
-     * Best = lowest RTT (least network congestion).
-     */
-    private fun processBurstResults() {
-        synchronized(pendingBurstMeasurements) {
-            burstInProgress = false
-
-            if (pendingBurstMeasurements.isEmpty()) {
-                Log.w(TAG, "No time sync responses received in burst")
-                return
-            }
-
-            // Find measurement with lowest RTT
-            val best = pendingBurstMeasurements.minByOrNull { it.rtt }
-            if (best == null) {
-                Log.w(TAG, "Failed to find best measurement")
-                return
-            }
-
-            val maxError = best.rtt / 2
-
-            Log.d(TAG, "Time sync burst: ${pendingBurstMeasurements.size}/$TIME_SYNC_BURST_COUNT responses, " +
-                    "best RTT=${best.rtt}μs, offset=${best.offset}μs")
-
-            // Feed only the best measurement to the Kalman filter
-            timeFilter.addMeasurement(best.offset, maxError, best.clientReceived)
-
-            if (timeFilter.isReady) {
-                Log.d(TAG, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs, " +
-                        "drift=${String.format("%.3f", timeFilter.driftPpm)}ppm")
-            }
-
-            pendingBurstMeasurements.clear()
-        }
-    }
-
-    /**
-     * Send initial player state after handshake.
-     * Uses the current volume and muted state (set via setInitialVolume or defaults).
-     */
-    private fun sendPlayerState() {
-        Log.d(TAG, "Sending initial player state: volume=$currentVolume, muted=$currentMuted")
-        sendPlayerStateUpdate(currentVolume, currentMuted)
-    }
-
-    /**
-     * Set initial volume before connecting.
-     * Call this before connect() to ensure server receives correct initial volume.
-     *
-     * @param volume Volume level from 0 to 100
-     * @param muted Whether audio is muted
-     */
-    fun setInitialVolume(volume: Int, muted: Boolean = false) {
-        currentVolume = volume.coerceIn(0, 100)
-        currentMuted = muted
-        Log.d(TAG, "Initial volume set: $currentVolume, muted=$currentMuted")
-    }
-
-    /**
-     * Normalize and validate the WebSocket path parameter.
-     *
-     * - If path is empty, returns default ENDPOINT_PATH
-     * - If path doesn't start with '/', prepends it
-     * - Removes any query string (everything after '?')
-     *
-     * @param path The raw path parameter
-     * @return A normalized path that is safe for URL construction
-     */
-    private fun normalizePath(path: String): String {
-        // Handle empty path
-        if (path.isEmpty()) {
-            Log.d(TAG, "Empty path provided, using default: $ENDPOINT_PATH")
-            return ENDPOINT_PATH
-        }
-
-        // Remove query string if present
-        val pathWithoutQuery = path.substringBefore("?")
-        if (pathWithoutQuery != path) {
-            Log.d(TAG, "Removed query string from path: '$path' -> '$pathWithoutQuery'")
-        }
-
-        // Handle path after query removal becoming empty
-        if (pathWithoutQuery.isEmpty()) {
-            Log.d(TAG, "Path empty after removing query string, using default: $ENDPOINT_PATH")
-            return ENDPOINT_PATH
-        }
-
-        // Ensure path starts with '/'
-        val normalizedPath = if (!pathWithoutQuery.startsWith("/")) {
-            Log.d(TAG, "Path missing leading slash, prepending: '/$pathWithoutQuery'")
-            "/$pathWithoutQuery"
-        } else {
-            pathWithoutQuery
-        }
-
-        return normalizedPath
-    }
-
-    /**
-     * Send a JSON message over the WebSocket.
-     */
-    private fun sendMessage(message: JSONObject) {
-        // Android's JSONObject escapes forward slashes as \/, which some servers don't like
-        // Replace \/ with / for compatibility
-        var text = message.toString()
-        text = text.replace("\\/", "/")
-
-        val ws = webSocket
-        if (ws == null) {
-            Log.e(TAG, "Cannot send message - WebSocket is null")
-            return
-        }
-        val success = ws.send(text)
-        Log.d(TAG, "sendMessage: type=${message.optString("type")}, success=$success, length=${text.length}")
-        if (!success) {
-            Log.w(TAG, "Failed to send message: ${message.optString("type")}")
-        }
-    }
-
-    /**
-     * WebSocket event listener.
-     */
     private inner class WebSocketEventListener : WebSocketListener() {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d(TAG, "WebSocket connected, sending client/hello")
-            // Don't mark as connected yet - wait for server/hello handshake
             sendClientHello()
         }
 
@@ -821,11 +545,8 @@ class SendSpinClient(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "WebSocket closed: $code $reason")
 
-            // If not user-initiated and was previously connected, try to reconnect
             if (!userInitiatedDisconnect.get() && handshakeComplete) {
-                Log.i(TAG, "Unexpected closure, attempting reconnection (buffer playback continues)")
-                // NOTE: We don't call callback.onDisconnected() here - playback continues from buffer
-                // The callback.onReconnecting() will be called by attemptReconnect()
+                Log.i(TAG, "Unexpected closure, attempting reconnection")
                 attemptReconnect()
             } else {
                 _connectionState.value = ConnectionState.Disconnected
@@ -836,439 +557,19 @@ class SendSpinClient(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "WebSocket failure", t)
 
-            // Check if we should attempt reconnection
             val shouldReconnect = !userInitiatedDisconnect.get() &&
-                                  serverAddress != null &&
-                                  isRecoverableError(t)
+                    serverAddress != null &&
+                    isRecoverableError(t)
 
             if (shouldReconnect) {
                 Log.i(TAG, "Recoverable error, attempting reconnection: ${t.message}")
                 attemptReconnect()
             } else {
                 val errorMessage = getSpecificErrorMessage(t)
-                reconnecting = false
+                reconnecting.set(false)
                 _connectionState.value = ConnectionState.Error(errorMessage)
                 callback.onError(errorMessage)
             }
         }
-    }
-
-    /**
-     * Checks if an error is recoverable (should trigger reconnection).
-     * Errors like network drops, socket resets, etc. are recoverable.
-     * Errors like authentication failures or invalid URLs are not.
-     */
-    private fun isRecoverableError(t: Throwable): Boolean {
-        val cause = t.cause ?: t
-        val message = t.message?.lowercase() ?: ""
-
-        return when {
-            // Socket errors are generally recoverable
-            cause is SocketException -> true
-            cause is java.io.EOFException -> true
-
-            // Connection reset/abort are recoverable
-            message.contains("reset") -> true
-            message.contains("abort") -> true
-            message.contains("broken pipe") -> true
-            message.contains("connection closed") -> true
-
-            // Timeouts are recoverable
-            cause is SocketTimeoutException -> true
-
-            // Specific non-recoverable errors
-            cause is UnknownHostException -> false
-            cause is SSLHandshakeException -> false
-            message.contains("refused") -> false
-
-            // Default: try to recover from unknown errors
-            else -> true
-        }
-    }
-
-    /**
-     * Maps exception types to user-friendly error messages.
-     */
-    private fun getSpecificErrorMessage(t: Throwable): String {
-        // Check the root cause for wrapped exceptions
-        val cause = t.cause ?: t
-
-        return when (cause) {
-            is ConnectException -> "Server refused connection. Check if SendSpin is running."
-            is UnknownHostException -> "Server not found. Check the address."
-            is SocketTimeoutException -> "Connection timeout. Server not responding."
-            is NoRouteToHostException -> "Network unreachable. Check WiFi connection."
-            is SSLHandshakeException -> "Secure connection failed."
-            is SocketException -> "Connection lost. Check your network."
-            else -> {
-                // Check message for additional hints
-                val message = t.message?.lowercase() ?: ""
-                when {
-                    message.contains("refused") -> "Server refused connection. Check if SendSpin is running."
-                    message.contains("timeout") -> "Connection timeout. Server not responding."
-                    message.contains("unreachable") -> "Network unreachable. Check WiFi connection."
-                    message.contains("host") -> "Server not found. Check the address."
-                    message.contains("abort") -> "Connection dropped. Reconnecting..."
-                    message.contains("reset") -> "Connection reset. Reconnecting..."
-                    message.contains("broken pipe") -> "Connection lost. Reconnecting..."
-                    else -> t.message ?: "Connection failed"
-                }
-            }
-        }
-    }
-
-    // ========== Message Handlers ==========
-
-    /**
-     * Handle text (JSON) messages from server.
-     *
-     * Message types:
-     * - server/hello: Handshake response
-     * - server/time: Clock sync response
-     * - server/state: Metadata and playback state
-     * - stream/start: Audio stream starting
-     * - stream/clear: Clear audio buffers (seek)
-     */
-    private fun handleTextMessage(text: String) {
-        try {
-            val json = JSONObject(text)
-            val type = json.getString("type")
-            val payload = json.optJSONObject("payload")
-
-            when (type) {
-                "server/hello" -> handleServerHello(payload)
-                "server/time" -> handleServerTime(payload)
-                "server/state" -> handleServerState(payload)
-                "server/command" -> handleServerCommand(payload)
-                "group/update" -> handleGroupUpdate(payload)
-                "stream/start" -> handleStreamStart(payload)
-                "stream/clear" -> handleStreamClear()
-                "client/sync_offset" -> handleClientSyncOffset(payload)
-                else -> Log.d(TAG, "Unhandled message type: $type")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse message: ${text.take(100)}", e)
-        }
-    }
-
-    /**
-     * Handle server/hello - handshake complete.
-     */
-    private fun handleServerHello(payload: JSONObject?) {
-        if (payload == null) {
-            Log.e(TAG, "server/hello missing payload")
-            return
-        }
-
-        serverName = payload.optString("name", serverAddress ?: "Unknown")
-        val serverId = payload.optString("server_id", "")
-        val activeRoles = payload.optJSONArray("active_roles")
-        val connectionReason = payload.optString("connection_reason", "discovery")
-
-        Log.i(TAG, "server/hello received: name=$serverName, id=$serverId, reason=$connectionReason")
-        Log.d(TAG, "Active roles: $activeRoles")
-
-        // Check if this is a reconnection (time filter was frozen)
-        val wasReconnecting = timeFilter.isFrozen || reconnecting
-
-        if (timeFilter.isFrozen) {
-            // Restore frozen time sync state (with increased covariance for adaptation)
-            timeFilter.thaw()
-            Log.i(TAG, "Time filter thawed after reconnection - sync preserved")
-        }
-
-        handshakeComplete = true
-        reconnecting = false
-        reconnectAttempts.set(0) // Reset reconnection counter on successful connection
-        _connectionState.value = ConnectionState.Connected(serverName!!)
-
-        if (wasReconnecting) {
-            // Notify that reconnection succeeded - playback can transition from DRAINING
-            callback.onReconnected()
-            Log.i(TAG, "Reconnection successful - onReconnected callback sent")
-        }
-
-        callback.onConnected(serverName!!)
-
-        // Start time synchronization and send initial state
-        sendPlayerState()
-        startTimeSyncLoop()
-    }
-
-    /**
-     * Handle server/time - clock sync response.
-     *
-     * Uses NTP-style calculation:
-     * offset = ((T2 - T1) + (T3 - T4)) / 2
-     * where:
-     *   T1 = client_transmitted (we sent)
-     *   T2 = server_received
-     *   T3 = server_transmitted
-     *   T4 = now (when we received)
-     *
-     * During burst mode, measurements are collected and the best one (lowest RTT)
-     * is selected at the end of the burst. This filters out network jitter.
-     */
-    private fun handleServerTime(payload: JSONObject?) {
-        if (payload == null) return
-
-        val clientTransmitted = payload.optLong("client_transmitted", 0)
-        val serverReceived = payload.optLong("server_received", 0)
-        val serverTransmitted = payload.optLong("server_transmitted", 0)
-        val clientReceived = System.nanoTime() / 1000 // Current time in microseconds
-
-        if (clientTransmitted == 0L || serverReceived == 0L || serverTransmitted == 0L) {
-            Log.w(TAG, "Invalid server/time payload")
-            return
-        }
-
-        // NTP-style offset calculation
-        // offset = ((server_received - client_transmitted) + (server_transmitted - client_received)) / 2
-        val offset = ((serverReceived - clientTransmitted) + (serverTransmitted - clientReceived)) / 2
-
-        // Round-trip time = total elapsed - server processing time
-        val rtt = (clientReceived - clientTransmitted) - (serverTransmitted - serverReceived)
-
-        // During burst mode, collect measurements for later selection
-        synchronized(pendingBurstMeasurements) {
-            if (burstInProgress) {
-                pendingBurstMeasurements.add(TimeMeasurement(offset, rtt, clientReceived))
-                return
-            }
-        }
-
-        // Outside burst mode (shouldn't happen normally, but handle gracefully)
-        val maxError = rtt / 2
-        timeFilter.addMeasurement(offset, maxError, clientReceived)
-
-        if (timeFilter.isReady) {
-            Log.d(TAG, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs")
-        }
-    }
-
-    /**
-     * Handle server/state - metadata and playback updates.
-     */
-    private fun handleServerState(payload: JSONObject?) {
-        if (payload == null) return
-
-        // Extract metadata if present
-        val metadata = payload.optJSONObject("metadata")
-        if (metadata != null) {
-            // Note: optString returns literal "null" when JSON has null value, so we filter it
-            val title = metadata.optString("title", "").takeUnless { it == "null" } ?: ""
-            val artist = metadata.optString("artist", "").takeUnless { it == "null" } ?: ""
-            val album = metadata.optString("album", "").takeUnless { it == "null" } ?: ""
-            val artworkUrl = metadata.optString("artwork_url", "").takeUnless { it == "null" } ?: ""
-            val durationMs = metadata.optLong("duration_ms", 0)
-            val positionMs = metadata.optLong("position_ms", 0)
-
-            callback.onMetadataUpdate(title, artist, album, artworkUrl, durationMs, positionMs)
-        }
-
-        // Extract playback state
-        val state = payload.optString("state", "")
-        if (state.isNotEmpty()) {
-            callback.onStateChanged(state)
-        }
-
-        // Note: server/state may contain a "volume" field, but per SendSpin protocol spec,
-        // this is the GROUP AVERAGE volume for controller role clients, not the player's
-        // individual volume. Players receive volume commands via server/command messages.
-        // We intentionally don't process volume from server/state to avoid UI desync.
-    }
-
-    /**
-     * Handle server/command - player volume/mute control from server.
-     *
-     * Example payload:
-     * {"player": {"command": "volume", "volume": 75}}
-     * {"player": {"command": "mute", "mute": true}}
-     */
-    private fun handleServerCommand(payload: JSONObject?) {
-        if (payload == null) return
-
-        val player = payload.optJSONObject("player") ?: return
-        val command = player.optString("command", "")
-
-        when (command) {
-            "volume" -> {
-                val volume = player.optInt("volume", -1)
-                if (volume in 0..100) {
-                    Log.d(TAG, "Server command: set volume to $volume%")
-                    currentVolume = volume
-                    callback.onVolumeChanged(volume)
-                    // Send state update back to server per spec
-                    sendPlayerStateUpdate(currentVolume, currentMuted)
-                }
-            }
-            "mute" -> {
-                val mute = player.optBoolean("mute", false)
-                Log.d(TAG, "Server command: set mute to $mute")
-                currentMuted = mute
-                // TODO: Add onMutedChanged callback if needed
-                // For now, send volume update with muted state
-                sendPlayerStateUpdate(currentVolume, currentMuted)
-            }
-            else -> Log.d(TAG, "Unknown player command: $command")
-        }
-    }
-
-    /**
-     * Handle client/sync_offset - GroupSync calibration offset.
-     *
-     * This message is sent by the GroupSync calibration tool to apply a
-     * calculated speaker offset for multi-room synchronization.
-     *
-     * Example payload:
-     * {"player_id": "...", "offset_ms": 12.5, "source": "groupsync"}
-     */
-    private fun handleClientSyncOffset(payload: JSONObject?) {
-        if (payload == null) {
-            Log.w(TAG, "client/sync_offset: missing payload")
-            return
-        }
-
-        val playerId = payload.optString("player_id", "")
-        val offsetMs = payload.optDouble("offset_ms", 0.0)
-        val source = payload.optString("source", "unknown")
-
-        Log.i(TAG, "client/sync_offset: offset=${offsetMs}ms from $source")
-
-        // Clamp offset to reasonable range (-5000 to +5000 ms)
-        val clampedOffset = offsetMs.coerceIn(-5000.0, 5000.0)
-        if (clampedOffset != offsetMs) {
-            Log.w(TAG, "client/sync_offset: clamped from ${offsetMs}ms to ${clampedOffset}ms")
-        }
-
-        // Apply to time filter
-        timeFilter.staticDelayMs = clampedOffset
-        Log.d(TAG, "client/sync_offset: static delay set to ${clampedOffset}ms")
-
-        // Notify callback if available
-        callback.onSyncOffsetApplied(clampedOffset, source)
-    }
-
-    /**
-     * Handle group/update - playback group state changes.
-     *
-     * This message is sent when the player's group assignment changes or
-     * when the playback state of the group changes.
-     *
-     * Example payload:
-     * {"playback_state":"stopped","group_id":"761348d6-9fce-43f7-b7bc-4f1313e1d523"}
-     */
-    private fun handleGroupUpdate(payload: JSONObject?) {
-        if (payload == null) return
-
-        val groupId = payload.optString("group_id", "")
-        val groupName = payload.optString("group_name", "") // May not always be present
-        val playbackState = payload.optString("playback_state", "")
-
-        Log.d(TAG, "group/update: id=$groupId, name=$groupName, state=$playbackState")
-        callback.onGroupUpdate(groupId, groupName, playbackState)
-
-        // Note: Per SendSpin protocol spec, group/update does not contain volume data.
-        // Player volume is controlled exclusively via server/command messages.
-    }
-
-    /**
-     * Handle stream/start - audio stream configuration.
-     *
-     * This is sent when the server starts streaming audio.
-     * Includes codec and format information for the audio player.
-     */
-    private fun handleStreamStart(payload: JSONObject?) {
-        if (payload == null) return
-
-        val player = payload.optJSONObject("player")
-        if (player != null) {
-            val codec = player.optString("codec", AUDIO_CODEC)
-            val sampleRate = player.optInt("sample_rate", AUDIO_SAMPLE_RATE)
-            val channels = player.optInt("channels", AUDIO_CHANNELS)
-            val bitDepth = player.optInt("bit_depth", AUDIO_BIT_DEPTH)
-
-            // Extract and decode codec_header if present (e.g., FLAC STREAMINFO, Opus header)
-            val codecHeaderBase64 = player.optString("codec_header", null)
-            val codecHeader = codecHeaderBase64?.let {
-                try {
-                    android.util.Base64.decode(it, android.util.Base64.DEFAULT)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to decode codec_header", e)
-                    null
-                }
-            }
-
-            val preferredCodec = com.sendspindroid.UserSettings.getPreferredCodec()
-            Log.i(TAG, "Stream started: server chose codec=$codec (we preferred=$preferredCodec), rate=$sampleRate, ch=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
-            callback.onStreamStart(codec, sampleRate, channels, bitDepth, codecHeader)
-        }
-    }
-
-    /**
-     * Handle stream/clear - flush audio buffers (e.g., seek).
-     *
-     * This is sent when the server wants us to clear our buffers,
-     * typically before a seek or track change.
-     */
-    private fun handleStreamClear() {
-        Log.d(TAG, "Stream clear - flushing audio buffers")
-        callback.onStreamClear()
-    }
-
-    /**
-     * Handle binary messages from server.
-     *
-     * Binary protocol:
-     * - Byte 0: message type
-     *   - 4: Audio chunk
-     *   - 8-11: Artwork for channels 0-3
-     *   - 16: Visualization data
-     * - Bytes 1-8: timestamp (int64, big-endian, microseconds)
-     * - Remaining: payload data
-     */
-    private fun handleBinaryMessage(bytes: ByteString) {
-        if (bytes.size < 9) {
-            Log.w(TAG, "Binary message too short: ${bytes.size} bytes")
-            return
-        }
-
-        val msgType = bytes[0].toInt() and 0xFF
-
-        // Extract timestamp (big-endian int64)
-        val timestampBytes = bytes.substring(1, 9).toByteArray()
-        val buffer = ByteBuffer.wrap(timestampBytes).order(ByteOrder.BIG_ENDIAN)
-        val serverTimestampMicros = buffer.getLong()
-
-        // Get payload
-        val payload = bytes.substring(9)
-
-        when (msgType) {
-            MSG_TYPE_AUDIO -> handleAudioChunk(serverTimestampMicros, payload)
-            in MSG_TYPE_ARTWORK_BASE..(MSG_TYPE_ARTWORK_BASE + 3) -> {
-                val channel = msgType - MSG_TYPE_ARTWORK_BASE
-                handleArtwork(channel, payload)
-            }
-            else -> Log.d(TAG, "Unknown binary message type: $msgType")
-        }
-    }
-
-    /**
-     * Handle audio chunk with server timestamp.
-     *
-     * The timestamp indicates when the first sample should play in server time.
-     * We forward this to the audio player via callback for synchronized playback.
-     */
-    private fun handleAudioChunk(serverTimestampMicros: Long, payload: ByteString) {
-        // Forward to audio player - it will handle time conversion and sync
-        callback.onAudioChunk(serverTimestampMicros, payload.toByteArray())
-    }
-
-    /**
-     * Handle artwork binary data.
-     */
-    private fun handleArtwork(channel: Int, payload: ByteString) {
-        Log.d(TAG, "Received artwork channel $channel: ${payload.size} bytes")
-        callback.onArtwork(payload.toByteArray())
     }
 }

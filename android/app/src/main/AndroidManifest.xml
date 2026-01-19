@@ -58,6 +58,11 @@
          Used by: Keep audio playback running when screen is off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- RECEIVE_BOOT_COMPLETED: Start Stay Connected mode on device boot
+         Permission level: Normal (auto-granted)
+         Used by: BootReceiver to start listening for servers after boot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
 
     <!--
         Application Configuration:
@@ -98,11 +103,13 @@
         <!-- MainActivity: Primary activity and app entry point
              - exported: Allow external apps to launch (required for MAIN/LAUNCHER intent-filter)
              - Security: Only export activities that should be accessible externally
-             Note: No configChanges - activity recreates on rotation to load layout-land -->
+             - configChanges: Handle rotation manually to prevent Activity recreation
+               which triggers false network change detection and disconnects -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTop">
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|screenLayout">
 
             <!-- intent-filter: Defines how this activity can be started
                  This combination makes MainActivity the app's launcher icon -->
@@ -166,6 +173,21 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            BootReceiver: Starts Stay Connected mode on device boot
+            - Only activates if Stay Connected setting is enabled
+            - Starts the PlaybackService in listening mode after boot completes
+            - Requires RECEIVE_BOOT_COMPLETED permission
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 

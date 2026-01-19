@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Landscape-optimized layout: horizontal split with album art left, controls right -->
+<!-- Landscape-optimized layout: full-height album art left, toolbar+controls right -->
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -9,7 +9,7 @@
     android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
-    <!-- App Bar with Toolbar -->
+    <!-- Hidden AppBarLayout - required for view binding compatibility but not displayed in landscape now playing -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
         android:layout_width="match_parent"
@@ -28,11 +28,12 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- Main Content Area (scrolls under app bar) -->
+    <!-- Main Content Area - insets handled programmatically in MainActivity -->
     <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/mainContentArea"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp"
+        android:clipToPadding="false"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <!-- ============================================================ -->
@@ -214,7 +215,7 @@
 
         <!-- ============================================================ -->
         <!-- NOW PLAYING VIEW - Shown when connected to a server          -->
-        <!-- Landscape: Horizontal split layout                           -->
+        <!-- Landscape: Full-height album art left, controls right        -->
         <!-- ============================================================ -->
         <androidx.constraintlayout.widget.ConstraintLayout
             android:id="@+id/nowPlayingView"
@@ -263,7 +264,7 @@
 
             </LinearLayout>
 
-            <!-- Now Playing Content - Horizontal Split for Landscape -->
+            <!-- Now Playing Content - Full height album art left, controls right -->
             <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/nowPlayingContent"
                 android:layout_width="0dp"
@@ -274,18 +275,15 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent">
 
-                <!-- LEFT SIDE: Album Art (35% width, vertically centered) -->
+                <!-- LEFT SIDE: Album Art (square, sized to fit available height) -->
                 <FrameLayout
                     android:id="@+id/albumArtContainer"
                     android:layout_width="0dp"
                     android:layout_height="0dp"
-                    android:layout_marginEnd="16dp"
-                    app:layout_constraintDimensionRatio="1:1"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
                     app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintWidth_percent="0.35"
-                    app:layout_constraintHeight_max="280dp">
+                    app:layout_constraintDimensionRatio="H,1:1">
 
                     <com.google.android.material.card.MaterialCardView
                         android:layout_width="match_parent"
@@ -320,12 +318,12 @@
 
                 </FrameLayout>
 
-                <!-- RIGHT SIDE: Track Info and Controls -->
+                <!-- RIGHT SIDE: Title bar + Track Info + Controls -->
                 <androidx.constraintlayout.widget.ConstraintLayout
                     android:id="@+id/controlsContainer"
                     android:layout_width="0dp"
                     android:layout_height="0dp"
-                    android:layout_marginStart="24dp"
+                    android:layout_marginStart="48dp"
                     app:layout_constraintStart_toEndOf="@id/albumArtContainer"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
@@ -336,9 +334,9 @@
                         android:id="@+id/nowPlayingText"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:gravity="start"
+                        android:gravity="center"
                         android:text="@string/not_playing"
-                        android:textSize="22sp"
+                        android:textSize="24sp"
                         android:textStyle="bold"
                         android:textColor="?attr/colorOnBackground"
                         android:letterSpacing="-0.02"
@@ -358,10 +356,10 @@
                         android:id="@+id/metadataText"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:gravity="start"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center"
                         android:text=""
-                        android:textSize="14sp"
+                        android:textSize="16sp"
                         android:textColor="?attr/colorOnSurfaceVariant"
                         android:alpha="0.9"
                         android:letterSpacing="0.01"
@@ -380,9 +378,9 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
-                        android:gravity="start"
+                        android:gravity="center"
                         android:text=""
-                        android:textSize="12sp"
+                        android:textSize="13sp"
                         android:textColor="?attr/colorPrimary"
                         android:alpha="0.9"
                         android:maxLines="1"
@@ -398,10 +396,11 @@
                         android:id="@+id/playbackControlsContainer"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="16dp"
+                        android:layout_marginTop="20dp"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintTop_toBottomOf="@id/groupNameText"
                         app:layout_constraintBottom_toTopOf="@id/volumeContainer">
 
@@ -409,46 +408,46 @@
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/previousButton"
                             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginEnd="8dp"
+                            android:layout_width="52dp"
+                            android:layout_height="52dp"
+                            android:layout_marginEnd="12dp"
                             android:contentDescription="@string/accessibility_previous_button"
                             android:enabled="false"
                             app:icon="@drawable/ic_skip_previous"
-                            app:iconSize="24dp" />
+                            app:iconSize="26dp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/playPauseButton"
                             style="@style/Widget.Material3.Button.IconButton.Filled"
-                            android:layout_width="56dp"
-                            android:layout_height="56dp"
+                            android:layout_width="64dp"
+                            android:layout_height="64dp"
                             android:stateListAnimator="@animator/button_scale"
                             android:contentDescription="@string/accessibility_play_button"
                             android:enabled="false"
                             app:icon="@drawable/ic_play"
-                            app:iconSize="28dp" />
+                            app:iconSize="32dp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/nextButton"
                             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="8dp"
+                            android:layout_width="52dp"
+                            android:layout_height="52dp"
+                            android:layout_marginStart="12dp"
                             android:contentDescription="@string/accessibility_next_button"
                             android:enabled="false"
                             app:icon="@drawable/ic_skip_next"
-                            app:iconSize="24dp" />
+                            app:iconSize="26dp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/switchGroupButton"
                             style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:layout_marginStart="16dp"
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="20dp"
                             android:contentDescription="@string/accessibility_switch_group_button"
                             android:enabled="false"
                             app:icon="@drawable/ic_swap_horiz"
-                            app:iconSize="20dp" />
+                            app:iconSize="22dp" />
 
                     </LinearLayout>
 
@@ -457,7 +456,7 @@
                         android:id="@+id/volumeContainer"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
+                        android:layout_marginTop="16dp"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         app:layout_constraintEnd_toEndOf="parent"
@@ -466,8 +465,8 @@
                         app:layout_constraintBottom_toBottomOf="parent">
 
                         <ImageView
-                            android:layout_width="18dp"
-                            android:layout_height="18dp"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
                             android:src="@drawable/ic_volume_down"
                             android:contentDescription="@null"
                             android:importantForAccessibility="no"
@@ -479,7 +478,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:layout_marginHorizontal="8dp"
+                            android:layout_marginHorizontal="12dp"
                             android:valueFrom="0"
                             android:valueTo="100"
                             android:value="75"
@@ -488,8 +487,8 @@
                             android:enabled="false" />
 
                         <ImageView
-                            android:layout_width="18dp"
-                            android:layout_height="18dp"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
                             android:src="@drawable/ic_volume_up"
                             android:contentDescription="@null"
                             android:importantForAccessibility="no"
