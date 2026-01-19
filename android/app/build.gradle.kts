@@ -3,10 +3,8 @@
 
 plugins {
     // Android application plugin - enables Android-specific build tasks
+    // AGP 9.0+ includes built-in Kotlin support, no separate plugin needed
     id("com.android.application")
-
-    // Kotlin Android plugin - enables Kotlin source compilation
-    id("org.jetbrains.kotlin.android")
 
     // TODO: Consider adding kotlin-parcelize for efficient Parcelable implementation
     // TODO: Consider adding kotlin-kapt if Room or Dagger is added
@@ -117,17 +115,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    // Kotlin compiler JVM target
-    // Generates bytecode compatible with Java 21
-    kotlinOptions {
-        jvmTarget = "21"
-
-        // TODO: Consider enabling these Kotlin compiler options:
-        // freeCompilerArgs += listOf(
-        //     "-opt-in=kotlin.RequiresOptIn", // Enable opt-in APIs
-        //     "-Xjvm-default=all" // Generate Java 8+ default methods
-        // )
-    }
+    // Kotlin compiler options are configured via kotlin { jvmToolchain(21) } above
+    // which automatically sets JVM target to match the toolchain version
 
     // Build features configuration
     buildFeatures {
