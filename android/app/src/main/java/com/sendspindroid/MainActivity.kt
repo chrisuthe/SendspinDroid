@@ -33,10 +33,12 @@ import android.widget.EditText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import com.google.android.material.appbar.AppBarLayout
 import androidx.palette.graphics.Palette
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -736,6 +738,21 @@ class MainActivity : AppCompatActivity() {
         // Hide app bar in landscape for full-height album art
         val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         binding.appBarLayout.visibility = if (isLandscape) View.GONE else View.VISIBLE
+
+        // Remove/restore scrolling behavior to fix space reservation when AppBarLayout is hidden
+        // The appbar_scrolling_view_behavior doesn't account for GONE visibility
+        val mainContentArea = binding.root.findViewById<View>(R.id.mainContentArea)
+        mainContentArea?.let { content ->
+            val params = content.layoutParams as? CoordinatorLayout.LayoutParams
+            params?.let {
+                if (isLandscape) {
+                    it.behavior = null
+                } else {
+                    it.behavior = AppBarLayout.ScrollingViewBehavior()
+                }
+                content.layoutParams = it
+            }
+        }
 
         binding.searchingView.visibility = View.GONE
         binding.manualEntryView.visibility = View.GONE
