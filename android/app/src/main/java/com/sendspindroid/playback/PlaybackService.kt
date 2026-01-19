@@ -574,14 +574,22 @@ class PlaybackService : MediaLibraryService() {
                 // Update playWhenReady from server state (without sending command back)
                 sendSpinPlayer?.updatePlayWhenReadyFromServer(newState == PlaybackStateType.PLAYING)
 
-                // Stop audio immediately when server stops/pauses playback
-                if (newState == PlaybackStateType.STOPPED || newState == PlaybackStateType.PAUSED) {
-                    Log.d(TAG, "State is stopped/paused - clearing audio buffer and releasing wake lock")
+                // Handle playback state transitions per SendSpin spec
+                if (newState == PlaybackStateType.STOPPED) {
+                    // Stop: "reset position to beginning" - clear buffer
+                    Log.d(TAG, "State is stopped - clearing audio buffer and releasing wake lock")
                     syncAudioPlayer?.clearBuffer()
                     syncAudioPlayer?.pause()
                     releaseWakeLock()
+                } else if (newState == PlaybackStateType.PAUSED) {
+                    // Pause: "maintains current position for later resumption" - keep buffer
+                    Log.d(TAG, "State is paused - pausing audio (keeping buffer)")
+                    syncAudioPlayer?.pause()
+                    releaseWakeLock()
                 } else if (newState == PlaybackStateType.PLAYING) {
-                    // Re-acquire wake lock when playback resumes
+                    // Playing: resume playback if paused
+                    Log.d(TAG, "State is playing - resuming audio and acquiring wake lock")
+                    syncAudioPlayer?.resume()
                     acquireWakeLock()
                 }
 
@@ -603,18 +611,26 @@ class PlaybackService : MediaLibraryService() {
                     sendSpinPlayer?.updatePlayWhenReadyFromServer(newPlaybackState == PlaybackStateType.PLAYING)
                 }
 
-                // Handle playback state changes for audio player and notifications
+                // Handle playback state transitions per SendSpin spec
                 if (playbackState.isNotEmpty()) {
                     when (newPlaybackState) {
-                        PlaybackStateType.STOPPED, PlaybackStateType.PAUSED -> {
-                            Log.d(TAG, "Playback stopped/paused - clearing audio buffer and releasing wake lock")
+                        PlaybackStateType.STOPPED -> {
+                            // Stop: "reset position to beginning" - clear buffer
+                            Log.d(TAG, "Playback stopped - clearing audio buffer and releasing wake lock")
                             syncAudioPlayer?.clearBuffer()
                             syncAudioPlayer?.pause()
                             releaseWakeLock()
                         }
+                        PlaybackStateType.PAUSED -> {
+                            // Pause: "maintains current position for later resumption" - keep buffer
+                            Log.d(TAG, "Playback paused - pausing audio (keeping buffer)")
+                            syncAudioPlayer?.pause()
+                            releaseWakeLock()
+                        }
                         PlaybackStateType.PLAYING -> {
-                            Log.d(TAG, "Playback playing - updating player state and acquiring wake lock")
-                            // Player state will update from SyncAudioPlayer via setSyncAudioPlayer
+                            // Playing: resume playback if paused
+                            Log.d(TAG, "Playback playing - resuming audio and acquiring wake lock")
+                            syncAudioPlayer?.resume()
                             sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
                             acquireWakeLock()
                         }
