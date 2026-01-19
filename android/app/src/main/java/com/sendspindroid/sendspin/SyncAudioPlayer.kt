@@ -271,6 +271,7 @@ class SyncAudioPlayer(
     private var audioTrack: AudioTrack? = null
     private val isPlaying = AtomicBoolean(false)
     private val isPaused = AtomicBoolean(false)
+    private var pausedAtUs: Long = 0L  // Timestamp when pause() was called, for long-pause detection
 
     // Playback state machine (from Python reference)
     @Volatile private var playbackState = PlaybackState.INITIALIZING
@@ -479,6 +480,7 @@ class SyncAudioPlayer(
     fun pause() {
         stateLock.withLock {
             isPaused.set(true)
+            pausedAtUs = System.nanoTime() / 1000
             audioTrack?.pause()
             Log.d(TAG, "Playback paused")
         }
@@ -486,12 +488,56 @@ class SyncAudioPlayer(
 
     /**
      * Resume playback.
+     *
+     * Resets sync state that becomes stale during pause:
+     * - DAC calibrations (System.nanoTime() continues advancing during pause)
+     * - Sync error filter (pre-pause error is no longer relevant)
+     * - Correction schedule (start fresh)
+     * - Grace period (allow sync to stabilize after resume)
+     *
+     * For long pauses (>5 seconds), clears the buffer and reinitializes
+     * since buffered chunks will be too stale.
      */
     fun resume() {
         stateLock.withLock {
+            if (!isPaused.get()) {
+                Log.d(TAG, "resume() called but not paused - ignoring")
+                return@withLock
+            }
+
+            val nowUs = System.nanoTime() / 1000
+            val pauseDurationUs = nowUs - pausedAtUs
+            val LONG_PAUSE_THRESHOLD_US = 5_000_000L  // 5 seconds
+
+            if (pauseDurationUs > LONG_PAUSE_THRESHOLD_US) {
+                Log.d(TAG, "Long pause detected (${pauseDurationUs / 1000}ms) - clearing stale buffer")
+                // Clear buffer and let it refill from server
+                chunkQueue.clear()
+                totalQueuedSamples.set(0)
+                setPlaybackState(PlaybackState.INITIALIZING)
+                expectedNextTimestampUs = null
+            }
+
+            // Clear stale DAC calibrations - they become invalid during pause
+            // because System.nanoTime() continues advancing
+            clearDacCalibrations()
+
+            // Reset sync error filter - pre-pause error is no longer relevant
+            syncErrorFilter.reset()
+            syncErrorUs = 0L
+
+            // Reset correction schedule - start fresh
+            insertEveryNFrames = 0
+            dropEveryNFrames = 0
+            framesUntilNextInsert = 0
+            framesUntilNextDrop = 0
+
+            // Reset grace period to allow sync to stabilize after resume
+            playingStateEnteredAtUs = nowUs
+
             isPaused.set(false)
             audioTrack?.play()
-            Log.d(TAG, "Playback resumed")
+            Log.d(TAG, "Playback resumed after ${pauseDurationUs / 1000}ms pause - sync state reset")
         }
     }
 
@@ -632,6 +678,10 @@ class SyncAudioPlayer(
 
         stateLock.withLock {
             streamGeneration++
+
+            // Reset paused state - we're starting a fresh stream (e.g., after seek)
+            // This ensures playback loop will process new chunks even if we were paused
+            isPaused.set(false)
 
             // Clear the chunk queue (thread-safe operation)
             chunkQueue.clear()
