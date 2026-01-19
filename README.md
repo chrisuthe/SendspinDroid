@@ -1,4 +1,4 @@
-# SendSpinDroid
+# SendspinDroid
 
 A native Android client for [SendSpin](https://www.sendspin-audio.com/) multi-room synchronized audio streaming.
 
