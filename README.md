@@ -1,4 +1,5 @@
-# SendSpinDroid
+![GitHub all releases](https://img.shields.io/github/downloads/chrisuthe/SendspinDroid/total?color=blue)
+# SendspinDroid
 
 A native Android client for [SendSpin](https://www.sendspin-audio.com/) multi-room synchronized audio streaming.
 
