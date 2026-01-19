@@ -1,18 +1,23 @@
 package com.sendspindroid
 
+import android.content.ComponentName
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import android.util.Log
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.debug.DebugLogger
+import com.sendspindroid.playback.PlaybackService
 import kotlin.system.exitProcess
 
 // Note: SyncOffsetPreference is a custom preference that handles its own UI
@@ -32,6 +37,9 @@ class SettingsFragment : PreferenceFragmentCompat() {
 
         // Update interval for debug log sample count display
         private const val DEBUG_STATS_UPDATE_INTERVAL_MS = 2000L
+
+        // Action to stop listening mode
+        private const val ACTION_STOP_LISTENING = "com.sendspindroid.ACTION_STOP_LISTENING"
     }
 
     // Handler for periodic updates of debug log sample count
@@ -118,6 +126,37 @@ class SettingsFragment : PreferenceFragmentCompat() {
                     .setMessage(R.string.pref_codec_reconnect_message)
                     .setPositiveButton(android.R.string.ok, null)
                     .show()
+                true  // Accept the preference change
+            }
+        }
+
+        // Set up Stay Connected toggle
+        findPreference<SwitchPreferenceCompat>(UserSettings.KEY_STAY_CONNECTED)?.apply {
+            setOnPreferenceChangeListener { _, newValue ->
+                val enabled = newValue as Boolean
+                Log.i(TAG, "Stay Connected changed to: $enabled")
+
+                // Start the service with the appropriate action
+                val intent = Intent(requireContext(), PlaybackService::class.java).apply {
+                    action = if (enabled) {
+                        BootReceiver.ACTION_START_LISTENING
+                    } else {
+                        ACTION_STOP_LISTENING
+                    }
+                }
+
+                try {
+                    if (enabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        requireContext().startForegroundService(intent)
+                    } else {
+                        requireContext().startService(intent)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to toggle Stay Connected", e)
+                    Toast.makeText(requireContext(), "Failed to toggle Stay Connected", Toast.LENGTH_SHORT).show()
+                    return@setOnPreferenceChangeListener false
+                }
+
                 true  // Accept the preference change
             }
         }
