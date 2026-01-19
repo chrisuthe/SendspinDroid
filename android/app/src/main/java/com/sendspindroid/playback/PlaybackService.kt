@@ -1146,6 +1146,9 @@ class PlaybackService : MediaLibraryService() {
         // Start foreground service with listening notification
         startForegroundServiceWithListeningNotification()
 
+        // Acquire wake locks to keep connection alive when screen is off
+        acquireListeningWakeLocks()
+
         Log.i(TAG, "Stay Connected mode started on port ${NsdAdvertiser.DEFAULT_PORT}")
     }
 
@@ -1217,6 +1220,41 @@ class PlaybackService : MediaLibraryService() {
             Log.d(TAG, "Listening notification started")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start listening notification", e)
+        }
+    }
+
+    /**
+     * Acquires wake locks for Stay Connected (listening) mode.
+     * Unlike playback mode, listening mode uses no timeout since we need to stay
+     * connected indefinitely until the user disables the feature.
+     */
+    @Suppress("DEPRECATION")
+    private fun acquireListeningWakeLocks() {
+        // WiFi lock - keeps WiFi active even when screen is off
+        if (wifiLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "SendSpinDroid::StayConnected"
+            )
+        }
+        if (wifiLock?.isHeld == false) {
+            wifiLock?.acquire()
+            Log.d(TAG, "WiFi lock acquired for listening mode")
+        }
+
+        // CPU wake lock - needed to process incoming WebSocket connections
+        // No timeout for listening mode since we need to stay connected indefinitely
+        if (wakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "SendSpinDroid::StayConnected"
+            )
+        }
+        if (wakeLock?.isHeld == false) {
+            wakeLock?.acquire()  // No timeout for listening mode
+            Log.d(TAG, "CPU wake lock acquired for listening mode (no timeout)")
         }
     }
 
@@ -2269,18 +2307,19 @@ class PlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        Log.d(TAG, "onTaskRemoved")
+        Log.d(TAG, "onTaskRemoved (isListeningMode=$isListeningMode)")
 
         // Check if SyncAudioPlayer is actively playing (not ExoPlayer)
         val audioPlayerState = syncAudioPlayer?.getPlaybackState()
         val isPlaying = audioPlayerState == com.sendspindroid.sendspin.PlaybackState.PLAYING ||
                         audioPlayerState == com.sendspindroid.sendspin.PlaybackState.WAITING_FOR_START
 
-        if (!isPlaying) {
-            Log.d(TAG, "Not playing (state=$audioPlayerState), stopping service")
+        // Keep service alive if playing OR in listening mode (Stay Connected)
+        if (!isPlaying && !isListeningMode) {
+            Log.d(TAG, "Not playing (state=$audioPlayerState) and not listening, stopping service")
             stopSelf()
         } else {
-            Log.d(TAG, "Currently playing (state=$audioPlayerState), continuing in background")
+            Log.d(TAG, "Continuing in background (playing=$isPlaying, listening=$isListeningMode)")
         }
 
         super.onTaskRemoved(rootIntent)
