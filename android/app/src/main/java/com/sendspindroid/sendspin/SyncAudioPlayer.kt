@@ -243,6 +243,9 @@ class SyncAudioPlayer(
         // Logging and diagnostics
         private const val CHUNK_DROP_LOG_INTERVAL = 100  // Log every Nth dropped chunk when time sync not ready
 
+        // Pre-sync buffering - buffer chunks while waiting for time sync to be ready
+        private const val MAX_PENDING_CHUNKS = 500  // ~10 seconds at 48kHz/20ms chunks
+
         // Coroutine cancellation
         private const val PLAYBACK_LOOP_CANCEL_TIMEOUT_MS = 1000L  // Timeout waiting for playback loop to stop
     }
@@ -341,6 +344,10 @@ class SyncAudioPlayer(
     private var framesDropped = 0L
     private var reanchorCount = 0L        // Count of reanchor events
     private var bufferUnderrunCount = 0L  // Count of times queue was empty during playback
+
+    // Pre-sync chunk buffer - holds chunks received before time sync is ready
+    // These will be processed once time sync completes
+    private val pendingChunks = mutableListOf<Pair<Long, ByteArray>>()
 
     // Gap/overlap handling (from Python reference)
     private var expectedNextTimestampUs: Long? = null  // Expected server timestamp of next chunk
@@ -579,6 +586,11 @@ class SyncAudioPlayer(
             chunkQueue.clear()
             totalQueuedSamples.set(0)
 
+            // Clear pending chunks buffer
+            synchronized(pendingChunks) {
+                pendingChunks.clear()
+            }
+
             // Reset playback state machine
             setPlaybackState(PlaybackState.INITIALIZING)
             scheduledStartLoopTimeUs = null
@@ -658,6 +670,9 @@ class SyncAudioPlayer(
             // Clear all buffers and state
             chunkQueue.clear()
             totalQueuedSamples.set(0)
+            synchronized(pendingChunks) {
+                pendingChunks.clear()
+            }
             stateCallback = null
 
             Log.i(TAG, "Released")
@@ -686,6 +701,11 @@ class SyncAudioPlayer(
             // Clear the chunk queue (thread-safe operation)
             chunkQueue.clear()
             totalQueuedSamples.set(0)
+
+            // Clear pending chunks buffer
+            synchronized(pendingChunks) {
+                pendingChunks.clear()
+            }
 
             // Only flush AudioTrack if we have one and it's safe to do so
             // The stateLock ensures the playback loop won't be writing during this
@@ -754,15 +774,52 @@ class SyncAudioPlayer(
     fun queueChunk(serverTimeMicros: Long, pcmData: ByteArray) {
         chunksReceived++
 
-        // Wait for time sync to be ready
+        // Buffer chunks until time sync is ready
         if (!timeFilter.isReady) {
-            chunksDropped++
-            if (chunksDropped % CHUNK_DROP_LOG_INTERVAL == 1L) {
-                Log.v(TAG, "Dropping chunk - time sync not ready (dropped: $chunksDropped)")
+            synchronized(pendingChunks) {
+                if (pendingChunks.size < MAX_PENDING_CHUNKS) {
+                    pendingChunks.add(Pair(serverTimeMicros, pcmData))
+                    if (pendingChunks.size == 1) {
+                        Log.d(TAG, "Buffering chunks while waiting for time sync...")
+                    }
+                } else {
+                    chunksDropped++  // Only drop if buffer is full
+                    if (chunksDropped % CHUNK_DROP_LOG_INTERVAL == 1L) {
+                        Log.w(TAG, "Pending buffer full, dropping chunk (dropped: $chunksDropped)")
+                    }
+                }
             }
             return
         }
 
+        // Process any pending chunks first (once time sync is ready)
+        processPendingChunks()
+
+        // Now process the current chunk
+        processChunk(serverTimeMicros, pcmData)
+    }
+
+    /**
+     * Process pending chunks that were buffered while waiting for time sync.
+     * Called when time sync becomes ready.
+     */
+    private fun processPendingChunks() {
+        synchronized(pendingChunks) {
+            if (pendingChunks.isNotEmpty()) {
+                Log.i(TAG, "Time sync ready, processing ${pendingChunks.size} buffered chunks")
+                for ((timestamp, data) in pendingChunks) {
+                    processChunk(timestamp, data)
+                }
+                pendingChunks.clear()
+            }
+        }
+    }
+
+    /**
+     * Process a single audio chunk (internal implementation).
+     * Handles gap/overlap detection and state machine transitions.
+     */
+    private fun processChunk(serverTimeMicros: Long, pcmData: ByteArray) {
         // Working copies that may be modified by gap/overlap handling
         var workingServerTimeMicros = serverTimeMicros
         var workingPcmData = pcmData
