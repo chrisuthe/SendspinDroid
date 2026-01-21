@@ -17,13 +17,14 @@
         android:alpha="0.5"
         android:importantForAccessibility="no" />
 
-    <!-- App Bar with Toolbar -->
+    <!-- App Bar with Toolbar (semi-transparent to show blurred background) -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fitsSystemWindows="true"
-        app:liftOnScroll="true">
+        android:background="@android:color/transparent"
+        app:liftOnScroll="false">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
@@ -31,6 +32,8 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:minHeight="50dp"
+            android:alpha="0.6"
+            android:background="?attr/colorSurface"
             app:navigationIcon="@null"
             app:title="@string/app_name"
             app:titleCentered="false" />
