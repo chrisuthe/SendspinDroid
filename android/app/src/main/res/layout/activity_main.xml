@@ -8,6 +8,15 @@
     android:fitsSystemWindows="true"
     tools:context=".MainActivity">
 
+    <!-- Blurred rotated album art background -->
+    <ImageView
+        android:id="@+id/backgroundArtView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.5"
+        android:importantForAccessibility="no" />
+
     <!-- App Bar with Toolbar -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"

@@ -76,6 +76,9 @@ class MainActivity : AppCompatActivity() {
     // Connection state machine
     private var connectionState: AppConnectionState = AppConnectionState.Searching
 
+    // Track last artwork to prevent duplicate background updates
+    private var lastArtworkSource: String? = null
+
     // NsdManager-based discovery (Android native - more reliable than Go's hashicorp/mdns)
     private var discoveryManager: NsdDiscoveryManager? = null
 
@@ -1735,9 +1738,10 @@ class MainActivity : AppCompatActivity() {
                     transformations(RoundedCornersTransformation(8f))
                     listener(
                         onSuccess = { _, result ->
-                            // Extract colors from loaded artwork
+                            // Extract colors from loaded artwork and update blurred background
                             (result.drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
                                 extractAndApplyColors(bitmap)
+                                updateBlurredBackground(bitmap)
                             }
                         }
                     )
@@ -1753,9 +1757,10 @@ class MainActivity : AppCompatActivity() {
                     transformations(RoundedCornersTransformation(8f))
                     listener(
                         onSuccess = { _, result ->
-                            // Extract colors from loaded artwork
+                            // Extract colors from loaded artwork and update blurred background
                             (result.drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
                                 extractAndApplyColors(bitmap)
+                                updateBlurredBackground(bitmap)
                             }
                         }
                     )
@@ -1765,6 +1770,7 @@ class MainActivity : AppCompatActivity() {
                 // No artwork available, show placeholder and reset colors
                 binding.albumArtView.setImageResource(R.drawable.placeholder_album)
                 resetSliderColors()
+                clearBlurredBackground()
             }
         }
     }
@@ -1779,6 +1785,7 @@ class MainActivity : AppCompatActivity() {
         if (UserSettings.lowMemoryMode) {
             binding.albumArtView.setImageResource(R.drawable.placeholder_album)
             resetSliderColors()
+            clearBlurredBackground()
             return
         }
 
@@ -1790,9 +1797,10 @@ class MainActivity : AppCompatActivity() {
             transformations(RoundedCornersTransformation(8f))
             listener(
                 onSuccess = { _, result ->
-                    // Extract colors from loaded artwork
+                    // Extract colors from loaded artwork and update blurred background
                     (result.drawable as? BitmapDrawable)?.bitmap?.let { bitmap ->
                         extractAndApplyColors(bitmap)
+                        updateBlurredBackground(bitmap)
                     }
                 }
             )
@@ -1877,6 +1885,84 @@ class MainActivity : AppCompatActivity() {
         // Reset background to default theme color for entire window
         val backgroundColor = ContextCompat.getColor(this, R.color.md_theme_dark_background)
         binding.coordinatorLayout.setBackgroundColor(backgroundColor)
+
+        // Clear the blurred background
+        clearBlurredBackground()
+    }
+
+    /**
+     * Updates the background with a blurred, scaled-up, rotated version of the album art.
+     * Creates an ambient visual effect behind all UI elements.
+     * Skipped in low memory mode to save resources.
+     *
+     * Uses RenderEffect for true Gaussian blur (requires API 31+).
+     * On older devices, this feature is simply disabled.
+     */
+    private fun updateBlurredBackground(bitmap: Bitmap) {
+        if (UserSettings.lowMemoryMode) return
+
+        // RenderEffect blur requires API 31+ (Android 12)
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+
+        // De-duplicate: skip if this is the same artwork (use generationId as cheap identity check)
+        val artworkId = "${bitmap.generationId}_${bitmap.width}x${bitmap.height}"
+        if (artworkId == lastArtworkSource) {
+            Log.d(TAG, "Skipping duplicate background update for artwork: $artworkId")
+            return
+        }
+        lastArtworkSource = artworkId
+        Log.d(TAG, "Updating blurred background for artwork: $artworkId")
+
+        // Apply rotation and scale to ensure full coverage despite rotation
+        binding.backgroundArtView.rotation = 30f
+        binding.backgroundArtView.scaleX = 1.8f
+        binding.backgroundArtView.scaleY = 1.8f
+
+        // Load the image first
+        binding.backgroundArtView.load(bitmap) {
+            crossfade(500)
+        }
+
+        // Apply Gaussian blur via RenderEffect (API 31+)
+        applyBlurEffect()
+    }
+
+    /**
+     * Applies Gaussian blur effect to the background using RenderEffect.
+     * Blur radius can be adjusted (higher = more blur).
+     */
+    @android.annotation.TargetApi(android.os.Build.VERSION_CODES.S)
+    private fun applyBlurEffect() {
+        val blurRadius = 80f  // Adjust blur intensity here (1-150+)
+        val blurEffect = android.graphics.RenderEffect.createBlurEffect(
+            blurRadius, blurRadius,
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        binding.backgroundArtView.setRenderEffect(blurEffect)
+    }
+
+    /**
+     * Clears the blurred background with a fade-out animation.
+     */
+    private fun clearBlurredBackground() {
+        // Skip if feature not available
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+
+        // Clear tracking so next artwork will update
+        lastArtworkSource = null
+
+        binding.backgroundArtView.animate()
+            .alpha(0f)
+            .setDuration(300)
+            .withEndAction {
+                binding.backgroundArtView.setImageDrawable(null)
+                binding.backgroundArtView.setRenderEffect(null)
+                binding.backgroundArtView.rotation = 0f
+                binding.backgroundArtView.scaleX = 1f
+                binding.backgroundArtView.scaleY = 1f
+                binding.backgroundArtView.alpha = 0.5f // Reset for next use
+            }
+            .start()
     }
 
     /**
