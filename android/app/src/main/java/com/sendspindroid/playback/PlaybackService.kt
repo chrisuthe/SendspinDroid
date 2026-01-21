@@ -1,8 +1,10 @@
 package com.sendspindroid.playback
 
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
 import android.media.AudioManager
@@ -23,6 +25,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.graphics.drawable.toBitmap
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.session.LibraryResult
@@ -39,6 +42,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.sendspindroid.MainActivity
 import com.sendspindroid.ServerRepository
+import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
@@ -106,6 +110,17 @@ class PlaybackService : MediaLibraryService() {
 
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // BroadcastReceiver for sync offset changes from settings
+    private val syncOffsetReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val offsetMs = intent.getIntExtra(SyncOffsetPreference.EXTRA_OFFSET_MS, 0)
+            sendSpinClient?.getTimeFilter()?.let { timeFilter ->
+                timeFilter.staticDelayMs = offsetMs.toDouble()
+                Log.i(TAG, "Applied sync offset from settings change: ${offsetMs}ms")
+            }
+        }
+    }
 
     // Flag to prevent callbacks from executing after service is destroyed
     @Volatile
@@ -308,6 +323,12 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize UserSettings for player name preference (must be before lowMemoryMode check)
         com.sendspindroid.UserSettings.initialize(this)
+
+        // Register receiver for sync offset changes from settings
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            syncOffsetReceiver,
+            IntentFilter(SyncOffsetPreference.ACTION_SYNC_OFFSET_CHANGED)
+        )
 
         // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)
         if (!com.sendspindroid.UserSettings.lowMemoryMode) {
@@ -2350,6 +2371,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Unregister network callback
         unregisterNetworkCallback()
+
+        // Unregister sync offset receiver
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(syncOffsetReceiver)
 
         // Unregister volume observer (only if it was registered)
         if (volumeObserverRegistered) {

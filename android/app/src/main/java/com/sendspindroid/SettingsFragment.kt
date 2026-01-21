@@ -35,6 +35,9 @@ class SettingsFragment : PreferenceFragmentCompat() {
         private const val KEY_DEBUG_LOGGING = "debug_logging_enabled"
         private const val KEY_EXPORT_LOGS = "export_debug_logs"
 
+        // About keys
+        private const val KEY_APP_VERSION = "app_version"
+
         // Update interval for debug log sample count display
         private const val DEBUG_STATS_UPDATE_INTERVAL_MS = 2000L
 
@@ -158,6 +161,18 @@ class SettingsFragment : PreferenceFragmentCompat() {
                 }
 
                 true  // Accept the preference change
+            }
+        }
+
+        // Set up version display
+        findPreference<Preference>(KEY_APP_VERSION)?.apply {
+            summary = try {
+                val packageInfo = requireContext().packageManager
+                    .getPackageInfo(requireContext().packageName, 0)
+                packageInfo.versionName
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to get version info", e)
+                "Unknown"
             }
         }
     }
