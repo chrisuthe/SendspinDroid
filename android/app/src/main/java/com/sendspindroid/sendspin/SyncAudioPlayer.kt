@@ -206,6 +206,9 @@ class SyncAudioPlayer(
         // Startup grace period - no corrections until timing stabilizes (Windows SDK: 500ms)
         private const val STARTUP_GRACE_PERIOD_US = 500_000L    // 500ms grace period
 
+        // Reconnect stabilization period - no corrections after reconnect while Kalman re-converges
+        private const val RECONNECT_STABILIZATION_US = 2_000_000L  // 2 seconds
+
         // Buffer configuration
         private const val BUFFER_HEADROOM_MS = 200  // Schedule audio 200ms ahead
         private const val BUFFER_SIZE_MULTIPLIER = 4  // Multiplier for minimum buffer size
@@ -287,6 +290,7 @@ class SyncAudioPlayer(
     private var drainingStartTimeUs: Long = 0            // When we entered DRAINING state
     private var lastBufferWarningTimeUs: Long = 0        // Rate limiting for buffer warnings
     private var stateBeforeDraining: PlaybackState? = null  // State to restore if exitDraining during non-PLAYING
+    private var reconnectedAtUs: Long = 0L               // When exitDraining() was called (for stabilization)
 
     // Chunk queue
     private val chunkQueue = ConcurrentLinkedQueue<AudioChunk>()
@@ -1402,6 +1406,18 @@ class SyncAudioPlayer(
             }
         }
 
+        // Guard: Skip corrections during reconnection stabilization period (2s)
+        // After reconnection, the Kalman filter needs time to re-converge with new measurements
+        if (reconnectedAtUs > 0) {
+            val nowUs = System.nanoTime() / 1000
+            val timeSinceReconnectUs = nowUs - reconnectedAtUs
+            if (timeSinceReconnectUs < RECONNECT_STABILIZATION_US) {
+                insertEveryNFrames = 0
+                dropEveryNFrames = 0
+                return
+            }
+        }
+
         // Get Kalman-filtered sync error (smooths measurement noise and tracks drift)
         val effectiveErrorUs = syncErrorFilter.offsetMicros.toDouble()
         val absErr = abs(effectiveErrorUs)
@@ -1885,6 +1901,9 @@ class SyncAudioPlayer(
 
             val drainingDurationMs = (System.nanoTime() / 1000 - drainingStartTimeUs) / 1000
             Log.i(TAG, "Exiting DRAINING state after ${drainingDurationMs}ms - resuming normal playback")
+
+            // Mark reconnection time for stabilization period (skip sync corrections while Kalman re-converges)
+            reconnectedAtUs = System.nanoTime() / 1000
 
             // Transition back to PLAYING (the normal state for active playback)
             setPlaybackState(PlaybackState.PLAYING)

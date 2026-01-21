@@ -18,12 +18,13 @@
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
+            style="@style/Widget.Material3.Toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            app:title="@string/app_name"
-            app:titleCentered="false"
+            android:layout_height="match_parent"
+            android:minHeight="50dp"
             app:navigationIcon="@null"
-            style="@style/Widget.Material3.Toolbar" />
+            app:title="@string/app_name"
+            app:titleCentered="false" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -411,11 +412,12 @@
                             style="@style/Widget.Material3.Button.IconButton.Filled"
                             android:layout_width="@dimen/playback_button_size_large"
                             android:layout_height="@dimen/playback_button_size_large"
-                            android:stateListAnimator="@animator/button_scale"
                             android:contentDescription="@string/accessibility_play_button"
                             android:enabled="false"
+                            android:stateListAnimator="@animator/button_scale"
                             app:icon="@drawable/ic_play"
-                            app:iconSize="@dimen/playback_icon_size_large" />
+                            app:iconSize="48dp"
+                            app:iconGravity="textStart" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/nextButton"
@@ -440,8 +442,8 @@
                         android:contentDescription="@string/accessibility_switch_group_button"
                         android:enabled="false"
                         app:icon="@drawable/ic_swap_horiz"
-                        app:iconSize="24dp" />
-
+                        app:iconSize="20dp"
+                        app:iconPadding="0dp" />
                 </LinearLayout>
 
                 <!-- Volume Control -->
