@@ -1,12 +1,14 @@
 package com.sendspindroid
 
 import android.content.Context
+import android.content.Intent
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.View
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
 import com.google.android.material.button.MaterialButton
@@ -30,6 +32,9 @@ class SyncOffsetPreference @JvmOverloads constructor(
         private const val STEP_MS = 10
         private const val MIN_OFFSET_MS = -5000
         private const val MAX_OFFSET_MS = 5000
+
+        const val ACTION_SYNC_OFFSET_CHANGED = "com.sendspindroid.ACTION_SYNC_OFFSET_CHANGED"
+        const val EXTRA_OFFSET_MS = "offset_ms"
     }
 
     private var currentValue: Int = 0
@@ -83,6 +88,13 @@ class SyncOffsetPreference @JvmOverloads constructor(
 
     private fun saveValue() {
         UserSettings.setSyncOffsetMs(currentValue)
+
+        // Broadcast to PlaybackService to apply immediately
+        val intent = Intent(ACTION_SYNC_OFFSET_CHANGED).apply {
+            putExtra(EXTRA_OFFSET_MS, currentValue)
+        }
+        LocalBroadcastManager.getInstance(context).sendBroadcast(intent)
+
         callChangeListener(currentValue)
     }
 
