@@ -16,6 +16,7 @@ import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.common.util.concurrent.MoreExecutors
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.playback.PlaybackService
 import kotlin.system.exitProcess
@@ -41,8 +42,9 @@ class SettingsFragment : PreferenceFragmentCompat() {
         // Update interval for debug log sample count display
         private const val DEBUG_STATS_UPDATE_INTERVAL_MS = 2000L
 
-        // Action to stop listening mode
-        private const val ACTION_STOP_LISTENING = "com.sendspindroid.ACTION_STOP_LISTENING"
+        // Broadcast action for debug logging toggle
+        const val ACTION_DEBUG_LOGGING_CHANGED = "com.sendspindroid.ACTION_DEBUG_LOGGING_CHANGED"
+        const val EXTRA_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
     }
 
     // Handler for periodic updates of debug log sample count
@@ -79,6 +81,12 @@ class SettingsFragment : PreferenceFragmentCompat() {
                     // Clear logs when disabled
                     DebugLogger.clear()
                 }
+
+                // Broadcast to PlaybackService to start/stop logging loop
+                val intent = Intent(ACTION_DEBUG_LOGGING_CHANGED).apply {
+                    putExtra(EXTRA_DEBUG_LOGGING_ENABLED, enabled)
+                }
+                LocalBroadcastManager.getInstance(requireContext()).sendBroadcast(intent)
 
                 updateDebugLoggingSummary(this)
                 updateExportLogsSummary()
@@ -129,37 +137,6 @@ class SettingsFragment : PreferenceFragmentCompat() {
                     .setMessage(R.string.pref_codec_reconnect_message)
                     .setPositiveButton(android.R.string.ok, null)
                     .show()
-                true  // Accept the preference change
-            }
-        }
-
-        // Set up Stay Connected toggle
-        findPreference<SwitchPreferenceCompat>(UserSettings.KEY_STAY_CONNECTED)?.apply {
-            setOnPreferenceChangeListener { _, newValue ->
-                val enabled = newValue as Boolean
-                Log.i(TAG, "Stay Connected changed to: $enabled")
-
-                // Start the service with the appropriate action
-                val intent = Intent(requireContext(), PlaybackService::class.java).apply {
-                    action = if (enabled) {
-                        BootReceiver.ACTION_START_LISTENING
-                    } else {
-                        ACTION_STOP_LISTENING
-                    }
-                }
-
-                try {
-                    if (enabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        requireContext().startForegroundService(intent)
-                    } else {
-                        requireContext().startService(intent)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to toggle Stay Connected", e)
-                    Toast.makeText(requireContext(), "Failed to toggle Stay Connected", Toast.LENGTH_SHORT).show()
-                    return@setOnPreferenceChangeListener false
-                }
-
                 true  // Accept the preference change
             }
         }

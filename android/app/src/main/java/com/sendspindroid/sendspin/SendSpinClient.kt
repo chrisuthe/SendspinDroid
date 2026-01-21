@@ -63,9 +63,11 @@ class SendSpinClient(
         private const val TAG = "SendSpinClient"
 
         // Reconnection configuration
+        // Short initial delay (500ms) to maximize reconnect attempts during buffer drain
+        // Sequence: 500ms, 1s, 2s, 4s, 8s - gives ~5 attempts in first 15 seconds
         private const val MAX_RECONNECT_ATTEMPTS = 5
-        private const val INITIAL_RECONNECT_DELAY_MS = 1000L // 1 second
-        private const val MAX_RECONNECT_DELAY_MS = 30000L // 30 seconds
+        private const val INITIAL_RECONNECT_DELAY_MS = 500L // 500ms (was 1s)
+        private const val MAX_RECONNECT_DELAY_MS = 10000L // 10 seconds (was 30s)
 
         /**
          * Gets the appropriate buffer capacity based on low memory mode setting.
@@ -123,8 +125,11 @@ class SendSpinClient(
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
+        // Short connect timeout (5s) to fail fast during reconnection
+        // When DRAINING, we typically have <5s of buffer, so waiting 15s for a
+        // connection attempt to timeout would exhaust the buffer
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS) // Must be 0 for WebSocket
         .pingInterval(30, TimeUnit.SECONDS)
         .build()
@@ -280,13 +285,63 @@ class SendSpinClient(
 
     /**
      * Called when the network changes.
+     * During reconnection, we preserve the frozen sync state to maintain playback continuity.
      */
     fun onNetworkChanged() {
         if (!isConnected) return
 
+        // If we're actively reconnecting, preserve the frozen sync state
+        // This allows playback to continue from buffer without losing clock sync
+        if (reconnecting.get() || timeFilter.isFrozen) {
+            Log.i(TAG, "Network changed during reconnection - preserving frozen sync state")
+            return
+        }
+
         Log.i(TAG, "Network changed - resetting time filter for re-sync")
         timeFilter.reset()
         callback.onNetworkChanged()
+    }
+
+    /**
+     * Called when network becomes available.
+     * If we're actively reconnecting, cancel any pending backoff and immediately retry.
+     * This minimizes buffer exhaustion by reconnecting as fast as possible.
+     */
+    fun onNetworkAvailable() {
+        if (!reconnecting.get()) return
+
+        val savedAddress = serverAddress ?: return
+        val savedPath = serverPath ?: return
+
+        Log.i(TAG, "Network available during reconnection - attempting immediate reconnect")
+
+        // Cancel any pending backoff delay
+        reconnectJob?.cancel()
+        reconnectJob = null
+
+        // Reset backoff counter for faster retry if this fails too
+        // (Keep it at least 1 so we don't re-freeze the time filter)
+        reconnectAttempts.set(1)
+
+        // Immediately try to reconnect
+        scope.launch {
+            if (userInitiatedDisconnect.get() || !reconnecting.get()) {
+                Log.d(TAG, "Reconnection cancelled before immediate retry")
+                return@launch
+            }
+
+            Log.d(TAG, "Immediate reconnecting to: $savedAddress path=$savedPath")
+
+            handshakeComplete = false
+            stopTimeSync()
+
+            val wsUrl = "ws://$savedAddress$savedPath"
+            val request = Request.Builder()
+                .url(wsUrl)
+                .build()
+
+            webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
+        }
     }
 
     /**
@@ -545,10 +600,20 @@ class SendSpinClient(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "WebSocket closed: $code $reason")
 
-            if (!userInitiatedDisconnect.get() && handshakeComplete) {
-                Log.i(TAG, "Unexpected closure, attempting reconnection")
+            // Code 1000 = Normal Closure - server intentionally ended the session
+            // This is NOT an error that should trigger reconnection
+            val isNormalClosure = code == 1000
+
+            if (!userInitiatedDisconnect.get() && handshakeComplete && !isNormalClosure) {
+                // Abnormal closure (not code 1000) - attempt reconnection
+                Log.i(TAG, "Abnormal closure (code=$code), attempting reconnection")
                 attemptReconnect()
             } else {
+                // Either user-initiated, pre-handshake, or server's normal closure
+                if (isNormalClosure && !userInitiatedDisconnect.get()) {
+                    Log.i(TAG, "Server closed connection normally (code 1000) - session ended")
+                }
+                reconnecting.set(false)
                 _connectionState.value = ConnectionState.Disconnected
                 callback.onDisconnected()
             }

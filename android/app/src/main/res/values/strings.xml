@@ -179,17 +179,6 @@
     <string name="permission_bind_playback_service_label">Bind to SendSpin Playback Service</string>
     <string name="permission_bind_playback_service_description">Allows the app to bind to the SendSpin playback service for audio control. Only apps signed with the same certificate can use this permission.</string>
 
-    <!-- Connection -->
-    <string name="pref_category_connection">Connection</string>
-    <string name="pref_stay_connected_title">Stay Connected</string>
-    <string name="pref_stay_connected_summary">Advertise to servers for remote playback. Allows servers to discover and connect to this device.</string>
-
-    <!-- Notification - Listening mode -->
-    <string name="notification_listening_title">Ready for playback</string>
-    <string name="notification_listening_text">Waiting for server connection</string>
-    <string name="notification_connected_title">Connected to %s</string>
-    <string name="notification_connected_text">Waiting for playback</string>
-
     <!-- Performance -->
     <string name="pref_category_performance">Performance</string>
     <string name="pref_low_memory_title">Low Memory Mode</string>

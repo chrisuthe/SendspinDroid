@@ -63,19 +63,6 @@
     </PreferenceCategory>
 
     <PreferenceCategory
-        android:title="@string/pref_category_connection"
-        app:iconSpaceReserved="false">
-
-        <SwitchPreferenceCompat
-            android:key="stay_connected"
-            android:title="@string/pref_stay_connected_title"
-            android:summary="@string/pref_stay_connected_summary"
-            android:defaultValue="false"
-            app:iconSpaceReserved="false" />
-
-    </PreferenceCategory>
-
-    <PreferenceCategory
         android:title="@string/pref_category_performance"
         app:iconSpaceReserved="false">
 
