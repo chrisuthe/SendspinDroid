@@ -24,12 +24,15 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fitsSystemWindows="true"
-        app:liftOnScroll="true">
+        android:background="@android:color/transparent"
+        app:liftOnScroll="false">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            android:alpha="0.6"
+            android:background="?attr/colorSurface"
             app:title="@string/app_name"
             app:titleCentered="false"
             app:navigationIcon="@null"
