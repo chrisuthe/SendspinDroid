@@ -27,7 +27,6 @@ import java.net.NoRouteToHostException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -139,8 +138,8 @@ class SendSpinClient(
     private var serverPath: String? = null
     private var serverName: String? = null
 
-    // Client identity
-    private val clientId = UUID.randomUUID().toString()
+    // Client identity - persisted across app launches
+    private val clientId = UserSettings.getPlayerId()
 
     // Time synchronization (Kalman filter)
     private val timeFilter = SendspinTimeFilter()

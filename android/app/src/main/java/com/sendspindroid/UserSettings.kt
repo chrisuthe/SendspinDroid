@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import androidx.preference.PreferenceManager
 import com.sendspindroid.network.TransportType
+import java.util.UUID
 
 /**
  * Centralized access to user settings stored in SharedPreferences.
@@ -13,6 +14,7 @@ import com.sendspindroid.network.TransportType
 object UserSettings {
 
     // Preference keys - must match keys in preferences.xml
+    const val KEY_PLAYER_ID = "player_id"
     const val KEY_PLAYER_NAME = "player_name"
     const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
     const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
@@ -57,6 +59,29 @@ object UserSettings {
      */
     fun setPlayerName(name: String) {
         prefs?.edit()?.putString(KEY_PLAYER_NAME, name)?.apply()
+    }
+
+    /**
+     * Gets the persistent player ID, generating one if it doesn't exist.
+     * This ID is stable across app launches and name changes, allowing the server
+     * to consistently identify this player.
+     */
+    fun getPlayerId(): String {
+        val saved = prefs?.getString(KEY_PLAYER_ID, null)
+        return if (saved.isNullOrBlank()) {
+            val newId = UUID.randomUUID().toString()
+            setPlayerId(newId)
+            newId
+        } else {
+            saved
+        }
+    }
+
+    /**
+     * Sets the player ID (typically only called internally on first launch).
+     */
+    fun setPlayerId(id: String) {
+        prefs?.edit()?.putString(KEY_PLAYER_ID, id)?.apply()
     }
 
     /**
