@@ -28,7 +28,7 @@ import kotlin.math.abs
  * - Sync correction (sample insert/drop)
  * - Playback state machine
  *
- * Updates at 10 Hz (100ms intervals) for smooth real-time monitoring.
+ * Updates at 2 Hz (500ms intervals) for efficient real-time monitoring.
  *
  * ## Design Notes
  * - Material 3 bottom sheet with dark technical aesthetic
@@ -45,7 +45,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
 
     companion object {
         private const val TAG = "StatsBottomSheet"
-        private const val UPDATE_INTERVAL_MS = 100L  // 10 Hz update rate
+        private const val UPDATE_INTERVAL_MS = 500L  // 2 Hz update rate
 
         // Thresholds for color-coded status (matching Python reference)
         private const val SYNC_ERROR_GOOD_US = 2_000L      // <2ms = green
@@ -60,6 +60,11 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         private const val CLOCK_DRIFT_GOOD_PPM = 10.0      // <10 ppm = green
         private const val CLOCK_DRIFT_WARNING_PPM = 50.0   // 10-50 ppm = yellow
         // >50 ppm = red
+
+        // Sync error drift rate thresholds (unitless rate-of-change)
+        private const val DRIFT_RATE_GOOD = 5e-5      // <50 ppm = green (stable)
+        private const val DRIFT_RATE_WARNING = 2e-4   // 50-200 ppm = yellow (drifting)
+        // >200 ppm = red
 
         // Last sync age thresholds in ms
         private const val LAST_SYNC_GOOD_MS = 2_000L       // <2s = green
@@ -194,6 +199,12 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         binding.audioCodecValue.text = audioCodec
         binding.audioCodecValue.setTextColor(getColorNeutral())
 
+        val reconnectAttempts = bundle.getInt("reconnect_attempts", 0)
+        binding.reconnectCountValue.text = reconnectAttempts.toString()
+        binding.reconnectCountValue.setTextColor(
+            if (reconnectAttempts > 0) getColorWarning() else getColorNeutral()
+        )
+
         // === NETWORK ===
         val networkType = bundle.getString("network_type", "UNKNOWN")
         binding.networkTypeValue.text = networkType
@@ -211,6 +222,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         val isWifi = networkType == "WIFI"
         binding.wifiRssiRow.visibility = if (isWifi) View.VISIBLE else View.GONE
         binding.wifiSpeedRow.visibility = if (isWifi) View.VISIBLE else View.GONE
+        binding.wifiFrequencyRow.visibility = if (isWifi) View.VISIBLE else View.GONE
 
         if (isWifi) {
             val wifiRssi = bundle.getInt("wifi_rssi", Int.MIN_VALUE)
@@ -229,6 +241,18 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
             } else {
                 binding.wifiSpeedValue.text = "--"
                 binding.wifiSpeedValue.setTextColor(getColorNeutral())
+            }
+
+            val wifiFrequency = bundle.getInt("wifi_frequency", -1)
+            if (wifiFrequency > 0) {
+                val band = if (wifiFrequency >= 5000) "5 GHz" else "2.4 GHz"
+                binding.wifiFrequencyValue.text = band
+                binding.wifiFrequencyValue.setTextColor(
+                    if (wifiFrequency >= 5000) getColorGood() else getColorWarning()
+                )
+            } else {
+                binding.wifiFrequencyValue.text = "--"
+                binding.wifiFrequencyValue.setTextColor(getColorNeutral())
             }
         }
 
@@ -259,9 +283,14 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         binding.syncErrorValue.text = String.format("%+.2f ms", syncErrorMs)
         binding.syncErrorValue.setTextColor(getColorForSyncError(syncErrorUs))
 
+        val smoothedSyncErrorUs = bundle.getLong("smoothed_sync_error_us", 0L)
+        val smoothedSyncErrorMs = smoothedSyncErrorUs / 1000.0
+        binding.smoothedSyncErrorValue.text = String.format("%+.2f ms", smoothedSyncErrorMs)
+        binding.smoothedSyncErrorValue.setTextColor(getColorForSyncError(smoothedSyncErrorUs))
+
         val syncErrorDrift = bundle.getDouble("sync_error_drift", 0.0)
-        binding.syncErrorDriftValue.text = String.format("%+.4f", syncErrorDrift)
-        binding.syncErrorDriftValue.setTextColor(getColorForDrift(syncErrorDrift))
+        binding.driftRateValue.text = String.format("%+.4f", syncErrorDrift)
+        binding.driftRateValue.setTextColor(getColorForDrift(syncErrorDrift))
 
         val gracePeriodRemainingUs = bundle.getLong("grace_period_remaining_us", -1L)
         if (gracePeriodRemainingUs >= 0) {
@@ -277,6 +306,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         val clockOffsetUs = bundle.getLong("clock_offset_us", 0L)
         val clockOffsetMs = clockOffsetUs / 1000.0
         binding.clockOffsetValue.text = String.format("%+.2f ms", clockOffsetMs)
+        binding.clockOffsetValue.setTextColor(getColorNeutral())
 
         val clockDriftPpm = bundle.getDouble("clock_drift_ppm", 0.0)
         binding.clockDriftValue.text = String.format("%+.3f ppm", clockDriftPpm)
@@ -303,6 +333,21 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         } else {
             binding.lastTimeSyncValue.text = "--"
             binding.lastTimeSyncValue.setTextColor(getColorWarning())
+        }
+
+        val clockFrozen = bundle.getBoolean("clock_frozen", false)
+        binding.clockFrozenValue.text = if (clockFrozen) "Yes (reconnecting)" else "No"
+        binding.clockFrozenValue.setTextColor(
+            if (clockFrozen) getColorWarning() else getColorNeutral()
+        )
+
+        val staticDelayMs = bundle.getDouble("static_delay_ms", 0.0)
+        if (staticDelayMs != 0.0) {
+            binding.syncOffsetRow.visibility = View.VISIBLE
+            binding.syncOffsetValue.text = String.format("%+.0f ms", staticDelayMs)
+            binding.syncOffsetValue.setTextColor(getColorNeutral())
+        } else {
+            binding.syncOffsetRow.visibility = View.GONE
         }
 
         // === DAC / AUDIO ===
@@ -416,6 +461,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
             "PLAYING" -> getColorGood()
             "WAITING_FOR_START" -> getColorWarning()
             "INITIALIZING" -> getColorWarning()
+            "DRAINING" -> getColorWarning()
             "REANCHORING" -> getColorBad()
             else -> getColorNeutral()
         }
@@ -433,9 +479,9 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
     private fun getColorForDrift(drift: Double): Int {
         val absDrift = abs(drift)
         return when {
-            absDrift < 0.0001 -> getColorGood()    // Very small drift = good
-            absDrift < 0.001 -> getColorWarning()   // Small drift = warning
-            else -> getColorBad()                   // Large drift = bad
+            absDrift < DRIFT_RATE_GOOD -> getColorGood()       // <50 ppm = stable
+            absDrift < DRIFT_RATE_WARNING -> getColorWarning() // 50-200 ppm = drifting
+            else -> getColorBad()                              // >200 ppm = rapid drift
         }
     }
 

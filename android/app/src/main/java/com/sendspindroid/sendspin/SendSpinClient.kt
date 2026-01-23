@@ -153,6 +153,11 @@ class SendSpinClient(
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
+    /**
+     * Get the number of reconnection attempts since last successful connect.
+     */
+    fun getReconnectAttempts(): Int = reconnectAttempts.get()
+
     init {
         // Initialize time sync manager with our time filter
         initTimeSyncManager(timeFilter)

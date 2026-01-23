@@ -196,7 +196,7 @@ class SyncAudioPlayer(
         private const val TAG = "SyncAudioPlayer"
 
         // Sync correction thresholds (microseconds)
-        private const val DEADBAND_THRESHOLD_US = 2_000L        // 2ms - no correction needed
+        private const val DEADBAND_THRESHOLD_US = 10_000L       // 10ms - no correction needed
         private const val HARD_RESYNC_THRESHOLD_US = 200_000L   // 200ms - hard resync (drop/skip chunks)
 
         // Sample insert/drop correction constants (matching Windows SDK for stability)
@@ -242,6 +242,13 @@ class SyncAudioPlayer(
         // Gap/overlap detection
         private const val GAP_THRESHOLD_US = 10_000L  // 10ms minimum gap before filling with silence
         private const val DISCONTINUITY_THRESHOLD_US = 100_000L  // 100ms gap indicates discontinuity (for logging)
+
+        // Symmetric crossfade window around each correction (frames before + after)
+        private const val CROSSFADE_FRAMES = 4  // 4 frames each side = 83µs at 48kHz
+
+        // 3-point interpolation weights
+        private const val BLEND_OUTER = 0.25   // weight for lastOutput and secondary
+        private const val BLEND_CENTER = 0.50  // weight for primary frame
 
         // Logging and diagnostics
         private const val CHUNK_DROP_LOG_INTERVAL = 100  // Log every Nth dropped chunk when time sync not ready
@@ -335,6 +342,14 @@ class SyncAudioPlayer(
     private var framesUntilNextDrop: Int = 0     // Countdown to next drop
     private var lastOutputFrame: ByteArray = ByteArray(0)  // Last frame written (for duplication)
 
+    // Crossfade and interpolation state for smooth sync corrections
+    private var secondLastOutputFrame = ByteArray(0)  // For 3-point INSERT interpolation
+    private var crossfadeState = CrossfadeState.IDLE
+    private var crossfadeProgress = 0
+    private var crossfadeTargetFrame = ByteArray(0)   // Blended frame to crossfade toward/from
+
+    private enum class CrossfadeState { IDLE, FADING_IN, FADING_OUT }
+
     // Startup grace period tracking (Windows SDK style)
     // No corrections applied until STARTUP_GRACE_PERIOD_US after entering PLAYING state
     private var playingStateEnteredAtUs = 0L     // When we transitioned to PLAYING state
@@ -424,8 +439,11 @@ class SyncAudioPlayer(
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
 
-            // Pre-allocate lastOutputFrame buffer for sync correction (avoids GC in audio callback)
+            // Pre-allocate frame buffers for sync correction (avoids GC in audio callback)
             lastOutputFrame = ByteArray(bytesPerFrame)
+            secondLastOutputFrame = ByteArray(bytesPerFrame)
+            crossfadeTargetFrame = ByteArray(bytesPerFrame)
+            crossfadeScratchBuf = ByteArray(bytesPerFrame)
 
             Log.i(TAG, "AudioTrack initialized: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit, buffer=${bufferSize}bytes")
         } catch (e: Exception) {
@@ -542,6 +560,8 @@ class SyncAudioPlayer(
             dropEveryNFrames = 0
             framesUntilNextInsert = 0
             framesUntilNextDrop = 0
+            crossfadeState = CrossfadeState.IDLE
+            crossfadeProgress = 0
 
             // Reset grace period to allow sync to stabilize after resume
             playingStateEnteredAtUs = nowUs
@@ -755,8 +775,13 @@ class SyncAudioPlayer(
             dropEveryNFrames = 0
             framesUntilNextInsert = 0
             framesUntilNextDrop = 0
-            // Clear lastOutputFrame contents but keep the pre-allocated buffer
+            // Clear frame buffers but keep the pre-allocated arrays
             lastOutputFrame.fill(0)
+            secondLastOutputFrame.fill(0)
+            crossfadeTargetFrame.fill(0)
+            crossfadeScratchBuf.fill(0)
+            crossfadeState = CrossfadeState.IDLE
+            crossfadeProgress = 0
 
             // Reset gap/overlap tracking
             expectedNextTimestampUs = null
@@ -1122,6 +1147,8 @@ class SyncAudioPlayer(
             lastChunkServerTime = 0L
             insertEveryNFrames = 0
             dropEveryNFrames = 0
+            crossfadeState = CrossfadeState.IDLE
+            crossfadeProgress = 0
 
             // Reset sync error state
             syncUpdateCounter = 0
@@ -1360,17 +1387,18 @@ class SyncAudioPlayer(
      *   while keeping correction rate low for normal operation
      *
      * With 3 second target:
+     * - 20ms error -> ~320 corrections/sec -> 1 frame every ~150 frames (3ms)
      * - 10ms error -> ~160 corrections/sec -> 1 frame every ~300 frames (6ms)
-     * - 2ms error -> ~32 corrections/sec -> 1 frame every ~1500 frames (31ms)
-     * - This keeps corrections rare and imperceptible in normal conditions
+     * - Below 10ms: deadband, no corrections applied
      *
-     * ## Deadband: Why 2ms Threshold?
+     * ## Deadband: Why 10ms Threshold?
      *
-     * The DEADBAND_THRESHOLD_US (2ms / 2000us) creates a "good enough" zone:
-     * - Errors below 2ms don't trigger any correction
-     * - This prevents constant tiny corrections that waste CPU
-     * - 2ms is well within acceptable sync tolerance for audio
-     * - Human perception of audio/video sync is ~20-80ms; 2ms is imperceptible
+     * The DEADBAND_THRESHOLD_US (10ms / 10000us) creates a "good enough" zone:
+     * - Errors below 10ms don't trigger any correction
+     * - This prevents constant tiny corrections during normal playback
+     * - 10ms is well within acceptable sync tolerance (human perception ~20-80ms)
+     * - When corrections do activate (>10ms error), the proportional controller
+     *   converges quickly: 10ms error → ~160 corrections/sec → fixed in ~3s
      *
      * Without a deadband, noise in the sync error measurement would cause
      * continuous small corrections even when perfectly synced.
@@ -1489,20 +1517,20 @@ class SyncAudioPlayer(
         samplesReadSinceStart += chunk.sampleCount
 
         // Decide if we need frame-by-frame processing or can use fast path
+        // Include crossfade state to ensure fade tail completes even when corrections stop
         val needsCorrection = insertEveryNFrames > 0 || dropEveryNFrames > 0
+                || crossfadeState != CrossfadeState.IDLE
 
         val written = if (needsCorrection) {
             writeWithCorrection(track, chunk.pcmData)
         } else {
             // Fast path: write entire chunk at once
             val result = track.write(chunk.pcmData, 0, chunk.pcmData.size)
-            // Store last frame for potential future insertion
+            // Store last two frames for potential future interpolation
             if (chunk.pcmData.size >= bytesPerFrame) {
-                // Safety guard: should not trigger since lastOutputFrame is pre-allocated in initialize()
-                if (lastOutputFrame.size != bytesPerFrame) {
-                    Log.w(TAG, "lastOutputFrame size mismatch, reallocating (expected: $bytesPerFrame, actual: ${lastOutputFrame.size})")
-                    lastOutputFrame = ByteArray(bytesPerFrame)
-                }
+                // Update secondLastOutputFrame from the previous lastOutputFrame
+                System.arraycopy(lastOutputFrame, 0, secondLastOutputFrame, 0, bytesPerFrame)
+                // Store the last frame of this chunk
                 System.arraycopy(
                     chunk.pcmData, chunk.pcmData.size - bytesPerFrame,
                     lastOutputFrame, 0, bytesPerFrame
@@ -1533,11 +1561,137 @@ class SyncAudioPlayer(
         }
     }
 
+    // ========================================================================
+    // PCM Blending Helpers - Zero-allocation weighted interpolation
+    // ========================================================================
+
+    /** Extract a 16-bit little-endian sample as a signed Int. */
+    private fun readInt16LE(data: ByteArray, offset: Int): Int {
+        return (data[offset].toInt() and 0xFF) or (data[offset + 1].toInt() shl 8)
+    }
+
+    /** Write a 16-bit little-endian sample, clamping to Int16 range. */
+    private fun writeInt16LE(data: ByteArray, offset: Int, value: Int) {
+        val clamped = value.coerceIn(-32768, 32767)
+        data[offset] = (clamped and 0xFF).toByte()
+        data[offset + 1] = (clamped shr 8).toByte()
+    }
+
+    /**
+     * Weighted blend of two stereo frames into output buffer.
+     * Processes each channel independently with Int16 clamping.
+     */
+    private fun blendFrames(
+        frameA: ByteArray, offA: Int,
+        frameB: ByteArray, offB: Int,
+        wA: Double, wB: Double,
+        output: ByteArray, outOff: Int
+    ) {
+        for (ch in 0 until channels) {
+            val byteOff = ch * 2
+            val sampleA = readInt16LE(frameA, offA + byteOff)
+            val sampleB = readInt16LE(frameB, offB + byteOff)
+            val blended = (sampleA * wA + sampleB * wB).toInt()
+            writeInt16LE(output, outOff + byteOff, blended)
+        }
+    }
+
+    /**
+     * 3-point weighted interpolation: 0.25*A + 0.50*B + 0.25*C per channel.
+     * Creates a smooth waveform transition at correction points.
+     */
+    private fun interpolate3Point(
+        frameA: ByteArray, offA: Int,
+        frameB: ByteArray, offB: Int,
+        frameC: ByteArray, offC: Int,
+        output: ByteArray, outOff: Int
+    ) {
+        for (ch in 0 until channels) {
+            val byteOff = ch * 2
+            val sA = readInt16LE(frameA, offA + byteOff)
+            val sB = readInt16LE(frameB, offB + byteOff)
+            val sC = readInt16LE(frameC, offC + byteOff)
+            val blended = (sA * BLEND_OUTER + sB * BLEND_CENTER + sC * BLEND_OUTER).toInt()
+            writeInt16LE(output, outOff + byteOff, blended)
+        }
+    }
+
+    // ========================================================================
+    // Crossfade State Machine - Smooth transitions around corrections
+    // ========================================================================
+
+    /** Begin fading toward targetFrame over CROSSFADE_FRAMES. */
+    private fun startFadeIn(targetFrame: ByteArray, targetOff: Int = 0) {
+        System.arraycopy(targetFrame, targetOff, crossfadeTargetFrame, 0, bytesPerFrame)
+        crossfadeState = CrossfadeState.FADING_IN
+        crossfadeProgress = 0
+    }
+
+    /** Begin fading back from targetFrame to normal over CROSSFADE_FRAMES. */
+    private fun startFadeOut(targetFrame: ByteArray, targetOff: Int = 0) {
+        System.arraycopy(targetFrame, targetOff, crossfadeTargetFrame, 0, bytesPerFrame)
+        crossfadeState = CrossfadeState.FADING_OUT
+        crossfadeProgress = 0
+    }
+
+    /**
+     * Apply crossfade blending and write a frame to AudioTrack.
+     * During IDLE, writes normalFrame directly.
+     * During FADING_IN, blends from normalFrame toward crossfadeTargetFrame.
+     * During FADING_OUT, blends from crossfadeTargetFrame back to normalFrame.
+     *
+     * Uses crossfadeScratchBuf as a pre-allocated scratch buffer for blended output.
+     */
+    private var crossfadeScratchBuf = ByteArray(0)
+
+    private fun applyCrossfadeAndWrite(track: AudioTrack, normalFrame: ByteArray, normalOff: Int = 0): Int {
+        when (crossfadeState) {
+            CrossfadeState.FADING_IN -> {
+                crossfadeProgress++
+                val alpha = crossfadeProgress.toDouble() / CROSSFADE_FRAMES
+                if (alpha >= 1.0) {
+                    // Fade complete - write the target frame
+                    crossfadeState = CrossfadeState.IDLE
+                    return track.write(crossfadeTargetFrame, 0, bytesPerFrame)
+                }
+                // Blend: normalFrame*(1-alpha) + targetFrame*alpha
+                blendFrames(
+                    normalFrame, normalOff,
+                    crossfadeTargetFrame, 0,
+                    1.0 - alpha, alpha,
+                    crossfadeScratchBuf, 0
+                )
+                return track.write(crossfadeScratchBuf, 0, bytesPerFrame)
+            }
+            CrossfadeState.FADING_OUT -> {
+                crossfadeProgress++
+                val alpha = 1.0 - (crossfadeProgress.toDouble() / CROSSFADE_FRAMES)
+                if (alpha <= 0.0) {
+                    // Fade complete - write normal frame
+                    crossfadeState = CrossfadeState.IDLE
+                    return track.write(normalFrame, normalOff, bytesPerFrame)
+                }
+                // Blend: targetFrame*alpha + normalFrame*(1-alpha)
+                blendFrames(
+                    crossfadeTargetFrame, 0,
+                    normalFrame, normalOff,
+                    alpha, 1.0 - alpha,
+                    crossfadeScratchBuf, 0
+                )
+                return track.write(crossfadeScratchBuf, 0, bytesPerFrame)
+            }
+            CrossfadeState.IDLE -> {
+                return track.write(normalFrame, normalOff, bytesPerFrame)
+            }
+        }
+    }
+
     /**
      * Write PCM data with sample insert/drop corrections applied.
      *
-     * Processes the audio frame-by-frame, inserting duplicate frames or dropping
-     * frames according to the current correction schedule.
+     * Processes the audio frame-by-frame, using 3-point weighted interpolation
+     * for smooth waveform transitions at correction points, with symmetric
+     * crossfade windows to distribute energy changes over multiple frames.
      *
      * @param track The AudioTrack to write to
      * @param pcmData The raw PCM data
@@ -1548,44 +1702,97 @@ class SyncAudioPlayer(
         var totalWritten = 0
         var inputOffset = 0
 
-        // Process each input frame
         for (i in 0 until inputFrameCount) {
-            // Check if we should drop this frame (to speed up / catch up)
+            // --- Pre-correction fade-in: anticipate upcoming corrections ---
+            if (crossfadeState == CrossfadeState.IDLE) {
+                if (dropEveryNFrames > 0 && framesUntilNextDrop <= CROSSFADE_FRAMES && framesUntilNextDrop > 1) {
+                    // Approaching a DROP - compute the blended frame we'll transition through
+                    // Use lastOutputFrame blended with current as approach target
+                    blendFrames(lastOutputFrame, 0, pcmData, inputOffset, 0.5, 0.5, crossfadeScratchBuf, 0)
+                    startFadeIn(crossfadeScratchBuf)
+                } else if (insertEveryNFrames > 0 && framesUntilNextInsert <= CROSSFADE_FRAMES && framesUntilNextInsert > 1) {
+                    // Approaching an INSERT - blend lastOutput with current as approach target
+                    blendFrames(lastOutputFrame, 0, pcmData, inputOffset, 0.5, 0.5, crossfadeScratchBuf, 0)
+                    startFadeIn(crossfadeScratchBuf)
+                }
+            }
+
+            // --- DROP: 3-point interpolation + fade-out ---
             if (dropEveryNFrames > 0) {
                 framesUntilNextDrop--
                 if (framesUntilNextDrop <= 0) {
-                    // Drop this frame by skipping it
                     framesUntilNextDrop = dropEveryNFrames
                     framesDropped++
+
+                    // 3-point interpolation: 0.25*lastOutput + 0.50*dropped + 0.25*next
+                    val hasNext = (i + 1 < inputFrameCount)
+                    if (hasNext) {
+                        interpolate3Point(
+                            lastOutputFrame, 0,
+                            pcmData, inputOffset,
+                            pcmData, inputOffset + bytesPerFrame,
+                            crossfadeScratchBuf, 0
+                        )
+                    } else {
+                        // Edge case: no next frame - fall back to 2-point blend
+                        blendFrames(
+                            lastOutputFrame, 0,
+                            pcmData, inputOffset,
+                            0.5, 0.5,
+                            crossfadeScratchBuf, 0
+                        )
+                    }
+                    // Start fade-out from the interpolated frame back to normal
+                    startFadeOut(crossfadeScratchBuf)
+
+                    // Skip this input frame (the actual drop)
                     inputOffset += bytesPerFrame
                     continue
                 }
             }
 
-            // Check if we should insert a duplicate frame (to slow down)
+            // --- INSERT: 3-point interpolation + fade-out ---
             if (insertEveryNFrames > 0) {
                 framesUntilNextInsert--
                 if (framesUntilNextInsert <= 0 && lastOutputFrame.isNotEmpty()) {
-                    // Insert a duplicate of the last output frame
                     framesUntilNextInsert = insertEveryNFrames
-                    val written = track.write(lastOutputFrame, 0, bytesPerFrame)
-                    if (written > 0) {
-                        totalWritten += written
-                        framesInserted++
+                    framesInserted++
+
+                    // 3-point interpolation: 0.25*secondLast + 0.50*lastOutput + 0.25*current
+                    val hasSecondLast = secondLastOutputFrame.size == bytesPerFrame &&
+                            !secondLastOutputFrame.all { it == 0.toByte() }
+                    if (hasSecondLast) {
+                        interpolate3Point(
+                            secondLastOutputFrame, 0,
+                            lastOutputFrame, 0,
+                            pcmData, inputOffset,
+                            crossfadeScratchBuf, 0
+                        )
+                    } else {
+                        // Fallback: 2-point blend between lastOutput and current
+                        blendFrames(
+                            lastOutputFrame, 0,
+                            pcmData, inputOffset,
+                            0.5, 0.5,
+                            crossfadeScratchBuf, 0
+                        )
                     }
+
+                    // Write the interpolated inserted frame
+                    val insertWritten = applyCrossfadeAndWrite(track, crossfadeScratchBuf, 0)
+                    if (insertWritten > 0) totalWritten += insertWritten
+
+                    // Start fade-out from the inserted frame back to normal
+                    startFadeOut(crossfadeScratchBuf)
                 }
             }
 
-            // Write the current frame
-            val written = track.write(pcmData, inputOffset, bytesPerFrame)
+            // --- Normal frame output with crossfade applied ---
+            val written = applyCrossfadeAndWrite(track, pcmData, inputOffset)
             if (written > 0) {
                 totalWritten += written
-                // Store this frame as the last output frame
-                // Safety guard: should not trigger since lastOutputFrame is pre-allocated in initialize()
-                if (lastOutputFrame.size != bytesPerFrame) {
-                    Log.w(TAG, "lastOutputFrame size mismatch in writeWithCorrection, reallocating")
-                    lastOutputFrame = ByteArray(bytesPerFrame)
-                }
+                // Update frame history
+                System.arraycopy(lastOutputFrame, 0, secondLastOutputFrame, 0, bytesPerFrame)
                 System.arraycopy(pcmData, inputOffset, lastOutputFrame, 0, bytesPerFrame)
             }
             inputOffset += bytesPerFrame

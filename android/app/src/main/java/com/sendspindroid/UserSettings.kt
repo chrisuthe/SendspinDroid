@@ -119,11 +119,11 @@ object UserSettings {
 
     /**
      * Gets the preferred audio codec for streaming.
-     * The server will be asked for this codec first; if unavailable, falls back to others.
-     * Values: "pcm" (default), "flac", "opus"
+     * The server will be asked for this codec first; PCM is always used as fallback.
+     * Values: "opus" (default), "flac"
      */
     fun getPreferredCodec(): String {
-        return prefs?.getString(KEY_PREFERRED_CODEC, "pcm") ?: "pcm"
+        return prefs?.getString(KEY_PREFERRED_CODEC, "opus") ?: "opus"
     }
 
     /**

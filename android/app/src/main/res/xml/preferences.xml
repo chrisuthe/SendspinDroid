@@ -32,7 +32,7 @@
             android:summary="@string/pref_codec_summary"
             android:entries="@array/codec_entries"
             android:entryValues="@array/codec_values"
-            android:defaultValue="pcm"
+            android:defaultValue="opus"
             app:iconSpaceReserved="false"
             app:useSimpleSummaryProvider="true" />
 

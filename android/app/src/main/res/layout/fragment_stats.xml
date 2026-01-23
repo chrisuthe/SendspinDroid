@@ -168,6 +168,31 @@
                         android:textColor="@color/stats_value_neutral"
                         android:fontFamily="monospace" />
                 </LinearLayout>
+
+                <!-- Reconnect Count -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Reconnects"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/reconnectCountValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -325,6 +350,33 @@
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
+                <!-- WiFi Frequency (shown only for WiFi) -->
+                <LinearLayout
+                    android:id="@+id/wifiFrequencyRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="WiFi Band"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/wifiFrequencyValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="--"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
                 <!-- Cellular Type (shown only for Cellular) -->
                 <LinearLayout
                     android:id="@+id/cellularTypeRow"
@@ -429,7 +481,7 @@
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
-                <!-- Sync Error Drift -->
+                <!-- Smoothed Sync Error -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -439,12 +491,37 @@
                     <TextView
                         android:layout_width="140dp"
                         android:layout_height="wrap_content"
-                        android:text="Error Drift"
+                        android:text="Smoothed Error"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:textColor="@color/stats_text_secondary" />
 
                     <TextView
-                        android:id="@+id/syncErrorDriftValue"
+                        android:id="@+id/smoothedSyncErrorValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0 ms"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Drift Rate -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Drift Rate"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/driftRateValue"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -651,6 +728,58 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="--"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Clock Frozen -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Clock Frozen"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/clockFrozenValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="No"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_value_neutral"
+                        android:fontFamily="monospace" />
+                </LinearLayout>
+
+                <!-- Sync Offset (hidden when 0) -->
+                <LinearLayout
+                    android:id="@+id/syncOffsetRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingVertical="4dp"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="140dp"
+                        android:layout_height="wrap_content"
+                        android:text="Sync Offset"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/stats_text_secondary" />
+
+                    <TextView
+                        android:id="@+id/syncOffsetValue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="0 ms"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                         android:textColor="@color/stats_value_neutral"
                         android:fontFamily="monospace" />
