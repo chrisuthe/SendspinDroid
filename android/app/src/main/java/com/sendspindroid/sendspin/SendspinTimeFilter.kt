@@ -1,5 +1,6 @@
 package com.sendspindroid.sendspin
 
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -49,25 +50,21 @@ class SendspinTimeFilter {
         // ============================================================================
 
         // ----------------------------------------------------------------------------
-        // PROCESS_NOISE_OFFSET: Variance added to offset estimate per second (μs²/s)
+        // BASE_PROCESS_NOISE_OFFSET: Base variance for adaptive process noise (μs²/s)
         // ----------------------------------------------------------------------------
-        // Physical meaning: Models random jitter in the clock offset measurement.
-        // This accounts for unpredictable variations in network latency, OS scheduling
-        // delays, and other sources of timing noise that cause the apparent offset to
-        // change even when the underlying clocks are stable.
+        // This is the baseline Q_offset value. The actual process noise is dynamically
+        // scaled based on observed innovation variance vs expected variance.
         //
-        // Value rationale: 100 μs²/s means we expect ~10μs standard deviation of
-        // random offset noise per second. This is typical for WiFi networks where
-        // jitter is 1-10ms. The value was tuned empirically against the Python
-        // reference implementation to achieve similar convergence behavior.
-        //
-        // If too low: Filter becomes overconfident, slow to adapt to real changes
-        //             in network conditions. May take many seconds to correct after
-        //             a WiFi handoff or route change.
-        // If too high: Filter never settles, constantly chasing noise. Sync error
-        //              remains high and playback corrections are frequent.
+        // On stable WiFi: adaptive Q stays near BASE (smooth tracking)
+        // On jittery cellular: adaptive Q rises to BASE * ADAPTIVE_Q_MAX (faster adaptation)
+        // During handoff: Q spikes to handle step changes, then settles back
         // ----------------------------------------------------------------------------
-        private const val PROCESS_NOISE_OFFSET = 100.0
+        private const val BASE_PROCESS_NOISE_OFFSET = 100.0
+
+        // Adaptive process noise bounds (multipliers on BASE_PROCESS_NOISE_OFFSET)
+        private const val ADAPTIVE_Q_MIN = 0.5    // Minimum: half of base (very stable network)
+        private const val ADAPTIVE_Q_MAX = 5.0    // Maximum: 5x base (high-jitter/handoff)
+        private const val INNOVATION_WINDOW_SIZE = 20  // ~5 seconds at 4Hz burst rate
 
         // ----------------------------------------------------------------------------
         // PROCESS_NOISE_DRIFT: Variance added to drift estimate per second ((μs/μs)²/s)
@@ -191,29 +188,36 @@ class SendspinTimeFilter {
         private const val MAX_DRIFT = 5e-4
 
         // ----------------------------------------------------------------------------
-        // WARMUP_MEASUREMENTS: Number of measurements before adaptive forgetting activates
+        // Convergence-Aware Warmup: Ends based on filter state, not fixed count
         // ----------------------------------------------------------------------------
-        // Physical meaning: During the warmup period, no forgetting is applied,
-        // allowing the filter to converge to a stable estimate without interference.
-        // This matches the web player's approach (which uses 100 measurements).
+        // MIN_WARMUP: Absolute minimum before forgetting can activate (prevents
+        //   premature activation while Kalman gain is still large)
+        // MAX_WARMUP: Absolute maximum before we force-enable forgetting (prevents
+        //   indefinite warmup on very noisy networks)
+        // WARMUP_CONVERGENCE_THRESHOLD_US: If error drops below this, warmup ends
+        //   early (filter has converged, safe to enable adaptive mechanisms)
         //
-        // Value rationale: 50 measurements at ~4 Hz = ~12 seconds of warmup.
-        // This is long enough for the Kalman gain to stabilize and for the
-        // covariance to shrink to a steady-state level. Once warmup ends, the
-        // absolute-threshold forgetting can detect genuine step changes without
-        // triggering on normal convergence behavior.
-        //
-        // On WiFi (~20ms RTT): Filter converges well within 50 measurements,
-        //   so forgetting activates after the filter is already stable.
-        // On cellular (~100ms RTT): Filter needs more measurements to converge,
-        //   but 50 gives enough initial stability before forgetting kicks in.
-        //
-        // If too low: Forgetting triggers during convergence, fighting the filter
-        //             and preventing it from ever reaching steady state.
-        // If too high: Step changes that occur during warmup won't be adapted to
-        //              quickly enough.
+        // Behavior:
+        //   WiFi: Warmup ends at ~20 measurements (~5s) when error < threshold
+        //   Cellular: Warmup may extend to 100 measurements (~25s) for convergence
         // ----------------------------------------------------------------------------
-        private const val WARMUP_MEASUREMENTS = 50
+        private const val MIN_WARMUP = 20
+        private const val MAX_WARMUP = 100
+        private const val WARMUP_CONVERGENCE_THRESHOLD_US = 15_000L  // 15ms
+
+        // ----------------------------------------------------------------------------
+        // Outlier Pre-Rejection: Protects filter from cellular spikes
+        // ----------------------------------------------------------------------------
+        // Measurements that deviate too far from recent history are rejected before
+        // reaching the Kalman filter. Uses median + IQR for robust statistics.
+        //
+        // OUTLIER_WINDOW_SIZE: Number of recent accepted offsets to track
+        // OUTLIER_IQR_MULTIPLIER: How many IQRs from median to allow
+        // MIN_OUTLIER_MEASUREMENTS: Accept everything during early warmup
+        // ----------------------------------------------------------------------------
+        private const val OUTLIER_WINDOW_SIZE = 10
+        private const val OUTLIER_IQR_MULTIPLIER = 3.0
+        private const val MIN_OUTLIER_MEASUREMENTS = 5
 
         // ----------------------------------------------------------------------------
         // FORGETTING_FACTOR: Covariance inflation factor for step changes (λ)
@@ -252,6 +256,18 @@ class SendspinTimeFilter {
     private var lastUpdateTime: Long = 0
     private var measurementCount: Int = 0
 
+    // Adaptive process noise: tracks innovation (residual) magnitudes
+    private val innovationWindow = DoubleArray(INNOVATION_WINDOW_SIZE)
+    private var innovationWindowIndex = 0
+    private var innovationWindowCount = 0
+    private var adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
+
+    // Outlier pre-rejection: tracks recent accepted offset measurements
+    private val recentOffsets = DoubleArray(OUTLIER_WINDOW_SIZE)
+    private var recentOffsetsIndex = 0
+    private var recentOffsetsCount = 0
+    private var rejectedCount = 0  // Consecutive rejections (for forced acceptance)
+
     // Baseline time for relative calculations - prevents drift accumulation over long periods
     // Set when first measurement is received, used as reference point for time conversions
     private var baselineClientTime: Long = 0
@@ -271,7 +287,10 @@ class SendspinTimeFilter {
         val p10: Double,
         val p11: Double,
         val measurementCount: Int,
-        val baselineClientTime: Long
+        val baselineClientTime: Long,
+        val recentOffsets: DoubleArray,
+        val recentOffsetsIndex: Int,
+        val recentOffsetsCount: Int
     )
 
     /**
@@ -346,6 +365,13 @@ class SendspinTimeFilter {
         lastUpdateTime = 0
         measurementCount = 0
         baselineClientTime = 0
+        // Reset adaptive mechanisms
+        innovationWindowIndex = 0
+        innovationWindowCount = 0
+        adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
+        recentOffsetsIndex = 0
+        recentOffsetsCount = 0
+        rejectedCount = 0
     }
 
     /**
@@ -372,7 +398,10 @@ class SendspinTimeFilter {
             p10 = p10,
             p11 = p11,
             measurementCount = measurementCount,
-            baselineClientTime = baselineClientTime
+            baselineClientTime = baselineClientTime,
+            recentOffsets = recentOffsets.copyOf(),
+            recentOffsetsIndex = recentOffsetsIndex,
+            recentOffsetsCount = recentOffsetsCount
         )
     }
 
@@ -396,7 +425,17 @@ class SendspinTimeFilter {
         p11 = frozen.p11 * 10.0
         measurementCount = frozen.measurementCount
         baselineClientTime = frozen.baselineClientTime
-        // Don't reset lastUpdateTime - will be updated on next measurement
+
+        // Restore outlier rejection state (offsets are still valid reference)
+        frozen.recentOffsets.copyInto(recentOffsets)
+        recentOffsetsIndex = frozen.recentOffsetsIndex
+        recentOffsetsCount = frozen.recentOffsetsCount
+        rejectedCount = 0
+
+        // Reset innovation window (network conditions may have changed)
+        innovationWindowIndex = 0
+        innovationWindowCount = 0
+        adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
 
         frozenState = null
     }
@@ -413,11 +452,16 @@ class SendspinTimeFilter {
     /**
      * Add a new time measurement to the filter.
      *
+     * Includes outlier pre-rejection: measurements that deviate significantly from
+     * recent history are rejected before reaching the Kalman filter, protecting
+     * against cellular congestion spikes and handoff transients.
+     *
      * @param measurementOffset The measured offset in microseconds
      * @param maxError The maximum error (uncertainty) in microseconds
      * @param clientTimeMicros The client timestamp when measurement was taken
+     * @return true if measurement was accepted, false if rejected as outlier
      */
-    fun addMeasurement(measurementOffset: Long, maxError: Long, clientTimeMicros: Long) {
+    fun addMeasurement(measurementOffset: Long, maxError: Long, clientTimeMicros: Long): Boolean {
         val measurement = measurementOffset.toDouble()
         val variance = (maxError.toDouble() * maxError).coerceAtLeast(1.0)
 
@@ -429,6 +473,7 @@ class SendspinTimeFilter {
                 lastUpdateTime = clientTimeMicros
                 baselineClientTime = clientTimeMicros  // Set baseline for relative calculations
                 measurementCount = 1
+                recordAcceptedOffset(measurement)
             }
             1 -> {
                 // Second measurement - estimate initial drift
@@ -441,23 +486,82 @@ class SendspinTimeFilter {
                 p00 = variance
                 lastUpdateTime = clientTimeMicros
                 measurementCount = 2
+                recordAcceptedOffset(measurement)
             }
             else -> {
+                // Outlier pre-rejection: check before feeding to Kalman filter
+                if (!shouldAcceptMeasurement(measurement, maxError.toDouble())) {
+                    rejectedCount++
+                    return false
+                }
+                rejectedCount = 0
+
                 // Steady state - full Kalman update
                 kalmanUpdate(measurement, variance, clientTimeMicros)
+                recordAcceptedOffset(measurement)
             }
         }
+        return true
+    }
+
+    /**
+     * Determine if a measurement should be accepted or rejected as an outlier.
+     *
+     * Uses robust statistics (median + IQR) to detect measurements that are
+     * far from the recent accepted history. This protects the Kalman filter
+     * from being pulled by cellular congestion spikes (200ms+ outliers).
+     *
+     * Force-accepts after 3 consecutive rejections to handle genuine step changes
+     * (e.g., network route change where ALL measurements shift).
+     */
+    private fun shouldAcceptMeasurement(measurement: Double, maxError: Double): Boolean {
+        // Accept during early warmup - not enough history for outlier detection
+        if (recentOffsetsCount < MIN_OUTLIER_MEASUREMENTS) return true
+
+        // Force-accept after consecutive rejections (genuine step change)
+        if (rejectedCount >= 3) return true
+
+        val count = minOf(recentOffsetsCount, OUTLIER_WINDOW_SIZE)
+        val sorted = DoubleArray(count)
+        for (i in 0 until count) {
+            sorted[i] = recentOffsets[(recentOffsetsIndex - count + i + OUTLIER_WINDOW_SIZE) % OUTLIER_WINDOW_SIZE]
+        }
+        sorted.sort()
+
+        val median = if (count % 2 == 0) {
+            (sorted[count / 2 - 1] + sorted[count / 2]) / 2.0
+        } else {
+            sorted[count / 2]
+        }
+
+        val q1 = sorted[count / 4]
+        val q3 = sorted[(count * 3) / 4]
+        val iqr = q3 - q1
+
+        // Threshold: at least RTT-sized window (maxError), or IQR-based
+        val threshold = maxOf(OUTLIER_IQR_MULTIPLIER * iqr, maxError)
+
+        return abs(measurement - median) <= threshold
+    }
+
+    /**
+     * Record an accepted offset measurement in the recent history window.
+     */
+    private fun recordAcceptedOffset(measurement: Double) {
+        recentOffsets[recentOffsetsIndex] = measurement
+        recentOffsetsIndex = (recentOffsetsIndex + 1) % OUTLIER_WINDOW_SIZE
+        if (recentOffsetsCount < OUTLIER_WINDOW_SIZE) recentOffsetsCount++
     }
 
     /**
      * Perform Kalman filter prediction and update.
      *
-     * Key differences from the previous implementation (matching web player):
-     * - No continuous covariance inflation (was causing runaway gain on cell networks)
-     * - Absolute residual threshold instead of normalized (doesn't get more sensitive
-     *   as filter converges, preventing the instability feedback loop)
-     * - Warmup period protects initial convergence from premature forgetting
-     * - No drift decay (drift converges naturally with zero process noise)
+     * Optimizations over the base implementation:
+     * - Adaptive process noise: Q_offset scales with observed innovation variance,
+     *   automatically responding to network conditions (stable WiFi vs jittery cellular)
+     * - Convergence-aware warmup: Forgetting activates when filter converges OR after
+     *   MAX_WARMUP, not at a fixed measurement count
+     * - Absolute residual threshold for forgetting (prevents instability feedback loop)
      */
     private fun kalmanUpdate(measurement: Double, variance: Double, clientTimeMicros: Long) {
         val dt = (clientTimeMicros - lastUpdateTime).toDouble()
@@ -466,12 +570,10 @@ class SendspinTimeFilter {
         // === Prediction Step ===
         // State prediction: offset_predicted = offset + drift * dt
         val offsetPredicted = offset + drift * dt
-        // Drift prediction: drift stays the same (random walk model)
 
         // Covariance prediction: P = F * P * F^T + Q
-        // F = [1, dt; 0, 1] (state transition matrix)
-        // Q = [q_offset * dt, 0; 0, q_drift * dt] (process noise)
-        val p00New = p00 + 2 * p01 * dt + p11 * dt * dt + PROCESS_NOISE_OFFSET * dt
+        // Uses adaptive process noise instead of fixed constant
+        val p00New = p00 + 2 * p01 * dt + p11 * dt * dt + adaptiveProcessNoise * dt
         val p01New = p01 + p11 * dt
         val p10New = p10 + p11 * dt
         val p11New = p11 + PROCESS_NOISE_DRIFT * dt
@@ -479,13 +581,12 @@ class SendspinTimeFilter {
         // === Innovation (Residual) ===
         val innovation = measurement - offsetPredicted
 
-        // === Adaptive Forgetting (absolute threshold, after warmup only) ===
-        // Only apply after warmup to let the filter converge first.
-        // Uses absolute residual compared to measurement uncertainty (sqrt(variance) ≈ RTT/2),
-        // which naturally scales with network conditions without becoming more sensitive
-        // as the filter converges (the key fix for cell network instability).
-        if (measurementCount >= WARMUP_MEASUREMENTS) {
-            val absResidual = kotlin.math.abs(innovation)
+        // === Track Innovation for Adaptive Process Noise ===
+        recordInnovation(innovation * innovation, variance)
+
+        // === Adaptive Forgetting (convergence-aware warmup) ===
+        if (isWarmupComplete()) {
+            val absResidual = abs(innovation)
             val maxError = sqrt(variance)
             if (absResidual > FORGETTING_THRESHOLD * maxError) {
                 val lambdaSquared = FORGETTING_FACTOR * FORGETTING_FACTOR
@@ -508,8 +609,6 @@ class SendspinTimeFilter {
         }
 
         // === Update Step ===
-        // Kalman gain: K = P * H^T * (H * P * H^T + R)^-1
-        // H = [1, 0] (measurement matrix - we only measure offset)
         val s = p00 + variance // Innovation covariance
         if (s <= 0) return
 
@@ -522,7 +621,6 @@ class SendspinTimeFilter {
 
         // Bound drift to physically realistic values (±500 ppm)
         newDrift = newDrift.coerceIn(-MAX_DRIFT, MAX_DRIFT)
-
         drift = newDrift
 
         // Covariance update: P = (I - K * H) * P
@@ -538,6 +636,72 @@ class SendspinTimeFilter {
 
         lastUpdateTime = clientTimeMicros
         measurementCount++
+
+        // === Update Adaptive Process Noise ===
+        updateAdaptiveProcessNoise()
+    }
+
+    /**
+     * Convergence-aware warmup check.
+     *
+     * Warmup is complete when EITHER:
+     * - measurementCount >= MIN_WARMUP AND filter error < convergence threshold
+     * - measurementCount >= MAX_WARMUP (force-end regardless of convergence)
+     *
+     * This means WiFi converges and exits warmup quickly (~5s), while cellular
+     * stays in warmup longer until it actually converges or hits the max.
+     */
+    private fun isWarmupComplete(): Boolean {
+        if (measurementCount >= MAX_WARMUP) return true
+        if (measurementCount < MIN_WARMUP) return false
+        return errorMicros < WARMUP_CONVERGENCE_THRESHOLD_US
+    }
+
+    /**
+     * Record a squared innovation and its associated measurement variance.
+     * Used to compute the innovation variance ratio for adaptive process noise.
+     */
+    private fun recordInnovation(innovationSquared: Double, measurementVariance: Double) {
+        // Store the normalized innovation: innovation² / (p00 + R)
+        // This ratio should be ~1.0 if the filter model matches reality
+        val expectedVariance = p00 + measurementVariance
+        val normalizedInnovation = if (expectedVariance > 0) {
+            innovationSquared / expectedVariance
+        } else {
+            1.0
+        }
+        innovationWindow[innovationWindowIndex] = normalizedInnovation
+        innovationWindowIndex = (innovationWindowIndex + 1) % INNOVATION_WINDOW_SIZE
+        if (innovationWindowCount < INNOVATION_WINDOW_SIZE) innovationWindowCount++
+    }
+
+    /**
+     * Update the adaptive process noise based on observed innovation variance.
+     *
+     * If innovations are consistently larger than expected (ratio > 1), the filter's
+     * process noise model is too optimistic — increase Q to track faster.
+     * If innovations are smaller than expected (ratio < 1), the filter is over-responsive
+     * — decrease Q for smoother tracking.
+     *
+     * This naturally handles:
+     * - Stable WiFi: ratio ~1.0, Q stays near BASE
+     * - Jittery cellular: ratio > 1, Q increases for faster adaptation
+     * - Handoff events: ratio spikes, Q increases temporarily
+     */
+    private fun updateAdaptiveProcessNoise() {
+        if (innovationWindowCount < 5) return  // Need minimum data
+
+        // Compute mean of normalized innovations (should be ~1.0 for well-tuned filter)
+        val count = minOf(innovationWindowCount, INNOVATION_WINDOW_SIZE)
+        var sum = 0.0
+        for (i in 0 until count) {
+            sum += innovationWindow[i]
+        }
+        val meanRatio = sum / count
+
+        // Scale process noise by the ratio, clamped to bounds
+        val scaleFactor = meanRatio.coerceIn(ADAPTIVE_Q_MIN, ADAPTIVE_Q_MAX)
+        adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET * scaleFactor
     }
 
     /**
