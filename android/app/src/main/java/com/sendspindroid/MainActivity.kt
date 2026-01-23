@@ -22,11 +22,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.view.accessibility.AccessibilityManager
 import android.view.animation.AnimationUtils
 import android.widget.EditText
@@ -37,6 +39,7 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.updatePadding
 import com.google.android.material.appbar.AppBarLayout
 import androidx.palette.graphics.Palette
@@ -683,6 +686,9 @@ class MainActivity : AppCompatActivity() {
 
         // Always show app bar in non-playing views
         binding.appBarLayout.visibility = View.VISIBLE
+        // Reset toolbar content insets (may have been offset for landscape now-playing)
+        val defaultInset = (16 * resources.displayMetrics.density).toInt()
+        binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
 
         // Animate view transitions
         if (binding.searchingView.visibility != View.VISIBLE) {
@@ -716,6 +722,9 @@ class MainActivity : AppCompatActivity() {
 
         // Always show app bar in non-playing views
         binding.appBarLayout.visibility = View.VISIBLE
+        // Reset toolbar content insets (may have been offset for landscape now-playing)
+        val defaultInset = (16 * resources.displayMetrics.density).toInt()
+        binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
 
         binding.searchingView.visibility = View.GONE
         // Animate view transition
@@ -738,23 +747,44 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.title = if (isPlaying) "Playing" else "Paused"
         supportActionBar?.subtitle = null
 
-        // Hide app bar in landscape for full-height album art
+        // In landscape, keep toolbar visible but only over the right side (controls area)
         val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        binding.appBarLayout.visibility = if (isLandscape) View.GONE else View.VISIBLE
+        binding.appBarLayout.visibility = View.VISIBLE
 
-        // Remove/restore scrolling behavior to fix space reservation when AppBarLayout is hidden
-        // The appbar_scrolling_view_behavior doesn't account for GONE visibility
         val mainContentArea = binding.root.findViewById<View>(R.id.mainContentArea)
-        mainContentArea?.let { content ->
-            val params = content.layoutParams as? CoordinatorLayout.LayoutParams
-            params?.let {
-                if (isLandscape) {
-                    it.behavior = null
-                } else {
-                    it.behavior = AppBarLayout.ScrollingViewBehavior()
-                }
-                content.layoutParams = it
+        if (isLandscape) {
+            // Remove scrolling behavior so content fills full screen under the AppBarLayout
+            mainContentArea?.let { content ->
+                val params = content.layoutParams as? CoordinatorLayout.LayoutParams
+                params?.behavior = null
+                content.layoutParams = params
             }
+
+            // Push toolbar title to align with the controls container; toolbar stays full-width
+            // so the overflow menu button renders at the right edge
+            binding.controlsContainer?.doOnLayout { controls ->
+                val controlsLoc = IntArray(2).also { controls.getLocationInWindow(it) }
+                val toolbarLoc = IntArray(2).also { binding.toolbar.getLocationInWindow(it) }
+                val inset = controlsLoc[0] - toolbarLoc[0]
+                binding.toolbar.setContentInsetsAbsolute(inset, 0)
+            }
+
+            // Push controls down below the toolbar overlay
+            val actionBarSize = TypedValue().let { tv ->
+                theme.resolveAttribute(android.R.attr.actionBarSize, tv, true)
+                TypedValue.complexToDimensionPixelSize(tv.data, resources.displayMetrics)
+            }
+            binding.controlsContainer?.setPadding(0, actionBarSize, 0, 0)
+        } else {
+            // Portrait: restore normal scrolling behavior and reset toolbar insets
+            mainContentArea?.let { content ->
+                val params = content.layoutParams as? CoordinatorLayout.LayoutParams
+                params?.behavior = AppBarLayout.ScrollingViewBehavior()
+                content.layoutParams = params
+            }
+            val defaultInset = (16 * resources.displayMetrics.density).toInt()
+            binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
+            binding.controlsContainer?.setPadding(0, 0, 0, 0)
         }
 
         binding.searchingView.visibility = View.GONE

@@ -1682,6 +1682,9 @@ class PlaybackService : MediaLibraryService() {
             bundle.putLong("clock_error_us", timeFilter.errorMicros)
             bundle.putInt("measurement_count", timeFilter.measurementCountValue)
             bundle.putLong("last_time_sync_age_ms", client.getLastTimeSyncAgeMs())
+            bundle.putInt("reconnect_attempts", client.getReconnectAttempts())
+            bundle.putBoolean("clock_frozen", timeFilter.isFrozen)
+            bundle.putDouble("static_delay_ms", timeFilter.staticDelayMs)
         }
 
         // Get network stats from NetworkEvaluator

@@ -93,7 +93,7 @@
     <!-- Stats for Nerds -->
     <string name="stats_title">Stats for Nerds</string>
     <string name="stats_close">Close stats</string>
-    <string name="stats_footer_note">Updates every 100ms • Values color-coded: green (good), yellow (warning), red (bad)</string>
+    <string name="stats_footer_note">Updates every 500ms • Values color-coded: green (good), yellow (warning), red (bad)</string>
 
     <!-- Stats sections -->
     <string name="stats_section_sync_status">SYNC STATUS</string>

@@ -18,21 +18,20 @@
         android:alpha="0.5"
         android:importantForAccessibility="no" />
 
-    <!-- Hidden AppBarLayout - required for view binding compatibility but not displayed in landscape now playing -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBarLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fitsSystemWindows="true"
         android:background="@android:color/transparent"
+        app:elevation="0dp"
         app:liftOnScroll="false">
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             style="@style/Widget.Material3.Toolbar"
-            android:layout_width="344dp"
+            android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
-            android:layout_gravity="end"
             android:alpha="0.6"
             android:background="?attr/colorSurface"
             app:navigationIcon="@null"
@@ -336,7 +335,7 @@
                     android:id="@+id/controlsContainer"
                     android:layout_width="0dp"
                     android:layout_height="0dp"
-                    android:layout_marginStart="48dp"
+                    android:layout_marginStart="24dp"
                     app:layout_constraintStart_toEndOf="@id/albumArtContainer"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintTop_toTopOf="parent"
