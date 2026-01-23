@@ -148,16 +148,14 @@
     <string name="sync_offset_decrease">Decrease sync offset by 10ms</string>
     <string name="sync_offset_increase">Increase sync offset by 10ms</string>
     <string name="pref_codec_title">Preferred Audio Codec</string>
-    <string name="pref_codec_summary">Server will try to send audio in this format first</string>
+    <string name="pref_codec_summary">Preferred format (falls back to PCM if unsupported)</string>
     <string-array name="codec_entries">
-        <item>PCM (Uncompressed)</item>
-        <item>FLAC (Lossless)</item>
         <item>OPUS (Compressed)</item>
+        <item>FLAC (Lossless)</item>
     </string-array>
     <string-array name="codec_values">
-        <item>pcm</item>
-        <item>flac</item>
         <item>opus</item>
+        <item>flac</item>
     </string-array>
     <string name="pref_codec_reconnect_title">Reconnect Required</string>
     <string name="pref_codec_reconnect_message">The new codec preference will be used the next time you connect to a server.</string>

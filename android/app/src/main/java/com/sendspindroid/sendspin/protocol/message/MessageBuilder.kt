@@ -139,19 +139,24 @@ object MessageBuilder {
         val formats = JSONArray()
         val preferredCodec = UserSettings.getPreferredCodec()
 
-        // Get list of codecs to advertise, with preferred first
+        // Get list of codecs to advertise, with preferred first but PCM always last
         val codecOrder = mutableListOf<String>()
 
-        // Add preferred codec first
-        if (AudioDecoderFactory.isCodecSupported(preferredCodec)) {
+        // Add preferred codec first (unless it's PCM, which always goes last)
+        if (preferredCodec != "pcm" && AudioDecoderFactory.isCodecSupported(preferredCodec)) {
             codecOrder.add(preferredCodec)
         }
 
-        // Add remaining codecs
-        for (codec in listOf("pcm", "flac", "opus")) {
+        // Add remaining non-PCM codecs
+        for (codec in listOf("flac", "opus")) {
             if (codec != preferredCodec && AudioDecoderFactory.isCodecSupported(codec)) {
                 codecOrder.add(codec)
             }
+        }
+
+        // PCM always last
+        if (AudioDecoderFactory.isCodecSupported("pcm")) {
+            codecOrder.add("pcm")
         }
 
         // Build format entries for each codec (stereo and mono)

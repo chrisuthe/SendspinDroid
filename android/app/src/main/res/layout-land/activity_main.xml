@@ -29,14 +29,15 @@
 
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
-            android:layout_width="match_parent"
+            style="@style/Widget.Material3.Toolbar"
+            android:layout_width="344dp"
             android:layout_height="?attr/actionBarSize"
+            android:layout_gravity="end"
             android:alpha="0.6"
             android:background="?attr/colorSurface"
-            app:title="@string/app_name"
-            app:titleCentered="false"
             app:navigationIcon="@null"
-            style="@style/Widget.Material3.Toolbar" />
+            app:title="@string/app_name"
+            app:titleCentered="false" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
