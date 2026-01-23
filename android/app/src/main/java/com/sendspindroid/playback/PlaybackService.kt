@@ -139,6 +139,12 @@ class PlaybackService : MediaLibraryService() {
     @Volatile
     private var isDestroyed = false
 
+    // Guards against race condition: onAudioChunk runs on WebSocket thread but
+    // decoder creation is posted to mainHandler. Chunks arriving before the new
+    // decoder is ready would hit the old (released) decoder and throw.
+    @Volatile
+    private var decoderReady = false
+
     // Connection state exposed as StateFlow for observers
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -791,6 +797,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
+            // Mark decoder as not ready IMMEDIATELY (on WebSocket thread) before posting.
+            // This prevents onAudioChunk from using the old (about-to-be-released) decoder.
+            decoderReady = false
             mainHandler.post {
                 Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
                 currentCodec = codec
@@ -809,6 +818,8 @@ class PlaybackService : MediaLibraryService() {
                     Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
                     audioDecoder = AudioDecoderFactory.create("pcm")
                 }
+                // Signal that the new decoder is ready for use by onAudioChunk
+                decoderReady = true
 
                 // Get the time filter from SendSpinClient
                 val timeFilter = sendSpinClient?.getTimeFilter()
@@ -847,6 +858,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {
+            // Guard: don't try to decode if the decoder is being replaced (race with onStreamStart)
+            if (!decoderReady) return
+
             // Decode compressed data to PCM (pass-through for PCM codec)
             val pcmData = try {
                 audioDecoder?.decode(audioData) ?: audioData
