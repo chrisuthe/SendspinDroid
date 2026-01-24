@@ -1,96 +1,66 @@
 ![GitHub all releases](https://img.shields.io/github/downloads/chrisuthe/SendspinDroid/total?color=blue)
-# SendspinDroid
 
-A native Android client for [SendSpin](https://www.sendspin-audio.com/) multi-room synchronized audio streaming.
+# SendSpin Player for Android
+
+A native Android client for [SendSpin](https://www.sendspin-audio.com/) — synchronized multi-room audio that just works.
+
+Play music in perfect sync across every room in your home. No special hardware required — just your Android phone, tablet, or car stereo.
 
 ## Features
 
-- **Automatic server discovery** via mDNS/Zeroconf
-- **Manual server entry** for networks where discovery doesn't work
-- **Time-synchronized playback** with sub-millisecond accuracy across multiple rooms
-- **Background playback** with lock screen and notification controls
-- **Android Auto support** for in-car listening
-- **Hardware volume buttons** control playback and sync with other clients
-- **Multi-room sync** with Kalman-filtered clock synchronization
+### Playback
+- Synchronized playback across unlimited rooms
+- Background audio with lock screen and notification controls
+- Android Auto integration for in-car listening
+- Hardware volume buttons with bidirectional sync
+- Skip, pause, and group switching from any device
+- Adjustable sync offset for speaker delay compensation
 
-## Installation
+### Audio Quality
+- **Opus** — efficient compressed streaming, great for cellular
+- **FLAC** — lossless quality for critical listening on WiFi
+- Network-aware codec selection — automatically choose the best format for your connection
+- 48 kHz, stereo output
+
+### Interface
+- Material You dynamic colors — matches your wallpaper on Android 12+
+- Full dark and light theme support
+- Full screen immersive mode
+- Keep screen on while playing
+- Stats for Nerds — real-time sync diagnostics for the curious
+
+### Reliability
+- Automatic server discovery via mDNS/Zeroconf
+- Manual server entry when discovery isn't available
+- Automatic reconnection on network changes
+- Low memory mode for older devices
+- Works on WiFi, Ethernet, and cellular networks
+
+## Getting Started
+
+1. **Install** — Download the latest APK from [Releases](https://github.com/chrisuthe/SendSpinDroid/releases)
+2. **Open** — The app searches for SendSpin servers on your network
+3. **Tap** — Select your server and you're listening
+
+Need to connect manually? Tap "Enter server manually" and type your server address (e.g., `192.168.1.100:7080`).
 
 ### Requirements
 
 - Android 8.0 (Oreo) or higher
+- A [SendSpin](https://www.sendspin-audio.com/) server on your network
 
-### Download
+### Installing the APK
 
-Download the latest APK from [GitHub Releases](https://github.com/chrisuthe/SendSpinDroid/releases).
+Since SendSpin Player isn't on the Play Store, you'll need to allow installation from your browser:
 
-### Enable Sideloading
+1. Download the APK from [Releases](https://github.com/chrisuthe/SendSpinDroid/releases)
+2. Open the downloaded file
+3. When prompted, tap **Settings** → enable **Allow from this source**
+4. Go back and tap **Install**
 
-Before installing, you need to allow app installation from unknown sources:
+## The SendSpin Protocol
 
-**Android 8.0+:**
-1. Download the APK file
-2. Open the APK - Android will prompt you to allow installation from your browser/file manager
-3. Tap "Settings" when prompted
-4. Enable "Allow from this source"
-5. Go back and tap "Install"
-
-**Older method (if needed):**
-1. Go to Settings → Security
-2. Enable "Unknown sources"
-3. Open the APK and tap "Install"
-
-### Permissions
-
-The app requires:
-- **Internet access** - To connect to SendSpin servers
-- **WiFi multicast** - For automatic server discovery
-
-## Getting Started
-
-1. **Open the app** - It will automatically search for SendSpin servers on your network
-2. **Wait for discovery** - Found servers appear automatically within a few seconds
-3. **Tap to connect** - Select a server to start streaming
-
-**Manual connection:** If automatic discovery doesn't find your server, tap "Enter server manually" and enter the server address (e.g., `192.168.1.100:7080`).
-
-## Architecture
-
-Native Kotlin implementation with precision time synchronization:
-
-```
-SendSpin Server ──WebSocket──► SendSpinClient ──AudioTrack──► Audio Output
-                    │
-                    ├── JSON (metadata, state, commands)
-                    └── Binary (timestamped PCM audio)
-```
-
-### Components
-
-| Component | Responsibility |
-|-----------|----------------|
-| **SendSpinClient** | WebSocket protocol, clock synchronization, audio buffering |
-| **PlaybackService** | Background playback, MediaSession, notifications, Android Auto |
-| **SyncAudioPlayer** | Synchronized audio output with real-time drift correction |
-| **MainActivity** | Server discovery UI, playback controls, volume slider |
-
-### Synchronization
-
-SendSpinDroid achieves multi-room sync through:
-
-- **NTP-style clock sync** - Sends burst measurements, selects lowest-latency sample
-- **Kalman filtering** - Rejects network jitter, tracks clock drift over time
-- **Sample-level correction** - Inserts or drops individual audio samples to maintain sync (imperceptible at 48kHz)
-
-Audio format: 48kHz, 16-bit, stereo PCM
-
-## Protocol
-
-Implements the [SendSpin Protocol Specification](https://www.sendspin-audio.com/spec/):
-
-- WebSocket connection with JSON control messages
-- Binary audio chunks: `[type:1][timestamp:8][pcm_data:N]`
-- Bidirectional volume synchronization
-- Supported codecs: PCM, FLAC, Opus
+SendSpin Player speaks the [SendSpin Protocol](https://www.sendspin-audio.com/) — a WebSocket-based streaming protocol designed for real-time synchronized audio. The server timestamps every audio chunk and each client uses precision clock synchronization to play them at exactly the right moment. The result: every speaker in your home plays the same beat at the same time, whether they're on WiFi, Ethernet, or cellular.
 
 ## License
 
