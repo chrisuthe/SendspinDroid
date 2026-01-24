@@ -29,6 +29,7 @@ import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.view.animation.AnimationUtils
 import android.widget.EditText
@@ -501,6 +502,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun updateKeepScreenOn(isPlaying: Boolean) {
+        if (UserSettings.keepScreenOn && isPlaying) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     private fun setupUI() {
         // Setup RecyclerView for servers (in manual entry view)
         serverAdapter = ServerAdapter { server ->
@@ -598,6 +607,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         // Re-apply full screen mode (picks up changes made in Settings)
         applyFullScreenMode()
+        // Re-evaluate keep screen on (picks up setting changes + current playback state)
+        updateKeepScreenOn(mediaController?.isPlaying == true)
         // Re-sync UI state with MediaController
         syncUIWithPlayerState()
         // Re-sync volume slider with device volume (may have changed while in background)
@@ -1211,6 +1222,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 // Update play/pause button text and content description based on current state
                 updatePlayPauseButton(isPlaying)
+                updateKeepScreenOn(isPlaying)
             }
         }
 
@@ -1344,6 +1356,7 @@ class MainActivity : AppCompatActivity() {
 
                 // Sync play/pause button icon
                 updatePlayPauseButton(isPlaying)
+                updateKeepScreenOn(isPlaying)
 
                 // Sync metadata and artwork
                 val metadata = controller.mediaMetadata
