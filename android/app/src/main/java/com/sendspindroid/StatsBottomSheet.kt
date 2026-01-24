@@ -9,6 +9,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
+import com.google.android.material.color.MaterialColors
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
@@ -31,10 +32,10 @@ import kotlin.math.abs
  * Updates at 2 Hz (500ms intervals) for efficient real-time monitoring.
  *
  * ## Design Notes
- * - Material 3 bottom sheet with dark technical aesthetic
+ * - Material 3 bottom sheet, follows system theme (light/dark)
  * - Monospace font for values (like Windows reference)
  * - Color-coded status: green (good), yellow (warning), red (bad)
- * - Section headers in purple (Material 3 primary)
+ * - Section headers use theme primary color
  *
  * ## Usage
  * ```kotlin
@@ -444,7 +445,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
     }
 
     // ========================================================================
-    // Color Helpers (matching Windows WPF reference design)
+    // Color Helpers - threshold-based indicator colors
     // ========================================================================
 
     private fun getColorForConnectionState(state: String): Int {
@@ -558,7 +559,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         }
     }
 
-    // Color values matching Windows reference: green, yellow, red
+    // Semantic indicator colors: green (good), yellow (warning), red (bad)
     private fun getColorGood(): Int =
         ContextCompat.getColor(requireContext(), R.color.stats_value_good)
 
@@ -569,7 +570,7 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
         ContextCompat.getColor(requireContext(), R.color.stats_value_bad)
 
     private fun getColorNeutral(): Int =
-        ContextCompat.getColor(requireContext(), R.color.stats_value_neutral)
+        MaterialColors.getColor(requireView(), com.google.android.material.R.attr.colorOnSurface)
 
     override fun onDestroyView() {
         super.onDestroyView()

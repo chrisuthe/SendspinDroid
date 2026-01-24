@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Stats for Nerds - Real-time audio synchronization diagnostics
-    Material 3 Bottom Sheet with dark technical aesthetic
+    Material 3 Bottom Sheet - follows system theme (light/dark)
 -->
 <androidx.core.widget.NestedScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -9,7 +9,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/stats_background">
+    android:background="?attr/colorSurface">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -31,7 +31,7 @@
                 android:layout_weight="1"
                 android:text="@string/stats_title"
                 android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
-                android:textColor="@color/stats_text_primary"
+                android:textColor="?attr/colorOnSurface"
                 android:fontFamily="sans-serif-medium" />
 
             <com.google.android.material.button.MaterialButton
@@ -41,7 +41,7 @@
                 android:layout_height="48dp"
                 android:contentDescription="@string/stats_close"
                 app:icon="@drawable/ic_close"
-                app:iconTint="@color/stats_text_secondary" />
+                app:iconTint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
 
         <!-- Connection Section -->
@@ -49,7 +49,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -65,7 +65,7 @@
                     android:layout_height="wrap_content"
                     android:text="CONNECTION"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -81,7 +81,7 @@
                         android:layout_height="wrap_content"
                         android:text="Server"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/serverNameValue"
@@ -90,7 +90,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -106,7 +106,7 @@
                         android:layout_height="wrap_content"
                         android:text="Address"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/serverAddressValue"
@@ -115,7 +115,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -131,7 +131,7 @@
                         android:layout_height="wrap_content"
                         android:text="Status"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/connectionStateValue"
@@ -156,7 +156,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_audio_codec"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/audioCodecValue"
@@ -165,7 +165,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -181,7 +181,7 @@
                         android:layout_height="wrap_content"
                         android:text="Reconnects"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/reconnectCountValue"
@@ -190,7 +190,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
             </LinearLayout>
@@ -201,7 +201,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -217,7 +217,7 @@
                     android:layout_height="wrap_content"
                     android:text="NETWORK"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -233,7 +233,7 @@
                         android:layout_height="wrap_content"
                         android:text="Type"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/networkTypeValue"
@@ -242,7 +242,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -258,7 +258,7 @@
                         android:layout_height="wrap_content"
                         android:text="Quality"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/networkQualityValue"
@@ -267,7 +267,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -283,7 +283,7 @@
                         android:layout_height="wrap_content"
                         android:text="Metered"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/networkMeteredValue"
@@ -292,7 +292,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -310,7 +310,7 @@
                         android:layout_height="wrap_content"
                         android:text="WiFi Signal"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/wifiRssiValue"
@@ -319,7 +319,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -337,7 +337,7 @@
                         android:layout_height="wrap_content"
                         android:text="WiFi Speed"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/wifiSpeedValue"
@@ -346,7 +346,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -364,7 +364,7 @@
                         android:layout_height="wrap_content"
                         android:text="WiFi Band"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/wifiFrequencyValue"
@@ -373,7 +373,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -391,7 +391,7 @@
                         android:layout_height="wrap_content"
                         android:text="Cellular"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/cellularTypeValue"
@@ -400,7 +400,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
             </LinearLayout>
@@ -411,7 +411,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -427,7 +427,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/stats_section_sync_status"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -443,7 +443,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_playback_state"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/playbackStateValue"
@@ -452,7 +452,7 @@
                         android:layout_weight="1"
                         android:text="INITIALIZING"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -468,7 +468,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_sync_error"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/syncErrorValue"
@@ -493,7 +493,7 @@
                         android:layout_height="wrap_content"
                         android:text="Smoothed Error"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/smoothedSyncErrorValue"
@@ -502,7 +502,7 @@
                         android:layout_weight="1"
                         android:text="0 ms"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -518,7 +518,7 @@
                         android:layout_height="wrap_content"
                         android:text="Drift Rate"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/driftRateValue"
@@ -527,7 +527,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -543,7 +543,7 @@
                         android:layout_height="wrap_content"
                         android:text="Grace Period"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/gracePeriodValue"
@@ -563,7 +563,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -579,7 +579,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/stats_section_clock_sync"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -595,7 +595,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_clock_offset"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/clockOffsetValue"
@@ -604,7 +604,7 @@
                         android:layout_weight="1"
                         android:text="0 ms"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -620,7 +620,7 @@
                         android:layout_height="wrap_content"
                         android:text="Clock Drift"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/clockDriftValue"
@@ -629,7 +629,7 @@
                         android:layout_weight="1"
                         android:text="0 ppm"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -645,7 +645,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_clock_error"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/clockErrorValue"
@@ -654,7 +654,7 @@
                         android:layout_weight="1"
                         android:text="0 ms"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -670,7 +670,7 @@
                         android:layout_height="wrap_content"
                         android:text="Converged"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/clockConvergedValue"
@@ -695,7 +695,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_measurement_count"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/measurementCountValue"
@@ -704,7 +704,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -720,7 +720,7 @@
                         android:layout_height="wrap_content"
                         android:text="Last Sync"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/lastTimeSyncValue"
@@ -729,7 +729,7 @@
                         android:layout_weight="1"
                         android:text="--"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -745,7 +745,7 @@
                         android:layout_height="wrap_content"
                         android:text="Clock Frozen"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/clockFrozenValue"
@@ -754,7 +754,7 @@
                         android:layout_weight="1"
                         android:text="No"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -772,7 +772,7 @@
                         android:layout_height="wrap_content"
                         android:text="Sync Offset"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/syncOffsetValue"
@@ -781,7 +781,7 @@
                         android:layout_weight="1"
                         android:text="0 ms"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
             </LinearLayout>
@@ -792,7 +792,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -808,7 +808,7 @@
                     android:layout_height="wrap_content"
                     android:text="DAC / AUDIO"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -824,7 +824,7 @@
                         android:layout_height="wrap_content"
                         android:text="DAC Calibrated"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/dacCalibratedValue"
@@ -849,7 +849,7 @@
                         android:layout_height="wrap_content"
                         android:text="Calibrations"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/dacCalibrationCountValue"
@@ -858,7 +858,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -874,7 +874,7 @@
                         android:layout_height="wrap_content"
                         android:text="Frames Written"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/framesWrittenValue"
@@ -883,7 +883,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -899,7 +899,7 @@
                         android:layout_height="wrap_content"
                         android:text="Stream Position"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/serverPositionValue"
@@ -908,7 +908,7 @@
                         android:layout_weight="1"
                         android:text="0s"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -924,7 +924,7 @@
                         android:layout_height="wrap_content"
                         android:text="Underruns"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/bufferUnderrunsValue"
@@ -944,7 +944,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -960,7 +960,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/stats_section_buffer"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -976,7 +976,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_queued_audio"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/queuedAudioValue"
@@ -985,7 +985,7 @@
                         android:layout_weight="1"
                         android:text="0 ms"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1001,7 +1001,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_chunks_received"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/chunksReceivedValue"
@@ -1010,7 +1010,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1026,7 +1026,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_chunks_played"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/chunksPlayedValue"
@@ -1035,7 +1035,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1051,7 +1051,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_chunks_dropped"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/chunksDroppedValue"
@@ -1060,7 +1060,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1076,7 +1076,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_gaps_filled"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/gapsFilledValue"
@@ -1085,7 +1085,7 @@
                         android:layout_weight="1"
                         android:text="0 (0 ms)"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1100,7 +1100,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_overlaps_trimmed"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/overlapsTrimmedValue"
@@ -1109,7 +1109,7 @@
                         android:layout_weight="1"
                         android:text="0 (0 ms)"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
             </LinearLayout>
@@ -1120,7 +1120,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            app:cardBackgroundColor="@color/stats_card_background"
+            app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
             app:cardElevation="2dp"
             app:cardCornerRadius="8dp"
             app:strokeWidth="0dp">
@@ -1136,7 +1136,7 @@
                     android:layout_height="wrap_content"
                     android:text="@string/stats_section_sync_correction"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/stats_section_header"
+                    android:textColor="?attr/colorPrimary"
                     android:fontFamily="sans-serif-medium"
                     android:paddingBottom="12dp" />
 
@@ -1152,7 +1152,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_correction_mode"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/correctionModeValue"
@@ -1161,7 +1161,7 @@
                         android:layout_weight="1"
                         android:text="None"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1177,7 +1177,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_frames_inserted"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/framesInsertedValue"
@@ -1186,7 +1186,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1202,7 +1202,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_frames_dropped"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/framesDroppedValue"
@@ -1211,7 +1211,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1227,7 +1227,7 @@
                         android:layout_height="wrap_content"
                         android:text="@string/stats_total_corrections"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/totalCorrectionsValue"
@@ -1236,7 +1236,7 @@
                         android:layout_weight="1"
                         android:text="0"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_value_neutral"
+                        android:textColor="?attr/colorOnSurface"
                         android:fontFamily="monospace" />
                 </LinearLayout>
 
@@ -1252,7 +1252,7 @@
                         android:layout_height="wrap_content"
                         android:text="Reanchors"
                         android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                        android:textColor="@color/stats_text_secondary" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/reanchorsValue"
@@ -1273,7 +1273,7 @@
             android:layout_height="wrap_content"
             android:text="@string/stats_footer_note"
             android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-            android:textColor="@color/stats_text_tertiary"
+            android:textColor="?attr/colorOutline"
             android:gravity="center"
             android:paddingTop="8dp"
             android:paddingBottom="16dp" />

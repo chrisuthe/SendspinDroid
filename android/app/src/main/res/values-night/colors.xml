@@ -48,4 +48,9 @@
     <!-- Surface tint and shadow -->
     <color name="md_theme_dark_surfaceTint">#D0BCFF</color>
     <color name="md_theme_dark_scrim">#000000</color>
+
+    <!-- Stats for Nerds - Indicator colors (bright variants for dark backgrounds) -->
+    <color name="stats_value_good">#4ade80</color>           <!-- Bright green for dark backgrounds -->
+    <color name="stats_value_warning">#fbbf24</color>        <!-- Bright yellow for dark backgrounds -->
+    <color name="stats_value_bad">#f87171</color>            <!-- Bright red for dark backgrounds -->
 </resources>
