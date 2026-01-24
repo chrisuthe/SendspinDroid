@@ -20,6 +20,7 @@ object UserSettings {
     const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
     const val KEY_PREFERRED_CODEC = "preferred_codec"
     const val KEY_FULL_SCREEN_MODE = "full_screen_mode"
+    const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -125,6 +126,13 @@ object UserSettings {
      */
     val fullScreenMode: Boolean
         get() = prefs?.getBoolean(KEY_FULL_SCREEN_MODE, false) ?: false
+
+    /**
+     * Whether Keep Screen On is enabled.
+     * When enabled and audio is playing, the screen won't dim or lock.
+     */
+    val keepScreenOn: Boolean
+        get() = prefs?.getBoolean(KEY_KEEP_SCREEN_ON, false) ?: false
 
     /**
      * Gets the preferred audio codec for streaming.
