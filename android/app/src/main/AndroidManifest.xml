@@ -71,6 +71,7 @@
         TODO for v2: Add android:fullBackupContent="@xml/backup_rules"
     -->
     <application
+        android:name=".SendSpinApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -90,9 +91,7 @@
 
         <!--
             TODO for v2: Add application-level configurations:
-            - android:name=".MyApplication" (custom Application class)
             - android:usesCleartextTraffic="false" (enforce HTTPS, currently needed for local servers)
-            - android:networkSecurityConfig (custom network security rules)
         -->
 
         <!-- MainActivity: Primary activity and app entry point
