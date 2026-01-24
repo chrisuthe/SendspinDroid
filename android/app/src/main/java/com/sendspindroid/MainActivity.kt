@@ -38,7 +38,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.updatePadding
 import com.google.android.material.appbar.AppBarLayout
@@ -334,6 +336,7 @@ class MainActivity : AppCompatActivity() {
 
         // Handle window insets for edge-to-edge display
         setupWindowInsets()
+        applyFullScreenMode()
 
         // Set up the toolbar as the action bar
         setSupportActionBar(binding.toolbar)
@@ -367,6 +370,7 @@ class MainActivity : AppCompatActivity() {
 
         // Re-apply window insets handling
         setupWindowInsets()
+        applyFullScreenMode()
 
         // Re-setup toolbar
         setSupportActionBar(binding.toolbar)
@@ -482,6 +486,21 @@ class MainActivity : AppCompatActivity() {
     /** Convert dp to pixels */
     private fun Int.dpToPx(): Int = (this * resources.displayMetrics.density).toInt()
 
+    /**
+     * Apply full screen (immersive) mode based on user setting.
+     * Uses WindowInsetsControllerCompat for backward compatibility to API 21.
+     */
+    private fun applyFullScreenMode() {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (UserSettings.fullScreenMode) {
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
     private fun setupUI() {
         // Setup RecyclerView for servers (in manual entry view)
         serverAdapter = ServerAdapter { server ->
@@ -577,6 +596,8 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onResume() {
         super.onResume()
+        // Re-apply full screen mode (picks up changes made in Settings)
+        applyFullScreenMode()
         // Re-sync UI state with MediaController
         syncUIWithPlayerState()
         // Re-sync volume slider with device volume (may have changed while in background)

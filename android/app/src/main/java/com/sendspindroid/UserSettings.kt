@@ -19,6 +19,7 @@ object UserSettings {
     const val KEY_SYNC_OFFSET_MS = "sync_offset_ms"
     const val KEY_LOW_MEMORY_MODE = "low_memory_mode"
     const val KEY_PREFERRED_CODEC = "preferred_codec"
+    const val KEY_FULL_SCREEN_MODE = "full_screen_mode"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -116,6 +117,14 @@ object UserSettings {
      */
     val lowMemoryMode: Boolean
         get() = prefs?.getBoolean(KEY_LOW_MEMORY_MODE, false) ?: false
+
+    /**
+     * Whether Full Screen Mode is enabled.
+     * When enabled, the status bar and navigation bar are hidden.
+     * Users can reveal them by swiping from screen edges.
+     */
+    val fullScreenMode: Boolean
+        get() = prefs?.getBoolean(KEY_FULL_SCREEN_MODE, false) ?: false
 
     /**
      * Gets the preferred audio codec for streaming.

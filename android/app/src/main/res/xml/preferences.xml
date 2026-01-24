@@ -17,6 +17,19 @@
     </PreferenceCategory>
 
     <PreferenceCategory
+        android:title="@string/pref_category_display"
+        app:iconSpaceReserved="false">
+
+        <SwitchPreferenceCompat
+            android:key="full_screen_mode"
+            android:title="@string/pref_full_screen_title"
+            android:summary="@string/pref_full_screen_summary"
+            android:defaultValue="false"
+            app:iconSpaceReserved="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
         android:title="@string/pref_category_audio"
         app:iconSpaceReserved="false">
 
