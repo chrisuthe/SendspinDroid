@@ -1,4 +1,4 @@
-name: Build and Release APK
+name: Build and Release
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
           echo "SIGNING_ENABLED=false" >> $GITHUB_ENV
         fi
 
-    - name: Build Signed APK
+    - name: Build Signed Release (APK + AAB)
       if: env.SIGNING_ENABLED == 'true'
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -53,17 +53,17 @@ jobs:
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       run: |
         cd android
-        ./gradlew assembleRelease \
+        ./gradlew assembleRelease bundleRelease \
           -Pandroid.injected.signing.store.file=$PWD/app/release.keystore \
           -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
           -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
           -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
-    - name: Build Unsigned APK (fallback)
+    - name: Build Unsigned Release (fallback)
       if: env.SIGNING_ENABLED == 'false'
       run: |
         cd android
-        ./gradlew assembleRelease
+        ./gradlew assembleRelease bundleRelease
 
     - name: Get version from tag
       id: get_version
@@ -74,17 +74,25 @@ jobs:
           echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         fi
 
-    - name: Find and rename APK
+    - name: Rename build artifacts
       run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        # Rename APK (for sideloading)
         cd android/app/build/outputs/apk/release
         APK_FILE=$(ls *.apk | head -1)
-        mv "$APK_FILE" SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
+        mv "$APK_FILE" "SendSpinDroid-${VERSION}.apk"
+        # Rename AAB (for Play Store)
+        cd ../../bundle/release
+        AAB_FILE=$(ls *.aab | head -1)
+        mv "$AAB_FILE" "SendSpinDroid-${VERSION}.aab"
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.get_version.outputs.VERSION }}
-        files: android/app/build/outputs/apk/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
+        files: |
+          android/app/build/outputs/apk/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
+          android/app/build/outputs/bundle/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.aab
         draft: false
         prerelease: false
         generate_release_notes: true
