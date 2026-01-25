@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="500" viewBox="0 0 1024 500">
+  <defs>
+    <!-- Gradient background -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3F51B5"/>
+      <stop offset="100%" style="stop-color:#1A237E"/>
+    </linearGradient>
+
+    <!-- Subtle pattern for visual interest -->
+    <pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <circle cx="20" cy="20" r="2" fill="rgba(255,255,255,0.1)"/>
+    </pattern>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="500" fill="url(#bgGradient)"/>
+  <rect width="1024" height="500" fill="url(#dots)"/>
+
+  <!-- Decorative sound waves (left side) -->
+  <g opacity="0.2" stroke="#FFFFFF" stroke-width="3" fill="none">
+    <path d="M80 150 Q120 250 80 350"/>
+    <path d="M50 120 Q110 250 50 380"/>
+    <path d="M20 90 Q100 250 20 410"/>
+  </g>
+
+  <!-- Decorative sound waves (right side) -->
+  <g opacity="0.2" stroke="#FFFFFF" stroke-width="3" fill="none">
+    <path d="M944 150 Q904 250 944 350"/>
+    <path d="M974 120 Q914 250 974 380"/>
+    <path d="M1004 90 Q924 250 1004 410"/>
+  </g>
+
+  <!-- App icon (smaller version, left of center) -->
+  <g transform="translate(280, 130)">
+    <!-- Icon background -->
+    <rect width="240" height="240" rx="48" fill="rgba(255,255,255,0.15)"/>
+
+    <!-- Outer ring -->
+    <circle cx="120" cy="120" r="85" fill="none" stroke="#FFFFFF" stroke-width="12"/>
+
+    <!-- Inner circle -->
+    <circle cx="120" cy="120" r="42" fill="none" stroke="#FFFFFF" stroke-width="12"/>
+
+    <!-- Play triangle -->
+    <path d="M103 75 L103 165 L160 120 Z" fill="#FFFFFF"/>
+  </g>
+
+  <!-- App name -->
+  <text x="560" y="220" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="72" font-weight="700" fill="#FFFFFF">SendSpin</text>
+  <text x="560" y="290" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="72" font-weight="700" fill="#FFFFFF">Player</text>
+
+  <!-- Tagline -->
+  <text x="560" y="360" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="400" fill="rgba(255,255,255,0.8)">Synchronized music playback</text>
+</svg>
