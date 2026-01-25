@@ -516,9 +516,9 @@ class PlaybackService : MediaLibraryService() {
         override fun onBufferExhausted() {
             Log.e(TAG, "Buffer exhausted during reconnection - stopping playback")
             mainHandler.post {
-                // Stop audio playback
+                // Stop audio playback and release playback locks
                 syncAudioPlayer?.stop()
-                releaseWakeLock()
+                releasePlaybackLocks()
 
                 // Update connection state to error
                 _connectionState.value = ConnectionState.Error("Connection lost. Buffer exhausted.")
@@ -529,6 +529,9 @@ class PlaybackService : MediaLibraryService() {
                     playbackState = PlaybackStateType.STOPPED
                 )
                 sendSpinPlayer?.updatePlayWhenReadyFromServer(false)
+
+                // Stop foreground notification since playback failed
+                stopForegroundNotification()
             }
         }
     }
@@ -552,9 +555,10 @@ class PlaybackService : MediaLibraryService() {
                 // Apply saved sync offset from settings
                 applySyncOffsetFromSettings()
 
-                // Acquire wake lock immediately on connect to prevent being killed
-                // before stream starts
-                acquireWakeLock()
+                // Start foreground service to prevent process from being killed
+                // but DON'T acquire wake/WiFi locks yet - those drain battery and are
+                // only needed during active audio streaming (acquired in onStreamStart)
+                startForegroundServiceWithNotification(serverName)
 
                 // Start debug logging session if enabled
                 val serverAddr = sendSpinClient?.let {
@@ -586,13 +590,16 @@ class PlaybackService : MediaLibraryService() {
                 if (isDraining) {
                     Log.i(TAG, "Disconnected during DRAINING - keeping audio player alive")
                     // Don't stop/release - let DRAINING continue playing from buffer
+                    // Keep foreground service running for reconnection
                 } else {
-                    // Stop audio playback and release wake lock
+                    // Stop audio playback and release playback locks (CPU/WiFi)
                     syncAudioPlayer?.stop()
                     syncAudioPlayer?.release()
                     syncAudioPlayer = null
                     sendSpinPlayer?.setSyncAudioPlayer(null)
-                    releaseWakeLock()
+                    releasePlaybackLocks()
+                    // Stop the foreground notification since we're fully disconnecting
+                    stopForegroundNotification()
                 }
                 sendSpinPlayer?.updateConnectionState(false, null)
 
@@ -622,20 +629,20 @@ class PlaybackService : MediaLibraryService() {
                 // Handle playback state transitions per SendSpin spec
                 if (newState == PlaybackStateType.STOPPED) {
                     // Stop: "reset position to beginning" - clear buffer
-                    Log.d(TAG, "State is stopped - clearing audio buffer and releasing wake lock")
+                    Log.d(TAG, "State is stopped - clearing audio buffer and releasing playback locks")
                     syncAudioPlayer?.clearBuffer()
                     syncAudioPlayer?.pause()
-                    releaseWakeLock()
+                    releasePlaybackLocks()
                 } else if (newState == PlaybackStateType.PAUSED) {
                     // Pause: "maintains current position for later resumption" - keep buffer
                     Log.d(TAG, "State is paused - pausing audio (keeping buffer)")
                     syncAudioPlayer?.pause()
-                    releaseWakeLock()
+                    releasePlaybackLocks()
                 } else if (newState == PlaybackStateType.PLAYING) {
                     // Playing: resume playback if paused
-                    Log.d(TAG, "State is playing - resuming audio and acquiring wake lock")
+                    Log.d(TAG, "State is playing - resuming audio and acquiring playback locks")
                     syncAudioPlayer?.resume()
-                    acquireWakeLock()
+                    acquirePlaybackLocks()
                 }
 
                 _playbackState.value = _playbackState.value.copy(playbackState = newState)
@@ -674,24 +681,24 @@ class PlaybackService : MediaLibraryService() {
                             } else {
                                 // Stop: "reset position to beginning" - clear buffer
                                 // Server genuinely wants to stop - honor it
-                                Log.d(TAG, "Playback stopped - clearing audio buffer and releasing wake lock")
+                                Log.d(TAG, "Playback stopped - clearing audio buffer and releasing playback locks")
                                 syncAudioPlayer?.clearBuffer()
                                 syncAudioPlayer?.pause()
-                                releaseWakeLock()
+                                releasePlaybackLocks()
                             }
                         }
                         PlaybackStateType.PAUSED -> {
                             // Pause: "maintains current position for later resumption" - keep buffer
                             Log.d(TAG, "Playback paused - pausing audio (keeping buffer)")
                             syncAudioPlayer?.pause()
-                            releaseWakeLock()
+                            releasePlaybackLocks()
                         }
                         PlaybackStateType.PLAYING -> {
                             // Playing: resume playback if paused
-                            Log.d(TAG, "Playback playing - resuming audio and acquiring wake lock")
+                            Log.d(TAG, "Playback playing - resuming audio and acquiring playback locks")
                             syncAudioPlayer?.resume()
                             sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
-                            acquireWakeLock()
+                            acquirePlaybackLocks()
                         }
                         else -> { /* No action needed */ }
                     }
@@ -828,8 +835,12 @@ class PlaybackService : MediaLibraryService() {
                     return@post
                 }
 
-                // Acquire wake lock to prevent CPU sleep during playback
-                acquireWakeLock()
+                // Acquire playback locks (CPU/WiFi) to prevent sleep during streaming
+                // The foreground service is already running (started on connect)
+                acquirePlaybackLocks()
+
+                // Update notification to show we're now streaming
+                startForegroundServiceWithNotification()
 
                 // Create and start the audio player
                 syncAudioPlayer = SyncAudioPlayer(
@@ -1196,8 +1207,11 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Acquires wake lock and WiFi lock to keep CPU and WiFi running during audio playback.
-     * Also starts the foreground service to prevent Android from killing us.
-     * This prevents the system from killing our audio or dropping the connection when the screen turns off.
+     * This prevents the system from putting CPU/WiFi to sleep while streaming.
+     *
+     * NOTE: This does NOT start the foreground service - that's done separately in onConnected()
+     * via startForegroundServiceWithNotification(). The foreground service protects the process
+     * from being killed, while these locks protect against CPU/WiFi sleep during active streaming.
      *
      * Wake lock strategy for battery safety:
      * - Uses a 30-minute timeout instead of indefinite or very long timeout
@@ -1206,10 +1220,7 @@ class PlaybackService : MediaLibraryService() {
      * - The refresh mechanism ensures continuous playback isn't interrupted
      */
     @Suppress("DEPRECATION")
-    private fun acquireWakeLock() {
-        // Start as foreground service with notification
-        startForegroundServiceWithNotification()
-
+    private fun acquirePlaybackLocks() {
         // CPU wake lock with 30-minute timeout for battery safety
         // Refreshed periodically during active playback
         if (wakeLock == null) {
@@ -1338,12 +1349,22 @@ class PlaybackService : MediaLibraryService() {
      * Starts the service in foreground mode with a notification.
      * This is required on Android 8+ to keep the service alive when the app is in the background.
      * On Android 14+, we must specify the foreground service type.
+     *
+     * @param serverName Optional server name for context-aware notification text.
+     *                   If provided, shows "Connected to [serverName]".
+     *                   If null, shows "Streaming audio..." (during active playback).
      */
-    private fun startForegroundServiceWithNotification() {
+    private fun startForegroundServiceWithNotification(serverName: String? = null) {
         try {
+            val contentText = if (serverName != null) {
+                "Connected to $serverName"
+            } else {
+                "Streaming audio..."
+            }
+
             val notification = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_ID)
                 .setContentTitle("SendSpin")
-                .setContentText("Streaming audio...")
+                .setContentText(contentText)
                 .setSmallIcon(com.sendspindroid.R.drawable.ic_launcher_foreground)
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -1361,7 +1382,7 @@ class PlaybackService : MediaLibraryService() {
             } else {
                 startForeground(NotificationHelper.NOTIFICATION_ID, notification)
             }
-            Log.d(TAG, "Foreground service started")
+            Log.d(TAG, "Foreground service started with text: $contentText")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground service", e)
         }
@@ -1369,9 +1390,13 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Releases wake lock and WiFi lock when playback stops.
-     * Also stops the foreground service and cancels the wake lock refresh handler.
+     * Cancels the wake lock refresh handler.
+     *
+     * NOTE: This does NOT stop the foreground service notification - that's done separately
+     * in stopForegroundNotification(). This allows the service to stay alive for reconnection
+     * while not draining battery with CPU/WiFi locks during idle periods.
      */
-    private fun releaseWakeLock() {
+    private fun releasePlaybackLocks() {
         // Stop the periodic wake lock refresh first
         wakeLockHandler.removeCallbacks(wakeLockRefreshRunnable)
 
@@ -1383,11 +1408,16 @@ class PlaybackService : MediaLibraryService() {
             wifiLock?.release()
             Log.d(TAG, "WiFi lock released")
         }
+    }
 
-        // Stop foreground service but keep the service running
+    /**
+     * Stops the foreground service notification.
+     * Called when fully disconnecting from a server.
+     */
+    private fun stopForegroundNotification() {
         try {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            Log.d(TAG, "Foreground service stopped")
+            Log.d(TAG, "Foreground notification removed")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop foreground service", e)
         }
@@ -1926,12 +1956,13 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.cancel()
         imageLoader?.shutdown()
 
-        // Release audio decoder and player, then wake lock
+        // Release audio decoder and player, then playback locks and foreground notification
         audioDecoder?.release()
         audioDecoder = null
         syncAudioPlayer?.release()
         syncAudioPlayer = null
-        releaseWakeLock()
+        releasePlaybackLocks()
+        stopForegroundNotification()
 
         mediaSession?.run {
             release()
