@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background circle (for rounded icon effect) -->
+  <rect width="512" height="512" rx="100" fill="#3F51B5"/>
+
+  <!-- Outer ring (record/disc) -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="#FFFFFF" stroke-width="24"/>
+
+  <!-- Inner circle (center of record) -->
+  <circle cx="256" cy="256" r="90" fill="none" stroke="#FFFFFF" stroke-width="24"/>
+
+  <!-- Play button triangle -->
+  <path d="M220 180 L220 332 L340 256 Z" fill="#FFFFFF"/>
+</svg>

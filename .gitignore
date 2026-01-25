@@ -24,8 +24,14 @@ android/gradle-8.4/
 android/gradle.zip
 android/player/build/
 
-keystore_base64.txt
+# Signing keys (NEVER commit these!)
 *.keystore
+*.jks
+*.pem
+keystore_base64.txt
+keystore-base64.txt
+upload_certificate.pem
+android/app/release.keystore
 android/app/release/
 
 # Claude temp files
