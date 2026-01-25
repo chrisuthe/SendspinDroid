@@ -81,22 +81,24 @@ android {
     buildTypes {
         // Release build configuration (for production APKs/AABs)
         release {
-            // Code minification (shrinking, obfuscation, optimization)
-            // Currently disabled for easier debugging
-            // TODO: Enable for production to reduce APK size and improve security
-            isMinifyEnabled = false
+            // R8 code minification (shrinking, obfuscation, optimization)
+            // Reduces APK size by ~30-50% and obfuscates code
+            isMinifyEnabled = true
+
+            // Remove unused resources (images, layouts, strings)
+            // Works with R8 to identify what's actually used
+            isShrinkResources = true
 
             // ProGuard/R8 configuration files
             // - proguard-android-optimize.txt: Android's default rules with optimizations
-            // - proguard-rules.pro: App-specific rules
+            // - proguard-rules.pro: App-specific rules for our dependencies
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
 
             // Sign release builds with debug key for testing (if keystore exists)
-            // On CI without keystore, builds will be unsigned
-            // TODO: Replace with production keystore for Play Store release
+            // On CI, signing is handled via injected parameters
             if (hasDebugKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
