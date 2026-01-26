@@ -58,6 +58,12 @@
          Used by: Keep audio playback running when screen is off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- CAMERA: Required for QR code scanning (Remote ID input)
+         Permission level: Dangerous (requires runtime permission request)
+         Used by: QR scanner to scan Music Assistant Remote ID codes
+         Note: Optional feature - users can enter Remote ID manually if denied -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
 
     <!--
         Application Configuration:
@@ -197,5 +203,11 @@
          Required by: Android Auto to recognize this as a media app
          Note: required="false" allows app to work on phones without speakers -->
     <uses-feature android:name="android.hardware.audio.output" android:required="false" />
+
+    <!-- CAMERA: Used for QR code scanning (Remote ID input)
+         Note: required="false" allows app to work on devices without cameras
+         Users can enter Remote ID manually if camera is unavailable -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
 </manifest>

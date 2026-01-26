@@ -182,6 +182,21 @@ dependencies {
     // Java-WebSocket - Lightweight WebSocket server for server-initiated connections
     implementation("org.java-websocket:Java-WebSocket:1.6.0")
 
+    // ========== Remote Access (WebRTC + QR Scanning) ==========
+
+    // WebRTC for Android - Enables remote connections via Music Assistant
+    // Uses DataChannel for SendSpin protocol over peer-to-peer connection
+    // Using Stream's maintained fork of Google WebRTC
+    implementation("io.getstream:stream-webrtc-android:1.3.4")
+
+    // ML Kit Barcode Scanning - QR code scanning for Remote ID input
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+
+    // CameraX - Modern camera API for QR code scanner
+    implementation("androidx.camera:camera-camera2:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.camera:camera-view:1.4.1")
+
     // RECOMMENDED ADDITIONS FOR V2:
     // TODO: Add RecyclerView explicitly (currently transitive via Material)
     // implementation("androidx.recyclerview:recyclerview:1.3.x")

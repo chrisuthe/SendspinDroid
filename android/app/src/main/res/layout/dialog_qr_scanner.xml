@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    QR Scanner Dialog Layout
+    Displays camera preview with overlay for scanning Music Assistant Remote ID QR codes
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="400dp"
+    android:background="@android:color/black">
+
+    <!-- Camera Preview -->
+    <androidx.camera.view.PreviewView
+        android:id="@+id/cameraPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@string/accessibility_camera_preview"
+        app:scaleType="fillCenter" />
+
+    <!-- Scanning overlay with corners -->
+    <View
+        android:id="@+id/scanOverlay"
+        android:layout_width="240dp"
+        android:layout_height="240dp"
+        android:layout_gravity="center"
+        android:background="@drawable/qr_scan_overlay" />
+
+    <!-- Instruction text at bottom -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#99000000"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/instructionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="@string/qr_scanner_instruction"
+            android:textColor="@android:color/white"
+            android:textSize="14sp" />
+
+        <ProgressBar
+            android:id="@+id/scanProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="8dp"
+            android:visibility="gone"
+            android:indeterminateTint="@android:color/white"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+    <!-- Permission denied state -->
+    <LinearLayout
+        android:id="@+id/permissionDeniedView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone"
+        tools:visibility="gone">
+
+        <ImageView
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@android:drawable/ic_menu_camera"
+            android:tint="@android:color/darker_gray"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="center"
+            android:text="@string/camera_permission_required"
+            android:textColor="@android:color/white"
+            android:textSize="16sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/grantPermissionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/grant_permission" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/enterManuallyButton"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/enter_remote_manually"
+            android:textColor="@android:color/white" />
+
+    </LinearLayout>
+
+</FrameLayout>

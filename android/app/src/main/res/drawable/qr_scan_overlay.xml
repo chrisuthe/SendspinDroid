@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    QR Scanner Overlay
+    Displays corner brackets to indicate scan area
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Top-left corner -->
+    <item
+        android:gravity="top|left"
+        android:width="40dp"
+        android:height="4dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item
+        android:gravity="top|left"
+        android:width="4dp"
+        android:height="40dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <!-- Top-right corner -->
+    <item
+        android:gravity="top|right"
+        android:width="40dp"
+        android:height="4dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item
+        android:gravity="top|right"
+        android:width="4dp"
+        android:height="40dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <!-- Bottom-left corner -->
+    <item
+        android:gravity="bottom|left"
+        android:width="40dp"
+        android:height="4dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item
+        android:gravity="bottom|left"
+        android:width="4dp"
+        android:height="40dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+
+    <!-- Bottom-right corner -->
+    <item
+        android:gravity="bottom|right"
+        android:width="40dp"
+        android:height="4dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+    <item
+        android:gravity="bottom|right"
+        android:width="4dp"
+        android:height="40dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/white" />
+            <corners android:radius="2dp" />
+        </shape>
+    </item>
+</layer-list>
