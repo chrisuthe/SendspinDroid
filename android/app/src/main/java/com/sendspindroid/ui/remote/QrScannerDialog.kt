@@ -172,21 +172,26 @@ class QrScannerDialog : DialogFragment() {
                     @androidx.camera.core.ExperimentalGetImage
                     val mediaImage = imageProxy.image
                     if (mediaImage != null) {
-                        val inputImage = InputImage.fromMediaImage(
-                            mediaImage,
-                            imageProxy.imageInfo.rotationDegrees
-                        )
+                        try {
+                            val inputImage = InputImage.fromMediaImage(
+                                mediaImage,
+                                imageProxy.imageInfo.rotationDegrees
+                            )
 
-                        barcodeScanner.process(inputImage)
-                            .addOnSuccessListener { barcodes ->
-                                processBarcode(barcodes)
-                            }
-                            .addOnFailureListener { e ->
-                                Log.w(TAG, "Barcode scanning failed", e)
-                            }
-                            .addOnCompleteListener {
-                                imageProxy.close()
-                            }
+                            barcodeScanner.process(inputImage)
+                                .addOnSuccessListener { barcodes ->
+                                    processBarcode(barcodes)
+                                }
+                                .addOnFailureListener { e ->
+                                    Log.w(TAG, "Barcode scanning failed", e)
+                                }
+                                .addOnCompleteListener {
+                                    imageProxy.close()
+                                }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to create input image", e)
+                            imageProxy.close()
+                        }
                     } else {
                         imageProxy.close()
                     }
@@ -212,6 +217,7 @@ class QrScannerDialog : DialogFragment() {
 
     private fun processBarcode(barcodes: List<Barcode>) {
         if (scanComplete) return
+        if (_binding == null) return  // Guard against stale callback after destroy
 
         for (barcode in barcodes) {
             val rawValue = barcode.rawValue ?: continue
