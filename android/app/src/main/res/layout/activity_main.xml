@@ -158,6 +158,36 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/searchAgainButton" />
 
+            <Button
+                android:id="@+id/remoteAccessButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:layout_marginTop="8dp"
+                android:text="@string/remote_access"
+                android:contentDescription="@string/remote_access_description"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:icon="@drawable/ic_cloud_connected"
+                app:iconGravity="textStart"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/addManualServerButton" />
+
+            <Button
+                android:id="@+id/proxyAccessButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:layout_marginTop="8dp"
+                android:text="@string/proxy_access"
+                android:contentDescription="@string/proxy_access_description"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                app:icon="@drawable/ic_vpn_key"
+                app:iconGravity="textStart"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/remoteAccessButton" />
+
             <TextView
                 android:id="@+id/serversLabel"
                 android:layout_width="wrap_content"
@@ -169,7 +199,7 @@
                 android:textColor="?attr/colorOnBackground"
                 android:labelFor="@id/serversRecyclerView"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/addManualServerButton" />
+                app:layout_constraintTop_toBottomOf="@id/proxyAccessButton" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/serversRecyclerView"
