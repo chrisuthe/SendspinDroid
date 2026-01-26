@@ -263,11 +263,16 @@ class PlaybackService : MediaLibraryService() {
         const val COMMAND_PREVIOUS = "com.sendspindroid.PREVIOUS"
         const val COMMAND_SWITCH_GROUP = "com.sendspindroid.SWITCH_GROUP"
         const val COMMAND_GET_STATS = "com.sendspindroid.GET_STATS"
+        const val COMMAND_CONNECT_REMOTE = "com.sendspindroid.CONNECT_REMOTE"
+        const val COMMAND_CONNECT_PROXY = "com.sendspindroid.CONNECT_PROXY"
 
         // Command arguments
         const val ARG_SERVER_ADDRESS = "server_address"
         const val ARG_SERVER_PATH = "server_path"
         const val ARG_VOLUME = "volume"
+        const val ARG_REMOTE_ID = "remote_id"
+        const val ARG_PROXY_URL = "proxy_url"
+        const val ARG_AUTH_TOKEN = "auth_token"
 
         // Session extras keys for metadata (service → controller)
         const val EXTRA_TITLE = "title"
@@ -479,6 +484,7 @@ class PlaybackService : MediaLibraryService() {
             // Use user-configured player name, falls back to device model
             val playerName = com.sendspindroid.UserSettings.getPlayerName()
             sendSpinClient = SendSpinClient(
+                context = applicationContext,
                 deviceName = playerName,
                 callback = SendSpinClientCallback()
             )
@@ -1156,6 +1162,84 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
+     * Connects to a SendSpin server via Music Assistant Remote Access.
+     *
+     * @param remoteId The 26-character Remote ID from Music Assistant settings
+     */
+    fun connectToRemoteServer(remoteId: String) {
+        Log.d(TAG, "Connecting to remote server via Remote ID: $remoteId")
+        _connectionState.value = ConnectionState.Connecting
+
+        // Broadcast connecting state to controllers (MainActivity)
+        broadcastConnectionState(STATE_CONNECTING)
+
+        try {
+            if (sendSpinClient?.isConnected == true) {
+                Log.d(TAG, "Already connected, disconnecting first...")
+                sendSpinClient?.disconnect()
+            }
+
+            // Read current device volume and set as initial volume for server and UI
+            val am = audioManager
+            if (am != null) {
+                val currentDeviceVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val volumePercent = ((currentDeviceVolume.toFloat() / maxVolume) * 100).toInt()
+                Log.d(TAG, "Setting initial volume from device: $currentDeviceVolume/$maxVolume = $volumePercent%")
+                sendSpinClient?.setInitialVolume(volumePercent)
+                _playbackState.value = _playbackState.value.copy(volume = volumePercent)
+            }
+
+            sendSpinClient?.connectRemote(remoteId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error connecting to remote server", e)
+            _connectionState.value = ConnectionState.Error("Remote connection failed: ${e.message}")
+            broadcastConnectionState(STATE_ERROR, errorMessage = "Remote connection failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Connect to a SendSpin server via authenticated reverse proxy.
+     *
+     * This is for users who have Music Assistant exposed through Nginx Proxy Manager,
+     * Traefik, Caddy, or similar reverse proxies with token authentication.
+     *
+     * @param url The proxy URL (e.g., "https://ma.example.com/sendspin")
+     * @param authToken The long-lived authentication token from Music Assistant
+     */
+    fun connectToProxyServer(url: String, authToken: String) {
+        Log.d(TAG, "Connecting to proxy server: $url")
+        _connectionState.value = ConnectionState.Connecting
+
+        // Broadcast connecting state to controllers (MainActivity)
+        broadcastConnectionState(STATE_CONNECTING)
+
+        try {
+            if (sendSpinClient?.isConnected == true) {
+                Log.d(TAG, "Already connected, disconnecting first...")
+                sendSpinClient?.disconnect()
+            }
+
+            // Read current device volume and set as initial volume for server and UI
+            val am = audioManager
+            if (am != null) {
+                val currentDeviceVolume = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val maxVolume = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                val volumePercent = ((currentDeviceVolume.toFloat() / maxVolume) * 100).toInt()
+                Log.d(TAG, "Setting initial volume from device: $currentDeviceVolume/$maxVolume = $volumePercent%")
+                sendSpinClient?.setInitialVolume(volumePercent)
+                _playbackState.value = _playbackState.value.copy(volume = volumePercent)
+            }
+
+            sendSpinClient?.connectProxy(url, authToken)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error connecting to proxy server", e)
+            _connectionState.value = ConnectionState.Error("Proxy connection failed: ${e.message}")
+            broadcastConnectionState(STATE_ERROR, errorMessage = "Proxy connection failed: ${e.message}")
+        }
+    }
+
+    /**
      * Broadcasts connection state to all connected MediaControllers via session extras.
      *
      * This allows MainActivity (and Android Auto) to react to connection state changes
@@ -1554,6 +1638,8 @@ class PlaybackService : MediaLibraryService() {
 
             val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                 .add(SessionCommand(COMMAND_CONNECT, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_CONNECT_REMOTE, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_CONNECT_PROXY, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_DISCONNECT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_VOLUME, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_NEXT, Bundle.EMPTY))
@@ -1591,6 +1677,29 @@ class PlaybackService : MediaLibraryService() {
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
                         Log.e(TAG, "CONNECT command missing server_address")
+                        Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    }
+                }
+
+                COMMAND_CONNECT_REMOTE -> {
+                    val remoteId = args.getString(ARG_REMOTE_ID)
+                    if (remoteId != null) {
+                        connectToRemoteServer(remoteId)
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    } else {
+                        Log.e(TAG, "CONNECT_REMOTE command missing remote_id")
+                        Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    }
+                }
+
+                COMMAND_CONNECT_PROXY -> {
+                    val url = args.getString(ARG_PROXY_URL)
+                    val token = args.getString(ARG_AUTH_TOKEN)
+                    if (url != null && token != null) {
+                        connectToProxyServer(url, token)
+                        Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                    } else {
+                        Log.e(TAG, "CONNECT_PROXY command missing proxy_url or auth_token")
                         Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                     }
                 }

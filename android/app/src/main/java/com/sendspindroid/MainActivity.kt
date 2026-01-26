@@ -22,6 +22,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.sendspindroid.debug.FileLogger
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
@@ -62,6 +63,8 @@ import com.sendspindroid.databinding.ActivityMainBinding
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.playback.PlaybackService
+import com.sendspindroid.ui.remote.ProxyConnectDialog
+import com.sendspindroid.ui.remote.RemoteConnectDialog
 
 /**
  * Main activity for the SendSpinDroid audio streaming client.
@@ -325,6 +328,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Initialize file-based debug logger (for devices where logcat is disabled)
+        FileLogger.init(this)
+        FileLogger.log(TAG, "MainActivity onCreate")
+
         // Initialize ServerRepository for sharing server state with PlaybackService
         // This enables Android Auto to see discovered servers
         ServerRepository.initialize(this)
@@ -539,6 +546,16 @@ class MainActivity : AppCompatActivity() {
         // Manual entry view - Add manual server button
         binding.addManualServerButton.setOnClickListener {
             showAddServerDialog()
+        }
+
+        // Manual entry view - Remote Access button
+        binding.remoteAccessButton?.setOnClickListener {
+            showRemoteConnectDialog()
+        }
+
+        // Manual entry view - Proxy Access button
+        binding.proxyAccessButton?.setOnClickListener {
+            showProxyConnectDialog()
         }
 
         // Playback controls
@@ -1399,6 +1416,115 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
             .show()
+    }
+
+    /**
+     * Shows the Remote Connect dialog for connecting via Music Assistant Remote Access.
+     * Uses WebRTC for NAT traversal, allowing connection from outside the local network.
+     */
+    private fun showRemoteConnectDialog() {
+        RemoteConnectDialog.show(supportFragmentManager) { remoteId, nickname ->
+            // Save connection preferences for quick reconnection
+            UserSettings.setLastRemoteId(remoteId)
+            UserSettings.setLastConnectionMode(UserSettings.ConnectionMode.REMOTE)
+
+            // Initiate remote connection via WebRTC
+            connectToRemoteServer(remoteId)
+        }
+    }
+
+    /**
+     * Initiates a remote connection via WebRTC using the Music Assistant Remote ID.
+     * Sends a custom command to PlaybackService which handles the WebRTC connection.
+     *
+     * @param remoteId The 26-character Remote ID from Music Assistant settings
+     */
+    private fun connectToRemoteServer(remoteId: String) {
+        val controller = mediaController
+        if (controller == null) {
+            showErrorSnackbar(
+                message = getString(R.string.error_service_not_connected),
+                errorType = ErrorType.CONNECTION
+            )
+            return
+        }
+
+        // Update state to show connecting UI
+        connectionState = AppConnectionState.Connecting("Remote Server", remoteId)
+        showConnectionLoading("Remote Server")
+
+        // Send remote connect command to PlaybackService
+        try {
+            val args = Bundle().apply {
+                putString(PlaybackService.ARG_REMOTE_ID, remoteId)
+            }
+            val command = SessionCommand(PlaybackService.COMMAND_CONNECT_REMOTE, Bundle.EMPTY)
+            controller.sendCustomCommand(command, args)
+            Log.d(TAG, "Sent remote connect command for Remote ID: $remoteId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send remote connect command", e)
+            connectionState = AppConnectionState.Error("Remote connection failed")
+            hideConnectionLoading()
+            showErrorSnackbar(
+                message = getString(R.string.remote_connection_failed, e.message ?: "Unknown error"),
+                errorType = ErrorType.CONNECTION
+            )
+        }
+    }
+
+    /**
+     * Shows the proxy connection dialog for connecting via reverse proxy.
+     */
+    private fun showProxyConnectDialog() {
+        ProxyConnectDialog.show(supportFragmentManager) { url, authToken, nickname ->
+            // Save connection preferences for quick reconnection
+            UserSettings.setLastProxyUrl(url)
+            UserSettings.setLastConnectionMode(UserSettings.ConnectionMode.PROXY)
+
+            // Initiate proxy connection
+            connectToProxyServer(url, authToken)
+        }
+    }
+
+    /**
+     * Initiates a connection via authenticated reverse proxy.
+     * Sends a custom command to PlaybackService which handles the WebSocket connection.
+     *
+     * @param url The proxy server URL (e.g., "https://ma.example.com/sendspin")
+     * @param authToken The long-lived authentication token from Music Assistant
+     */
+    private fun connectToProxyServer(url: String, authToken: String) {
+        val controller = mediaController
+        if (controller == null) {
+            showErrorSnackbar(
+                message = getString(R.string.error_service_not_connected),
+                errorType = ErrorType.CONNECTION
+            )
+            return
+        }
+
+        // Update state to show connecting UI
+        connectionState = AppConnectionState.Connecting("Proxy Server", url)
+        showConnectionLoading("Proxy Server")
+
+        // Send proxy connect command to PlaybackService
+        try {
+            val args = Bundle().apply {
+                putString(PlaybackService.ARG_PROXY_URL, url)
+                putString(PlaybackService.ARG_AUTH_TOKEN, authToken)
+            }
+            val command = SessionCommand(PlaybackService.COMMAND_CONNECT_PROXY, Bundle.EMPTY)
+            controller.sendCustomCommand(command, args)
+            Log.d(TAG, "Sent proxy connect command for URL: $url")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send proxy connect command", e)
+            connectionState = AppConnectionState.Error("Proxy connection failed")
+            hideConnectionLoading()
+            showErrorSnackbar(
+                message = getString(R.string.proxy_connection_failed, e.message ?: "Unknown error"),
+                errorType = ErrorType.CONNECTION
+            )
+        }
     }
 
     /**

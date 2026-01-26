@@ -206,4 +206,82 @@
     <!-- About -->
     <string name="pref_category_about">About</string>
     <string name="pref_version_title">Version</string>
+
+    <!-- Remote Access -->
+    <string name="remote_access">Remote Access</string>
+    <string name="remote_access_title">Remote Access</string>
+    <string name="remote_access_description">Connect to your Music Assistant server from anywhere using Remote ID</string>
+    <string name="connection_mode">Connection Mode</string>
+    <string name="connection_mode_local">Local Network</string>
+    <string name="connection_mode_remote">Remote Access</string>
+    <string name="remote_id">Remote ID</string>
+    <string name="remote_id_hint">Enter 26-character Remote ID</string>
+    <string name="remote_id_placeholder">XXXXXXXXXXXXXXXXXXXXXXXXXX</string>
+    <string name="remote_id_invalid">Invalid Remote ID format. Expected 26 uppercase letters/numbers.</string>
+    <string name="scan_qr_code">Scan QR Code</string>
+    <string name="enter_remote_id">Enter Remote ID</string>
+    <string name="remote_server_nickname">Nickname</string>
+    <string name="remote_server_nickname_hint">e.g., Home Server</string>
+    <string name="saved_remote_servers">Saved Servers</string>
+    <string name="no_saved_servers">No saved remote servers</string>
+    <string name="connect_remote">Connect Remotely</string>
+    <string name="connecting_remotely">Connecting remotely…</string>
+    <string name="remote_connection_failed">Remote connection failed: %s</string>
+    <string name="last_connected">Last connected: %s</string>
+
+    <!-- QR Scanner -->
+    <string name="qr_scanner_title">Scan Remote ID</string>
+    <string name="qr_scanner_instruction">Point camera at the Remote ID QR code in Music Assistant settings</string>
+    <string name="qr_scanner_success">Remote ID detected</string>
+    <string name="qr_scanner_invalid">Invalid QR code. Expected Music Assistant Remote ID.</string>
+    <string name="camera_permission_required">Camera permission is required to scan QR codes</string>
+    <string name="camera_permission_denied">Camera permission denied. Enter Remote ID manually.</string>
+    <string name="camera_not_available">Camera not available on this device</string>
+    <string name="grant_permission">Grant Permission</string>
+    <string name="enter_remote_manually">Enter Manually</string>
+
+    <!-- Accessibility - Remote Access -->
+    <string name="accessibility_scan_qr_button">Scan QR code for Remote ID</string>
+    <string name="accessibility_remote_id_input">Remote ID input field</string>
+    <string name="accessibility_camera_preview">Camera preview for QR code scanning</string>
+    <string name="accessibility_connection_mode_toggle">Toggle between local network and remote access connection modes</string>
+
+    <!-- Proxy Access -->
+    <string name="proxy_access">Proxy Access</string>
+    <string name="proxy_access_title">Proxy Access</string>
+    <string name="proxy_access_description">Connect through your reverse proxy using URL and auth token</string>
+    <string name="proxy_url">Server URL</string>
+    <string name="proxy_url_hint">https://ma.example.com/sendspin</string>
+    <string name="auth_token">Auth Token</string>
+    <string name="auth_token_hint">Long-lived token from Music Assistant</string>
+    <string name="proxy_server_nickname">Nickname</string>
+    <string name="proxy_server_nickname_hint">e.g., Home Proxy</string>
+    <string name="saved_proxy_servers">Saved Proxy Servers</string>
+    <string name="no_saved_proxy_servers">No saved proxy servers</string>
+    <string name="connect_proxy">Connect via Proxy</string>
+    <string name="connecting_via_proxy">Connecting via proxy…</string>
+    <string name="proxy_connection_failed">Proxy connection failed: %s</string>
+    <string name="auth_failed">Authentication failed</string>
+    <string name="proxy_url_invalid">Invalid URL format. Enter a valid server URL.</string>
+    <string name="auth_token_required">Auth token is required</string>
+
+    <!-- Proxy Access - Login Mode -->
+    <string name="auth_mode_login">Login</string>
+    <string name="auth_mode_token">Token</string>
+    <string name="username">Username</string>
+    <string name="username_hint">Music Assistant username</string>
+    <string name="password">Password</string>
+    <string name="password_hint">Music Assistant password</string>
+    <string name="logging_in">Logging in…</string>
+    <string name="login_failed">Login failed: %s</string>
+    <string name="login_invalid_credentials">Invalid username or password</string>
+    <string name="login_server_error">Server error. Please try again.</string>
+    <string name="credentials_required">Username and password are required</string>
+
+    <!-- Accessibility - Proxy Access -->
+    <string name="accessibility_proxy_url_input">Proxy server URL input field</string>
+    <string name="accessibility_auth_token_input">Authentication token input field</string>
+    <string name="accessibility_username_input">Username input field</string>
+    <string name="accessibility_password_input">Password input field</string>
+    <string name="accessibility_auth_mode_tabs">Authentication mode selection: Login or Token</string>
 </resources>

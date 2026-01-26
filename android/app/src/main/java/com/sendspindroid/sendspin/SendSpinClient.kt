@@ -1,12 +1,18 @@
 package com.sendspindroid.sendspin
 
+import android.content.Context
 import android.util.Log
 import com.sendspindroid.UserSettings
+import com.sendspindroid.remote.WebRTCTransport
+import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.TrackMetadata
+import com.sendspindroid.sendspin.transport.SendSpinTransport
+import com.sendspindroid.sendspin.transport.TransportState
+import com.sendspindroid.sendspin.transport.WebSocketTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -16,18 +22,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 import okio.ByteString
+import org.json.JSONObject
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SSLHandshakeException
@@ -39,21 +40,26 @@ import javax.net.ssl.SSLHandshakeException
  * Protocol spec: https://www.sendspin-audio.com/spec/
  *
  * ## Protocol Overview
- * 1. WebSocket connect to ws://host:port/sendspin
+ * 1. Connect via WebSocket (local) or WebRTC DataChannel (remote)
  * 2. Send client/hello with capabilities
  * 3. Receive server/hello with active roles
  * 4. Send client/time messages continuously for clock sync
  * 5. Receive binary audio chunks (type 4) with microsecond timestamps
  * 6. Play audio at computed client time using Kalman-filtered offset
  *
+ * ## Connection Modes
+ * - **Local**: Direct WebSocket to server on local network (ws://host:port/sendspin)
+ * - **Remote**: WebRTC DataChannel via Music Assistant Remote Access (26-char Remote ID)
+ *
  * This class extends SendSpinProtocolHandler for shared protocol logic
  * and implements client-specific concerns:
- * - OkHttp WebSocket transport
+ * - Transport abstraction (WebSocket or WebRTC)
  * - Connection state machine (Disconnected/Connecting/Connected/Error)
  * - Reconnection with exponential backoff
  * - Time filter freeze/thaw during reconnection
  */
 class SendSpinClient(
+    private val context: Context,
     private val deviceName: String,
     private val callback: Callback
 ) : SendSpinProtocolHandler(TAG) {
@@ -110,6 +116,15 @@ class SendSpinClient(
         fun onReconnected()
     }
 
+    /**
+     * Connection mode for the client.
+     */
+    enum class ConnectionMode {
+        LOCAL,   // Direct WebSocket on local network
+        REMOTE,  // WebRTC via Music Assistant Remote Access
+        PROXY    // WebSocket via authenticated reverse proxy
+    }
+
     // Connection state
     sealed class ConnectionState {
         object Disconnected : ConnectionState()
@@ -123,20 +138,19 @@ class SendSpinClient(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
-    private val okHttpClient = OkHttpClient.Builder()
-        // Short connect timeout (5s) to fail fast during reconnection
-        // When DRAINING, we typically have <5s of buffer, so waiting 15s for a
-        // connection attempt to timeout would exhaust the buffer
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // Must be 0 for WebSocket
-        .pingInterval(30, TimeUnit.SECONDS)
-        .build()
+    // Transport abstraction - can be WebSocket (local) or WebRTC (remote)
+    private var transport: SendSpinTransport? = null
+    private var connectionMode: ConnectionMode = ConnectionMode.LOCAL
 
-    private var webSocket: WebSocket? = null
+    // Connection info (stored for reconnection)
     private var serverAddress: String? = null
     private var serverPath: String? = null
+    private var remoteId: String? = null
     private var serverName: String? = null
+
+    // Proxy authentication state
+    private var authToken: String? = null
+    private var awaitingAuthResponse = false
 
     // Client identity - persisted across app launches
     private val clientId = UserSettings.getPlayerId()
@@ -166,12 +180,12 @@ class SendSpinClient(
     // ========== SendSpinProtocolHandler Implementation ==========
 
     override fun sendTextMessage(text: String) {
-        val ws = webSocket
-        if (ws == null) {
-            Log.e(TAG, "Cannot send message - WebSocket is null")
+        val t = transport
+        if (t == null) {
+            Log.e(TAG, "Cannot send message - transport is null")
             return
         }
-        val success = ws.send(text)
+        val success = t.send(text)
         if (!success) {
             Log.w(TAG, "Failed to send message")
         }
@@ -314,9 +328,6 @@ class SendSpinClient(
     fun onNetworkAvailable() {
         if (!reconnecting.get()) return
 
-        val savedAddress = serverAddress ?: return
-        val savedPath = serverPath ?: return
-
         Log.i(TAG, "Network available during reconnection - attempting immediate reconnect")
 
         // Cancel any pending backoff delay
@@ -327,34 +338,54 @@ class SendSpinClient(
         // (Keep it at least 1 so we don't re-freeze the time filter)
         reconnectAttempts.set(1)
 
-        // Immediately try to reconnect
+        // Immediately try to reconnect using the appropriate mode
         scope.launch {
             if (userInitiatedDisconnect.get() || !reconnecting.get()) {
                 Log.d(TAG, "Reconnection cancelled before immediate retry")
                 return@launch
             }
 
-            Log.d(TAG, "Immediate reconnecting to: $savedAddress path=$savedPath")
-
             handshakeComplete = false
             stopTimeSync()
 
-            val wsUrl = "ws://$savedAddress$savedPath"
-            val request = Request.Builder()
-                .url(wsUrl)
-                .build()
-
-            webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
+            when (connectionMode) {
+                ConnectionMode.LOCAL -> {
+                    val savedAddress = serverAddress ?: return@launch
+                    val savedPath = serverPath ?: return@launch
+                    Log.d(TAG, "Immediate reconnecting to: $savedAddress path=$savedPath")
+                    createLocalTransport(savedAddress, savedPath)
+                }
+                ConnectionMode.REMOTE -> {
+                    val savedRemoteId = remoteId ?: return@launch
+                    Log.d(TAG, "Immediate reconnecting via Remote ID: $savedRemoteId")
+                    createRemoteTransport(savedRemoteId)
+                }
+                ConnectionMode.PROXY -> {
+                    val savedUrl = serverAddress ?: return@launch
+                    Log.d(TAG, "Immediate reconnecting via proxy: $savedUrl")
+                    createProxyTransport(savedUrl)
+                }
+            }
         }
     }
 
     /**
-     * Connect to a SendSpin server.
+     * Connect to a SendSpin server on the local network.
      *
      * @param address Server address in "host:port" format
      * @param path WebSocket path (from mDNS TXT or default /sendspin)
      */
     fun connect(address: String, path: String = SendSpinProtocol.ENDPOINT_PATH) {
+        connectLocal(address, path)
+    }
+
+    /**
+     * Connect to a SendSpin server on the local network.
+     *
+     * @param address Server address in "host:port" format
+     * @param path WebSocket path (from mDNS TXT or default /sendspin)
+     */
+    fun connectLocal(address: String, path: String = SendSpinProtocol.ENDPOINT_PATH) {
         if (isConnected) {
             Log.w(TAG, "Already connected, disconnecting first")
             disconnect()
@@ -362,11 +393,76 @@ class SendSpinClient(
 
         val normalizedPath = normalizePath(path)
 
-        Log.d(TAG, "Connecting to: $address path=$normalizedPath")
-        _connectionState.value = ConnectionState.Connecting
+        Log.d(TAG, "Connecting locally to: $address path=$normalizedPath")
+        prepareForConnection()
+
+        connectionMode = ConnectionMode.LOCAL
         serverAddress = address
         serverPath = normalizedPath
+        remoteId = null
+
+        createLocalTransport(address, normalizedPath)
+    }
+
+    /**
+     * Connect to a SendSpin server via Music Assistant Remote Access.
+     *
+     * @param remoteId The 26-character Remote ID from Music Assistant settings
+     */
+    fun connectRemote(remoteId: String) {
+        if (isConnected) {
+            Log.w(TAG, "Already connected, disconnecting first")
+            disconnect()
+        }
+
+        Log.d(TAG, "Connecting remotely via Remote ID: $remoteId")
+        prepareForConnection()
+
+        connectionMode = ConnectionMode.REMOTE
+        this.remoteId = remoteId
+        serverAddress = null
+        serverPath = null
+
+        createRemoteTransport(remoteId)
+    }
+
+    /**
+     * Connect to a SendSpin server via authenticated reverse proxy.
+     *
+     * The connection flow is:
+     * 1. Connect WebSocket to the proxy URL (wss://domain.com/sendspin)
+     * 2. Send auth message with token and client_id
+     * 3. Wait for auth_ok response
+     * 4. Proceed with normal client/hello handshake
+     *
+     * @param url The proxy URL (e.g., "https://ma.example.com/sendspin")
+     * @param authToken The long-lived authentication token from Music Assistant
+     */
+    fun connectProxy(url: String, authToken: String) {
+        if (isConnected) {
+            Log.w(TAG, "Already connected, disconnecting first")
+            disconnect()
+        }
+
+        Log.d(TAG, "Connecting via proxy to: $url")
+        prepareForConnection()
+
+        connectionMode = ConnectionMode.PROXY
+        this.authToken = authToken
+        this.serverAddress = url  // Store full URL for reconnection
+        this.serverPath = null    // Path is included in URL
+        this.remoteId = null
+
+        createProxyTransport(url)
+    }
+
+    /**
+     * Common preparation for both local and remote connections.
+     */
+    private fun prepareForConnection() {
+        _connectionState.value = ConnectionState.Connecting
         handshakeComplete = false
+        awaitingAuthResponse = false
         timeFilter.reset()
 
         // Cancel any pending reconnect from previous connection attempt
@@ -377,15 +473,50 @@ class SendSpinClient(
         reconnectAttempts.set(0)
         reconnecting.set(false)
 
-        val wsUrl = "ws://$address$normalizedPath"
-        Log.d(TAG, "WebSocket URL: $wsUrl")
-
-        val request = Request.Builder()
-            .url(wsUrl)
-            .build()
-
-        webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
+        // Clean up any existing transport
+        transport?.destroy()
+        transport = null
     }
+
+    /**
+     * Create and connect a local WebSocket transport.
+     */
+    private fun createLocalTransport(address: String, path: String) {
+        val wsTransport = WebSocketTransport(address, path)
+        transport = wsTransport
+        wsTransport.setListener(TransportEventListener())
+        wsTransport.connect()
+    }
+
+    /**
+     * Create and connect a remote WebRTC transport.
+     */
+    private fun createRemoteTransport(remoteId: String) {
+        val rtcTransport = WebRTCTransport(context, remoteId)
+        transport = rtcTransport
+        rtcTransport.setListener(TransportEventListener())
+        rtcTransport.connect()
+    }
+
+    /**
+     * Create and connect a proxy WebSocket transport.
+     */
+    private fun createProxyTransport(url: String) {
+        val proxyTransport = ProxyWebSocketTransport(url)
+        transport = proxyTransport
+        proxyTransport.setListener(TransportEventListener())
+        proxyTransport.connect()
+    }
+
+    /**
+     * Get the current connection mode.
+     */
+    fun getConnectionMode(): ConnectionMode = connectionMode
+
+    /**
+     * Get the Remote ID if connected via remote access.
+     */
+    fun getRemoteId(): String? = remoteId
 
     /**
      * Disconnect from the current server.
@@ -401,8 +532,8 @@ class SendSpinClient(
         stopTimeSync()
         reconnecting.set(false)
         sendGoodbye("user_request")
-        webSocket?.close(1000, "User disconnect")
-        webSocket = null
+        transport?.close(1000, "User disconnect")
+        transport = null
         handshakeComplete = false
         _connectionState.value = ConnectionState.Disconnected
         callback.onDisconnected()
@@ -464,12 +595,17 @@ class SendSpinClient(
      * Attempt reconnection with exponential backoff.
      */
     private fun attemptReconnect() {
-        val address = serverAddress
-        val path = serverPath ?: SendSpinProtocol.ENDPOINT_PATH
-        val savedServerName = serverName ?: address ?: "Unknown"
+        val savedServerName = serverName ?: serverAddress ?: remoteId ?: "Unknown"
 
-        if (address == null) {
-            Log.w(TAG, "Cannot reconnect: no server address saved")
+        // Verify we have connection info for the current mode
+        val canReconnect = when (connectionMode) {
+            ConnectionMode.LOCAL -> serverAddress != null
+            ConnectionMode.REMOTE -> remoteId != null
+            ConnectionMode.PROXY -> serverAddress != null && authToken != null
+        }
+
+        if (!canReconnect) {
+            Log.w(TAG, "Cannot reconnect: no connection info saved for mode $connectionMode")
             return
         }
 
@@ -514,17 +650,32 @@ class SendSpinClient(
                 return@launch
             }
 
-            Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
-
             handshakeComplete = false
             stopTimeSync()
 
-            val wsUrl = "ws://$address$path"
-            val request = Request.Builder()
-                .url(wsUrl)
-                .build()
+            // Clean up old transport
+            transport?.destroy()
+            transport = null
 
-            webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
+            // Reconnect using the appropriate mode
+            when (connectionMode) {
+                ConnectionMode.LOCAL -> {
+                    val address = serverAddress ?: return@launch
+                    val path = serverPath ?: SendSpinProtocol.ENDPOINT_PATH
+                    Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
+                    createLocalTransport(address, path)
+                }
+                ConnectionMode.REMOTE -> {
+                    val id = remoteId ?: return@launch
+                    Log.d(TAG, "Reconnecting via Remote ID: $id (attempt $attempts)")
+                    createRemoteTransport(id)
+                }
+                ConnectionMode.PROXY -> {
+                    val url = serverAddress ?: return@launch
+                    Log.d(TAG, "Reconnecting via proxy: $url (attempt $attempts)")
+                    createProxyTransport(url)
+                }
+            }
         }
     }
 
@@ -579,36 +730,86 @@ class SendSpinClient(
         }
     }
 
-    // ========== WebSocket Event Listener ==========
+    // ========== Transport Event Listener ==========
 
-    private inner class WebSocketEventListener : WebSocketListener() {
+    /**
+     * Unified event listener for both WebSocket and WebRTC transports.
+     */
+    private inner class TransportEventListener : SendSpinTransport.Listener {
 
-        override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.d(TAG, "WebSocket connected, sending client/hello")
-            sendClientHello()
+        override fun onConnected() {
+            Log.d(TAG, "Transport connected")
+
+            if (authToken != null) {
+                // Proxy mode: send auth message, wait for auth_ok, then send hello
+                Log.d(TAG, "Sending auth message for proxy connection")
+                awaitingAuthResponse = true
+                val authMsg = JSONObject().apply {
+                    put("type", "auth")
+                    put("token", authToken)
+                    put("client_id", clientId)
+                }
+                transport?.send(authMsg.toString())
+                // Don't send hello yet - wait for first message in onMessage
+            } else {
+                // Local/Remote mode: proceed directly with hello
+                sendClientHello()
+            }
         }
 
-        override fun onMessage(webSocket: WebSocket, text: String) {
+        override fun onMessage(text: String) {
+            // Check for auth failure (server may send error if token is invalid)
+            if (authToken != null && !handshakeComplete) {
+                try {
+                    val json = JSONObject(text)
+                    val msgType = json.optString("type")
+                    if (msgType == "auth_failed" || msgType == "error") {
+                        val msg = json.optString("message", "Authentication failed")
+                        Log.e(TAG, "Auth failed: $msg")
+                        awaitingAuthResponse = false
+                        authToken = null  // Clear token on failure
+                        callback.onError("Authentication failed: $msg")
+                        disconnect()
+                        return
+                    }
+                } catch (e: Exception) {
+                    // Not a JSON message or doesn't have type field - continue normally
+                }
+            }
+
+            // After receiving first message post-auth, send client/hello
+            if (awaitingAuthResponse) {
+                Log.d(TAG, "Received first message after auth, sending client/hello")
+                awaitingAuthResponse = false
+                sendClientHello()
+                // Don't return - still process this message normally
+            }
+
             handleTextMessage(text)
         }
 
-        override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+        override fun onMessage(bytes: ByteString) {
             handleBinaryMessage(bytes)
         }
 
-        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            Log.d(TAG, "WebSocket closing: $code $reason")
-            webSocket.close(1000, null)
+        override fun onClosing(code: Int, reason: String) {
+            Log.d(TAG, "Transport closing: $code $reason")
         }
 
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            Log.d(TAG, "WebSocket closed: $code $reason")
+        override fun onClosed(code: Int, reason: String) {
+            Log.d(TAG, "Transport closed: $code $reason")
 
             // Code 1000 = Normal Closure - server intentionally ended the session
             // This is NOT an error that should trigger reconnection
             val isNormalClosure = code == 1000
 
-            if (!userInitiatedDisconnect.get() && handshakeComplete && !isNormalClosure) {
+            val hasConnectionInfo = when (connectionMode) {
+                ConnectionMode.LOCAL -> serverAddress != null
+                ConnectionMode.REMOTE -> remoteId != null
+                ConnectionMode.PROXY -> serverAddress != null && authToken != null
+            }
+
+            if (!userInitiatedDisconnect.get() && handshakeComplete && !isNormalClosure && hasConnectionInfo) {
                 // Abnormal closure (not code 1000) - attempt reconnection
                 Log.i(TAG, "Abnormal closure (code=$code), attempting reconnection")
                 attemptReconnect()
@@ -623,18 +824,24 @@ class SendSpinClient(
             }
         }
 
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-            Log.e(TAG, "WebSocket failure", t)
+        override fun onFailure(error: Throwable, isRecoverable: Boolean) {
+            Log.e(TAG, "Transport failure", error)
+
+            val hasConnectionInfo = when (connectionMode) {
+                ConnectionMode.LOCAL -> serverAddress != null
+                ConnectionMode.REMOTE -> remoteId != null
+                ConnectionMode.PROXY -> serverAddress != null && authToken != null
+            }
 
             val shouldReconnect = !userInitiatedDisconnect.get() &&
-                    serverAddress != null &&
-                    isRecoverableError(t)
+                    hasConnectionInfo &&
+                    isRecoverable
 
             if (shouldReconnect) {
-                Log.i(TAG, "Recoverable error, attempting reconnection: ${t.message}")
+                Log.i(TAG, "Recoverable error, attempting reconnection: ${error.message}")
                 attemptReconnect()
             } else {
-                val errorMessage = getSpecificErrorMessage(t)
+                val errorMessage = getSpecificErrorMessage(error)
                 reconnecting.set(false)
                 _connectionState.value = ConnectionState.Error(errorMessage)
                 callback.onError(errorMessage)
