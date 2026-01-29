@@ -107,6 +107,7 @@ class SendSpinClient(
         fun onError(message: String)
         fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?)
         fun onStreamClear()
+        fun onStreamEnd()
         fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray)
         fun onVolumeChanged(volume: Int)
         fun onMutedChanged(muted: Boolean)
@@ -265,6 +266,10 @@ class SendSpinClient(
 
     override fun onStreamClear() {
         callback.onStreamClear()
+    }
+
+    override fun onStreamEnd() {
+        callback.onStreamEnd()
     }
 
     override fun onAudioChunk(timestampMicros: Long, payload: ByteArray) {

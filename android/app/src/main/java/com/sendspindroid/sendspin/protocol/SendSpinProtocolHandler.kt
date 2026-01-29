@@ -32,6 +32,7 @@ abstract class SendSpinProtocolHandler(
     protected var handshakeComplete = false
     protected var currentVolume: Int = 100
     protected var currentMuted: Boolean = false
+    protected var currentSyncState: String = "synchronized"  // "synchronized" or "error"
 
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
@@ -111,6 +112,11 @@ abstract class SendSpinProtocolHandler(
     protected abstract fun onStreamClear()
 
     /**
+     * Called when stream ends (server terminates playback).
+     */
+    protected abstract fun onStreamEnd()
+
+    /**
      * Called when audio chunk is received.
      */
     protected abstract fun onAudioChunk(timestampMicros: Long, payload: ByteArray)
@@ -159,11 +165,33 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
-     * Send player state update (volume/muted).
+     * Send player state update (volume/muted/sync state).
      */
     protected fun sendPlayerStateUpdate() {
-        val message = MessageBuilder.buildPlayerState(currentVolume, currentMuted)
+        val message = MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState)
         sendMessage(message)
+    }
+
+    /**
+     * Set sync state and notify server.
+     *
+     * Per spec: report "synchronized" when locked to server timeline,
+     * report "error" when unable to maintain sync (buffer underrun, clock issues).
+     *
+     * @param syncState Either "synchronized" or "error"
+     */
+    fun setSyncState(syncState: String) {
+        if (syncState != "synchronized" && syncState != "error") {
+            Log.w(tag, "Invalid sync state: $syncState (must be 'synchronized' or 'error')")
+            return
+        }
+        if (currentSyncState != syncState) {
+            currentSyncState = syncState
+            Log.d(tag, "Sync state changed to: $syncState")
+            if (handshakeComplete) {
+                sendPlayerStateUpdate()
+            }
+        }
     }
 
     /**
@@ -271,6 +299,7 @@ abstract class SendSpinProtocolHandler(
                 SendSpinProtocol.MessageType.SERVER_COMMAND -> handleServerCommand(payload)
                 SendSpinProtocol.MessageType.GROUP_UPDATE -> handleGroupUpdate(payload)
                 SendSpinProtocol.MessageType.STREAM_START -> handleStreamStart(payload)
+                SendSpinProtocol.MessageType.STREAM_END -> handleStreamEnd()
                 SendSpinProtocol.MessageType.STREAM_CLEAR -> handleStreamClear()
                 SendSpinProtocol.MessageType.CLIENT_SYNC_OFFSET -> handleClientSyncOffset(payload)
                 else -> Log.d(tag, "Unhandled message type: $type")
@@ -380,6 +409,14 @@ abstract class SendSpinProtocolHandler(
     protected fun handleStreamClear() {
         Log.v(tag, "Stream clear - flushing audio buffers")
         onStreamClear()
+    }
+
+    /**
+     * Handle stream/end - server terminates playback.
+     */
+    protected fun handleStreamEnd() {
+        Log.i(tag, "Stream end - server terminated playback")
+        onStreamEnd()
     }
 
     /**

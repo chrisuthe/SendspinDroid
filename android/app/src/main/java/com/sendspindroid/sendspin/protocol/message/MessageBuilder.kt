@@ -50,10 +50,11 @@ object MessageBuilder {
                 put(SendSpinProtocol.Roles.PLAYER)
                 put(SendSpinProtocol.Roles.CONTROLLER)
                 put(SendSpinProtocol.Roles.METADATA)
+                put(SendSpinProtocol.Roles.ARTWORK)
             })
             put("device_info", deviceInfo)
-            // Use legacy field name for compatibility with older servers
-            put("player_support", playerSupport)
+            // Spec-compliant versioned field name
+            put("player@v1_support", playerSupport)
         }
 
         return JSONObject().apply {
@@ -95,16 +96,19 @@ object MessageBuilder {
     /**
      * Build client/state message for player state updates.
      *
+     * Per spec: state field must be inside the player object.
+     *
      * @param volume Volume level 0-100
      * @param muted Whether audio is muted
+     * @param syncState Sync state: "synchronized" or "error"
      * @return JSONObject ready to send
      */
-    fun buildPlayerState(volume: Int, muted: Boolean): JSONObject {
+    fun buildPlayerState(volume: Int, muted: Boolean, syncState: String = "synchronized"): JSONObject {
         return JSONObject().apply {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", JSONObject().apply {
-                put("state", "synchronized")
                 put("player", JSONObject().apply {
+                    put("state", syncState)
                     put("volume", volume)
                     put("muted", muted)
                 })

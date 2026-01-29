@@ -874,6 +874,14 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        override fun onStreamEnd() {
+            mainHandler.post {
+                Log.i(TAG, "Stream end - server terminated playback")
+                // Stop the audio player gracefully when server ends the stream
+                syncAudioPlayer?.stop()
+            }
+        }
+
         override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {
             // Guard: don't try to decode if the decoder is being replaced (race with onStreamStart)
             if (!decoderReady) return
