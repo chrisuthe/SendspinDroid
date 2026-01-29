@@ -63,6 +63,7 @@ object SendSpinProtocol {
         const val CLIENT_GOODBYE = "client/goodbye"
         const val GROUP_UPDATE = "group/update"
         const val STREAM_START = "stream/start"
+        const val STREAM_END = "stream/end"
         const val STREAM_CLEAR = "stream/clear"
         const val CLIENT_SYNC_OFFSET = "client/sync_offset"
     }
@@ -74,6 +75,7 @@ object SendSpinProtocol {
         const val PLAYER = "player@v1"
         const val CONTROLLER = "controller@v1"
         const val METADATA = "metadata@v1"
+        const val ARTWORK = "artwork@v1"
     }
 }
 
@@ -87,16 +89,48 @@ data class TimeMeasurement(
 )
 
 /**
+ * Progress information from server/state metadata.
+ * Per spec: nested progress object with track_progress, track_duration, playback_speed.
+ *
+ * @param trackProgress Current position in milliseconds
+ * @param trackDuration Total track duration in milliseconds
+ * @param playbackSpeed Speed multiplier (1000 = 1.0x normal speed)
+ */
+data class TrackProgress(
+    val trackProgress: Long,
+    val trackDuration: Long,
+    val playbackSpeed: Int = 1000  // Default to normal speed
+)
+
+/**
  * Track metadata from server/state messages.
+ * Per spec: includes timestamp, nested progress, and optional fields.
+ *
+ * @param timestamp Server timestamp when metadata was captured (microseconds)
+ * @param title Track title
+ * @param artist Track artist
+ * @param albumArtist Album artist (may differ from track artist for compilations)
+ * @param album Album name
+ * @param artworkUrl URL to album artwork
+ * @param year Release year
+ * @param track Track number (1-indexed)
+ * @param progress Progress information (position, duration, speed)
  */
 data class TrackMetadata(
+    val timestamp: Long,
     val title: String,
     val artist: String,
+    val albumArtist: String,
     val album: String,
     val artworkUrl: String,
-    val durationMs: Long,
-    val positionMs: Long
-)
+    val year: Int,
+    val track: Int,
+    val progress: TrackProgress
+) {
+    // Convenience properties for backwards compatibility
+    val durationMs: Long get() = progress.trackDuration
+    val positionMs: Long get() = progress.trackProgress
+}
 
 /**
  * Audio stream configuration from stream/start messages.

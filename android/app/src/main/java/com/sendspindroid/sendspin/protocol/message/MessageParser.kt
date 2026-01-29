@@ -10,6 +10,7 @@ import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.SyncOffsetResult
 import com.sendspindroid.sendspin.protocol.TimeMeasurement
 import com.sendspindroid.sendspin.protocol.TrackMetadata
+import com.sendspindroid.sendspin.protocol.TrackProgress
 import org.json.JSONObject
 
 /**
@@ -83,6 +84,28 @@ object MessageParser {
     /**
      * Parse server/state message for metadata and playback state.
      *
+     * Supports both spec-compliant structure (nested progress object) and
+     * legacy flat structure for backwards compatibility.
+     *
+     * Spec structure:
+     * ```json
+     * {
+     *   "timestamp": 1234567890,
+     *   "title": "Song",
+     *   "artist": "Artist",
+     *   "album_artist": "Album Artist",
+     *   "album": "Album",
+     *   "artwork_url": "https://...",
+     *   "year": 2024,
+     *   "track": 5,
+     *   "progress": {
+     *     "track_progress": 45000,
+     *     "track_duration": 180000,
+     *     "playback_speed": 1000
+     *   }
+     * }
+     * ```
+     *
      * @param payload The payload JSONObject
      * @return Pair of (TrackMetadata?, playbackState?) - either can be null
      */
@@ -92,14 +115,44 @@ object MessageParser {
         // Extract metadata if present
         val metadata = payload.optJSONObject("metadata")?.let { metadataObj ->
             // Note: optString returns literal "null" when JSON has null value, so we filter it
-            val title = metadataObj.optString("title", "").takeUnless { it == "null" } ?: ""
-            val artist = metadataObj.optString("artist", "").takeUnless { it == "null" } ?: ""
-            val album = metadataObj.optString("album", "").takeUnless { it == "null" } ?: ""
-            val artworkUrl = metadataObj.optString("artwork_url", "").takeUnless { it == "null" } ?: ""
-            val durationMs = metadataObj.optLong("duration_ms", 0)
-            val positionMs = metadataObj.optLong("position_ms", 0)
+            fun optStringClean(key: String) = metadataObj.optString(key, "").takeUnless { it == "null" } ?: ""
 
-            TrackMetadata(title, artist, album, artworkUrl, durationMs, positionMs)
+            val timestamp = metadataObj.optLong("timestamp", 0)
+            val title = optStringClean("title")
+            val artist = optStringClean("artist")
+            val albumArtist = optStringClean("album_artist")
+            val album = optStringClean("album")
+            val artworkUrl = optStringClean("artwork_url")
+            val year = metadataObj.optInt("year", 0)
+            val track = metadataObj.optInt("track", 0)
+
+            // Parse progress - support both spec-compliant nested structure and legacy flat fields
+            val progress = metadataObj.optJSONObject("progress")?.let { progressObj ->
+                TrackProgress(
+                    trackProgress = progressObj.optLong("track_progress", 0),
+                    trackDuration = progressObj.optLong("track_duration", 0),
+                    playbackSpeed = progressObj.optInt("playback_speed", 1000)
+                )
+            } ?: run {
+                // Fallback: legacy flat structure (duration_ms, position_ms at metadata level)
+                TrackProgress(
+                    trackProgress = metadataObj.optLong("position_ms", 0),
+                    trackDuration = metadataObj.optLong("duration_ms", 0),
+                    playbackSpeed = 1000
+                )
+            }
+
+            TrackMetadata(
+                timestamp = timestamp,
+                title = title,
+                artist = artist,
+                albumArtist = albumArtist,
+                album = album,
+                artworkUrl = artworkUrl,
+                year = year,
+                track = track,
+                progress = progress
+            )
         }
 
         // Extract playback state
