@@ -143,7 +143,8 @@ abstract class SendSpinProtocolHandler(
             bufferCapacity = getBufferCapacity()
         )
         sendMessage(message)
-        Log.d(tag, "Sent client/hello: client_id=${getClientId()}")
+        // Log full message for debugging protocol issues (helps identify field name mismatches)
+        Log.d(tag, "Sent client/hello: ${MessageBuilder.serialize(message).take(500)}")
     }
 
     /**
@@ -287,6 +288,9 @@ abstract class SendSpinProtocolHandler(
      * Dispatches to appropriate handler based on message type.
      */
     protected fun handleTextMessage(text: String) {
+        // Trace all incoming messages for debugging (truncate for large payloads)
+        Log.d(tag, "Received: ${text.take(500)}")
+
         try {
             val json = JSONObject(text)
             val type = json.getString("type")
