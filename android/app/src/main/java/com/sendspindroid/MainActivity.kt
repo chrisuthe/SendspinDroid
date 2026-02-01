@@ -63,8 +63,19 @@ import com.sendspindroid.databinding.ActivityMainBinding
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.playback.PlaybackService
+import com.sendspindroid.model.UnifiedServer
+import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
+import com.sendspindroid.ui.server.AddServerWizardDialog
+import com.sendspindroid.ui.server.SectionedServerAdapter
+import com.sendspindroid.ui.server.UnifiedServerAdapter
+import com.sendspindroid.ui.server.UnifiedServerConnector
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Main activity for the SendSpinDroid audio streaming client.
@@ -79,11 +90,19 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var serverAdapter: ServerAdapter
 
+    // Unified server support - sectioned adapter with saved + discovered servers
+    private var sectionedServerAdapter: SectionedServerAdapter? = null
+    private var unifiedServerAdapter: UnifiedServerAdapter? = null
+    private var unifiedServerConnector: UnifiedServerConnector? = null
+
     // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
     private val servers = mutableListOf<ServerInfo>()
 
-    // Connection state machine
-    private var connectionState: AppConnectionState = AppConnectionState.Searching
+    // Connection state machine - starts with ServerList (shows immediately on startup)
+    private var connectionState: AppConnectionState = AppConnectionState.ServerList
+
+    // Track the currently connected server ID for editing
+    private var currentConnectedServerId: String? = null
 
     // Track last artwork to prevent duplicate background updates
     private var lastArtworkSource: String? = null
@@ -96,10 +115,11 @@ class MainActivity : AppCompatActivity() {
     private var mediaControllerFuture: ListenableFuture<MediaController>? = null
     private var mediaController: MediaController? = null
 
-    // Handler for timeout-based transitions
+    // Handler for UI operations
     private val handler = Handler(Looper.getMainLooper())
-    private var showManualButtonRunnable: Runnable? = null
-    private var countdownRunnable: Runnable? = null
+
+    // Auto-connect to default server flag (prevents multiple auto-connects)
+    private var hasAttemptedDefaultAutoConnect = false
 
     // Reconnecting indicator - persists while reconnection is in progress
     private var reconnectingSnackbar: Snackbar? = null
@@ -129,9 +149,8 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        // Time before enabling "Enter manually" button during search
-        private const val MANUAL_BUTTON_DELAY_MS = 5_000L
-        private const val COUNTDOWN_INTERVAL_MS = 1_000L
+        // Delay before auto-connecting to default server (allows UI to render)
+        private const val DEFAULT_SERVER_AUTO_CONNECT_DELAY_MS = 1_000L
         // SharedPreferences keys
         private const val PREFS_NAME = "sendspindroid_prefs"
         private const val PREF_ONBOARDING_SHOWN = "onboarding_shown"
@@ -161,24 +180,14 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Updates the server list content description with current count.
+     * Uses filtered discovered servers to match what the user sees.
      */
     private fun updateServerListAccessibility() {
-        val count = servers.size
-        binding.serversRecyclerView.contentDescription =
-            getString(R.string.accessibility_server_list, count)
-    }
-
-    /**
-     * Shows/hides the empty state view based on server list size.
-     */
-    private fun updateEmptyServerListState() {
-        if (servers.isEmpty()) {
-            binding.emptyServerListView.visibility = View.VISIBLE
-            binding.serversRecyclerView.visibility = View.GONE
-        } else {
-            binding.emptyServerListView.visibility = View.GONE
-            binding.serversRecyclerView.visibility = View.VISIBLE
-        }
+        val savedCount = UnifiedServerRepository.savedServers.value.size
+        val discoveredCount = UnifiedServerRepository.filteredDiscoveredServers.value.size
+        val totalCount = savedCount + discoveredCount
+        binding.serverListRecyclerView?.contentDescription =
+            getString(R.string.accessibility_server_list, totalCount)
     }
 
     /**
@@ -336,6 +345,9 @@ class MainActivity : AppCompatActivity() {
         // This enables Android Auto to see discovered servers
         ServerRepository.initialize(this)
 
+        // Initialize UnifiedServerRepository for unified server management
+        UnifiedServerRepository.initialize(this)
+
         // Initialize UserSettings for accessing user preferences
         UserSettings.initialize(this)
 
@@ -390,8 +402,7 @@ class MainActivity : AppCompatActivity() {
 
         // Restore UI state based on current connection state
         when (val state = connectionState) {
-            is AppConnectionState.Searching -> showSearchingView()
-            is AppConnectionState.ManualEntry -> showManualEntryView()
+            is AppConnectionState.ServerList -> showServerListView()
             is AppConnectionState.Connecting -> {
                 showConnectionLoading(state.serverName)
             }
@@ -422,7 +433,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             is AppConnectionState.Error -> {
-                showManualEntryView()
+                showServerListView()
                 showErrorSnackbar(state.message)
             }
         }
@@ -518,44 +529,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Setup RecyclerView for servers (in manual entry view)
+        // Setup legacy RecyclerView for servers (kept for compatibility)
         serverAdapter = ServerAdapter { server ->
             onServerSelected(server)
         }
-        binding.serversRecyclerView.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = serverAdapter
-        }
 
-        // Load previously saved manual servers
+        // Load previously saved manual servers (legacy)
         loadPersistedServers()
 
-        // Initialize accessibility for server list
-        updateServerListAccessibility()
+        // Setup sectioned server adapter for the new unified server list
+        setupSectionedServerAdapter()
 
-        // Searching view - "Enter manually" button (shown after timeout)
-        binding.searchingManualButton.setOnClickListener {
-            transitionToManualEntry()
-        }
+        // Setup unified server support (connector, observers)
+        setupUnifiedServers()
 
-        // Manual entry view - Search Again button
-        binding.searchAgainButton.setOnClickListener {
-            transitionToSearching()
-        }
-
-        // Manual entry view - Add manual server button
-        binding.addManualServerButton.setOnClickListener {
-            showAddServerDialog()
-        }
-
-        // Manual entry view - Remote Access button
-        binding.remoteAccessButton?.setOnClickListener {
-            showRemoteConnectDialog()
-        }
-
-        // Manual entry view - Proxy Access button
-        binding.proxyAccessButton?.setOnClickListener {
-            showProxyConnectDialog()
+        // FAB for adding servers
+        binding.addServerFab?.setOnClickListener {
+            showAddServerWizard()
         }
 
         // Playback controls
@@ -597,8 +587,79 @@ class MainActivity : AppCompatActivity() {
         // Initialize volume accessibility
         updateVolumeAccessibility(binding.volumeSlider.value.toInt())
 
-        // Start with searching view and begin auto-discovery
-        showSearchingView()
+        // Start with server list view and begin discovery in background
+        showServerListView()
+    }
+
+    /**
+     * Sets up the sectioned server adapter for the unified server list.
+     * Displays saved servers and discovered servers in separate sections.
+     */
+    private fun setupSectionedServerAdapter() {
+        sectionedServerAdapter = SectionedServerAdapter(object : SectionedServerAdapter.Callback {
+            override fun onServerClick(server: UnifiedServer) {
+                onUnifiedServerSelected(server)
+            }
+
+            override fun onQuickConnect(server: UnifiedServer) {
+                onUnifiedServerQuickConnect(server)
+            }
+
+            override fun onServerLongClick(server: UnifiedServer): Boolean {
+                showUnifiedServerContextMenu(server)
+                return true
+            }
+        })
+
+        binding.serverListRecyclerView?.apply {
+            layoutManager = LinearLayoutManager(this@MainActivity)
+            adapter = sectionedServerAdapter
+        }
+
+        // Observe saved servers
+        lifecycleScope.launch {
+            UnifiedServerRepository.savedServers.collectLatest { servers ->
+                sectionedServerAdapter?.updateSavedServers(servers)
+                Log.d(TAG, "Saved servers updated: ${servers.size} servers")
+                updateServerListEmptyState()
+            }
+        }
+
+        // Observe filtered discovered servers (excludes servers that match saved servers)
+        lifecycleScope.launch {
+            UnifiedServerRepository.filteredDiscoveredServers.collectLatest { servers ->
+                sectionedServerAdapter?.updateDiscoveredServers(servers)
+                Log.d(TAG, "Discovered servers updated: ${servers.size} servers (filtered)")
+                updateServerListEmptyState()
+            }
+        }
+
+        // Observe online status of saved servers (discovered on local network)
+        lifecycleScope.launch {
+            UnifiedServerRepository.onlineSavedServerIds.collectLatest { onlineIds ->
+                sectionedServerAdapter?.updateOnlineServers(onlineIds)
+                if (onlineIds.isNotEmpty()) {
+                    Log.d(TAG, "Online saved servers: ${onlineIds.joinToString()}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Updates the empty state visibility for the server list.
+     * Only shows empty state when there are no saved AND no filtered discovered servers.
+     */
+    private fun updateServerListEmptyState() {
+        val hasSaved = UnifiedServerRepository.savedServers.value.isNotEmpty()
+        val hasFilteredDiscovered = UnifiedServerRepository.filteredDiscoveredServers.value.isNotEmpty()
+
+        if (!hasSaved && !hasFilteredDiscovered) {
+            binding.emptyServerListView?.visibility = View.VISIBLE
+            binding.serverListRecyclerView?.visibility = View.GONE
+        } else {
+            binding.emptyServerListView?.visibility = View.GONE
+            binding.serverListRecyclerView?.visibility = View.VISIBLE
+        }
     }
 
     override fun onStart() {
@@ -702,34 +763,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ============================================================================
-    // View State Management (Three Views: Searching, Manual Entry, Now Playing)
+    // View State Management (Two Views: Server List, Now Playing)
     // ============================================================================
 
     /**
-     * Transitions to searching state and starts auto-discovery.
-     * Called on app launch and when user taps "Search Again".
+     * Transitions to server list state.
+     * Called on disconnect or when returning from now playing.
      */
-    private fun transitionToSearching() {
-        connectionState = AppConnectionState.Searching
-        showSearchingView()
+    private fun transitionToServerList() {
+        connectionState = AppConnectionState.ServerList
+        currentConnectedServerId = null  // Clear tracked server
+        showServerListView()
     }
 
     /**
-     * Transitions to manual entry state.
-     * Called after search timeout or when user taps "Enter manually".
+     * Shows the server list view with saved and discovered servers.
+     * mDNS discovery runs in the background, updating the discovered section.
      */
-    private fun transitionToManualEntry() {
-        connectionState = AppConnectionState.ManualEntry
-        cancelManualButtonTimeout()
-        discoveryManager?.stopDiscovery()
-        showManualEntryView()
-    }
-
-    /**
-     * Shows the searching view (spinner, status text).
-     * Starts discovery automatically and schedules timeout for manual button.
-     */
-    private fun showSearchingView() {
+    private fun showServerListView() {
         // Clear toolbar subtitle when not connected
         supportActionBar?.subtitle = null
 
@@ -740,48 +791,55 @@ class MainActivity : AppCompatActivity() {
         binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
 
         // Animate view transitions
-        if (binding.searchingView.visibility != View.VISIBLE) {
-            binding.searchingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
+        if (binding.serverListView?.visibility != View.VISIBLE) {
+            binding.serverListView?.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
         }
-        binding.searchingView.visibility = View.VISIBLE
-        binding.manualEntryView.visibility = View.GONE
+        binding.serverListView?.visibility = View.VISIBLE
         binding.nowPlayingView.visibility = View.GONE
 
-        // Reset the manual button to hidden
-        binding.searchingManualButton.visibility = View.GONE
-        binding.searchingStatusText.text = getString(R.string.searching_for_servers)
+        // Show FAB for adding servers
+        binding.addServerFab?.visibility = View.VISIBLE
 
-        // Announce searching state for accessibility
-        announceForAccessibility(getString(R.string.searching_for_servers))
+        // Update empty state
+        updateServerListEmptyState()
 
-        // Start discovery automatically
+        // Start discovery automatically (runs in background)
         startAutoDiscovery()
+        sectionedServerAdapter?.setScanning(true)
 
-        // Schedule showing the "Enter manually" button after timeout
-        scheduleManualButtonTimeout()
+        // Update toolbar subtitle to show scanning status
+        supportActionBar?.subtitle = getString(R.string.scanning_ellipsis)
+
+        // Check for default server and auto-connect after a brief delay
+        checkDefaultServerAutoConnect()
     }
 
     /**
-     * Shows the manual entry view (search again, add server, server list).
-     * Called after timeout or explicit user choice.
+     * Checks if there's a default server configured and auto-connects to it.
+     * Only runs once per app launch to avoid repeated connection attempts.
      */
-    private fun showManualEntryView() {
-        // Clear toolbar subtitle when not connected
-        supportActionBar?.subtitle = null
+    private fun checkDefaultServerAutoConnect() {
+        if (hasAttemptedDefaultAutoConnect) return
+        hasAttemptedDefaultAutoConnect = true
 
-        // Always show app bar in non-playing views
-        binding.appBarLayout.visibility = View.VISIBLE
-        // Reset toolbar content insets (may have been offset for landscape now-playing)
-        val defaultInset = (16 * resources.displayMetrics.density).toInt()
-        binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
+        val defaultServer = UnifiedServerRepository.getDefaultServer()
+        if (defaultServer != null) {
+            Log.d(TAG, "Default server found: ${defaultServer.name}, scheduling auto-connect")
 
-        binding.searchingView.visibility = View.GONE
-        // Animate view transition
-        if (binding.manualEntryView.visibility != View.VISIBLE) {
-            binding.manualEntryView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
+            // Update subtitle to show auto-connect status
+            supportActionBar?.subtitle = getString(R.string.auto_connecting_to_default, defaultServer.name)
+
+            // Delay to allow UI to render and user to see the server list
+            lifecycleScope.launch {
+                delay(DEFAULT_SERVER_AUTO_CONNECT_DELAY_MS)
+
+                // Only auto-connect if still in ServerList state
+                if (connectionState == AppConnectionState.ServerList) {
+                    Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
+                    onUnifiedServerSelected(defaultServer)
+                }
+            }
         }
-        binding.manualEntryView.visibility = View.VISIBLE
-        binding.nowPlayingView.visibility = View.GONE
     }
 
     /**
@@ -789,8 +847,6 @@ class MainActivity : AppCompatActivity() {
      * Called when connected to a server.
      */
     private fun showNowPlayingView(serverName: String) {
-        cancelManualButtonTimeout()
-
         // Set toolbar state based on current playing state, no subtitle
         val isPlaying = mediaController?.isPlaying == true
         supportActionBar?.title = if (isPlaying) "Playing" else "Paused"
@@ -836,66 +892,28 @@ class MainActivity : AppCompatActivity() {
             binding.controlsContainer?.setPadding(0, 0, 0, 0)
         }
 
-        binding.searchingView.visibility = View.GONE
-        binding.manualEntryView.visibility = View.GONE
+        binding.serverListView?.visibility = View.GONE
+        binding.nowPlayingView.visibility = View.VISIBLE
+
+        // Hide FAB when in now playing view
+        binding.addServerFab?.visibility = View.GONE
 
         // Animate view transition with slide up
         if (binding.nowPlayingView.visibility != View.VISIBLE) {
             binding.nowPlayingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.slide_in_up))
         }
-        binding.nowPlayingView.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
+
+        // Stop discovery while connected (saves battery)
+        discoveryManager?.stopDiscovery()
+        sectionedServerAdapter?.setScanning(false)
 
         // Sync volume slider with current device volume
         syncSliderWithDeviceVolume()
 
         // Sync play/pause button with current state
         updatePlayPauseButton(isPlaying)
-    }
-
-    /**
-     * Shows the "Enter manually" button with a countdown, then enables it.
-     * Button is visible immediately but disabled until countdown completes.
-     */
-    private fun scheduleManualButtonTimeout() {
-        cancelManualButtonTimeout()
-
-        // Show button immediately, but disabled with countdown
-        binding.searchingManualButton.visibility = View.VISIBLE
-        binding.searchingManualButton.isEnabled = false
-
-        var secondsRemaining = (MANUAL_BUTTON_DELAY_MS / 1000).toInt()
-        binding.searchingManualButton.text = "${getString(R.string.enter_manually)} (${secondsRemaining}s)"
-
-        // Countdown runnable
-        countdownRunnable = object : Runnable {
-            override fun run() {
-                if (connectionState != AppConnectionState.Searching) return
-
-                secondsRemaining--
-                if (secondsRemaining > 0) {
-                    binding.searchingManualButton.text = "${getString(R.string.enter_manually)} (${secondsRemaining}s)"
-                    handler.postDelayed(this, COUNTDOWN_INTERVAL_MS)
-                } else {
-                    // Countdown finished - enable button
-                    binding.searchingManualButton.text = getString(R.string.enter_manually)
-                    binding.searchingManualButton.isEnabled = true
-                    binding.searchingStatusText.text = getString(R.string.no_servers_found)
-                }
-            }
-        }
-        handler.postDelayed(countdownRunnable!!, COUNTDOWN_INTERVAL_MS)
-    }
-
-    /**
-     * Cancels the pending manual button timeout and countdown.
-     */
-    private fun cancelManualButtonTimeout() {
-        showManualButtonRunnable?.let { handler.removeCallbacks(it) }
-        showManualButtonRunnable = null
-        countdownRunnable?.let { handler.removeCallbacks(it) }
-        countdownRunnable = null
     }
 
     /**
@@ -918,53 +936,62 @@ class MainActivity : AppCompatActivity() {
                             val server = ServerInfo(name, address, path)
                             addServer(server)
 
-                            // Auto-connect to first discovered server if in searching state
-                            if (connectionState == AppConnectionState.Searching) {
-                                Log.d(TAG, "Auto-connecting to first discovered server: $name")
-                                binding.searchingStatusText.text = getString(R.string.server_found, name)
-                                // Small delay to show "Found: X" before connecting
-                                handler.postDelayed({
-                                    autoConnectToServer(server)
-                                }, 500)
-                            }
+                            // Add to UnifiedServerRepository for unified server list
+                            UnifiedServerRepository.addDiscoveredServer(name, address, path)
+
+                            // No auto-connect - user taps to connect (or default server auto-connects)
                         }
                     }
 
                     override fun onServerLost(name: String) {
                         runOnUiThread {
                             Log.d(TAG, "Server lost: $name")
-                            // Optionally remove from list
-                            // servers.removeAll { it.name == name }
-                            // serverAdapter.notifyDataSetChanged()
+                            // Remove from legacy list
+                            servers.removeAll { it.name == name }
+                            serverAdapter.submitList(servers.toList())
+
+                            // Remove from UnifiedServerRepository discovered servers
+                            val serverToRemove = UnifiedServerRepository.discoveredServers.value
+                                .find { it.name == name }
+                            serverToRemove?.local?.address?.let { address ->
+                                UnifiedServerRepository.removeDiscoveredServer(address)
+                            }
                         }
                     }
 
                     override fun onDiscoveryStarted() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery started")
+                            sectionedServerAdapter?.setScanning(true)
+                            // Update toolbar subtitle only if on server list
+                            if (connectionState == AppConnectionState.ServerList) {
+                                supportActionBar?.subtitle = getString(R.string.scanning_ellipsis)
+                            }
                         }
                     }
 
                     override fun onDiscoveryStopped() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery stopped")
+                            sectionedServerAdapter?.setScanning(false)
+                            // Clear toolbar subtitle only if on server list
+                            if (connectionState == AppConnectionState.ServerList) {
+                                supportActionBar?.subtitle = null
+                            }
                         }
                     }
 
                     override fun onDiscoveryError(error: String) {
                         runOnUiThread {
                             Log.e(TAG, "Discovery error: $error")
-                            if (connectionState == AppConnectionState.Searching) {
-                                // Show error and allow manual entry
-                                binding.searchingStatusText.text = getString(R.string.error_discovery)
-                                binding.searchingManualButton.visibility = View.VISIBLE
-                            } else {
-                                showErrorSnackbar(
-                                    message = getString(R.string.error_discovery),
-                                    errorType = ErrorType.DISCOVERY,
-                                    retryAction = { transitionToSearching() }
-                                )
-                            }
+                            sectionedServerAdapter?.setScanning(false)
+                            supportActionBar?.subtitle = null
+                            // Show error snackbar - server list is still usable with saved servers
+                            showErrorSnackbar(
+                                message = getString(R.string.error_discovery),
+                                errorType = ErrorType.DISCOVERY,
+                                retryAction = { startAutoDiscovery() }
+                            )
                         }
                     }
                 }
@@ -982,50 +1009,22 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Starts auto-discovery for servers.
-     * Called automatically when showing the searching view.
+     * Called automatically when showing the server list view.
      */
     private fun startAutoDiscovery() {
         Log.d(TAG, "Starting auto-discovery")
         try {
             discoveryManager?.startDiscovery()
+            sectionedServerAdapter?.setScanning(true)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start discovery", e)
-            binding.searchingStatusText.text = getString(R.string.error_discovery_start)
-            binding.searchingManualButton.visibility = View.VISIBLE
+            sectionedServerAdapter?.setScanning(false)
+            showErrorSnackbar(
+                message = getString(R.string.error_discovery_start),
+                errorType = ErrorType.DISCOVERY,
+                retryAction = { startAutoDiscovery() }
+            )
         }
-    }
-
-    /**
-     * Auto-connects to a discovered server.
-     * Called when a server is found during Searching state.
-     *
-     * @param server The server to connect to
-     * @param retryCount Current retry attempt (default 0, max 10)
-     */
-    private fun autoConnectToServer(server: ServerInfo, retryCount: Int = 0) {
-        val maxRetries = 10
-        val controller = mediaController
-        if (controller == null) {
-            if (retryCount >= maxRetries) {
-                Log.w(TAG, "Auto-connect failed: MediaController not ready after $maxRetries attempts")
-                return
-            }
-            Log.w(TAG, "MediaController not ready, delaying auto-connect (attempt ${retryCount + 1}/$maxRetries)")
-            // Retry after a short delay if controller isn't ready yet
-            handler.postDelayed({ autoConnectToServer(server, retryCount + 1) }, 500)
-            return
-        }
-
-        // Update state to Connecting
-        connectionState = AppConnectionState.Connecting(server.name, server.address)
-        cancelManualButtonTimeout()
-        discoveryManager?.stopDiscovery()
-
-        // Update UI to show connecting state
-        binding.searchingStatusText.text = getString(R.string.auto_connecting)
-
-        // Perform the actual connection
-        connectToServer(server, controller)
     }
 
     /**
@@ -1196,10 +1195,13 @@ class MainActivity : AppCompatActivity() {
             }
             PlaybackService.STATE_DISCONNECTED -> {
                 Log.d(TAG, "Disconnected from server")
-                connectionState = AppConnectionState.ManualEntry
-                showManualEntryView()
+                connectionState = AppConnectionState.ServerList
+                showServerListView()
                 enablePlaybackControls(false)
                 invalidateOptionsMenu() // Hide "Switch Server" menu option
+
+                // Clear unified server adapter statuses
+                sectionedServerAdapter?.clearStatuses()
 
                 // Announce disconnection for accessibility
                 announceForAccessibility(getString(R.string.accessibility_disconnected))
@@ -1210,7 +1212,10 @@ class MainActivity : AppCompatActivity() {
 
                 connectionState = AppConnectionState.Error(errorMessage)
                 hideConnectionLoading()
-                showManualEntryView()
+                showServerListView()
+
+                // Clear unified server adapter statuses
+                sectionedServerAdapter?.clearStatuses()
 
                 showErrorSnackbar(
                     message = errorMessage,
@@ -1251,13 +1256,14 @@ class MainActivity : AppCompatActivity() {
                         enablePlaybackControls(false)
                         hideConnectionLoading()
                         hideBufferingIndicator()
-                        // Only transition to manual entry if we were connected/connecting
+                        // Only transition to server list if we were connected/connecting
                         // (not during initial startup)
                         val currentState = connectionState
                         if (currentState is AppConnectionState.Connected ||
                             currentState is AppConnectionState.Connecting) {
-                            connectionState = AppConnectionState.ManualEntry
-                            showManualEntryView()
+                            connectionState = AppConnectionState.ServerList
+                            showServerListView()
+                            sectionedServerAdapter?.clearStatuses()
                         }
                         // Announce disconnection for accessibility
                         announceForAccessibility(getString(R.string.accessibility_disconnected))
@@ -1360,13 +1366,14 @@ class MainActivity : AppCompatActivity() {
                     enablePlaybackControls(false)
 
                     // If we were showing connected/connecting state but player is now disconnected,
-                    // transition back to manual entry view to prevent stale UI state
+                    // transition back to server list view to prevent stale UI state
                     if (connectionState is AppConnectionState.Connected ||
                         connectionState is AppConnectionState.Reconnecting ||
                         connectionState is AppConnectionState.Connecting) {
-                        Log.d(TAG, "Player disconnected but UI shows connected - resetting to manual entry")
-                        connectionState = AppConnectionState.ManualEntry
-                        showManualEntryView()
+                        Log.d(TAG, "Player disconnected but UI shows connected - resetting to server list")
+                        connectionState = AppConnectionState.ServerList
+                        showServerListView()
+                        sectionedServerAdapter?.clearStatuses()
                         invalidateOptionsMenu()
                     }
                 }
@@ -1527,6 +1534,204 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ============================================================================
+    // Unified Server Support (MVP)
+    // ============================================================================
+
+    /**
+     * Sets up unified server functionality.
+     * This MVP implementation adds a FAB for adding unified servers and observes
+     * the UnifiedServerRepository for server list updates.
+     */
+    private fun setupUnifiedServers() {
+        // Initialize the connector for handling unified server connections
+        unifiedServerConnector = UnifiedServerConnector(this) { selected ->
+            // Callback when connection method is selected
+            Log.d(TAG, "Connection method selected: ${ConnectionSelector.getConnectionDescription(selected)}")
+        }
+
+        // Setup unified server adapter
+        unifiedServerAdapter = UnifiedServerAdapter(object : UnifiedServerAdapter.Callback {
+            override fun onServerClick(server: UnifiedServer) {
+                onUnifiedServerSelected(server)
+            }
+
+            override fun onQuickConnect(server: UnifiedServer) {
+                onUnifiedServerQuickConnect(server)
+            }
+
+            override fun onServerLongClick(server: UnifiedServer): Boolean {
+                showUnifiedServerContextMenu(server)
+                return true
+            }
+        })
+
+        // Observe unified servers and update the list
+        lifecycleScope.launch {
+            UnifiedServerRepository.allServers.collectLatest { servers ->
+                unifiedServerAdapter?.submitList(servers)
+                Log.d(TAG, "Unified servers updated: ${servers.size} servers")
+            }
+        }
+
+        // For MVP: The Add Server Wizard is accessible via menu (action_add_unified_server)
+        // A FAB can be added to the layout later for quick access
+    }
+
+    /**
+     * Shows the add server wizard dialog for creating unified servers.
+     */
+    private fun showAddServerWizard() {
+        AddServerWizardDialog.show(supportFragmentManager) { server ->
+            Log.d(TAG, "Unified server created: ${server.name}")
+            showSuccessSnackbar(getString(R.string.server_added, server.name))
+        }
+    }
+
+    /**
+     * Handles tap on a unified server - connects using auto-selection.
+     */
+    private fun onUnifiedServerSelected(server: UnifiedServer) {
+        val controller = mediaController
+        if (controller == null) {
+            showErrorSnackbar(
+                message = getString(R.string.error_service_not_connected),
+                errorType = ErrorType.CONNECTION
+            )
+            return
+        }
+
+        val connector = unifiedServerConnector
+        if (connector == null) {
+            Log.e(TAG, "UnifiedServerConnector not initialized")
+            return
+        }
+
+        // Stop discovery if running
+        discoveryManager?.stopDiscovery()
+
+        // Track the server ID for editing while connected
+        currentConnectedServerId = server.id
+
+        // Update state to connecting
+        connectionState = AppConnectionState.Connecting(server.name, server.id)
+        showConnectionLoading(server.name)
+
+        // Connect using auto-selection
+        val selected = connector.connect(server, controller)
+        if (selected == null) {
+            hideConnectionLoading()
+            connectionState = AppConnectionState.Error("No connection method available")
+            showErrorSnackbar(
+                message = getString(R.string.no_connection_available),
+                errorType = ErrorType.CONNECTION
+            )
+            return
+        }
+
+        // Update adapter status for both adapters
+        unifiedServerAdapter?.setServerStatus(server.id, UnifiedServerAdapter.ServerStatus.CONNECTING)
+        sectionedServerAdapter?.setServerStatus(server.id, SectionedServerAdapter.ServerStatus.CONNECTING)
+
+        // Show which method was selected
+        val methodDesc = ConnectionSelector.getConnectionDescription(selected)
+        Log.d(TAG, "Connecting to ${server.name} via $methodDesc")
+    }
+
+    /**
+     * Handles Quick Connect on a discovered unified server.
+     * Offers to save the server after successful connection.
+     */
+    private fun onUnifiedServerQuickConnect(server: UnifiedServer) {
+        // Connect first
+        onUnifiedServerSelected(server)
+
+        // TODO: After successful connection, show "Save this server?" prompt
+        // This can be implemented by observing connection state changes
+    }
+
+    /**
+     * Shows context menu for a unified server (long press).
+     */
+    private fun showUnifiedServerContextMenu(server: UnifiedServer) {
+        val items = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        // Edit option (only for saved servers)
+        if (!server.isDiscovered) {
+            items.add(getString(R.string.edit_server))
+            actions.add {
+                AddServerWizardDialog.showForEdit(supportFragmentManager, server) { updated ->
+                    showSuccessSnackbar("Server updated: ${updated.name}")
+                }
+            }
+        }
+
+        // Set as default / Remove default (only for saved servers)
+        if (!server.isDiscovered) {
+            if (server.isDefaultServer) {
+                items.add(getString(R.string.remove_default))
+                actions.add {
+                    UnifiedServerRepository.setDefaultServer(null)
+                    showInfoSnackbar("Default server cleared")
+                }
+            } else {
+                items.add(getString(R.string.set_as_default))
+                actions.add {
+                    UnifiedServerRepository.setDefaultServer(server.id)
+                    showInfoSnackbar("${server.name} set as default")
+                }
+            }
+        }
+
+        // Delete option (only for saved servers)
+        if (!server.isDiscovered) {
+            items.add(getString(R.string.delete_server))
+            actions.add {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.delete_server)
+                    .setMessage("Delete \"${server.name}\"?")
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        UnifiedServerRepository.deleteServer(server.id)
+                        showInfoSnackbar("Server deleted")
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
+
+        // Save option (only for discovered servers)
+        if (server.isDiscovered) {
+            items.add(getString(R.string.save_server))
+            actions.add {
+                UnifiedServerRepository.promoteDiscoveredServer(server)
+                showSuccessSnackbar(getString(R.string.server_added, server.name))
+            }
+        }
+
+        if (items.isNotEmpty()) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(server.name)
+                .setItems(items.toTypedArray()) { _, which ->
+                    actions[which]()
+                }
+                .show()
+        }
+    }
+
+    /**
+     * Updates unified server adapter status when connection state changes.
+     * Called from MediaController listener callbacks.
+     */
+    private fun updateUnifiedServerConnectionStatus(serverId: String?, status: UnifiedServerAdapter.ServerStatus) {
+        serverId?.let { id ->
+            unifiedServerAdapter?.setServerStatus(id, status)
+        }
+        if (status == UnifiedServerAdapter.ServerStatus.DISCONNECTED) {
+            unifiedServerAdapter?.clearStatuses()
+        }
+    }
+
     /**
      * Validates server address format (host:port).
      *
@@ -1676,7 +1881,7 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Performs the actual disconnect operation.
-     * Sends disconnect command to PlaybackService and returns to manual entry view.
+     * Sends disconnect command to PlaybackService and returns to server list view.
      */
     private fun performDisconnect() {
         val controller = mediaController ?: return
@@ -1684,7 +1889,8 @@ class MainActivity : AppCompatActivity() {
         try {
             val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
             controller.sendCustomCommand(command, Bundle.EMPTY)
-            transitionToManualEntry()
+            transitionToServerList()
+            sectionedServerAdapter?.clearStatuses()
             showInfoSnackbar("Disconnected")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to disconnect", e)
@@ -1789,7 +1995,7 @@ class MainActivity : AppCompatActivity() {
             serverAdapter.submitList(servers.toList())
             // Update accessibility description for server list
             updateServerListAccessibility()
-            updateEmptyServerListState()
+            updateServerListEmptyState()
         }
     }
 
@@ -1807,7 +2013,7 @@ class MainActivity : AppCompatActivity() {
             // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
             serverAdapter.submitList(servers.toList())
             updateServerListAccessibility()
-            updateEmptyServerListState()
+            updateServerListEmptyState()
         }
     }
 
@@ -1828,7 +2034,7 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Loaded ${manualServers.size} saved servers")
         }
         // Update empty state after loading
-        updateEmptyServerListState()
+        updateServerListEmptyState()
     }
 
 
@@ -2177,12 +2383,14 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showConnectionLoading(serverName: String) {
         // Switch to now playing view but show connection progress
-        binding.searchingView.visibility = View.GONE
-        binding.manualEntryView.visibility = View.GONE
+        binding.serverListView?.visibility = View.GONE
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.GONE
         binding.connectionStatusText.text = getString(R.string.connecting_to_server, serverName)
+
+        // Hide FAB while connecting
+        binding.addServerFab?.visibility = View.GONE
 
         // Announce connecting state for accessibility
         announceForAccessibility(getString(R.string.accessibility_connecting))
@@ -2227,13 +2435,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Update menu items visibility based on connection state.
-     * Settings is always visible; connection-specific items only when connected.
+     * Update menu items visibility and titles based on connection state.
+     * When connected:
+     *   - "Switch Server" replaces disconnect (takes you back to server list)
+     *   - "Edit Server" replaces add server (edits current server)
+     * When not connected:
+     *   - "Add Server" shows the wizard
+     * Settings is always "App Settings".
      */
     override fun onPrepareOptionsMenu(menu: Menu?): Boolean {
         val isConnected = connectionState is AppConnectionState.Connected
 
-        // Connection-specific items only visible when connected
+        // Connection info header (only when connected)
         menu?.findItem(R.id.action_connection_info)?.apply {
             isVisible = isConnected
             if (isConnected) {
@@ -2241,10 +2454,27 @@ class MainActivity : AppCompatActivity() {
                 title = getString(R.string.connected_to, state.serverName)
             }
         }
-        menu?.findItem(R.id.action_stats)?.isVisible = isConnected
-        menu?.findItem(R.id.action_disconnect)?.isVisible = isConnected
 
-        // Settings is always visible (no change needed, visible by default)
+        // Stats (only when connected)
+        menu?.findItem(R.id.action_stats)?.isVisible = isConnected
+
+        // Disconnect/Switch Server (only when connected, title changes)
+        menu?.findItem(R.id.action_disconnect)?.apply {
+            isVisible = isConnected
+            title = getString(R.string.action_switch_server)
+        }
+
+        // Add Server / Edit Server (title changes based on connection)
+        menu?.findItem(R.id.action_add_unified_server)?.apply {
+            title = if (isConnected) {
+                getString(R.string.action_edit_server)
+            } else {
+                getString(R.string.add_server)
+            }
+        }
+
+        // Settings is always "App Settings"
+        menu?.findItem(R.id.action_settings)?.title = getString(R.string.action_app_settings)
 
         return super.onPrepareOptionsMenu(menu)
     }
@@ -2269,6 +2499,25 @@ class MainActivity : AppCompatActivity() {
                 startActivity(android.content.Intent(this, SettingsActivity::class.java))
                 true
             }
+            R.id.action_add_unified_server -> {
+                val isConnected = connectionState is AppConnectionState.Connected
+                if (isConnected && currentConnectedServerId != null) {
+                    // Edit the currently connected server
+                    val server = UnifiedServerRepository.getServer(currentConnectedServerId!!)
+                    if (server != null) {
+                        AddServerWizardDialog.showForEdit(supportFragmentManager, server) { updated ->
+                            showSuccessSnackbar("Server updated: ${updated.name}")
+                        }
+                    } else {
+                        // Fallback: server not found in repository (discovered server)
+                        showAddServerWizard()
+                    }
+                } else {
+                    // Not connected - show Add Server Wizard
+                    showAddServerWizard()
+                }
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -2283,7 +2532,6 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
 
         // Cancel any pending handler callbacks
-        cancelManualButtonTimeout()
         handler.removeCallbacksAndMessages(null)
 
         // Release MediaController connection to service

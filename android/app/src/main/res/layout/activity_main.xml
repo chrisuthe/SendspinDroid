@@ -44,14 +44,13 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <!-- ============================================================ -->
-        <!-- SEARCHING VIEW - Shown on startup while discovering servers  -->
+        <!-- SERVER LIST VIEW - Shows saved and discovered servers        -->
         <!-- ============================================================ -->
         <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/searchingView"
+            android:id="@+id/serverListView"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:visibility="visible"
@@ -60,159 +59,20 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
-            <com.google.android.material.progressindicator.CircularProgressIndicator
-                android:id="@+id/searchingProgressIndicator"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:indeterminate="true"
-                app:indicatorSize="64dp"
-                app:trackThickness="4dp"
-                app:layout_constraintBottom_toTopOf="@id/searchingStatusText"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintVertical_chainStyle="packed" />
-
-            <TextView
-                android:id="@+id/searchingStatusText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/searching_for_servers"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:accessibilityLiveRegion="polite"
-                app:layout_constraintBottom_toTopOf="@id/searchingManualButton"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/searchingProgressIndicator" />
-
-            <!-- Manual entry button - shown after timeout or user can tap anytime -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/searchingManualButton"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
-                android:text="@string/enter_manually"
-                android:visibility="gone"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/searchingStatusText"
-                tools:visibility="visible" />
-
-        </androidx.constraintlayout.widget.ConstraintLayout>
-
-        <!-- ============================================================ -->
-        <!-- MANUAL ENTRY VIEW - Shown when user wants to enter manually  -->
-        <!-- ============================================================ -->
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/manualEntryView"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            tools:visibility="gone">
-
-            <TextView
-                android:id="@+id/manualStatusText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/no_servers_found"
-                android:textSize="14sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:accessibilityLiveRegion="polite"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
-
-            <Button
-                android:id="@+id/searchAgainButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:minHeight="48dp"
-                android:layout_marginTop="16dp"
-                android:text="@string/search_again"
-                app:icon="@drawable/ic_refresh"
-                app:iconGravity="textStart"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/manualStatusText" />
-
-            <Button
-                android:id="@+id/addManualServerButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:minHeight="48dp"
-                android:layout_marginTop="8dp"
-                android:text="@string/add_server_manually"
-                android:contentDescription="@string/accessibility_add_manual_server"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:icon="@drawable/ic_server"
-                app:iconGravity="textStart"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/searchAgainButton" />
-
-            <Button
-                android:id="@+id/remoteAccessButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:minHeight="48dp"
-                android:layout_marginTop="8dp"
-                android:text="@string/remote_access"
-                android:contentDescription="@string/remote_access_description"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:icon="@drawable/ic_cloud_connected"
-                app:iconGravity="textStart"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/addManualServerButton" />
-
-            <Button
-                android:id="@+id/proxyAccessButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:minHeight="48dp"
-                android:layout_marginTop="8dp"
-                android:text="@string/proxy_access"
-                android:contentDescription="@string/proxy_access_description"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                app:icon="@drawable/ic_vpn_key"
-                app:iconGravity="textStart"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/remoteAccessButton" />
-
-            <TextView
-                android:id="@+id/serversLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/available_servers"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorOnBackground"
-                android:labelFor="@id/serversRecyclerView"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/proxyAccessButton" />
-
+            <!-- Server list with sections -->
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/serversRecyclerView"
+                android:id="@+id/serverListRecyclerView"
                 android:layout_width="0dp"
                 android:layout_height="0dp"
-                android:layout_marginTop="8dp"
+                android:clipToPadding="false"
+                android:paddingBottom="88dp"
                 android:importantForAccessibility="yes"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/serversLabel" />
+                app:layout_constraintTop_toTopOf="parent" />
 
-            <!-- Empty state when no servers are available -->
+            <!-- Empty state (shown when no servers at all - rare edge case) -->
             <LinearLayout
                 android:id="@+id/emptyServerListView"
                 android:layout_width="wrap_content"
@@ -220,7 +80,7 @@
                 android:orientation="vertical"
                 android:gravity="center"
                 android:visibility="gone"
-                app:layout_constraintTop_toBottomOf="@id/serversLabel"
+                app:layout_constraintTop_toTopOf="parent"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent">
@@ -230,25 +90,36 @@
                     android:layout_height="64dp"
                     android:src="@drawable/ic_server"
                     android:alpha="0.4"
-                    android:importantForAccessibility="no" />
+                    android:importantForAccessibility="no"
+                    app:tint="?attr/colorOnSurfaceVariant" />
 
                 <TextView
+                    android:id="@+id/emptyStateTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="@string/empty_server_list_title"
+                    android:text="@string/no_servers_yet"
                     android:textSize="16sp"
                     android:textColor="?attr/colorOnSurfaceVariant" />
 
                 <TextView
+                    android:id="@+id/emptyStateSubtitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="@string/empty_server_list_subtitle"
+                    android:text="@string/searching_for_servers"
                     android:textSize="14sp"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:alpha="0.7"
                     android:gravity="center" />
+
+                <ProgressBar
+                    android:id="@+id/emptyStateProgress"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginTop="16dp"
+                    android:indeterminate="true" />
 
             </LinearLayout>
 
@@ -540,5 +411,18 @@
         </androidx.constraintlayout.widget.ConstraintLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- FAB for adding servers (visible on server list view) -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/addServerFab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:contentDescription="@string/add_server"
+        android:src="@drawable/ic_add"
+        android:visibility="visible"
+        app:tint="?attr/colorOnPrimaryContainer"
+        app:backgroundTint="?attr/colorPrimaryContainer" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

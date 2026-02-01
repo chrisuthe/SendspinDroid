@@ -49,6 +49,9 @@ class NsdDiscoveryManager(
     private var multicastLock: WifiManager.MulticastLock? = null
     private var isDiscovering = false
 
+    // Track if we need to restart discovery after it stops (for async stop handling)
+    private var pendingRestart = false
+
     // Track services we're currently resolving to avoid duplicate resolutions
     private val resolvingServices = mutableSetOf<String>()
 
@@ -59,7 +62,8 @@ class NsdDiscoveryManager(
      */
     fun startDiscovery() {
         if (isDiscovering) {
-            Log.w(TAG, "Discovery already running")
+            Log.d(TAG, "Discovery already running, scheduling restart")
+            pendingRestart = true
             return
         }
 
@@ -92,6 +96,16 @@ class NsdDiscoveryManager(
                 Log.d(TAG, "Discovery stopped for $serviceType")
                 isDiscovering = false
                 listener.onDiscoveryStopped()
+
+                // Check if we need to restart discovery
+                if (pendingRestart) {
+                    Log.d(TAG, "Pending restart detected, restarting discovery")
+                    pendingRestart = false
+                    // Post to handler to avoid potential recursion issues
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        startDiscovery()
+                    }
+                }
             }
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
@@ -201,6 +215,8 @@ class NsdDiscoveryManager(
 
     /**
      * Stops mDNS discovery.
+     * Note: The actual stop is asynchronous - isDiscovering will be set to false
+     * in the onDiscoveryStopped callback.
      */
     fun stopDiscovery() {
         if (!isDiscovering) {
@@ -208,16 +224,21 @@ class NsdDiscoveryManager(
             return
         }
 
+        // Clear any pending restart when explicitly stopping
+        pendingRestart = false
+
         try {
             discoveryListener?.let { listener ->
                 nsdManager?.stopServiceDiscovery(listener)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping discovery", e)
+            // On error, mark as not discovering so we can try again
+            isDiscovering = false
         }
 
         releaseMulticastLock()
-        isDiscovering = false
+        // Note: Don't set isDiscovering = false here - wait for onDiscoveryStopped callback
     }
 
     /**
