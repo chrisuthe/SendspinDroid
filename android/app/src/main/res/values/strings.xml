@@ -68,6 +68,9 @@
 
     <!-- Menu actions -->
     <string name="action_disconnect">Disconnect</string>
+    <string name="action_switch_server">Switch Server</string>
+    <string name="action_edit_server">Edit Server</string>
+    <string name="action_app_settings">App Settings</string>
 
     <!-- Success messages -->
     <string name="server_added">Server added: %s</string>
@@ -172,10 +175,10 @@
     <string name="pref_codec_cellular_title">Codec on Cellular</string>
     <string name="pref_codec_cellular_summary">Audio codec when connected via cellular data (leave unset to use default)</string>
 
-    <!-- Disconnect dialog -->
-    <string name="disconnect_dialog_title">Disconnect from server?</string>
-    <string name="disconnect_dialog_message">This will stop playback on this device. You can reconnect at any time.</string>
-    <string name="disconnect_dialog_positive">Disconnect</string>
+    <!-- Switch Server dialog (was Disconnect dialog) -->
+    <string name="disconnect_dialog_title">Switch Server?</string>
+    <string name="disconnect_dialog_message">This will disconnect from the current server and return to the server list.</string>
+    <string name="disconnect_dialog_positive">Switch</string>
     <string name="disconnect_dialog_negative">Cancel</string>
 
     <!-- Permission strings -->
@@ -284,4 +287,76 @@
     <string name="accessibility_username_input">Username input field</string>
     <string name="accessibility_password_input">Password input field</string>
     <string name="accessibility_auth_mode_tabs">Authentication mode selection: Login or Token</string>
+
+    <!-- Unified Server -->
+    <string name="unified_server">Server</string>
+    <string name="add_server">Add Server</string>
+    <string name="edit_server">Edit Server</string>
+    <string name="delete_server">Delete Server</string>
+    <string name="save_server">Save Server</string>
+    <string name="quick_connect">Quick Connect</string>
+    <string name="save_this_server">Save this server?</string>
+    <string name="save_server_prompt">Would you like to save \"%s\" for quick access later?</string>
+    <string name="connection_method_local">Local</string>
+    <string name="connection_method_remote">Remote</string>
+    <string name="connection_method_proxy">Proxy</string>
+    <string name="connection_auto">Auto-select</string>
+    <string name="no_connection_available">No connection method available</string>
+    <string name="connecting_via">Connecting via %s…</string>
+
+    <!-- Add Server Wizard -->
+    <string name="wizard_title_add_server">Add Server</string>
+    <string name="wizard_step_name">Name</string>
+    <string name="wizard_step_local">Local</string>
+    <string name="wizard_step_remote">Remote</string>
+    <string name="wizard_step_proxy">Proxy</string>
+
+    <string name="wizard_name_title">Server Name</string>
+    <string name="wizard_name_description">Give your server a friendly name</string>
+    <string name="wizard_name_hint">e.g., Living Room, Office</string>
+    <string name="wizard_name_required">Server name is required</string>
+
+    <string name="wizard_local_title">Local Connection</string>
+    <string name="wizard_local_description">Connect when on the same WiFi network</string>
+    <string name="wizard_local_discovered">Discovered on network</string>
+    <string name="wizard_local_no_servers">No servers found on this network</string>
+    <string name="wizard_local_manual_entry">Or enter manually</string>
+    <string name="wizard_local_address_hint">192.168.1.100:8927</string>
+    <string name="wizard_local_skip">Skip if you don\'t use local connections</string>
+
+    <string name="wizard_remote_title">Remote Access</string>
+    <string name="wizard_remote_description">Connect from anywhere using Music Assistant Remote ID</string>
+    <string name="wizard_remote_skip">Skip if you don\'t use Remote Access</string>
+
+    <string name="wizard_proxy_title">Proxy Connection</string>
+    <string name="wizard_proxy_description">Connect through your authenticated reverse proxy</string>
+    <string name="wizard_proxy_skip">Skip if you don\'t use a proxy</string>
+
+    <string name="wizard_at_least_one_method">Configure at least one connection method</string>
+    <string name="wizard_back">Back</string>
+    <string name="wizard_skip">Skip</string>
+    <string name="wizard_next">Next</string>
+    <string name="wizard_save">Save</string>
+
+    <!-- Accessibility - Unified Server -->
+    <string name="accessibility_server_card">Server %1$s, %2$s</string>
+    <string name="accessibility_connection_local">Local connection available</string>
+    <string name="accessibility_connection_remote">Remote connection available</string>
+    <string name="accessibility_connection_proxy">Proxy connection available</string>
+    <string name="accessibility_discovered_server">Discovered server, tap to quick connect</string>
+
+    <!-- Default Server -->
+    <string name="default_server">Default</string>
+    <string name="set_as_default">Set as default</string>
+    <string name="remove_default">Remove default</string>
+    <string name="accessibility_default_server">Default server, will connect automatically</string>
+
+    <!-- Server List Sections -->
+    <string name="saved_servers_section">Saved Servers</string>
+    <string name="nearby_servers_section">Nearby Servers</string>
+    <string name="scanning_ellipsis">Scanning…</string>
+    <string name="no_servers_yet">No servers yet</string>
+    <string name="no_saved_servers_hint">Add a server using the + button</string>
+    <string name="no_nearby_servers_hint">No servers found on this network</string>
+    <string name="auto_connecting_to_default">Auto-connecting to %s…</string>
 </resources>
