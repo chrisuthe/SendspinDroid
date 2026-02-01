@@ -21,6 +21,11 @@
         android:visible="false"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_add_unified_server"
+        android:title="@string/add_server"
+        android:icon="@drawable/ic_server"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_settings"
         android:title="@string/action_settings"
         android:icon="@drawable/ic_settings"
