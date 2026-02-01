@@ -37,3 +37,15 @@ android/app/release/
 # Claude temp files
 tmpclaude-*
 sendspin_debug_*.txt
+
+# Debug artifacts
+*.logcat
+Screenshot_*.jpg
+Screenshot_*.png
+
+# Build outputs (generated, not source)
+*.aab
+*.apk
+
+# Windows junk
+Thumbs.db
