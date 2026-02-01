@@ -5,22 +5,24 @@ package com.sendspindroid.model
  *
  * Flow:
  * ```
- * SEARCHING ──[server found]──► CONNECTING ──[success]──► CONNECTED
- *     │                              │
- *     │                              └─[failed]──► SEARCHING (retry)
+ * SERVER_LIST ──[user taps server]──► CONNECTING ──[success]──► CONNECTED
+ *     ▲                                    │
+ *     │                                    └─[failed]──► SERVER_LIST + Error
  *     │
- *     └─[timeout 10s]──► MANUAL_ENTRY
- *
- * CONNECTED ──[disconnect]──► MANUAL_ENTRY (user chose to disconnect)
+ * CONNECTED ──[disconnect]──► SERVER_LIST
  *          ──[error]──► RECONNECTING ──► CONNECTED
  * ```
+ *
+ * The ServerList state shows both saved servers and real-time mDNS discovered servers.
+ * If a default server is configured, auto-connect happens after a brief delay.
  */
 sealed class AppConnectionState {
     /**
-     * Initial state - searching for servers via mDNS.
-     * Auto-connects to first discovered server.
+     * Initial state - shows unified server list.
+     * Displays saved servers and discovered servers in sections.
+     * mDNS discovery runs in the background, updating the discovered list.
      */
-    object Searching : AppConnectionState()
+    object ServerList : AppConnectionState()
 
     /**
      * Attempting to connect to a server.
@@ -41,14 +43,6 @@ sealed class AppConnectionState {
         val attempt: Int,
         val nextRetrySeconds: Int
     ) : AppConnectionState()
-
-    /**
-     * Manual entry mode - shown when:
-     * - Discovery times out without finding servers
-     * - User manually disconnects
-     * - User wants to enter a server address manually
-     */
-    object ManualEntry : AppConnectionState()
 
     /**
      * Error state with message.
