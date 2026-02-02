@@ -161,8 +161,8 @@ class SendSpinClient(
     // Client identity - persisted across app launches
     private val clientId = UserSettings.getPlayerId()
 
-    // Time synchronization (Kalman filter)
-    private val timeFilter = SendspinTimeFilter()
+    // Time synchronization (Kalman filter) - dimension from user settings
+    private val timeFilter = SendspinTimeFilter(UserSettings.getKalmanDimension())
 
     // Reconnection state
     private val userInitiatedDisconnect = AtomicBoolean(false)

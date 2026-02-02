@@ -1130,6 +1130,12 @@ class SyncAudioPlayer(
         val written = track.write(silence, 0, silenceBytes)
         if (written <= 0) return
 
+        // CRITICAL: Track silence frames so sync error calculation is accurate
+        // Without this, totalFramesWritten excludes pre-cal silence but framePosition
+        // includes it, causing a mismatch that shows up as ~200ms initial sync error
+        val framesWritten = written / bytesPerFrame
+        totalFramesWritten += framesWritten
+
         // Try to get DAC timestamp for calibration
         if (track.getTimestamp(audioTimestamp)) {
             val dacTimeUs = audioTimestamp.nanoTime / 1000

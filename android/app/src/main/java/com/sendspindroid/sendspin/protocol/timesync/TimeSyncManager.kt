@@ -138,7 +138,7 @@ class TimeSyncManager(
         }
 
         val maxError = computeMaxError(measurement.rtt)
-        timeFilter.addMeasurement(measurement.offset, maxError, measurement.clientReceived)
+        timeFilter.addMeasurement(measurement.offset, maxError, measurement.clientReceived, measurement.rtt)
 
         if (timeFilter.isReady) {
             Log.v(tag, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs")
@@ -208,8 +208,8 @@ class TimeSyncManager(
                     (if (staleCount > 0) " ($staleCount stale rejected)" else "") +
                     ", best RTT=${best.rtt}μs, offset=${best.offset}μs")
 
-            // Feed only the best measurement to the Kalman filter
-            val accepted = timeFilter.addMeasurement(best.offset, maxError, best.clientReceived)
+            // Feed only the best measurement to the Kalman filter (including RTT for 4D mode)
+            val accepted = timeFilter.addMeasurement(best.offset, maxError, best.clientReceived, best.rtt)
 
             if (timeFilter.isReady) {
                 Log.v(tag, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs, " +

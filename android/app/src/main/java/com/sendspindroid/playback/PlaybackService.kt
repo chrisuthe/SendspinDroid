@@ -48,6 +48,7 @@ import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import com.sendspindroid.model.SyncStats
+import com.sendspindroid.sendspin.FilterDimension
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
@@ -131,6 +132,23 @@ class PlaybackService : MediaLibraryService() {
                 startDebugLogging()
             } else {
                 stopDebugLogging()
+            }
+        }
+    }
+
+    // BroadcastReceiver for Kalman dimension changes from settings
+    private val kalmanDimensionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val dimensionStr = intent.getStringExtra(
+                SettingsFragment.EXTRA_KALMAN_DIMENSION
+            ) ?: return
+
+            try {
+                val newDimension = FilterDimension.valueOf(dimensionStr)
+                sendSpinClient?.getTimeFilter()?.setDimension(newDimension)
+                Log.i(TAG, "Applied Kalman dimension change: $newDimension")
+            } catch (e: Exception) {
+                Log.e(TAG, "Invalid Kalman dimension: $dimensionStr", e)
             }
         }
     }
@@ -359,6 +377,12 @@ class PlaybackService : MediaLibraryService() {
         LocalBroadcastManager.getInstance(this).registerReceiver(
             debugLoggingReceiver,
             IntentFilter(SettingsFragment.ACTION_DEBUG_LOGGING_CHANGED)
+        )
+
+        // Register receiver for Kalman dimension changes from settings
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            kalmanDimensionReceiver,
+            IntentFilter(SettingsFragment.ACTION_KALMAN_DIMENSION_CHANGED)
         )
 
         // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)
@@ -1402,6 +1426,13 @@ class PlaybackService : MediaLibraryService() {
         val audioStats = syncAudioPlayer?.getStats() ?: return
         val timeFilter = sendSpinClient?.getTimeFilter() ?: return
 
+        // Map FilterDimension enum to integer for stats
+        val dimensionInt = when (timeFilter.currentDimension) {
+            FilterDimension.D2 -> 2
+            FilterDimension.D3 -> 3
+            FilterDimension.D4 -> 4
+        }
+
         val syncStats = SyncStats(
             playbackState = audioStats.playbackState,
             isPlaying = audioStats.isPlaying,
@@ -1423,13 +1454,23 @@ class PlaybackService : MediaLibraryService() {
             framesDropped = audioStats.framesDropped,
             syncCorrections = audioStats.syncCorrections,
             clockReady = timeFilter.isReady,
+            clockConverged = timeFilter.isConverged,
             clockOffsetUs = timeFilter.offsetMicros,
+            clockDriftPpm = timeFilter.driftPpm,
             clockErrorUs = timeFilter.errorMicros,
             measurementCount = timeFilter.measurementCountValue,
             totalFramesWritten = audioStats.totalFramesWritten,
             serverTimelineCursorUs = audioStats.serverTimelineCursorUs,
             scheduledStartLoopTimeUs = audioStats.scheduledStartLoopTimeUs,
-            firstServerTimestampUs = audioStats.firstServerTimestampUs
+            firstServerTimestampUs = audioStats.firstServerTimestampUs,
+            // 3D/4D filter diagnostics
+            filterDimension = dimensionInt,
+            accelerationUs2 = timeFilter.accelerationUs2,
+            expectedRttUs = timeFilter.expectedRttUs,
+            isRttReliable = timeFilter.isRttReliable,
+            networkChangeTriggerCount = timeFilter.networkChangeTriggers,
+            convergenceTimeMs = timeFilter.convergenceTimeMillis,
+            stabilityScore = timeFilter.stability
         )
 
         DebugLogger.logStats(syncStats)
@@ -2079,6 +2120,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Unregister debug logging receiver
         LocalBroadcastManager.getInstance(this).unregisterReceiver(debugLoggingReceiver)
+
+        // Unregister Kalman dimension receiver
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(kalmanDimensionReceiver)
 
         // Unregister volume observer (only if it was registered)
         if (volumeObserverRegistered) {
