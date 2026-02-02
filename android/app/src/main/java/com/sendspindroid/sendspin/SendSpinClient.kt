@@ -92,7 +92,12 @@ class SendSpinClient(
     interface Callback {
         fun onServerDiscovered(name: String, address: String)
         fun onConnected(serverName: String)
-        fun onDisconnected()
+        /**
+         * Called when disconnected from the server.
+         * @param wasUserInitiated true if the user explicitly requested disconnect
+         * @param wasReconnectExhausted true if internal reconnect attempts were exhausted
+         */
+        fun onDisconnected(wasUserInitiated: Boolean = false, wasReconnectExhausted: Boolean = false)
         fun onStateChanged(state: String)
         fun onGroupUpdate(groupId: String, groupName: String, playbackState: String)
         fun onMetadataUpdate(
@@ -541,7 +546,7 @@ class SendSpinClient(
         transport = null
         handshakeComplete = false
         _connectionState.value = ConnectionState.Disconnected
-        callback.onDisconnected()
+        callback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
     }
 
     fun play() = sendCommand("play")
@@ -633,7 +638,7 @@ class SendSpinClient(
             timeFilter.resetAndDiscard()
             _connectionState.value = ConnectionState.Error("Connection lost. Please reconnect manually.")
             callback.onError("Connection lost after $MAX_RECONNECT_ATTEMPTS reconnection attempts")
-            callback.onDisconnected()
+            callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
             return
         }
 
@@ -825,7 +830,10 @@ class SendSpinClient(
                 }
                 reconnecting.set(false)
                 _connectionState.value = ConnectionState.Disconnected
-                callback.onDisconnected()
+                callback.onDisconnected(
+                    wasUserInitiated = userInitiatedDisconnect.get(),
+                    wasReconnectExhausted = false
+                )
             }
         }
 
