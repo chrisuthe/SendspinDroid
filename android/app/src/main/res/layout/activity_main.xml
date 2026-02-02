@@ -317,6 +317,8 @@
                             android:layout_marginEnd="@dimen/playback_button_spacing"
                             android:contentDescription="@string/accessibility_previous_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusRight="@id/playPauseButton"
                             app:icon="@drawable/ic_skip_previous"
                             app:iconSize="@dimen/playback_icon_size_small" />
 
@@ -327,6 +329,9 @@
                             android:layout_height="@dimen/playback_button_size_large"
                             android:contentDescription="@string/accessibility_play_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusLeft="@id/previousButton"
+                            android:nextFocusRight="@id/nextButton"
                             android:stateListAnimator="@animator/button_scale"
                             app:icon="@drawable/ic_play"
                             app:iconSize="48dp"
@@ -340,6 +345,8 @@
                             android:layout_marginStart="@dimen/playback_button_spacing"
                             android:contentDescription="@string/accessibility_next_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusLeft="@id/playPauseButton"
                             app:icon="@drawable/ic_skip_next"
                             app:iconSize="@dimen/playback_icon_size_small" />
 

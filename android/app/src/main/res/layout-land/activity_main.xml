@@ -49,10 +49,11 @@
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <!-- ============================================================ -->
-        <!-- SEARCHING VIEW - Shown on startup while discovering servers  -->
+        <!-- SERVER LIST VIEW - Shows saved and discovered servers        -->
+        <!-- Uses embedded empty state for "Searching..." display         -->
         <!-- ============================================================ -->
         <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/searchingView"
+            android:id="@+id/serverListView"
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:visibility="visible"
@@ -61,47 +62,69 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
-            <com.google.android.material.progressindicator.CircularProgressIndicator
-                android:id="@+id/searchingProgressIndicator"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:indeterminate="true"
-                app:indicatorSize="64dp"
-                app:trackThickness="4dp"
-                app:layout_constraintBottom_toTopOf="@id/searchingStatusText"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintVertical_chainStyle="packed" />
-
-            <TextView
-                android:id="@+id/searchingStatusText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="@string/searching_for_servers"
-                android:textSize="16sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:accessibilityLiveRegion="polite"
-                app:layout_constraintBottom_toTopOf="@id/searchingManualButton"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/searchingProgressIndicator" />
-
-            <!-- Manual entry button - shown after timeout or user can tap anytime -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/searchingManualButton"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="32dp"
-                android:text="@string/enter_manually"
-                android:visibility="gone"
+            <!-- Server list with sections -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/serverListRecyclerView"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:clipToPadding="false"
+                android:paddingBottom="88dp"
+                android:importantForAccessibility="yes"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/searchingStatusText"
-                tools:visibility="visible" />
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <!-- Empty state (shown when no servers at all) -->
+            <LinearLayout
+                android:id="@+id/emptyServerListView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/ic_server"
+                    android:alpha="0.4"
+                    android:importantForAccessibility="no"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    android:id="@+id/emptyStateTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/no_servers_yet"
+                    android:textSize="16sp"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    android:id="@+id/emptyStateSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/searching_for_servers"
+                    android:textSize="14sp"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:alpha="0.7"
+                    android:gravity="center" />
+
+                <ProgressBar
+                    android:id="@+id/emptyStateProgress"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginTop="16dp"
+                    android:indeterminate="true" />
+
+            </LinearLayout>
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 
@@ -183,9 +206,9 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/serversLabel" />
 
-            <!-- Empty state when no servers are available -->
+            <!-- Empty state when no servers are available in manual entry view -->
             <LinearLayout
-                android:id="@+id/emptyServerListView"
+                android:id="@+id/manualEntryEmptyView"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
@@ -425,6 +448,8 @@
                             android:layout_marginEnd="12dp"
                             android:contentDescription="@string/accessibility_previous_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusRight="@id/playPauseButton"
                             app:icon="@drawable/ic_skip_previous"
                             app:iconSize="26dp" />
 
@@ -436,6 +461,9 @@
                             android:stateListAnimator="@animator/button_scale"
                             android:contentDescription="@string/accessibility_play_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusLeft="@id/previousButton"
+                            android:nextFocusRight="@id/nextButton"
                             app:icon="@drawable/ic_play"
                             app:iconSize="32dp" />
 
@@ -447,6 +475,9 @@
                             android:layout_marginStart="12dp"
                             android:contentDescription="@string/accessibility_next_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusLeft="@id/playPauseButton"
+                            android:nextFocusRight="@id/switchGroupButton"
                             app:icon="@drawable/ic_skip_next"
                             app:iconSize="26dp" />
 
@@ -458,6 +489,8 @@
                             android:layout_marginStart="20dp"
                             android:contentDescription="@string/accessibility_switch_group_button"
                             android:enabled="false"
+                            android:focusable="true"
+                            android:nextFocusLeft="@id/nextButton"
                             app:icon="@drawable/ic_swap_horiz"
                             app:iconSize="22dp" />
 
@@ -516,5 +549,18 @@
         </androidx.constraintlayout.widget.ConstraintLayout>
 
     </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- FAB for adding servers (visible on server list view) -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/addServerFab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:contentDescription="@string/add_server"
+        android:src="@drawable/ic_add"
+        android:visibility="visible"
+        app:tint="?attr/colorOnPrimaryContainer"
+        app:backgroundTint="?attr/colorPrimaryContainer" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

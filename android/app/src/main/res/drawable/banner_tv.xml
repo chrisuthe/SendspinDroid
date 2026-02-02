@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    TV Banner for Android TV launcher
+    Dimensions: 320x180dp (standard Android TV banner aspect ratio)
+    Shows app icon (play button in circle) centered on dark background
+
+    The Android TV launcher will show this banner alongside the app name
+    from the app label, so we just need a clean icon presentation.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Dark background -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M0,0h320v180h-320z" />
+
+    <!-- Subtle bottom gradient for depth -->
+    <path
+        android:fillColor="#0F0F1A"
+        android:fillAlpha="0.4"
+        android:pathData="M0,100Q160,80 320,100L320,180L0,180z" />
+
+    <!-- Outer circle (primary color - matches app theme) -->
+    <path
+        android:fillColor="#6366F1"
+        android:pathData="M160,90m-55,0a55,55 0,1 1,110 0a55,55 0,1 1,-110 0" />
+
+    <!-- Inner circle (creates ring effect) -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M160,90m-42,0a42,42 0,1 1,84 0a42,42 0,1 1,-84 0" />
+
+    <!-- Play triangle (white, centered in ring) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M148,68l30,22 -30,22z" />
+
+</vector>

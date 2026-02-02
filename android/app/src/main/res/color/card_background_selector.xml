@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Color state selector for server card backgrounds on Android TV.
+    Provides visual feedback when cards receive D-pad focus.
+
+    States:
+    - Focused: Uses colorPrimaryContainer for clear visual indication
+    - Default: Uses colorSurfaceContainerLow for subtle appearance
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Focused state: Highlight with primary container color -->
+    <item android:state_focused="true" android:color="?attr/colorPrimaryContainer" />
+    <!-- Default state: Standard surface color -->
+    <item android:color="?attr/colorSurfaceContainerLow" />
+</selector>

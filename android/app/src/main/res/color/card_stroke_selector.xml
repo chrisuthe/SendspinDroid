@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Stroke color state selector for server card on Android TV.
+    Provides clear visual feedback when cards receive D-pad focus
+    by showing a colored border around the focused card.
+
+    States:
+    - Focused: Uses primary color for visible border
+    - Default: Transparent (no border)
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Focused state: Primary color border -->
+    <item android:state_focused="true" android:color="?attr/colorPrimary" />
+    <!-- Default state: Transparent (no border visible) -->
+    <item android:color="@android:color/transparent" />
+</selector>
