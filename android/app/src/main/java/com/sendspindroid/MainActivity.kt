@@ -1,9 +1,11 @@
 package com.sendspindroid
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.database.ContentObserver
 import android.media.AudioManager
@@ -67,6 +69,8 @@ import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.model.ConnectionType
 import com.sendspindroid.network.AutoReconnectManager
 import com.sendspindroid.network.ConnectionSelector
+import com.sendspindroid.network.DefaultServerPinger
+import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
 import com.sendspindroid.ui.server.AddServerWizardDialog
@@ -133,6 +137,13 @@ class MainActivity : AppCompatActivity() {
 
     // Server being reconnected to (for tracking during auto-reconnect)
     private var reconnectingToServer: UnifiedServer? = null
+
+    // Default server pinger for remote/proxy auto-connect when mDNS unavailable
+    private var defaultServerPinger: DefaultServerPinger? = null
+    private var networkEvaluator: NetworkEvaluator? = null
+
+    // Charging state receiver for adaptive ping intervals
+    private var chargingReceiver: BroadcastReceiver? = null
 
     // Network state monitoring
     private val connectivityManager by lazy {
@@ -377,6 +388,7 @@ class MainActivity : AppCompatActivity() {
         // showSearchingView() which starts auto-discovery
         initializeDiscoveryManager()
         initializeAutoReconnectManager()
+        initializeDefaultServerPinger()
         initializeMediaController()
         setupUI()
 
@@ -677,12 +689,16 @@ class MainActivity : AppCompatActivity() {
         super.onStart()
         registerNetworkCallback()
         registerVolumeObserver()
+        // Notify pinger of foreground state for adaptive intervals
+        defaultServerPinger?.onForegroundChanged(true)
     }
 
     override fun onStop() {
         super.onStop()
         unregisterNetworkCallback()
         unregisterVolumeObserver()
+        // Notify pinger of background state for adaptive intervals
+        defaultServerPinger?.onForegroundChanged(false)
     }
 
     /**
@@ -733,6 +749,15 @@ class MainActivity : AppCompatActivity() {
                     Log.i(TAG, "Network available during auto-reconnect - triggering immediate retry")
                     autoReconnectManager?.onNetworkAvailable()
                 }
+                // Notify default server pinger of network change (may trigger immediate ping)
+                defaultServerPinger?.onNetworkChanged()
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                // Network type may have changed (WiFi ↔ cellular) - notify pinger
+                // This triggers re-evaluation of connection priority
+                networkEvaluator?.evaluateCurrentNetwork(network)
+                defaultServerPinger?.onNetworkChanged()
             }
 
             override fun onLost(network: Network) {
@@ -827,6 +852,12 @@ class MainActivity : AppCompatActivity() {
 
         // Check for default server and auto-connect after a brief delay
         checkDefaultServerAutoConnect()
+
+        // Start default server pinger for remote/proxy connections
+        // (mDNS only finds local servers; this pings remote/proxy when on cellular or away from home)
+        if (!userManuallyDisconnected) {
+            defaultServerPinger?.start()
+        }
     }
 
     /**
@@ -976,8 +1007,9 @@ class MainActivity : AppCompatActivity() {
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
 
-        // Stop discovery while connected (saves battery)
+        // Stop discovery and pinging while connected (saves battery)
         discoveryManager?.stopDiscovery()
+        defaultServerPinger?.stop()
         sectionedServerAdapter?.setScanning(false)
 
         // Sync volume slider with current device volume
@@ -1143,6 +1175,52 @@ class MainActivity : AppCompatActivity() {
             }
         )
         Log.d(TAG, "AutoReconnectManager initialized")
+    }
+
+    /**
+     * Initializes the DefaultServerPinger for remote/proxy auto-connect.
+     *
+     * When the default server isn't discovered via mDNS (user on cellular,
+     * server only has remote/proxy config, etc.), this pinger periodically
+     * checks if the server is reachable and triggers auto-connect on success.
+     */
+    private fun initializeDefaultServerPinger() {
+        // Initialize NetworkEvaluator for connection priority decisions
+        networkEvaluator = NetworkEvaluator(this)
+        networkEvaluator?.evaluateCurrentNetwork()
+
+        // Initialize the pinger
+        defaultServerPinger = DefaultServerPinger(
+            networkEvaluator = networkEvaluator!!,
+            onServerReachable = { server ->
+                runOnUiThread {
+                    // Only connect if conditions still allow
+                    if (!userManuallyDisconnected &&
+                        connectionState == AppConnectionState.ServerList &&
+                        autoReconnectManager?.isReconnecting() != true) {
+                        Log.i(TAG, "Default server reachable via ping - auto-connecting to ${server.name}")
+                        onUnifiedServerSelected(server)
+                    } else {
+                        Log.d(TAG, "Ping found server but conditions changed - skipping connect")
+                    }
+                }
+            }
+        )
+
+        // Register charging state receiver for adaptive ping intervals
+        chargingReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val isCharging = intent.action == Intent.ACTION_POWER_CONNECTED
+                Log.d(TAG, "Charging state changed: isCharging=$isCharging")
+                defaultServerPinger?.onChargingChanged(isCharging)
+            }
+        }
+        registerReceiver(chargingReceiver, IntentFilter().apply {
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+        }, Context.RECEIVER_NOT_EXPORTED)
+
+        Log.d(TAG, "DefaultServerPinger initialized")
     }
 
     /**
@@ -1857,6 +1935,7 @@ class MainActivity : AppCompatActivity() {
         } else if (connectionState is AppConnectionState.Connected) {
             // User switching from one server to another (non-default) - block auto-connect
             userManuallyDisconnected = true
+            defaultServerPinger?.stop()  // Don't ping after manual switch
             Log.d(TAG, "User switched to non-default server - set userManuallyDisconnected flag")
         }
 
@@ -2144,6 +2223,7 @@ class MainActivity : AppCompatActivity() {
 
         // User explicitly chose to disconnect - block auto-connect to default server
         userManuallyDisconnected = true
+        defaultServerPinger?.stop()  // Don't ping after manual disconnect
 
         try {
             val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
@@ -2807,5 +2887,17 @@ class MainActivity : AppCompatActivity() {
         // Cleanup AutoReconnectManager
         autoReconnectManager?.destroy()
         autoReconnectManager = null
+
+        // Cleanup DefaultServerPinger and charging receiver
+        defaultServerPinger?.destroy()
+        defaultServerPinger = null
+        chargingReceiver?.let {
+            try {
+                unregisterReceiver(it)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to unregister charging receiver", e)
+            }
+        }
+        chargingReceiver = null
     }
 }
