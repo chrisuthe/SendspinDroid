@@ -1,5 +1,8 @@
 package com.sendspindroid.ui.server
 
+import android.app.UiModeManager
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -699,6 +702,12 @@ class AddServerWizardDialog : DialogFragment() {
         private val binding get() = _binding!!
         private var isFormatting = false
 
+        // Android TV detection - cameras on TV devices point away from user
+        private val isTvDevice: Boolean by lazy {
+            val uiModeManager = requireContext().getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+            uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        }
+
         override fun onCreateView(
             inflater: LayoutInflater,
             container: ViewGroup?,
@@ -745,10 +754,14 @@ class AddServerWizardDialog : DialogFragment() {
                 }
             })
 
-            // QR scanner button
-            binding.remoteIdInputLayout.setEndIconOnClickListener {
-                QrScannerDialog.show(childFragmentManager) { scannedId ->
-                    binding.remoteIdInput.setText(RemoteConnection.formatRemoteId(scannedId))
+            // QR scanner button - hide on TV devices where cameras point away from user
+            if (isTvDevice) {
+                binding.remoteIdInputLayout.isEndIconVisible = false
+            } else {
+                binding.remoteIdInputLayout.setEndIconOnClickListener {
+                    QrScannerDialog.show(childFragmentManager) { scannedId ->
+                        binding.remoteIdInput.setText(RemoteConnection.formatRemoteId(scannedId))
+                    }
                 }
             }
         }

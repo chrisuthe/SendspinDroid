@@ -91,6 +91,8 @@ class UnifiedServerAdapter(
             status: ServerStatus,
             callback: Callback
         ) {
+            val context = binding.root.context
+
             // Server name
             binding.serverName.text = server.name
 
@@ -112,10 +114,24 @@ class UnifiedServerAdapter(
             // Default server indicator (star icon)
             binding.defaultIndicator.visibility = if (server.isDefaultServer) View.VISIBLE else View.GONE
 
-            // Quick Connect chip (only for discovered servers)
-            binding.quickConnectChip.visibility = if (server.isDiscovered) View.VISIBLE else View.GONE
-            binding.quickConnectChip.setOnClickListener {
-                callback.onQuickConnect(server)
+            // Quick Connect chip (phone layout only - null on TV layout)
+            binding.quickConnectChip?.let { chip ->
+                chip.visibility = if (server.isDiscovered) View.VISIBLE else View.GONE
+                chip.setOnClickListener {
+                    callback.onQuickConnect(server)
+                }
+            }
+
+            // Save button (TV layout only - null on phone layout)
+            binding.saveButton?.let { btn ->
+                if (server.isDiscovered) {
+                    btn.visibility = View.VISIBLE
+                    btn.setOnClickListener {
+                        callback.onServerClick(server)  // Opens wizard to save
+                    }
+                } else {
+                    btn.visibility = View.GONE
+                }
             }
 
             // Status indicator color
@@ -126,19 +142,25 @@ class UnifiedServerAdapter(
                 ServerStatus.ERROR -> R.color.status_error
             }
             binding.statusIndicator.setBackgroundColor(
-                ContextCompat.getColor(binding.root.context, statusColor)
+                ContextCompat.getColor(context, statusColor)
             )
 
             // For discovered servers without explicit status, show as discovered (green)
             if (server.isDiscovered && status == ServerStatus.DISCONNECTED) {
                 binding.statusIndicator.setBackgroundColor(
-                    ContextCompat.getColor(binding.root.context, R.color.status_discovered)
+                    ContextCompat.getColor(context, R.color.status_discovered)
                 )
             }
 
             // Click listener
+            // Discovered servers: Card click = Quick Connect (works for both TV and phone)
+            // Saved servers: Card click = Connect (wizard for editing)
             binding.root.setOnClickListener {
-                callback.onServerClick(server)
+                if (server.isDiscovered) {
+                    callback.onQuickConnect(server)
+                } else {
+                    callback.onServerClick(server)
+                }
             }
 
             // Long click listener
@@ -148,16 +170,16 @@ class UnifiedServerAdapter(
 
             // Content description for accessibility
             val methodsDesc = buildList {
-                if (server.local != null) add(binding.root.context.getString(R.string.connection_method_local))
-                if (server.remote != null) add(binding.root.context.getString(R.string.connection_method_remote))
-                if (server.proxy != null) add(binding.root.context.getString(R.string.connection_method_proxy))
+                if (server.local != null) add(context.getString(R.string.connection_method_local))
+                if (server.remote != null) add(context.getString(R.string.connection_method_remote))
+                if (server.proxy != null) add(context.getString(R.string.connection_method_proxy))
             }.joinToString(", ")
 
             val defaultDesc = if (server.isDefaultServer) {
-                ", ${binding.root.context.getString(R.string.accessibility_default_server)}"
+                ", ${context.getString(R.string.accessibility_default_server)}"
             } else ""
 
-            binding.root.contentDescription = binding.root.context.getString(
+            binding.root.contentDescription = context.getString(
                 R.string.accessibility_server_card,
                 server.name,
                 methodsDesc.ifEmpty { "no connections" }

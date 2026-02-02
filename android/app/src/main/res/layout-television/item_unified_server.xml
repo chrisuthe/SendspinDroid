@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    TV-optimized server list item layout.
+
+    Key differences from phone layout:
+    - Card click = Connect directly (primary action for D-pad center)
+    - Larger text (20sp/16sp for 10ft readability)
+    - Larger margins/padding (48dp minimum touch targets)
+    - No Quick Connect chip (card click IS quick connect)
+    - Visible "Save" button for discovered servers (focusable secondary action)
+    - Stronger focus indicator (3dp stroke)
+
+    The layout-television qualifier ensures this layout is automatically
+    selected on Android TV devices without runtime checks.
+-->
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/serverCard"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="24dp"
+    android:layout_marginVertical="12dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:focusableInTouchMode="false"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="4dp"
+    app:strokeColor="@color/card_stroke_selector"
+    app:strokeWidth="3dp"
+    app:rippleColor="?attr/colorControlHighlight">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="20dp"
+        android:gravity="center_vertical">
+
+        <!-- Connection Status Indicator -->
+        <View
+            android:id="@+id/statusIndicator"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:background="@drawable/status_indicator_background"
+            tools:backgroundTint="@color/status_discovered" />
+
+        <!-- Server Info -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="16dp"
+            android:orientation="vertical">
+
+            <!-- Server Name (Headline) -->
+            <TextView
+                android:id="@+id/serverName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodyLarge"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold"
+                android:textSize="20sp"
+                tools:text="Living Room Speaker" />
+
+            <!-- Server Subtitle (Last Connected or Address) -->
+            <TextView
+                android:id="@+id/serverSubtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="16sp"
+                tools:text="192.168.1.100:5000" />
+
+        </LinearLayout>
+
+        <!-- Connection Methods Container -->
+        <LinearLayout
+            android:id="@+id/connectionMethodsContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="16dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Local Connection Icon (WiFi) -->
+            <ImageView
+                android:id="@+id/iconLocal"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_wifi"
+                android:visibility="gone"
+                android:contentDescription="@string/accessibility_connection_local"
+                app:tint="?attr/colorOnSurfaceVariant"
+                tools:visibility="visible" />
+
+            <!-- Remote Connection Icon (Cloud) -->
+            <ImageView
+                android:id="@+id/iconRemote"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_marginEnd="8dp"
+                android:src="@drawable/ic_cloud_connected"
+                android:visibility="gone"
+                android:contentDescription="@string/accessibility_connection_remote"
+                app:tint="?attr/colorOnSurfaceVariant"
+                tools:visibility="visible" />
+
+            <!-- Proxy Connection Icon (VPN Key) -->
+            <ImageView
+                android:id="@+id/iconProxy"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_vpn_key"
+                android:visibility="gone"
+                android:contentDescription="@string/accessibility_connection_proxy"
+                app:tint="?attr/colorOnSurfaceVariant"
+                tools:visibility="visible" />
+
+        </LinearLayout>
+
+        <!-- Default Server Indicator (Star) -->
+        <ImageView
+            android:id="@+id/defaultIndicator"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="16dp"
+            android:src="@drawable/ic_star"
+            android:visibility="gone"
+            android:contentDescription="@string/accessibility_default_server"
+            app:tint="?attr/colorPrimary"
+            tools:visibility="visible" />
+
+        <!-- Save Button (for discovered servers - focusable secondary action on TV) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/saveButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="@string/wizard_save"
+            android:visibility="gone"
+            android:focusable="true"
+            android:minWidth="88dp"
+            style="@style/Widget.Material3.Button.TonalButton"
+            tools:visibility="visible" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>
