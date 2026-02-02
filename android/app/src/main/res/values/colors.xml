@@ -104,6 +104,7 @@
     <color name="status_connected">#2196F3</color>       <!-- Blue - connected and active -->
     <color name="status_error">#F44336</color>           <!-- Red - connection error -->
     <color name="status_disconnected">#9E9E9E</color>    <!-- Gray - disconnected -->
+    <color name="status_reconnecting">#FFC107</color>    <!-- Amber - auto-reconnecting -->
 
     <!-- Stats for Nerds - Indicator colors (light mode values, dark variants in values-night) -->
     <color name="stats_value_good">#16a34a</color>           <!-- Green - good values (dark green for light backgrounds) -->

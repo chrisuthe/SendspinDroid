@@ -74,11 +74,21 @@ class SectionedServerAdapter(
      */
     enum class ServerStatus {
         DISCONNECTED,
-        ONLINE,       // Server discovered on network but not connected
+        ONLINE,        // Server discovered on network but not connected
         CONNECTING,
         CONNECTED,
+        RECONNECTING,  // Auto-reconnect in progress
         ERROR
     }
+
+    /**
+     * Reconnection progress info for a server.
+     */
+    data class ReconnectProgress(
+        val attempt: Int,
+        val maxAttempts: Int,
+        val currentMethod: String? = null
+    )
 
     // Internal data
     private var savedServers: List<UnifiedServer> = emptyList()
@@ -88,6 +98,9 @@ class SectionedServerAdapter(
 
     // Track status per server ID
     private val serverStatuses = mutableMapOf<String, ServerStatus>()
+
+    // Track reconnection progress per server ID
+    private val reconnectProgress = mutableMapOf<String, ReconnectProgress>()
 
     /**
      * Update the saved servers section.
@@ -121,6 +134,32 @@ class SectionedServerAdapter(
      */
     fun setServerStatus(serverId: String, status: ServerStatus) {
         serverStatuses[serverId] = status
+        // Clear reconnect progress if status is not RECONNECTING
+        if (status != ServerStatus.RECONNECTING) {
+            reconnectProgress.remove(serverId)
+        }
+        notifyDataSetChanged()
+    }
+
+    /**
+     * Update reconnection progress for a server.
+     * Also sets the status to RECONNECTING.
+     */
+    fun setReconnectProgress(serverId: String, attempt: Int, maxAttempts: Int, currentMethod: String? = null) {
+        serverStatuses[serverId] = ServerStatus.RECONNECTING
+        reconnectProgress[serverId] = ReconnectProgress(attempt, maxAttempts, currentMethod)
+        notifyDataSetChanged()
+    }
+
+    /**
+     * Clear reconnection state for a server.
+     */
+    fun clearReconnectProgress(serverId: String) {
+        reconnectProgress.remove(serverId)
+        // Only reset to DISCONNECTED if currently RECONNECTING
+        if (serverStatuses[serverId] == ServerStatus.RECONNECTING) {
+            serverStatuses[serverId] = ServerStatus.DISCONNECTED
+        }
         notifyDataSetChanged()
     }
 
@@ -129,6 +168,7 @@ class SectionedServerAdapter(
      */
     fun clearStatuses() {
         serverStatuses.clear()
+        reconnectProgress.clear()
         notifyDataSetChanged()
     }
 
@@ -227,7 +267,8 @@ class SectionedServerAdapter(
             is ListItem.Header -> (holder as HeaderViewHolder).bind(item)
             is ListItem.Server -> {
                 val status = serverStatuses[item.server.id] ?: ServerStatus.DISCONNECTED
-                (holder as ServerViewHolder).bind(item.server, status, callback)
+                val progress = reconnectProgress[item.server.id]
+                (holder as ServerViewHolder).bind(item.server, status, progress, callback)
             }
         }
     }
@@ -272,13 +313,27 @@ class SectionedServerAdapter(
         fun bind(
             server: UnifiedServer,
             status: ServerStatus,
+            reconnectProgress: ReconnectProgress?,
             callback: Callback
         ) {
+            val context = binding.root.context
+
             // Server name
             binding.serverName.text = server.name
 
-            // Subtitle: show address for discovered, last connected for saved
+            // Subtitle: show reconnect progress, address for discovered, or last connected for saved
             binding.serverSubtitle.text = when {
+                status == ServerStatus.RECONNECTING && reconnectProgress != null -> {
+                    if (reconnectProgress.currentMethod != null) {
+                        context.getString(R.string.reconnecting_via_method, reconnectProgress.currentMethod)
+                    } else {
+                        context.getString(
+                            R.string.reconnecting_progress,
+                            reconnectProgress.attempt,
+                            reconnectProgress.maxAttempts
+                        )
+                    }
+                }
                 server.isDiscovered && server.local != null -> server.local.address
                 server.lastConnectedMs > 0 -> server.formattedLastConnected
                 server.local != null -> server.local.address
@@ -295,27 +350,31 @@ class SectionedServerAdapter(
             // Default server indicator (star icon)
             binding.defaultIndicator.visibility = if (server.isDefaultServer) View.VISIBLE else View.GONE
 
-            // Quick Connect chip (only for discovered servers)
-            binding.quickConnectChip.visibility = if (server.isDiscovered) View.VISIBLE else View.GONE
+            // Quick Connect chip (only for discovered servers, hidden during reconnection)
+            binding.quickConnectChip.visibility = when {
+                status == ServerStatus.RECONNECTING -> View.GONE
+                server.isDiscovered -> View.VISIBLE
+                else -> View.GONE
+            }
             binding.quickConnectChip.setOnClickListener {
                 callback.onQuickConnect(server)
             }
 
             // Status indicator color
-            val context = binding.root.context
             val statusColor = when (status) {
                 ServerStatus.DISCONNECTED -> R.color.status_disconnected
                 ServerStatus.ONLINE -> R.color.status_discovered  // Green - available on network
                 ServerStatus.CONNECTING -> R.color.status_connecting
                 ServerStatus.CONNECTED -> R.color.status_connected
+                ServerStatus.RECONNECTING -> R.color.status_reconnecting  // Amber - auto-reconnecting
                 ServerStatus.ERROR -> R.color.status_error
             }
             binding.statusIndicator.setBackgroundColor(
                 ContextCompat.getColor(context, statusColor)
             )
 
-            // For discovered servers, always show as online (green)
-            if (server.isDiscovered) {
+            // For discovered servers (not reconnecting), always show as online (green)
+            if (server.isDiscovered && status != ServerStatus.RECONNECTING) {
                 binding.statusIndicator.setBackgroundColor(
                     ContextCompat.getColor(context, R.color.status_discovered)
                 )
@@ -342,11 +401,15 @@ class SectionedServerAdapter(
                 ", ${context.getString(R.string.accessibility_default_server)}"
             } else ""
 
+            val statusDesc = if (status == ServerStatus.RECONNECTING && reconnectProgress != null) {
+                ", ${context.getString(R.string.accessibility_reconnecting, reconnectProgress.attempt, reconnectProgress.maxAttempts)}"
+            } else ""
+
             binding.root.contentDescription = context.getString(
                 R.string.accessibility_server_card,
                 server.name,
                 methodsDesc.ifEmpty { "no connections" }
-            ) + defaultDesc
+            ) + defaultDesc + statusDesc
         }
     }
 
