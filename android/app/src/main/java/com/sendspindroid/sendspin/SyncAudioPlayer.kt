@@ -1061,11 +1061,16 @@ class SyncAudioPlayer(
                     }
                 }
 
-                // CRITICAL: Update firstServerTimestampUs to match what we're actually playing
+                // CRITICAL: Update timing anchors to match what we're actually playing
                 // The first chunk we'll play is now at the front of the queue
                 val firstPlayableChunk = chunkQueue.peek()
                 if (firstPlayableChunk != null) {
                     firstServerTimestampUs = firstPlayableChunk.serverTimeMicros
+                    // FIX: Also recalculate scheduled start to match the new first chunk
+                    // Without this, scheduledStartLoopTimeUs points to the ORIGINAL first chunk
+                    // while firstServerTimestampUs points to the NEW first chunk after drops,
+                    // causing a timing mismatch that results in large initial sync errors
+                    scheduledStartLoopTimeUs = timeFilter.serverToClient(firstPlayableChunk.serverTimeMicros)
                 }
 
                 // Set initial playbackStartTimeUs, will be calibrated from first AudioTimestamp
@@ -1081,6 +1086,15 @@ class SyncAudioPlayer(
             }
             else -> {
                 // Within tolerance - start playing
+                // Verify timing anchor matches actual first chunk (may have changed during wait)
+                val firstChunk = chunkQueue.peek()
+                if (firstChunk != null && firstServerTimestampUs != firstChunk.serverTimeMicros) {
+                    val oldServerTs = firstServerTimestampUs
+                    firstServerTimestampUs = firstChunk.serverTimeMicros
+                    scheduledStartLoopTimeUs = timeFilter.serverToClient(firstChunk.serverTimeMicros)
+                    Log.d(TAG, "Realigned timing anchor: serverTs ${oldServerTs}->${firstServerTimestampUs}")
+                }
+
                 // Set initial playbackStartTimeUs, will be calibrated from first AudioTimestamp
                 val actualStartTime = System.nanoTime() / 1000
                 playbackStartTimeUs = actualStartTime
@@ -1089,6 +1103,41 @@ class SyncAudioPlayer(
                 setPlaybackState(PlaybackState.PLAYING)
                 Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, actualStartTime=${actualStartTime/1000}ms, now PLAYING")
                 return false  // Ready to play
+            }
+        }
+    }
+
+    /**
+     * Pre-calibrate DAC timing by writing silence during WAITING_FOR_START.
+     *
+     * This allows us to gather DAC calibration pairs before real audio arrives,
+     * making sync error calculations reliable from the first measurement.
+     *
+     * Android's AudioTimestamp API requires ~21k frames (~443ms at 48kHz) to be
+     * played before returning valid data. By actively writing silence during
+     * the wait period, we can establish DAC calibration BEFORE real playback
+     * begins, avoiding the large initial sync error (~848ms) that would otherwise
+     * occur while waiting for calibration.
+     */
+    private fun preCalibrateDacTiming() {
+        val track = audioTrack ?: return
+
+        // Write a small silence frame (10ms = 480 frames at 48kHz)
+        val silenceFrames = sampleRate / 100  // 10ms of silence
+        val silenceBytes = silenceFrames * bytesPerFrame
+        val silence = ByteArray(silenceBytes)  // Zeros = silence
+
+        val written = track.write(silence, 0, silenceBytes)
+        if (written <= 0) return
+
+        // Try to get DAC timestamp for calibration
+        if (track.getTimestamp(audioTimestamp)) {
+            val dacTimeUs = audioTimestamp.nanoTime / 1000
+            val loopTimeUs = System.nanoTime() / 1000
+
+            // Sanity check - only store valid timestamps (framePosition > 0 means DAC has started)
+            if (audioTimestamp.framePosition > 0) {
+                storeDacCalibration(dacTimeUs, loopTimeUs)
             }
         }
     }
@@ -1206,12 +1255,17 @@ class SyncAudioPlayer(
                         // Check if we have enough buffer before starting
                         val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
                         if (bufferedMs < MIN_BUFFER_BEFORE_START_MS) {
+                            // Pre-calibrate DAC timing while waiting for buffer to fill
+                            // This establishes timing calibration BEFORE real audio arrives
+                            preCalibrateDacTiming()
                             delay(STATE_POLL_DELAY_MS)
                             continue
                         }
 
                         // Handle start gating logic
                         if (handleStartGating()) {
+                            // Still waiting for scheduled start - continue pre-calibration
+                            preCalibrateDacTiming()
                             delay(STATE_POLL_DELAY_MS)  // Still waiting for scheduled start
                             continue
                         }
