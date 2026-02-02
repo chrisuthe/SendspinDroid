@@ -26,7 +26,9 @@ import android.os.Looper
 import android.util.Log
 import com.sendspindroid.debug.FileLogger
 import android.util.TypedValue
+import android.app.UiModeManager
 import android.view.HapticFeedbackConstants
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
@@ -156,6 +158,12 @@ class MainActivity : AppCompatActivity() {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
     private var volumeObserver: ContentObserver? = null
+
+    // Android TV detection - used for D-pad navigation and remote control handling
+    private val isTvDevice: Boolean by lazy {
+        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+        uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+    }
 
     // Permission request launcher for POST_NOTIFICATIONS (Android 13+)
     private val notificationPermissionLauncher = registerForActivityResult(
@@ -2899,5 +2907,83 @@ class MainActivity : AppCompatActivity() {
             }
         }
         chargingReceiver = null
+    }
+
+    // ============================================================================
+    // Android TV Remote Control Support
+    // ============================================================================
+
+    /**
+     * Handles key events from TV remotes and D-pad controllers.
+     *
+     * Media keys (play/pause, next, previous) are handled when connected to a server.
+     * On TV devices, volume up/down keys adjust the app volume slider instead of
+     * system volume, providing a more intuitive experience.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // Handle media keys when connected to a server
+        when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                if (connectionState is AppConnectionState.Connected) {
+                    onPlayPauseClicked()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                if (connectionState is AppConnectionState.Connected) {
+                    onPlayPauseClicked()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                if (connectionState is AppConnectionState.Connected) {
+                    onPlayPauseClicked()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                if (connectionState is AppConnectionState.Connected) {
+                    onNextClicked()
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                if (connectionState is AppConnectionState.Connected) {
+                    onPreviousClicked()
+                    return true
+                }
+            }
+            // On TV devices, handle volume keys to adjust app volume
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                if (isTvDevice && connectionState is AppConnectionState.Connected) {
+                    adjustVolume(+5)
+                    return true
+                }
+            }
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                if (isTvDevice && connectionState is AppConnectionState.Connected) {
+                    adjustVolume(-5)
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    /**
+     * Adjusts the volume slider by a delta value.
+     * Used for TV remote volume button handling.
+     *
+     * @param delta The amount to adjust (positive = up, negative = down)
+     */
+    private fun adjustVolume(delta: Int) {
+        val currentValue = binding.volumeSlider.value.toInt()
+        val newValue = (currentValue + delta).coerceIn(0, 100)
+        binding.volumeSlider.value = newValue.toFloat()
+        onVolumeChanged(newValue / 100f)
+
+        // Provide feedback
+        updateVolumeAccessibility(newValue)
+        announceForAccessibility("Volume $newValue percent")
     }
 }
