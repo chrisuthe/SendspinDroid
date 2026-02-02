@@ -350,14 +350,30 @@ class SectionedServerAdapter(
             // Default server indicator (star icon)
             binding.defaultIndicator.visibility = if (server.isDefaultServer) View.VISIBLE else View.GONE
 
-            // Quick Connect chip (only for discovered servers, hidden during reconnection)
-            binding.quickConnectChip.visibility = when {
-                status == ServerStatus.RECONNECTING -> View.GONE
-                server.isDiscovered -> View.VISIBLE
-                else -> View.GONE
+            // Quick Connect chip (phone layout only - null on TV layout)
+            // On phone: visible for discovered servers, hidden during reconnection
+            binding.quickConnectChip?.let { chip ->
+                chip.visibility = when {
+                    status == ServerStatus.RECONNECTING -> View.GONE
+                    server.isDiscovered -> View.VISIBLE
+                    else -> View.GONE
+                }
+                chip.setOnClickListener {
+                    callback.onQuickConnect(server)
+                }
             }
-            binding.quickConnectChip.setOnClickListener {
-                callback.onQuickConnect(server)
+
+            // Save button (TV layout only - null on phone layout)
+            // On TV: visible for discovered servers so users can save without connecting
+            binding.saveButton?.let { btn ->
+                if (server.isDiscovered && status != ServerStatus.RECONNECTING) {
+                    btn.visibility = View.VISIBLE
+                    btn.setOnClickListener {
+                        callback.onServerClick(server)  // Opens wizard to save
+                    }
+                } else {
+                    btn.visibility = View.GONE
+                }
             }
 
             // Status indicator color
@@ -381,8 +397,16 @@ class SectionedServerAdapter(
             }
 
             // Click listener
+            // Discovered servers: Card click = Quick Connect (works for both TV and phone)
+            // Saved servers: Card click = Connect (wizard for editing)
             binding.root.setOnClickListener {
-                callback.onServerClick(server)
+                if (server.isDiscovered) {
+                    // Discovered server: connect directly
+                    callback.onQuickConnect(server)
+                } else {
+                    // Saved server: open for viewing/editing
+                    callback.onServerClick(server)
+                }
             }
 
             // Long click listener
