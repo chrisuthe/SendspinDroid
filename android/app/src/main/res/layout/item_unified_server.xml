@@ -20,9 +20,11 @@
     android:layout_marginVertical="8dp"
     android:clickable="true"
     android:focusable="true"
+    android:focusableInTouchMode="false"
     app:cardCornerRadius="12dp"
     app:cardElevation="2dp"
-    app:strokeWidth="0dp"
+    app:strokeColor="@color/card_stroke_selector"
+    app:strokeWidth="2dp"
     app:rippleColor="?attr/colorControlHighlight">
 
     <androidx.constraintlayout.widget.ConstraintLayout
