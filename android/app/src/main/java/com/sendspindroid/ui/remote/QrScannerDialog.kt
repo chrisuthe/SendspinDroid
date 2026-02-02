@@ -221,8 +221,9 @@ class QrScannerDialog : DialogFragment() {
 
         for (barcode in barcodes) {
             val rawValue = barcode.rawValue ?: continue
+            Log.d(TAG, "Barcode scanned: $rawValue")
 
-            // Try to parse as Remote ID
+            // Try to parse as Remote ID (handles URLs and raw IDs)
             val remoteId = RemoteConnection.parseRemoteId(rawValue)
             if (remoteId != null) {
                 scanComplete = true
@@ -240,6 +241,8 @@ class QrScannerDialog : DialogFragment() {
                     }, 500)
                 }
                 return
+            } else {
+                Log.w(TAG, "Barcode rejected - no valid Remote ID found in: $rawValue")
             }
         }
     }

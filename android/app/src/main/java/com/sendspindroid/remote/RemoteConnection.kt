@@ -39,7 +39,8 @@ class RemoteConnection(private val context: Context) {
          * @return true if the format is valid
          */
         fun isValidRemoteId(remoteId: String): Boolean {
-            return remoteId.length == 26 && remoteId.all { it.isLetterOrDigit() && it.isUpperCase() }
+            // Must be 26 chars, all alphanumeric, no lowercase letters
+            return remoteId.length == 26 && remoteId.all { it.isDigit() || (it.isLetter() && it.isUpperCase()) }
         }
 
         /**
@@ -56,11 +57,43 @@ class RemoteConnection(private val context: Context) {
         /**
          * Parse a potentially formatted Remote ID back to raw format.
          *
-         * @param input User input (may contain dashes, spaces, lowercase)
+         * Handles multiple input formats:
+         * - Raw 26-character ID: "VVPN3TLP34YMGIZDINCEKQKSIR"
+         * - Formatted with dashes: "VVPN3-TLP34-YMGIZ-DINCE-KQKSI-R"
+         * - Full URL from QR code: "https://app.music-assistant.io/remote/VVPN3TLP34YMGIZDINCEKQKSIR"
+         * - URL with query params: "https://example.com/?id=VVPN3TLP34YMGIZDINCEKQKSIR"
+         *
+         * @param input User input (may be URL, contain dashes, spaces, lowercase)
          * @return Cleaned 26-character ID or null if invalid
          */
         fun parseRemoteId(input: String): String? {
+            Log.d(TAG, "parseRemoteId input: $input")
+
+            // URL patterns for Music Assistant remote links
+            val urlPatterns = listOf(
+                Regex("""\?remote_id=([A-Za-z0-9]+)"""),                        // ?remote_id=ID (Music Assistant format)
+                Regex("""[?&]remote_id=([A-Za-z0-9-]+)"""),                     // ?remote_id=ID or &remote_id=ID
+                Regex("""app\.music-assistant\.io/[^/]*/([A-Za-z0-9-]+)"""),    // .../remote/ID or similar path
+                Regex("""/remote/([A-Za-z0-9-]+)"""),                           // /remote/ID (generic path)
+                Regex("""[?&]id=([A-Za-z0-9-]+)"""),                            // ?id=ID or &id=ID (fallback)
+            )
+
+            for (pattern in urlPatterns) {
+                val match = pattern.find(input)
+                Log.d(TAG, "Pattern ${pattern.pattern} -> match=${match?.value}, group1=${match?.groupValues?.getOrNull(1)}")
+                match?.groupValues?.getOrNull(1)?.let { captured ->
+                    val cleaned = captured.uppercase().filter { it.isLetterOrDigit() }
+                    Log.d(TAG, "Captured: $captured, cleaned: $cleaned, length: ${cleaned.length}")
+                    if (isValidRemoteId(cleaned)) {
+                        Log.d(TAG, "Extracted Remote ID from URL pattern: ${formatRemoteId(cleaned)}")
+                        return cleaned
+                    }
+                }
+            }
+
+            // Fallback: try direct parse (raw ID input, possibly with dashes/spaces)
             val cleaned = input.uppercase().filter { it.isLetterOrDigit() }
+            Log.d(TAG, "Fallback cleaned: $cleaned, length: ${cleaned.length}")
             return if (isValidRemoteId(cleaned)) cleaned else null
         }
     }
