@@ -359,4 +359,12 @@
     <string name="no_saved_servers_hint">Add a server using the + button</string>
     <string name="no_nearby_servers_hint">No servers found on this network</string>
     <string name="auto_connecting_to_default">Auto-connecting to %s…</string>
+
+    <!-- Auto-Reconnection -->
+    <string name="reconnecting_progress">Reconnecting (%1$d/%2$d)…</string>
+    <string name="reconnecting_via_method">Trying %s…</string>
+    <string name="reconnecting_failed">Connection lost after %d attempts</string>
+    <string name="reconnecting_cancelled">Reconnection cancelled</string>
+    <string name="reconnecting_toolbar_subtitle">Reconnecting…</string>
+    <string name="accessibility_reconnecting">Reconnecting to server, attempt %1$d of %2$d</string>
 </resources>

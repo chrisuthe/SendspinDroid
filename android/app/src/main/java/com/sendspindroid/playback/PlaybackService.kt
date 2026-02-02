@@ -146,7 +146,7 @@ class PlaybackService : MediaLibraryService() {
     private var decoderReady = false
 
     // Connection state exposed as StateFlow for observers
-    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
+    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected())
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     // Playback state exposed as StateFlow (like Python CLI's AppState)
@@ -287,6 +287,8 @@ class PlaybackService : MediaLibraryService() {
         const val EXTRA_CONNECTION_STATE = "connection_state"
         const val EXTRA_SERVER_NAME = "server_name"
         const val EXTRA_ERROR_MESSAGE = "error_message"
+        const val EXTRA_WAS_USER_INITIATED = "was_user_initiated"
+        const val EXTRA_WAS_RECONNECT_EXHAUSTED = "was_reconnect_exhausted"
 
         // Session extras keys for volume (server → controller)
         const val EXTRA_VOLUME = "volume"
@@ -313,7 +315,15 @@ class PlaybackService : MediaLibraryService() {
      * Connection state for the service.
      */
     sealed class ConnectionState {
-        object Disconnected : ConnectionState()
+        /**
+         * Disconnected from server.
+         * @param wasUserInitiated true if user explicitly requested disconnect
+         * @param wasReconnectExhausted true if internal reconnect attempts were exhausted
+         */
+        data class Disconnected(
+            val wasUserInitiated: Boolean = false,
+            val wasReconnectExhausted: Boolean = false
+        ) : ConnectionState()
         object Connecting : ConnectionState()
         data class Connected(val serverName: String) : ConnectionState()
         /** Connection lost, reconnecting - playback continues from buffer */
@@ -582,9 +592,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-        override fun onDisconnected() {
+        override fun onDisconnected(wasUserInitiated: Boolean, wasReconnectExhausted: Boolean) {
             mainHandler.post {
-                Log.d(TAG, "Disconnected from server")
+                Log.d(TAG, "Disconnected from server (userInitiated=$wasUserInitiated, reconnectExhausted=$wasReconnectExhausted)")
 
                 // Stop debug logging session
                 stopDebugLogging()
@@ -593,8 +603,8 @@ class PlaybackService : MediaLibraryService() {
                 // Check if we're in DRAINING state (reconnection in progress)
                 // If so, keep the audio player alive to continue playback from buffer
                 val isDraining = syncAudioPlayer?.getPlaybackState() == SyncPlaybackState.DRAINING
-                if (isDraining) {
-                    Log.i(TAG, "Disconnected during DRAINING - keeping audio player alive")
+                if (isDraining && !wasUserInitiated) {
+                    Log.i(TAG, "Disconnected during DRAINING - keeping audio player alive for auto-reconnect")
                     // Don't stop/release - let DRAINING continue playing from buffer
                     // Keep foreground service running for reconnection
                 } else {
@@ -609,7 +619,10 @@ class PlaybackService : MediaLibraryService() {
                 }
                 sendSpinPlayer?.updateConnectionState(false, null)
 
-                _connectionState.value = ConnectionState.Disconnected
+                _connectionState.value = ConnectionState.Disconnected(
+                    wasUserInitiated = wasUserInitiated,
+                    wasReconnectExhausted = wasReconnectExhausted
+                )
 
                 // Broadcast disconnection to controllers (MainActivity)
                 broadcastConnectionState(STATE_DISCONNECTED)
@@ -1091,7 +1104,11 @@ class PlaybackService : MediaLibraryService() {
         val extras = Bundle().apply {
             // Connection state
             when (connState) {
-                is ConnectionState.Disconnected -> putString(EXTRA_CONNECTION_STATE, STATE_DISCONNECTED)
+                is ConnectionState.Disconnected -> {
+                    putString(EXTRA_CONNECTION_STATE, STATE_DISCONNECTED)
+                    putBoolean(EXTRA_WAS_USER_INITIATED, connState.wasUserInitiated)
+                    putBoolean(EXTRA_WAS_RECONNECT_EXHAUSTED, connState.wasReconnectExhausted)
+                }
                 is ConnectionState.Connecting -> putString(EXTRA_CONNECTION_STATE, STATE_CONNECTING)
                 is ConnectionState.Connected -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_CONNECTED)
