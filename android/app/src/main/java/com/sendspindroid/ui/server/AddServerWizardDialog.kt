@@ -102,6 +102,7 @@ class AddServerWizardDialog : DialogFragment() {
 
     // Wizard state (shared across steps)
     private var serverName: String = ""
+    private var setAsDefault: Boolean = false
     private var localAddress: String = ""
     private var remoteId: String = ""
     private var proxyUrl: String = ""
@@ -136,6 +137,7 @@ class AddServerWizardDialog : DialogFragment() {
         // Pre-fill if editing
         editingServer?.let { server ->
             serverName = server.name
+            setAsDefault = server.isDefaultServer
             server.local?.let {
                 localAddress = it.address
             }
@@ -281,6 +283,7 @@ class AddServerWizardDialog : DialogFragment() {
 
     private fun collectNameData() {
         serverName = nameFragment?.getName() ?: serverName
+        setAsDefault = nameFragment?.isSetAsDefault() ?: setAsDefault
     }
 
     private fun collectLocalData() {
@@ -375,9 +378,10 @@ class AddServerWizardDialog : DialogFragment() {
 
     private fun saveServer(hasLocal: Boolean, hasRemote: Boolean, proxyAuthToken: String?) {
         val parsedRemoteId = if (hasRemote) RemoteConnection.parseRemoteId(remoteId) else null
+        val serverId = editingServer?.id ?: UnifiedServerRepository.generateId()
 
         val server = UnifiedServer(
-            id = editingServer?.id ?: UnifiedServerRepository.generateId(),
+            id = serverId,
             name = serverName,
             lastConnectedMs = editingServer?.lastConnectedMs ?: 0L,
             local = if (hasLocal) LocalConnection(
@@ -393,11 +397,20 @@ class AddServerWizardDialog : DialogFragment() {
                 username = if (proxyAuthMode == AUTH_LOGIN) proxyUsername else null
             ) else null,
             connectionPreference = ConnectionPreference.AUTO,
-            isDiscovered = false
+            isDiscovered = false,
+            isDefaultServer = setAsDefault
         )
 
         // Save to repository
         UnifiedServerRepository.saveServer(server)
+
+        // Update default server if needed
+        if (setAsDefault) {
+            UnifiedServerRepository.setDefaultServer(serverId)
+        } else if (editingServer?.isDefaultServer == true) {
+            // Was default before, now unchecked - clear default
+            UnifiedServerRepository.setDefaultServer(null)
+        }
 
         // Invoke callback and dismiss
         onServerCreated?.invoke(server)
@@ -444,6 +457,7 @@ class AddServerWizardDialog : DialogFragment() {
                 STEP_NAME -> NameStepFragment().also {
                     nameFragment = it
                     it.initialName = serverName
+                    it.initialSetAsDefault = setAsDefault
                 }
                 STEP_LOCAL -> LocalStepFragment().also {
                     localFragment = it
@@ -473,6 +487,7 @@ class AddServerWizardDialog : DialogFragment() {
      */
     class NameStepFragment : Fragment() {
         var initialName: String = ""
+        var initialSetAsDefault: Boolean = false
         private var _binding: WizardStepNameBinding? = null
         private val binding get() = _binding!!
 
@@ -488,6 +503,7 @@ class AddServerWizardDialog : DialogFragment() {
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
             binding.nameInput.setText(initialName)
+            binding.setAsDefaultCheckbox.isChecked = initialSetAsDefault
         }
 
         override fun onDestroyView() {
@@ -496,6 +512,8 @@ class AddServerWizardDialog : DialogFragment() {
         }
 
         fun getName(): String = binding.nameInput.text?.toString()?.trim() ?: ""
+
+        fun isSetAsDefault(): Boolean = binding.setAsDefaultCheckbox.isChecked
 
         fun showError(message: String) {
             binding.nameInputLayout.error = message

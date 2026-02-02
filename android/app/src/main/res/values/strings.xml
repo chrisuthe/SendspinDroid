@@ -327,6 +327,7 @@
     <string name="wizard_name_description">Give your server a friendly name</string>
     <string name="wizard_name_hint">e.g., Living Room, Office</string>
     <string name="wizard_name_required">Server name is required</string>
+    <string name="wizard_default_server_hint">Automatically connect to this server when found on the network</string>
 
     <string name="wizard_local_title">Local Connection</string>
     <string name="wizard_local_description">Connect when on the same WiFi network</string>
