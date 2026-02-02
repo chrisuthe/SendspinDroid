@@ -107,6 +107,22 @@ data class SyncStats(
     val measurementCount: Int = 0,
     val lastTimeSyncAgeMs: Long = -1L,
 
+    // === 3D/4D FILTER DIAGNOSTICS ===
+    /** Current filter dimension (2, 3, or 4) */
+    val filterDimension: Int = 2,
+    /** Acceleration in μs/s² (3D/4D only) - rate of drift change */
+    val accelerationUs2: Double = 0.0,
+    /** Expected RTT baseline in μs (4D only) - network baseline */
+    val expectedRttUs: Long = 0L,
+    /** Whether RTT estimate is reliable (4D only) */
+    val isRttReliable: Boolean = false,
+    /** Number of network change triggers detected (4D only) */
+    val networkChangeTriggerCount: Int = 0,
+    /** Time to reach convergence in ms */
+    val convergenceTimeMs: Long = 0L,
+    /** Innovation variance ratio - should be ~1.0 for well-tuned filter */
+    val stabilityScore: Double = 1.0,
+
     // === PLAYBACK TRACKING ===
     val serverTimelineCursorUs: Long = 0L,
 
@@ -168,6 +184,15 @@ data class SyncStats(
             putLong("clock_error_us", clockErrorUs)
             putInt("measurement_count", measurementCount)
             putLong("last_time_sync_age_ms", lastTimeSyncAgeMs)
+
+            // 3D/4D filter diagnostics
+            putInt("filter_dimension", filterDimension)
+            putDouble("acceleration_us2", accelerationUs2)
+            putLong("expected_rtt_us", expectedRttUs)
+            putBoolean("is_rtt_reliable", isRttReliable)
+            putInt("network_change_trigger_count", networkChangeTriggerCount)
+            putLong("convergence_time_ms", convergenceTimeMs)
+            putDouble("stability_score", stabilityScore)
 
             // Playback tracking
             putLong("server_timeline_cursor_us", serverTimelineCursorUs)
@@ -235,6 +260,15 @@ data class SyncStats(
                 clockErrorUs = bundle.getLong("clock_error_us", 0L),
                 measurementCount = bundle.getInt("measurement_count", 0),
                 lastTimeSyncAgeMs = bundle.getLong("last_time_sync_age_ms", -1L),
+
+                // 3D/4D filter diagnostics
+                filterDimension = bundle.getInt("filter_dimension", 2),
+                accelerationUs2 = bundle.getDouble("acceleration_us2", 0.0),
+                expectedRttUs = bundle.getLong("expected_rtt_us", 0L),
+                isRttReliable = bundle.getBoolean("is_rtt_reliable", false),
+                networkChangeTriggerCount = bundle.getInt("network_change_trigger_count", 0),
+                convergenceTimeMs = bundle.getLong("convergence_time_ms", 0L),
+                stabilityScore = bundle.getDouble("stability_score", 1.0),
 
                 // Playback tracking
                 serverTimelineCursorUs = bundle.getLong("server_timeline_cursor_us", 0L),

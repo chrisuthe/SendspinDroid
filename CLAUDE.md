@@ -71,6 +71,24 @@ cd android
 ./gradlew assembleDebug
 ```
 
+## Debugging Utilities
+
+### ZTE Logging Toggle (`android/zte-logging.bat`)
+Nubia/ZTE devices have verbose system logging disabled by default. Use this script to toggle it:
+
+```batch
+zte-logging.bat on      # Enable logging (for debugging)
+zte-logging.bat off     # Disable logging (saves battery)
+zte-logging.bat status  # Show log buffer sizes
+```
+
+**Note**: Always disable logging when done debugging - it impacts battery and performance.
+
+## Code Style
+
+- **No emojis**: Do not use emojis in code, logs, or UI strings unless explicitly approved by the user.
+- Use ASCII alternatives: `us` instead of `μs`, `->` instead of `→`, `+/-` instead of `±`
+
 ## Release Process
 
 **IMPORTANT**: Before creating a new version tag (e.g., `v1.0.25`):

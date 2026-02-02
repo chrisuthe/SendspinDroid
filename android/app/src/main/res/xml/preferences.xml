@@ -56,6 +56,15 @@
             app:iconSpaceReserved="false"
             app:useSimpleSummaryProvider="true" />
 
+        <ListPreference
+            android:key="kalman_dimension"
+            android:title="@string/pref_kalman_dimension_title"
+            android:summary="@string/pref_kalman_dimension_summary"
+            android:entries="@array/kalman_dimension_entries"
+            android:entryValues="@array/kalman_dimension_values"
+            android:defaultValue="D2"
+            app:iconSpaceReserved="false" />
+
     </PreferenceCategory>
 
     <PreferenceCategory
