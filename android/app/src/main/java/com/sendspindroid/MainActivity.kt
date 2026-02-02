@@ -64,6 +64,8 @@ import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.playback.PlaybackService
 import com.sendspindroid.model.UnifiedServer
+import com.sendspindroid.model.ConnectionType
+import com.sendspindroid.network.AutoReconnectManager
 import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
@@ -118,11 +120,19 @@ class MainActivity : AppCompatActivity() {
     // Handler for UI operations
     private val handler = Handler(Looper.getMainLooper())
 
-    // Auto-connect to default server flag (prevents multiple auto-connects)
-    private var hasAttemptedDefaultAutoConnect = false
+    // User manually disconnected flag - when true, blocks auto-connect to default server
+    // Set when user taps "Switch Server" or manually selects a different server while connected
+    // Cleared when user manually connects to the default server
+    private var userManuallyDisconnected = false
 
     // Reconnecting indicator - persists while reconnection is in progress
     private var reconnectingSnackbar: Snackbar? = null
+
+    // Auto-reconnect manager for persistent reconnection from ServerList UI
+    private var autoReconnectManager: AutoReconnectManager? = null
+
+    // Server being reconnected to (for tracking during auto-reconnect)
+    private var reconnectingToServer: UnifiedServer? = null
 
     // Network state monitoring
     private val connectivityManager by lazy {
@@ -366,6 +376,7 @@ class MainActivity : AppCompatActivity() {
         // Initialize discovery manager BEFORE setupUI, because setupUI calls
         // showSearchingView() which starts auto-discovery
         initializeDiscoveryManager()
+        initializeAutoReconnectManager()
         initializeMediaController()
         setupUI()
 
@@ -717,7 +728,11 @@ class MainActivity : AppCompatActivity() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 Log.d(TAG, "Network available")
-                // Network restored - could optionally restart discovery if in searching state
+                // If auto-reconnecting, trigger immediate retry (skip backoff delay)
+                if (autoReconnectManager?.isReconnecting() == true) {
+                    Log.i(TAG, "Network available during auto-reconnect - triggering immediate retry")
+                    autoReconnectManager?.onNetworkAvailable()
+                }
             }
 
             override fun onLost(network: Network) {
@@ -816,11 +831,26 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Checks if there's a default server configured and auto-connects to it.
-     * Only runs once per app launch to avoid repeated connection attempts.
+     *
+     * This runs once at app launch to attempt immediate connection to the default server.
+     * It provides a brief startup window for the server to be available before falling
+     * back to waiting for mDNS discovery (which triggers checkAutoConnectOnDiscovery).
+     *
+     * Note: This uses a one-time startup flag separate from userManuallyDisconnected,
+     * since this delay-based approach should only run once per app launch.
      */
+    private var hasRunStartupAutoConnect = false
+
     private fun checkDefaultServerAutoConnect() {
-        if (hasAttemptedDefaultAutoConnect) return
-        hasAttemptedDefaultAutoConnect = true
+        if (hasRunStartupAutoConnect) return
+        hasRunStartupAutoConnect = true
+
+        // Don't auto-connect if user manually disconnected in a previous session
+        // (though this will typically be false at startup)
+        if (userManuallyDisconnected) {
+            Log.d(TAG, "Skipping startup auto-connect - user manually disconnected")
+            return
+        }
 
         val defaultServer = UnifiedServerRepository.getDefaultServer()
         if (defaultServer != null) {
@@ -833,12 +863,53 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 delay(DEFAULT_SERVER_AUTO_CONNECT_DELAY_MS)
 
-                // Only auto-connect if still in ServerList state
-                if (connectionState == AppConnectionState.ServerList) {
+                // Only auto-connect if still in ServerList state and user hasn't manually disconnected
+                if (connectionState == AppConnectionState.ServerList && !userManuallyDisconnected) {
                     Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
                     onUnifiedServerSelected(defaultServer)
                 }
             }
+        }
+    }
+
+    /**
+     * Checks if a newly discovered server matches the default server and triggers auto-connect.
+     *
+     * This is called when mDNS discovers a server on the local network. If the discovered
+     * server matches the default server's local address, and the user hasn't manually
+     * disconnected, we automatically connect.
+     *
+     * This handles scenarios like:
+     * - Server rebooting and reappearing on mDNS
+     * - Auto-reconnect failing but server coming back later
+     * - App starting while server is temporarily unavailable
+     *
+     * @param discoveredAddress The IP address of the newly discovered server
+     */
+    private fun checkAutoConnectOnDiscovery(discoveredAddress: String) {
+        // Don't auto-connect if user manually disconnected ("Switch Server" or manual switch)
+        if (userManuallyDisconnected) {
+            Log.d(TAG, "Skipping auto-connect on discovery - user manually disconnected")
+            return
+        }
+
+        // Don't auto-connect if already connected or connecting
+        if (connectionState !is AppConnectionState.ServerList) {
+            Log.d(TAG, "Skipping auto-connect on discovery - not in ServerList state")
+            return
+        }
+
+        // Don't auto-connect if auto-reconnect is in progress
+        if (autoReconnectManager?.isReconnecting() == true) {
+            Log.d(TAG, "Skipping auto-connect on discovery - auto-reconnect in progress")
+            return
+        }
+
+        // Check if discovered server matches default server's local address
+        val defaultServer = UnifiedServerRepository.getDefaultServer() ?: return
+        if (defaultServer.local?.address == discoveredAddress) {
+            Log.i(TAG, "Default server discovered on mDNS ($discoveredAddress) - auto-connecting")
+            onUnifiedServerSelected(defaultServer)
         }
     }
 
@@ -939,7 +1010,8 @@ class MainActivity : AppCompatActivity() {
                             // Add to UnifiedServerRepository for unified server list
                             UnifiedServerRepository.addDiscoveredServer(name, address, path)
 
-                            // No auto-connect - user taps to connect (or default server auto-connects)
+                            // Check if this discovery should trigger auto-connect to default server
+                            checkAutoConnectOnDiscovery(address)
                         }
                     }
 
@@ -1004,6 +1076,126 @@ class MainActivity : AppCompatActivity() {
                 message = getString(R.string.error_discovery_start),
                 errorType = ErrorType.GENERAL
             )
+        }
+    }
+
+    /**
+     * Initializes the AutoReconnectManager for persistent auto-reconnection.
+     *
+     * When connection is lost unexpectedly (not user-initiated), this manager
+     * handles progressive backoff reconnection from the ServerList UI.
+     */
+    private fun initializeAutoReconnectManager() {
+        autoReconnectManager = AutoReconnectManager(
+            context = this,
+            onAttempt = { serverId, attempt, maxAttempts, connectionType ->
+                runOnUiThread {
+                    Log.d(TAG, "Auto-reconnect attempt $attempt/$maxAttempts for server $serverId")
+                    sectionedServerAdapter?.setReconnectProgress(serverId, attempt, maxAttempts, null)
+
+                    // Update toolbar subtitle
+                    supportActionBar?.subtitle = getString(R.string.reconnecting_toolbar_subtitle)
+
+                    // Announce for accessibility
+                    announceForAccessibility(getString(R.string.accessibility_reconnecting, attempt, maxAttempts))
+                }
+            },
+            onMethodAttempt = { serverId, method ->
+                runOnUiThread {
+                    val methodName = when (method) {
+                        ConnectionType.LOCAL -> getString(R.string.connection_method_local)
+                        ConnectionType.REMOTE -> getString(R.string.connection_method_remote)
+                        ConnectionType.PROXY -> getString(R.string.connection_method_proxy)
+                    }
+                    Log.d(TAG, "Auto-reconnect trying $methodName for server $serverId")
+                    val currentProgress = autoReconnectManager?.getCurrentAttempt() ?: 1
+                    sectionedServerAdapter?.setReconnectProgress(serverId, currentProgress, AutoReconnectManager.MAX_ATTEMPTS, methodName)
+                }
+            },
+            onSuccess = { serverId ->
+                runOnUiThread {
+                    Log.i(TAG, "Auto-reconnect succeeded for server $serverId")
+                    reconnectingToServer = null
+                    sectionedServerAdapter?.clearReconnectProgress(serverId)
+                    supportActionBar?.subtitle = null
+                    hideReconnectingIndicator()
+                    // Note: Connection success will be handled by handleConnectionStateChange
+                }
+            },
+            onFailure = { serverId, error ->
+                runOnUiThread {
+                    Log.w(TAG, "Auto-reconnect failed for server $serverId: $error")
+                    reconnectingToServer = null
+                    sectionedServerAdapter?.clearReconnectProgress(serverId)
+                    supportActionBar?.subtitle = null
+                    hideReconnectingIndicator()
+                    // NOTE: We do NOT set userManuallyDisconnected here - if the server
+                    // reappears on mDNS later, we still want to auto-connect to it.
+                    showErrorSnackbar(
+                        message = getString(R.string.reconnecting_failed, AutoReconnectManager.MAX_ATTEMPTS),
+                        errorType = ErrorType.CONNECTION
+                    )
+                }
+            },
+            connectToServer = { server, selectedConnection ->
+                // This is called from a coroutine - perform the actual connection
+                performAutoReconnect(server, selectedConnection)
+            }
+        )
+        Log.d(TAG, "AutoReconnectManager initialized")
+    }
+
+    /**
+     * Performs a connection attempt for auto-reconnection.
+     * Returns true if connection was initiated successfully (doesn't wait for completion).
+     */
+    private suspend fun performAutoReconnect(
+        server: UnifiedServer,
+        selectedConnection: ConnectionSelector.SelectedConnection
+    ): Boolean {
+        val controller = mediaController
+        if (controller == null) {
+            Log.e(TAG, "Cannot auto-reconnect: MediaController not available")
+            return false
+        }
+
+        return try {
+            when (selectedConnection) {
+                is ConnectionSelector.SelectedConnection.Local -> {
+                    val args = Bundle().apply {
+                        putString(PlaybackService.ARG_SERVER_ADDRESS, selectedConnection.address)
+                        putString(PlaybackService.ARG_SERVER_PATH, selectedConnection.path)
+                    }
+                    val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
+                    controller.sendCustomCommand(command, args)
+                    Log.d(TAG, "Auto-reconnect: sent local connect command to ${selectedConnection.address}")
+                }
+                is ConnectionSelector.SelectedConnection.Remote -> {
+                    val args = Bundle().apply {
+                        putString(PlaybackService.ARG_REMOTE_ID, selectedConnection.remoteId)
+                    }
+                    val command = SessionCommand(PlaybackService.COMMAND_CONNECT_REMOTE, Bundle.EMPTY)
+                    controller.sendCustomCommand(command, args)
+                    Log.d(TAG, "Auto-reconnect: sent remote connect command")
+                }
+                is ConnectionSelector.SelectedConnection.Proxy -> {
+                    val args = Bundle().apply {
+                        putString(PlaybackService.ARG_PROXY_URL, selectedConnection.url)
+                        putString(PlaybackService.ARG_AUTH_TOKEN, selectedConnection.authToken)
+                    }
+                    val command = SessionCommand(PlaybackService.COMMAND_CONNECT_PROXY, Bundle.EMPTY)
+                    controller.sendCustomCommand(command, args)
+                    Log.d(TAG, "Auto-reconnect: sent proxy connect command")
+                }
+            }
+            // Note: We return true to indicate the command was sent.
+            // The actual success/failure will be determined by connection state change.
+            // For now, we optimistically assume the attempt was valid.
+            // A more robust implementation would wait for connection confirmation.
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Auto-reconnect: failed to send connect command", e)
+            false
         }
     }
 
@@ -1158,6 +1350,13 @@ class MainActivity : AppCompatActivity() {
                     else -> ""
                 }
 
+                // Cancel any auto-reconnect in progress (we're now connected)
+                autoReconnectManager?.cancelReconnection()
+                reconnectingToServer?.let { server ->
+                    sectionedServerAdapter?.clearReconnectProgress(server.id)
+                }
+                reconnectingToServer = null
+
                 connectionState = AppConnectionState.Connected(serverName, address)
                 showNowPlayingView(serverName)
                 enablePlaybackControls(true)
@@ -1194,17 +1393,47 @@ class MainActivity : AppCompatActivity() {
                 // Keep playback controls enabled - playback continues from buffer
             }
             PlaybackService.STATE_DISCONNECTED -> {
-                Log.d(TAG, "Disconnected from server")
+                val wasUserInitiated = extras.getBoolean(PlaybackService.EXTRA_WAS_USER_INITIATED, false)
+                val wasReconnectExhausted = extras.getBoolean(PlaybackService.EXTRA_WAS_RECONNECT_EXHAUSTED, false)
+                Log.d(TAG, "Disconnected from server (userInitiated=$wasUserInitiated, reconnectExhausted=$wasReconnectExhausted)")
+
                 connectionState = AppConnectionState.ServerList
                 showServerListView()
                 enablePlaybackControls(false)
                 invalidateOptionsMenu() // Hide "Switch Server" menu option
 
-                // Clear unified server adapter statuses
-                sectionedServerAdapter?.clearStatuses()
+                // Handle auto-reconnection based on disconnect reason
+                if (!wasUserInitiated && !wasReconnectExhausted) {
+                    // Unexpected disconnect - start UI-level auto-reconnect
+                    // NOTE: We do NOT set userManuallyDisconnected here - unexpected disconnects
+                    // should still allow mDNS discovery to trigger auto-connect if server reappears.
+                    // The checkAutoConnectOnDiscovery() method already checks isReconnecting().
+                    val serverId = currentConnectedServerId
+                    val server = serverId?.let { UnifiedServerRepository.getServer(it) }
+                        ?: reconnectingToServer
 
-                // Announce disconnection for accessibility
-                announceForAccessibility(getString(R.string.accessibility_disconnected))
+                    if (server != null) {
+                        Log.i(TAG, "Starting UI-level auto-reconnect for server: ${server.name}")
+                        reconnectingToServer = server
+                        currentConnectedServerId = server.id
+
+                        // Update adapter to show reconnecting status
+                        sectionedServerAdapter?.setReconnectProgress(server.id, 1, AutoReconnectManager.MAX_ATTEMPTS, null)
+
+                        // Start auto-reconnect manager
+                        autoReconnectManager?.startReconnecting(server)
+                    } else {
+                        Log.w(TAG, "Cannot start auto-reconnect: no server info available")
+                        sectionedServerAdapter?.clearStatuses()
+                    }
+                } else {
+                    // User-initiated or reconnect exhausted - clear statuses
+                    reconnectingToServer = null
+                    sectionedServerAdapter?.clearStatuses()
+
+                    // Announce disconnection for accessibility
+                    announceForAccessibility(getString(R.string.accessibility_disconnected))
+                }
             }
             PlaybackService.STATE_ERROR -> {
                 val errorMessage = extras.getString(PlaybackService.EXTRA_ERROR_MESSAGE, "Unknown error")
@@ -1607,6 +1836,30 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        // Cancel any ongoing auto-reconnect if user taps a different server
+        val reconnectingId = autoReconnectManager?.getReconnectingServerId()
+        if (reconnectingId != null && reconnectingId != server.id) {
+            Log.i(TAG, "User selected different server - cancelling auto-reconnect for $reconnectingId")
+            autoReconnectManager?.cancelReconnection()
+            sectionedServerAdapter?.clearReconnectProgress(reconnectingId)
+            reconnectingToServer = null
+        } else if (reconnectingId == server.id) {
+            // User tapped the server we're reconnecting to - let auto-reconnect continue
+            Log.d(TAG, "User tapped reconnecting server - auto-reconnect continues")
+            return
+        }
+
+        // Handle userManuallyDisconnected flag based on what the user selected
+        if (server.isDefaultServer) {
+            // User manually connected to default server - allow future auto-connects
+            userManuallyDisconnected = false
+            Log.d(TAG, "User selected default server - cleared userManuallyDisconnected flag")
+        } else if (connectionState is AppConnectionState.Connected) {
+            // User switching from one server to another (non-default) - block auto-connect
+            userManuallyDisconnected = true
+            Log.d(TAG, "User switched to non-default server - set userManuallyDisconnected flag")
+        }
+
         // Stop discovery if running
         discoveryManager?.stopDiscovery()
 
@@ -1882,9 +2135,15 @@ class MainActivity : AppCompatActivity() {
     /**
      * Performs the actual disconnect operation.
      * Sends disconnect command to PlaybackService and returns to server list view.
+     *
+     * This is a user-initiated disconnect ("Switch Server"), so we set
+     * userManuallyDisconnected to prevent auto-connecting to the default server.
      */
     private fun performDisconnect() {
         val controller = mediaController ?: return
+
+        // User explicitly chose to disconnect - block auto-connect to default server
+        userManuallyDisconnected = true
 
         try {
             val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
@@ -2544,5 +2803,9 @@ class MainActivity : AppCompatActivity() {
         // Cleanup NsdDiscoveryManager (handles multicast lock internally)
         discoveryManager?.cleanup()
         discoveryManager = null
+
+        // Cleanup AutoReconnectManager
+        autoReconnectManager?.destroy()
+        autoReconnectManager = null
     }
 }
