@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
 
+# Ensure only one dev build runs at a time - cancel older runs when new commits are pushed
+concurrency:
+  group: dev-build
+  cancel-in-progress: true
+
 permissions:
   contents: write  # Required for creating releases and pushing tags
 
