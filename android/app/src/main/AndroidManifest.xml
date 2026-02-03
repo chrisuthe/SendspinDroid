@@ -145,6 +145,21 @@
                 android:value=".MainActivity" />
         </activity>
 
+        <!-- AddServerWizardActivity: Full-screen wizard for adding/editing servers
+             - windowSoftInputMode: adjustResize ensures navigation buttons stay visible
+               above the keyboard, solving the primary UX issue with the old dialog
+             - parentActivityName: Enable up navigation to MainActivity -->
+        <activity
+            android:name=".ui.server.AddServerWizardActivity"
+            android:exported="false"
+            android:theme="@style/Theme.SendSpinDroid"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".MainActivity">
+            <meta-data
+                android:name="android.support.PARENT_ACTIVITY"
+                android:value=".MainActivity" />
+        </activity>
+
         <!--
             PlaybackService: Background audio playback service with Android Auto support
             - foregroundServiceType: Required on API 29+ to specify service purpose

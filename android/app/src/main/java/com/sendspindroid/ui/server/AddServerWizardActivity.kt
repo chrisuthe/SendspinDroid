@@ -1,17 +1,18 @@
 package com.sendspindroid.ui.server
 
+import android.app.Activity
 import android.app.UiModeManager
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
-import android.webkit.URLUtil
-import androidx.fragment.app.DialogFragment
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.viewModels
+import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.lifecycleScope
@@ -22,15 +23,17 @@ import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import com.sendspindroid.R
 import com.sendspindroid.UnifiedServerRepository
-import com.sendspindroid.discovery.NsdDiscoveryManager
-import com.sendspindroid.databinding.DialogAddServerWizardBinding
+import com.sendspindroid.databinding.ActivityAddServerWizardBinding
 import com.sendspindroid.databinding.WizardStepLocalBinding
 import com.sendspindroid.databinding.WizardStepMaLoginBinding
 import com.sendspindroid.databinding.WizardStepNameBinding
 import com.sendspindroid.databinding.WizardStepProxyBinding
 import com.sendspindroid.databinding.WizardStepRemoteBinding
-import com.sendspindroid.model.*
-import com.sendspindroid.musicassistant.MaApiEndpoint
+import com.sendspindroid.discovery.NsdDiscoveryManager
+import com.sendspindroid.model.ConnectionPreference
+import com.sendspindroid.model.LocalConnection
+import com.sendspindroid.model.ProxyConnection
+import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.remote.RemoteConnection
 import com.sendspindroid.sendspin.MusicAssistantAuth
@@ -39,92 +42,69 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 
 /**
- * Multi-step wizard dialog for adding a unified server.
+ * Full-screen wizard Activity for adding or editing unified servers.
+ *
+ * Replaces AddServerWizardDialog with proper full-screen layout that handles
+ * keyboard display correctly via adjustResize window soft input mode.
+ *
+ * ## Features
+ * - Full-screen stepper with progress indicator
+ * - Proper keyboard handling (buttons always visible)
+ * - ViewModel for state management across configuration changes
+ * - ActivityResult for returning data to calling Activity
  *
  * ## Steps
  * 1. **Name** (required) - Server nickname + Music Assistant checkbox
- * 2. **Local** (optional) - IP:port for local network
+ * 2. **Local** (optional) - IP:port for local network with mDNS discovery
  * 3. **Remote** (optional) - 26-character Remote ID or QR scan
  * 4. **Proxy** (optional) - URL + login/token authentication
  * 5. **MA Login** (conditional) - Only shown if isMusicAssistant AND has local/proxy
  *
- * At least one connection method (Local, Remote, or Proxy) must be configured.
- *
  * ## Usage
  * ```kotlin
- * AddServerWizardDialog.show(supportFragmentManager) { server ->
- *     // Server was created and saved
- *     connectToServer(server)
+ * // Launch for new server
+ * val intent = Intent(this, AddServerWizardActivity::class.java)
+ * addServerLauncher.launch(intent)
+ *
+ * // Launch for editing
+ * val intent = Intent(this, AddServerWizardActivity::class.java).apply {
+ *     putExtra(EXTRA_EDIT_SERVER_ID, server.id)
+ * }
+ * addServerLauncher.launch(intent)
+ *
+ * // Handle result
+ * private val addServerLauncher = registerForActivityResult(
+ *     ActivityResultContracts.StartActivityForResult()
+ * ) { result ->
+ *     if (result.resultCode == RESULT_OK) {
+ *         val serverId = result.data?.getStringExtra(RESULT_SERVER_ID)
+ *         // Handle new/updated server
+ *     }
  * }
  * ```
  */
-class AddServerWizardDialog : DialogFragment() {
+class AddServerWizardActivity : AppCompatActivity() {
 
     companion object {
-        private const val TAG = "AddServerWizardDialog"
+        private const val TAG = "AddServerWizardActivity"
 
-        // Base step indices (MA Login step is dynamically inserted)
+        // Intent extras
+        const val EXTRA_EDIT_SERVER_ID = "edit_server_id"
+
+        // Result extras
+        const val RESULT_SERVER_ID = "server_id"
+
+        // Step indices
         private const val STEP_NAME = 0
         private const val STEP_LOCAL = 1
         private const val STEP_REMOTE = 2
         private const val STEP_PROXY = 3
-        private const val STEP_MA_LOGIN = 4  // Only present when isMusicAssistant && hasLocalOrProxy
-        private const val BASE_STEPS = 4
+        private const val STEP_MA_LOGIN = 4
         private const val MAX_STEPS = 5
-
-        // Proxy auth modes
-        private const val AUTH_LOGIN = 0
-        private const val AUTH_TOKEN = 1
-
-        fun show(
-            fragmentManager: androidx.fragment.app.FragmentManager,
-            onServerCreated: (UnifiedServer) -> Unit
-        ): AddServerWizardDialog {
-            val dialog = AddServerWizardDialog()
-            dialog.onServerCreated = onServerCreated
-            dialog.show(fragmentManager, TAG)
-            return dialog
-        }
-
-        /**
-         * Show wizard with pre-filled data (for editing).
-         */
-        fun showForEdit(
-            fragmentManager: androidx.fragment.app.FragmentManager,
-            server: UnifiedServer,
-            onServerUpdated: (UnifiedServer) -> Unit
-        ): AddServerWizardDialog {
-            val dialog = AddServerWizardDialog()
-            dialog.editingServer = server
-            dialog.onServerCreated = onServerUpdated
-            dialog.show(fragmentManager, TAG)
-            return dialog
-        }
     }
 
-    private var _binding: DialogAddServerWizardBinding? = null
-    private val binding get() = _binding!!
-
-    private var onServerCreated: ((UnifiedServer) -> Unit)? = null
-    private var editingServer: UnifiedServer? = null
-    private var isLoading = false
-
-    // Wizard state (shared across steps)
-    private var serverName: String = ""
-    private var setAsDefault: Boolean = false
-    private var isMusicAssistant: Boolean = false
-    private var localAddress: String = ""
-    private var remoteId: String = ""
-    private var proxyUrl: String = ""
-    private var proxyAuthMode: Int = AUTH_LOGIN
-    private var proxyUsername: String = ""
-    private var proxyPassword: String = ""
-    private var proxyToken: String = ""
-
-    // MA Login state (for eager auth)
-    private var maUsername: String = ""
-    private var maPassword: String = ""
-    private var maToken: String? = null  // Token obtained from successful MA login
+    private lateinit var binding: ActivityAddServerWizardBinding
+    private val viewModel: AddServerWizardViewModel by viewModels()
 
     // Step fragments (for accessing views)
     private var nameFragment: NameStepFragment? = null
@@ -133,67 +113,48 @@ class AddServerWizardDialog : DialogFragment() {
     private var proxyFragment: ProxyStepFragment? = null
     private var maLoginFragment: MaLoginStepFragment? = null
 
-    // Step count is always MAX_STEPS - we handle MA Login visibility in navigation logic
-    // This avoids ViewPager2/RecyclerView inconsistency crashes from dynamic item counts
-    private val currentStepCount: Int = MAX_STEPS
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setStyle(STYLE_NO_TITLE, R.style.Theme_SendSpinDroid_Dialog)
-    }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        _binding = DialogAddServerWizardBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+        binding = ActivityAddServerWizardBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        // Pre-fill if editing
-        editingServer?.let { server ->
-            serverName = server.name
-            setAsDefault = server.isDefaultServer
-            isMusicAssistant = server.isMusicAssistant
-            server.local?.let {
-                localAddress = it.address
-            }
-            server.remote?.let {
-                remoteId = it.remoteId
-            }
-            server.proxy?.let {
-                proxyUrl = it.url
-                proxyToken = it.authToken
-                proxyUsername = it.username ?: ""
-                proxyAuthMode = AUTH_TOKEN // Default to token mode if we have saved proxy
-            }
-            // Load existing MA token if available
-            if (isMusicAssistant) {
-                maToken = MaSettings.getTokenForServer(server.id)
+        // Handle edit mode - load server data into ViewModel
+        if (savedInstanceState == null) {
+            intent.getStringExtra(EXTRA_EDIT_SERVER_ID)?.let { serverId ->
+                UnifiedServerRepository.getServer(serverId)?.let { server ->
+                    val existingMaToken = if (server.isMusicAssistant) {
+                        MaSettings.getTokenForServer(server.id)
+                    } else null
+                    viewModel.initForEdit(server, existingMaToken)
+                }
             }
         }
 
-        // Step count is always MAX_STEPS (5) - navigation logic handles MA Login visibility
+        setupToolbar()
         setupViewPager()
         setupButtons()
+        setupBackPressHandler()
         updateButtonState()
+        updateProgress()
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+    private fun setupToolbar() {
+        binding.toolbar.setNavigationOnClickListener {
+            finish()
+        }
+
+        // Update title for edit mode
+        if (viewModel.isEditMode) {
+            binding.toolbar.title = getString(R.string.edit_server)
+        }
     }
 
     private fun setupViewPager() {
-        val adapter = WizardPagerAdapter(requireActivity())
+        val adapter = WizardPagerAdapter(this)
         binding.wizardPager.adapter = adapter
 
         // Keep all wizard steps in memory so we can read their data at any time
-        // Without this, fragments are destroyed when off-screen and their binding becomes null
         binding.wizardPager.offscreenPageLimit = MAX_STEPS
 
         // Sync TabLayout with ViewPager2
@@ -204,13 +165,11 @@ class AddServerWizardDialog : DialogFragment() {
         // Disable swipe (navigation via buttons only)
         binding.wizardPager.isUserInputEnabled = false
 
-        // Update buttons on page change
+        // Update buttons and progress on page change
         binding.wizardPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                // Only update button state here - do NOT modify step count or adapter
-                // during page transitions as it causes RecyclerView inconsistency crashes.
-                // Step count updates happen in button handlers BEFORE transitions start.
                 updateButtonState()
+                updateProgress()
             }
         })
     }
@@ -226,19 +185,7 @@ class AddServerWizardDialog : DialogFragment() {
         }
     }
 
-    /**
-     * Checks if MA Login step should be shown based on current state.
-     */
-    private fun shouldShowMaLoginStep(): Boolean {
-        val hasLocalOrProxy = localAddress.isNotBlank() || proxyUrl.isNotBlank()
-        return isMusicAssistant && hasLocalOrProxy
-    }
-
     private fun setupButtons() {
-        binding.closeButton.setOnClickListener {
-            dismiss()
-        }
-
         binding.backButton.setOnClickListener {
             if (binding.wizardPager.currentItem > 0) {
                 binding.wizardPager.currentItem = binding.wizardPager.currentItem - 1
@@ -253,15 +200,12 @@ class AddServerWizardDialog : DialogFragment() {
 
             // Handle Proxy step specially - may skip MA Login or go to save
             if (currentStep == STEP_PROXY) {
-                if (shouldShowMaLoginStep()) {
-                    // Go to MA Login step
+                if (viewModel.shouldShowMaLoginStep()) {
                     binding.wizardPager.currentItem = STEP_MA_LOGIN
                 } else {
-                    // No MA Login needed - save directly
                     attemptSave()
                 }
             } else if (currentStep < STEP_PROXY) {
-                // Normal skip for Local/Remote steps
                 binding.wizardPager.currentItem = currentStep + 1
             }
         }
@@ -277,23 +221,32 @@ class AddServerWizardDialog : DialogFragment() {
 
             when (currentStep) {
                 STEP_PROXY -> {
-                    // After Proxy, either go to MA Login or save
-                    if (shouldShowMaLoginStep()) {
+                    if (viewModel.shouldShowMaLoginStep()) {
                         binding.wizardPager.currentItem = STEP_MA_LOGIN
                     } else {
                         attemptSave()
                     }
                 }
                 STEP_MA_LOGIN -> {
-                    // MA Login is always the last step when shown
                     attemptSave()
                 }
                 else -> {
-                    // Normal navigation for Name, Local, Remote steps
                     binding.wizardPager.currentItem = currentStep + 1
                 }
             }
         }
+    }
+
+    private fun setupBackPressHandler() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (binding.wizardPager.currentItem > 0) {
+                    binding.wizardPager.currentItem = binding.wizardPager.currentItem - 1
+                } else {
+                    finish()
+                }
+            }
+        })
     }
 
     private fun collectAllConnectionData() {
@@ -303,27 +256,51 @@ class AddServerWizardDialog : DialogFragment() {
         collectProxyData()
     }
 
+    private fun collectNameData() {
+        viewModel.serverName = nameFragment?.getName() ?: viewModel.serverName
+        viewModel.setAsDefault = nameFragment?.isSetAsDefault() ?: viewModel.setAsDefault
+        viewModel.isMusicAssistant = nameFragment?.isMusicAssistant() ?: viewModel.isMusicAssistant
+    }
+
+    private fun collectLocalData() {
+        viewModel.localAddress = localFragment?.getAddress() ?: viewModel.localAddress
+    }
+
+    private fun collectRemoteData() {
+        viewModel.remoteId = remoteFragment?.getRemoteId() ?: viewModel.remoteId
+    }
+
+    private fun collectProxyData() {
+        proxyFragment?.let { fragment ->
+            viewModel.proxyUrl = fragment.getUrl()
+            viewModel.proxyAuthMode = fragment.getAuthMode()
+            if (viewModel.proxyAuthMode == AddServerWizardViewModel.AUTH_LOGIN) {
+                viewModel.proxyUsername = fragment.getUsername()
+                viewModel.proxyPassword = fragment.getPassword()
+            } else {
+                viewModel.proxyToken = fragment.getToken()
+            }
+        }
+    }
+
     private fun updateButtonState() {
         val currentStep = binding.wizardPager.currentItem
         val isFirstStep = currentStep == 0
         val isMaLoginStep = currentStep == STEP_MA_LOGIN
 
         // Determine if this is effectively the last step
-        // - MA Login step is always last when shown
-        // - Proxy step is last when MA Login won't be shown
         val isEffectivelyLastStep = when (currentStep) {
             STEP_MA_LOGIN -> true
-            STEP_PROXY -> !shouldShowMaLoginStep()
+            STEP_PROXY -> !viewModel.shouldShowMaLoginStep()
             else -> false
         }
 
         // Back button: hide on first step
         binding.backButton.visibility = if (isFirstStep) View.INVISIBLE else View.VISIBLE
 
-        // Skip button: show only on optional steps (Local, Remote, Proxy when MA Login will be shown)
-        // MA Login step is NOT skippable - credentials must be validated
+        // Skip button: show only on optional steps
         val showSkip = currentStep in listOf(STEP_LOCAL, STEP_REMOTE) ||
-                       (currentStep == STEP_PROXY && shouldShowMaLoginStep())
+                       (currentStep == STEP_PROXY && viewModel.shouldShowMaLoginStep())
         binding.skipButton.visibility = if (showSkip) View.VISIBLE else View.GONE
 
         // Next button: change text on effective final step
@@ -334,11 +311,18 @@ class AddServerWizardDialog : DialogFragment() {
         }
     }
 
+    private fun updateProgress() {
+        val currentStep = binding.wizardPager.currentItem
+        val totalSteps = if (viewModel.shouldShowMaLoginStep()) MAX_STEPS else MAX_STEPS - 1
+        val progress = ((currentStep + 1) * 100) / totalSteps
+        binding.progressIndicator.progress = progress
+    }
+
     private fun validateCurrentStep(): Boolean {
         return when (binding.wizardPager.currentItem) {
             STEP_NAME -> {
                 collectNameData()
-                if (serverName.isBlank()) {
+                if (viewModel.serverName.isBlank()) {
                     nameFragment?.showError(getString(R.string.wizard_name_required))
                     false
                 } else {
@@ -348,7 +332,7 @@ class AddServerWizardDialog : DialogFragment() {
             }
             STEP_LOCAL -> {
                 collectLocalData()
-                if (localAddress.isNotBlank() && !isValidAddress(localAddress)) {
+                if (viewModel.localAddress.isNotBlank() && !isValidAddress(viewModel.localAddress)) {
                     localFragment?.showError(getString(R.string.invalid_address))
                     false
                 } else {
@@ -358,7 +342,7 @@ class AddServerWizardDialog : DialogFragment() {
             }
             STEP_REMOTE -> {
                 collectRemoteData()
-                if (remoteId.isNotBlank() && RemoteConnection.parseRemoteId(remoteId) == null) {
+                if (viewModel.remoteId.isNotBlank() && RemoteConnection.parseRemoteId(viewModel.remoteId) == null) {
                     remoteFragment?.showError(getString(R.string.remote_id_invalid))
                     false
                 } else {
@@ -368,12 +352,10 @@ class AddServerWizardDialog : DialogFragment() {
             }
             STEP_PROXY -> {
                 collectProxyData()
-                // Proxy validation happens during save (may involve login)
                 true
             }
             STEP_MA_LOGIN -> {
-                // MA Login step validation - must have successfully tested connection
-                if (maToken == null) {
+                if (viewModel.maToken == null) {
                     showError(getString(R.string.wizard_ma_connection_failed, "Please test connection first"))
                     false
                 } else {
@@ -384,35 +366,7 @@ class AddServerWizardDialog : DialogFragment() {
         }
     }
 
-    private fun collectNameData() {
-        serverName = nameFragment?.getName() ?: serverName
-        setAsDefault = nameFragment?.isSetAsDefault() ?: setAsDefault
-        isMusicAssistant = nameFragment?.isMusicAssistant() ?: isMusicAssistant
-    }
-
-    private fun collectLocalData() {
-        localAddress = localFragment?.getAddress() ?: localAddress
-    }
-
-    private fun collectRemoteData() {
-        remoteId = remoteFragment?.getRemoteId() ?: remoteId
-    }
-
-    private fun collectProxyData() {
-        proxyFragment?.let { fragment ->
-            proxyUrl = fragment.getUrl()
-            proxyAuthMode = fragment.getAuthMode()
-            if (proxyAuthMode == AUTH_LOGIN) {
-                proxyUsername = fragment.getUsername()
-                proxyPassword = fragment.getPassword()
-            } else {
-                proxyToken = fragment.getToken()
-            }
-        }
-    }
-
     private fun isValidAddress(address: String): Boolean {
-        // Simple validation: contains host:port or just host
         val parts = address.split(":")
         if (parts.isEmpty() || parts.size > 2) return false
         if (parts[0].isBlank()) return false
@@ -421,16 +375,11 @@ class AddServerWizardDialog : DialogFragment() {
     }
 
     private fun attemptSave() {
-        // Collect all data from steps
-        collectNameData()
-        collectLocalData()
-        collectRemoteData()
-        collectProxyData()
+        collectAllConnectionData()
 
-        // Validate at least one connection method
-        val hasLocal = localAddress.isNotBlank()
-        val hasRemote = remoteId.isNotBlank() && RemoteConnection.parseRemoteId(remoteId) != null
-        val hasProxy = proxyUrl.isNotBlank()
+        val hasLocal = viewModel.localAddress.isNotBlank()
+        val hasRemote = viewModel.remoteId.isNotBlank() && RemoteConnection.parseRemoteId(viewModel.remoteId) != null
+        val hasProxy = viewModel.proxyUrl.isNotBlank()
 
         if (!hasLocal && !hasRemote && !hasProxy) {
             showError(getString(R.string.wizard_at_least_one_method))
@@ -438,28 +387,27 @@ class AddServerWizardDialog : DialogFragment() {
         }
 
         // If proxy is configured but requires login, do login first
-        if (hasProxy && proxyAuthMode == AUTH_LOGIN && proxyPassword.isNotBlank()) {
+        if (hasProxy && viewModel.proxyAuthMode == AddServerWizardViewModel.AUTH_LOGIN && viewModel.proxyPassword.isNotBlank()) {
             performProxyLoginAndSave(hasLocal, hasRemote)
-        } else if (hasProxy && proxyAuthMode == AUTH_TOKEN && proxyToken.isBlank()) {
+        } else if (hasProxy && viewModel.proxyAuthMode == AddServerWizardViewModel.AUTH_TOKEN && viewModel.proxyToken.isBlank()) {
             showError(getString(R.string.auth_token_required))
         } else {
-            // Direct save (no proxy login needed)
-            saveServer(hasLocal, hasRemote, if (hasProxy) proxyToken else null)
+            saveServer(hasLocal, hasRemote, if (hasProxy) viewModel.proxyToken else null)
         }
     }
 
     private fun performProxyLoginAndSave(hasLocal: Boolean, hasRemote: Boolean) {
-        if (proxyUsername.isBlank() || proxyPassword.isBlank()) {
+        if (viewModel.proxyUsername.isBlank() || viewModel.proxyPassword.isBlank()) {
             showError(getString(R.string.credentials_required))
             return
         }
 
         setLoading(true)
 
-        viewLifecycleOwner.lifecycleScope.launch {
+        lifecycleScope.launch {
             try {
-                val normalizedUrl = normalizeProxyUrl(proxyUrl)
-                val result = MusicAssistantAuth.login(normalizedUrl, proxyUsername, proxyPassword)
+                val normalizedUrl = normalizeProxyUrl(viewModel.proxyUrl)
+                val result = MusicAssistantAuth.login(normalizedUrl, viewModel.proxyUsername, viewModel.proxyPassword)
 
                 setLoading(false)
                 saveServer(hasLocal, hasRemote, result.accessToken)
@@ -481,53 +429,54 @@ class AddServerWizardDialog : DialogFragment() {
     }
 
     private fun saveServer(hasLocal: Boolean, hasRemote: Boolean, proxyAuthToken: String?) {
-        val parsedRemoteId = if (hasRemote) RemoteConnection.parseRemoteId(remoteId) else null
-        val serverId = editingServer?.id ?: UnifiedServerRepository.generateId()
+        val parsedRemoteId = if (hasRemote) RemoteConnection.parseRemoteId(viewModel.remoteId) else null
+        val serverId = viewModel.getServerId()
 
         val server = UnifiedServer(
             id = serverId,
-            name = serverName,
-            lastConnectedMs = editingServer?.lastConnectedMs ?: 0L,
+            name = viewModel.serverName,
+            lastConnectedMs = viewModel.editingServer?.lastConnectedMs ?: 0L,
             local = if (hasLocal) LocalConnection(
-                address = localAddress,
+                address = viewModel.localAddress,
                 path = "/sendspin"
             ) else null,
             remote = if (parsedRemoteId != null) com.sendspindroid.model.RemoteConnection(
                 remoteId = parsedRemoteId
             ) else null,
             proxy = if (proxyAuthToken != null) ProxyConnection(
-                url = normalizeProxyUrl(proxyUrl),
+                url = normalizeProxyUrl(viewModel.proxyUrl),
                 authToken = proxyAuthToken,
-                username = if (proxyAuthMode == AUTH_LOGIN) proxyUsername else null
+                username = if (viewModel.proxyAuthMode == AddServerWizardViewModel.AUTH_LOGIN) viewModel.proxyUsername else null
             ) else null,
             connectionPreference = ConnectionPreference.AUTO,
             isDiscovered = false,
-            isDefaultServer = setAsDefault,
-            isMusicAssistant = isMusicAssistant
+            isDefaultServer = viewModel.setAsDefault,
+            isMusicAssistant = viewModel.isMusicAssistant
         )
 
         // Save to repository
         UnifiedServerRepository.saveServer(server)
 
-        // Save MA token if we have one (from eager auth during wizard)
-        if (isMusicAssistant && maToken != null) {
-            MaSettings.setTokenForServer(serverId, maToken!!)
-        } else if (!isMusicAssistant) {
-            // Clear any existing MA token if user unchecked Music Assistant
+        // Save MA token if we have one
+        if (viewModel.isMusicAssistant && viewModel.maToken != null) {
+            MaSettings.setTokenForServer(serverId, viewModel.maToken!!)
+        } else if (!viewModel.isMusicAssistant) {
             MaSettings.clearTokenForServer(serverId)
         }
 
         // Update default server if needed
-        if (setAsDefault) {
+        if (viewModel.setAsDefault) {
             UnifiedServerRepository.setDefaultServer(serverId)
-        } else if (editingServer?.isDefaultServer == true) {
-            // Was default before, now unchecked - clear default
+        } else if (viewModel.editingServer?.isDefaultServer == true) {
             UnifiedServerRepository.setDefaultServer(null)
         }
 
-        // Invoke callback and dismiss
-        onServerCreated?.invoke(server)
-        dismiss()
+        // Return result and finish
+        val resultIntent = Intent().apply {
+            putExtra(RESULT_SERVER_ID, serverId)
+        }
+        setResult(Activity.RESULT_OK, resultIntent)
+        finish()
     }
 
     private fun normalizeProxyUrl(url: String): String {
@@ -545,16 +494,14 @@ class AddServerWizardDialog : DialogFragment() {
     }
 
     private fun setLoading(loading: Boolean) {
-        isLoading = loading
+        viewModel.isLoading = loading
         binding.nextButton.isEnabled = !loading
         binding.backButton.isEnabled = !loading
         binding.skipButton.isEnabled = !loading
     }
 
     private fun showError(message: String) {
-        view?.let { v ->
-            Snackbar.make(v, message, Snackbar.LENGTH_LONG).show()
-        }
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
     }
 
     // ========== ViewPager Adapter ==========
@@ -563,36 +510,29 @@ class AddServerWizardDialog : DialogFragment() {
         activity: FragmentActivity
     ) : FragmentStateAdapter(activity) {
 
-        override fun getItemCount(): Int = currentStepCount
+        override fun getItemCount(): Int = MAX_STEPS
 
         override fun createFragment(position: Int): Fragment {
             return when (position) {
                 STEP_NAME -> NameStepFragment().also {
                     nameFragment = it
-                    it.initialName = serverName
-                    it.initialSetAsDefault = setAsDefault
-                    it.initialIsMusicAssistant = isMusicAssistant
+                    it.viewModel = this@AddServerWizardActivity.viewModel
                 }
                 STEP_LOCAL -> LocalStepFragment().also {
                     localFragment = it
-                    it.initialAddress = localAddress
+                    it.viewModel = this@AddServerWizardActivity.viewModel
                 }
                 STEP_REMOTE -> RemoteStepFragment().also {
                     remoteFragment = it
-                    it.initialRemoteId = remoteId
-                    it.parentDialog = this@AddServerWizardDialog
+                    it.viewModel = this@AddServerWizardActivity.viewModel
                 }
                 STEP_PROXY -> ProxyStepFragment().also {
                     proxyFragment = it
-                    it.initialUrl = proxyUrl
-                    it.initialUsername = proxyUsername
-                    it.initialToken = proxyToken
-                    it.initialAuthMode = proxyAuthMode
+                    it.viewModel = this@AddServerWizardActivity.viewModel
                 }
                 STEP_MA_LOGIN -> MaLoginStepFragment().also {
                     maLoginFragment = it
-                    it.parentDialog = this@AddServerWizardDialog
-                    it.initialUsername = maUsername
+                    it.viewModel = this@AddServerWizardActivity.viewModel
                 }
                 else -> throw IllegalArgumentException("Invalid position: $position")
             }
@@ -604,27 +544,20 @@ class AddServerWizardDialog : DialogFragment() {
     /**
      * Step 1: Server Name + Music Assistant checkbox
      */
-    class NameStepFragment : Fragment() {
-        var initialName: String = ""
-        var initialSetAsDefault: Boolean = false
-        var initialIsMusicAssistant: Boolean = false
+    class NameStepFragment : Fragment(R.layout.wizard_step_name) {
+        var viewModel: AddServerWizardViewModel? = null
         private var _binding: WizardStepNameBinding? = null
         private val binding get() = _binding!!
 
-        override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-        ): View {
-            _binding = WizardStepNameBinding.inflate(inflater, container, false)
-            return binding.root
-        }
-
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
-            binding.nameInput.setText(initialName)
-            binding.setAsDefaultCheckbox.isChecked = initialSetAsDefault
-            binding.isMusicAssistantCheckbox.isChecked = initialIsMusicAssistant
+            _binding = WizardStepNameBinding.bind(view)
+
+            viewModel?.let { vm ->
+                binding.nameInput.setText(vm.serverName)
+                binding.setAsDefaultCheckbox.isChecked = vm.setAsDefault
+                binding.isMusicAssistantCheckbox.isChecked = vm.isMusicAssistant
+            }
         }
 
         override fun onDestroyView() {
@@ -633,9 +566,7 @@ class AddServerWizardDialog : DialogFragment() {
         }
 
         fun getName(): String = _binding?.nameInput?.text?.toString()?.trim() ?: ""
-
         fun isSetAsDefault(): Boolean = _binding?.setAsDefaultCheckbox?.isChecked ?: false
-
         fun isMusicAssistant(): Boolean = _binding?.isMusicAssistantCheckbox?.isChecked ?: false
 
         fun showError(message: String) {
@@ -648,48 +579,36 @@ class AddServerWizardDialog : DialogFragment() {
     }
 
     /**
-     * Step 2: Local Connection
-     *
-     * Uses mDNS (NsdDiscoveryManager) to scan for SendSpin servers on the local network.
-     * Discovered servers are shown as selectable chips - tapping one populates the address field.
+     * Step 2: Local Connection with mDNS discovery
      */
-    class LocalStepFragment : Fragment(), NsdDiscoveryManager.DiscoveryListener {
-        var initialAddress: String = ""
+    class LocalStepFragment : Fragment(R.layout.wizard_step_local), NsdDiscoveryManager.DiscoveryListener {
+        var viewModel: AddServerWizardViewModel? = null
         private var _binding: WizardStepLocalBinding? = null
         private val binding get() = _binding!!
 
         private var discoveryManager: NsdDiscoveryManager? = null
         private val discoveredServers = mutableMapOf<String, DiscoveredServer>()
 
-        /** Holds discovered server info for chip creation */
         private data class DiscoveredServer(val name: String, val address: String, val path: String)
-
-        override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-        ): View {
-            _binding = WizardStepLocalBinding.inflate(inflater, container, false)
-            return binding.root
-        }
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
-            binding.addressInput.setText(initialAddress)
+            _binding = WizardStepLocalBinding.bind(view)
 
-            // Initialize mDNS discovery
+            viewModel?.let { vm ->
+                binding.addressInput.setText(vm.localAddress)
+            }
+
             discoveryManager = NsdDiscoveryManager(requireContext(), this)
         }
 
         override fun onResume() {
             super.onResume()
-            // Start discovery when fragment becomes visible
             startDiscovery()
         }
 
         override fun onPause() {
             super.onPause()
-            // Stop discovery when fragment is not visible
             stopDiscovery()
         }
 
@@ -723,7 +642,6 @@ class AddServerWizardDialog : DialogFragment() {
                 }
             }
 
-            // Show chip group only if we have servers
             binding.discoveredServersChipGroup.visibility =
                 if (discoveredServers.isNotEmpty()) View.VISIBLE else View.GONE
         }
@@ -731,7 +649,6 @@ class AddServerWizardDialog : DialogFragment() {
         private fun addServerChip(server: DiscoveredServer) {
             if (_binding == null) return
 
-            // Create a new chip for the discovered server
             val chip = com.google.android.material.chip.Chip(requireContext()).apply {
                 text = server.name
                 isCheckable = true
@@ -739,7 +656,6 @@ class AddServerWizardDialog : DialogFragment() {
                 tag = server.address
 
                 setOnClickListener {
-                    // Populate address field when chip is selected
                     binding.addressInput.setText(server.address)
                     clearError()
                 }
@@ -765,8 +681,6 @@ class AddServerWizardDialog : DialogFragment() {
                 chipGroup.visibility = View.GONE
             }
         }
-
-        // ========== NsdDiscoveryManager.DiscoveryListener ==========
 
         override fun onServerDiscovered(name: String, address: String, path: String) {
             activity?.runOnUiThread {
@@ -815,34 +729,25 @@ class AddServerWizardDialog : DialogFragment() {
     /**
      * Step 3: Remote Access
      */
-    class RemoteStepFragment : Fragment() {
-        var initialRemoteId: String = ""
-        var parentDialog: AddServerWizardDialog? = null
+    class RemoteStepFragment : Fragment(R.layout.wizard_step_remote) {
+        var viewModel: AddServerWizardViewModel? = null
         private var _binding: WizardStepRemoteBinding? = null
         private val binding get() = _binding!!
         private var isFormatting = false
 
-        // Android TV detection - cameras on TV devices point away from user
         private val isTvDevice: Boolean by lazy {
             val uiModeManager = requireContext().getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
             uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
         }
 
-        override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-        ): View {
-            _binding = WizardStepRemoteBinding.inflate(inflater, container, false)
-            return binding.root
-        }
-
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
+            _binding = WizardStepRemoteBinding.bind(view)
 
-            // Pre-fill initial value
-            if (initialRemoteId.isNotBlank()) {
-                binding.remoteIdInput.setText(RemoteConnection.formatRemoteId(initialRemoteId))
+            viewModel?.let { vm ->
+                if (vm.remoteId.isNotBlank()) {
+                    binding.remoteIdInput.setText(RemoteConnection.formatRemoteId(vm.remoteId))
+                }
             }
 
             // Auto-format as user types
@@ -874,7 +779,7 @@ class AddServerWizardDialog : DialogFragment() {
                 }
             })
 
-            // QR scanner button - hide on TV devices where cameras point away from user
+            // QR scanner button - hide on TV devices
             if (isTvDevice) {
                 binding.remoteIdInputLayout.isEndIconVisible = false
             } else {
@@ -908,42 +813,29 @@ class AddServerWizardDialog : DialogFragment() {
     /**
      * Step 4: Proxy Connection
      */
-    class ProxyStepFragment : Fragment() {
-        var initialUrl: String = ""
-        var initialUsername: String = ""
-        var initialToken: String = ""
-        var initialAuthMode: Int = AUTH_LOGIN
-
+    class ProxyStepFragment : Fragment(R.layout.wizard_step_proxy) {
+        var viewModel: AddServerWizardViewModel? = null
         private var _binding: WizardStepProxyBinding? = null
         private val binding get() = _binding!!
-        private var currentAuthMode = AUTH_LOGIN
-
-        override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-        ): View {
-            _binding = WizardStepProxyBinding.inflate(inflater, container, false)
-            return binding.root
-        }
+        private var currentAuthMode = AddServerWizardViewModel.AUTH_LOGIN
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
+            _binding = WizardStepProxyBinding.bind(view)
 
-            // Pre-fill initial values
-            binding.urlInput.setText(initialUrl)
-            binding.usernameInput.setText(initialUsername)
-            binding.tokenInput.setText(initialToken)
+            viewModel?.let { vm ->
+                binding.urlInput.setText(vm.proxyUrl)
+                binding.usernameInput.setText(vm.proxyUsername)
+                binding.tokenInput.setText(vm.proxyToken)
+                currentAuthMode = vm.proxyAuthMode
+            }
 
-            // Select initial auth mode tab
-            currentAuthMode = initialAuthMode
             binding.authModeTabs.selectTab(binding.authModeTabs.getTabAt(currentAuthMode))
             updateAuthModeVisibility()
 
-            // Tab switching
             binding.authModeTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
                 override fun onTabSelected(tab: TabLayout.Tab?) {
-                    currentAuthMode = tab?.position ?: AUTH_LOGIN
+                    currentAuthMode = tab?.position ?: AddServerWizardViewModel.AUTH_LOGIN
                     updateAuthModeVisibility()
                 }
 
@@ -959,11 +851,11 @@ class AddServerWizardDialog : DialogFragment() {
 
         private fun updateAuthModeVisibility() {
             when (currentAuthMode) {
-                AUTH_LOGIN -> {
+                AddServerWizardViewModel.AUTH_LOGIN -> {
                     binding.loginModeContainer.visibility = View.VISIBLE
                     binding.tokenModeContainer.visibility = View.GONE
                 }
-                AUTH_TOKEN -> {
+                AddServerWizardViewModel.AUTH_TOKEN -> {
                     binding.loginModeContainer.visibility = View.GONE
                     binding.tokenModeContainer.visibility = View.VISIBLE
                 }
@@ -979,39 +871,23 @@ class AddServerWizardDialog : DialogFragment() {
 
     /**
      * Step 5: Music Assistant Login (conditional)
-     *
-     * Only shown when:
-     * - isMusicAssistant checkbox is checked
-     * - Local or Proxy connection is configured
-     *
-     * Performs eager authentication to validate credentials before saving.
      */
-    class MaLoginStepFragment : Fragment() {
-        var parentDialog: AddServerWizardDialog? = null
-        var initialUsername: String = ""
+    class MaLoginStepFragment : Fragment(R.layout.wizard_step_ma_login) {
+        var viewModel: AddServerWizardViewModel? = null
         private var _binding: WizardStepMaLoginBinding? = null
         private val binding get() = _binding!!
         private var isTesting = false
 
-        override fun onCreateView(
-            inflater: LayoutInflater,
-            container: ViewGroup?,
-            savedInstanceState: Bundle?
-        ): View {
-            _binding = WizardStepMaLoginBinding.inflate(inflater, container, false)
-            return binding.root
-        }
-
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
             super.onViewCreated(view, savedInstanceState)
+            _binding = WizardStepMaLoginBinding.bind(view)
 
-            // Pre-fill username if available
-            binding.maUsernameInput.setText(initialUsername)
+            viewModel?.let { vm ->
+                binding.maUsernameInput.setText(vm.maUsername)
+            }
 
-            // Pre-fill port with default
             binding.maPortInput.setText(MaSettings.getDefaultPort().toString())
 
-            // Test Connection button
             binding.testConnectionButton.setOnClickListener {
                 testConnection()
             }
@@ -1027,45 +903,31 @@ class AddServerWizardDialog : DialogFragment() {
             val password = binding.maPasswordInput.text?.toString() ?: ""
 
             if (username.isBlank() || password.isBlank()) {
-                showStatus(
-                    isError = true,
-                    message = getString(R.string.credentials_required)
-                )
+                showStatus(isError = true, message = getString(R.string.credentials_required))
                 return
             }
 
-            // Derive MA API URL from parent's connection data
-            val dialog = parentDialog ?: return
-            val apiUrl = deriveMaApiUrl(dialog)
+            val vm = viewModel ?: return
+            val apiUrl = deriveMaApiUrl(vm)
 
             if (apiUrl == null) {
-                showStatus(
-                    isError = true,
-                    message = getString(R.string.wizard_ma_requires_local_or_proxy)
-                )
+                showStatus(isError = true, message = getString(R.string.wizard_ma_requires_local_or_proxy))
                 return
             }
 
-            // Show testing state
             setTesting(true)
             showStatus(isLoading = true, message = getString(R.string.wizard_ma_testing))
 
-            // Perform login
             viewLifecycleOwner.lifecycleScope.launch {
                 try {
                     val result = MusicAssistantAuth.login(apiUrl, username, password)
 
                     setTesting(false)
-                    showStatus(
-                        isSuccess = true,
-                        message = getString(R.string.wizard_ma_connection_success)
-                    )
+                    showStatus(isSuccess = true, message = getString(R.string.wizard_ma_connection_success))
 
-                    // Store token in parent dialog's state
-                    dialog.maToken = result.accessToken
-                    dialog.maUsername = username
+                    vm.maToken = result.accessToken
+                    vm.maUsername = username
 
-                    // Save port as new default for future servers
                     val port = getPort()
                     if (port != MaSettings.getDefaultPort()) {
                         MaSettings.setDefaultPort(port)
@@ -1073,44 +935,29 @@ class AddServerWizardDialog : DialogFragment() {
 
                 } catch (e: MusicAssistantAuth.AuthenticationException) {
                     setTesting(false)
-                    showStatus(
-                        isError = true,
-                        message = getString(R.string.login_invalid_credentials)
-                    )
-                    dialog.maToken = null
+                    showStatus(isError = true, message = getString(R.string.login_invalid_credentials))
+                    vm.maToken = null
                 } catch (e: IOException) {
                     setTesting(false)
-                    showStatus(
-                        isError = true,
-                        message = getString(R.string.error_network)
-                    )
-                    dialog.maToken = null
+                    showStatus(isError = true, message = getString(R.string.error_network))
+                    vm.maToken = null
                 } catch (e: Exception) {
                     setTesting(false)
-                    showStatus(
-                        isError = true,
-                        message = getString(R.string.wizard_ma_connection_failed, e.message ?: "Unknown error")
-                    )
-                    dialog.maToken = null
+                    showStatus(isError = true, message = getString(R.string.wizard_ma_connection_failed, e.message ?: "Unknown error"))
+                    vm.maToken = null
                 }
             }
         }
 
-        /**
-         * Derives the MA API URL from the parent dialog's connection data.
-         * Uses local address with user-specified port, or proxy URL.
-         */
-        private fun deriveMaApiUrl(dialog: AddServerWizardDialog): String? {
-            // Try local first
-            if (dialog.localAddress.isNotBlank()) {
-                val host = dialog.localAddress.substringBefore(":")
+        private fun deriveMaApiUrl(vm: AddServerWizardViewModel): String? {
+            if (vm.localAddress.isNotBlank()) {
+                val host = vm.localAddress.substringBefore(":")
                 val port = getPort()
                 return "ws://$host:$port/ws"
             }
 
-            // Try proxy
-            if (dialog.proxyUrl.isNotBlank()) {
-                val baseUrl = dialog.normalizeProxyUrl(dialog.proxyUrl)
+            if (vm.proxyUrl.isNotBlank()) {
+                val baseUrl = normalizeProxyUrl(vm.proxyUrl)
                     .removeSuffix("/sendspin")
                     .trimEnd('/')
 
@@ -1124,6 +971,20 @@ class AddServerWizardDialog : DialogFragment() {
             }
 
             return null
+        }
+
+        private fun normalizeProxyUrl(url: String): String {
+            var normalized = when {
+                url.startsWith("https://") || url.startsWith("http://") -> url
+                url.startsWith("wss://") || url.startsWith("ws://") -> url
+                else -> "https://$url"
+            }
+
+            if (!normalized.contains("/sendspin")) {
+                normalized = normalized.trimEnd('/') + "/sendspin"
+            }
+
+            return normalized
         }
 
         private fun setTesting(testing: Boolean) {
@@ -1141,11 +1002,8 @@ class AddServerWizardDialog : DialogFragment() {
             message: String = ""
         ) {
             binding.connectionStatusContainer.visibility = View.VISIBLE
-
-            // Progress indicator
             binding.connectionProgress.visibility = if (isLoading) View.VISIBLE else View.GONE
 
-            // Status icon
             when {
                 isSuccess -> {
                     binding.connectionStatusIcon.visibility = View.VISIBLE
@@ -1168,7 +1026,6 @@ class AddServerWizardDialog : DialogFragment() {
                 }
             }
 
-            // Status text
             binding.connectionStatusText.text = message
             binding.connectionStatusText.setTextColor(
                 when {
