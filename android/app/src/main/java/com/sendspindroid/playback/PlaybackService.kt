@@ -48,7 +48,11 @@ import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import com.sendspindroid.model.SyncStats
+import com.sendspindroid.model.UnifiedServer
+import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.UnifiedServerRepository
+import com.sendspindroid.UserSettings.ConnectionMode
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
@@ -103,6 +107,10 @@ class PlaybackService : MediaLibraryService() {
     private var syncAudioPlayer: SyncAudioPlayer? = null
     private var audioDecoder: AudioDecoder? = null
     private var currentCodec: String = "pcm"  // Track current stream codec for stats
+
+    // Current server connection info (for MA integration)
+    private var currentServerId: String? = null
+    private var currentConnectionMode: ConnectionMode = ConnectionMode.LOCAL
 
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -273,6 +281,7 @@ class PlaybackService : MediaLibraryService() {
         const val ARG_REMOTE_ID = "remote_id"
         const val ARG_PROXY_URL = "proxy_url"
         const val ARG_AUTH_TOKEN = "auth_token"
+        const val ARG_SERVER_ID = "server_id"  // For MA integration
 
         // Session extras keys for metadata (service → controller)
         const val EXTRA_TITLE = "title"
@@ -348,6 +357,12 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize UserSettings for player name preference (must be before lowMemoryMode check)
         com.sendspindroid.UserSettings.initialize(this)
+
+        // Initialize MusicAssistantManager for MA API integration
+        MusicAssistantManager.initialize(this)
+
+        // Initialize UnifiedServerRepository for server lookups
+        UnifiedServerRepository.initialize(this)
 
         // Register receiver for sync offset changes from settings
         LocalBroadcastManager.getInstance(this).registerReceiver(
@@ -587,6 +602,10 @@ class PlaybackService : MediaLibraryService() {
                 // Broadcast connection state to controllers (MainActivity)
                 broadcastConnectionState(STATE_CONNECTED, serverName)
 
+                // Notify MusicAssistantManager of connection
+                // This triggers MA API availability check and token auth if applicable
+                notifyMusicAssistantConnected()
+
                 // Note: Don't auto-start playback - let user control or server push state
             }
         }
@@ -634,6 +653,12 @@ class PlaybackService : MediaLibraryService() {
 
                 // Clear lock screen metadata
                 forwardingPlayer?.clearMetadata()
+
+                // Notify MusicAssistantManager of disconnection (only on full disconnect)
+                if (!isDraining || wasUserInitiated) {
+                    MusicAssistantManager.onServerDisconnected()
+                    currentServerId = null
+                }
             }
         }
 
@@ -1292,6 +1317,40 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
+     * Sets the current server ID for MA integration.
+     * Call this before connecting when the server ID is known.
+     *
+     * @param serverId The UnifiedServer.id
+     * @param connectionMode The connection mode being used
+     */
+    fun setCurrentServer(serverId: String?, connectionMode: ConnectionMode) {
+        currentServerId = serverId
+        currentConnectionMode = connectionMode
+        Log.d(TAG, "Set current server: $serverId, mode=$connectionMode")
+    }
+
+    /**
+     * Notifies MusicAssistantManager that a server connection was established.
+     * Looks up the server by ID and triggers MA availability check.
+     */
+    private fun notifyMusicAssistantConnected() {
+        val serverId = currentServerId
+        if (serverId == null) {
+            Log.d(TAG, "No server ID set - skipping MA notification")
+            return
+        }
+
+        val server = UnifiedServerRepository.getServer(serverId)
+        if (server == null) {
+            Log.w(TAG, "Server not found in repository: $serverId")
+            return
+        }
+
+        Log.d(TAG, "Notifying MusicAssistantManager: server=${server.name}, isMusicAssistant=${server.isMusicAssistant}")
+        MusicAssistantManager.onServerConnected(server, currentConnectionMode)
+    }
+
+    /**
      * Sets the playback volume via device STREAM_MUSIC (Spotify-style).
      *
      * Volume is controlled via the device's media stream, not per-app gain.
@@ -1701,7 +1760,10 @@ class PlaybackService : MediaLibraryService() {
                 COMMAND_CONNECT -> {
                     val address = args.getString(ARG_SERVER_ADDRESS)
                     val path = args.getString(ARG_SERVER_PATH) ?: "/sendspin"
+                    val serverId = args.getString(ARG_SERVER_ID)
                     if (address != null) {
+                        // Set server info for MA integration before connecting
+                        setCurrentServer(serverId, ConnectionMode.LOCAL)
                         connectToServer(address, path)
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
@@ -1712,7 +1774,10 @@ class PlaybackService : MediaLibraryService() {
 
                 COMMAND_CONNECT_REMOTE -> {
                     val remoteId = args.getString(ARG_REMOTE_ID)
+                    val serverId = args.getString(ARG_SERVER_ID)
                     if (remoteId != null) {
+                        // Set server info for MA integration before connecting
+                        setCurrentServer(serverId, ConnectionMode.REMOTE)
                         connectToRemoteServer(remoteId)
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
@@ -1724,7 +1789,10 @@ class PlaybackService : MediaLibraryService() {
                 COMMAND_CONNECT_PROXY -> {
                     val url = args.getString(ARG_PROXY_URL)
                     val token = args.getString(ARG_AUTH_TOKEN)
+                    val serverId = args.getString(ARG_SERVER_ID)
                     if (url != null && token != null) {
+                        // Set server info for MA integration before connecting
+                        setCurrentServer(serverId, ConnectionMode.PROXY)
                         connectToProxyServer(url, token)
                         Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                     } else {
