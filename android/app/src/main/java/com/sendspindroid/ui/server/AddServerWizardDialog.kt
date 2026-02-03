@@ -25,10 +25,13 @@ import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.databinding.DialogAddServerWizardBinding
 import com.sendspindroid.databinding.WizardStepLocalBinding
+import com.sendspindroid.databinding.WizardStepMaLoginBinding
 import com.sendspindroid.databinding.WizardStepNameBinding
 import com.sendspindroid.databinding.WizardStepProxyBinding
 import com.sendspindroid.databinding.WizardStepRemoteBinding
 import com.sendspindroid.model.*
+import com.sendspindroid.musicassistant.MaApiEndpoint
+import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.remote.RemoteConnection
 import com.sendspindroid.sendspin.MusicAssistantAuth
 import com.sendspindroid.ui.remote.QrScannerDialog
@@ -39,10 +42,11 @@ import java.io.IOException
  * Multi-step wizard dialog for adding a unified server.
  *
  * ## Steps
- * 1. **Name** (required) - Server nickname
+ * 1. **Name** (required) - Server nickname + Music Assistant checkbox
  * 2. **Local** (optional) - IP:port for local network
  * 3. **Remote** (optional) - 26-character Remote ID or QR scan
  * 4. **Proxy** (optional) - URL + login/token authentication
+ * 5. **MA Login** (conditional) - Only shown if isMusicAssistant AND has local/proxy
  *
  * At least one connection method (Local, Remote, or Proxy) must be configured.
  *
@@ -59,12 +63,14 @@ class AddServerWizardDialog : DialogFragment() {
     companion object {
         private const val TAG = "AddServerWizardDialog"
 
-        // Step indices
+        // Base step indices (MA Login step is dynamically inserted)
         private const val STEP_NAME = 0
         private const val STEP_LOCAL = 1
         private const val STEP_REMOTE = 2
         private const val STEP_PROXY = 3
-        private const val TOTAL_STEPS = 4
+        private const val STEP_MA_LOGIN = 4  // Only present when isMusicAssistant && hasLocalOrProxy
+        private const val BASE_STEPS = 4
+        private const val MAX_STEPS = 5
 
         // Proxy auth modes
         private const val AUTH_LOGIN = 0
@@ -106,6 +112,7 @@ class AddServerWizardDialog : DialogFragment() {
     // Wizard state (shared across steps)
     private var serverName: String = ""
     private var setAsDefault: Boolean = false
+    private var isMusicAssistant: Boolean = false
     private var localAddress: String = ""
     private var remoteId: String = ""
     private var proxyUrl: String = ""
@@ -114,11 +121,20 @@ class AddServerWizardDialog : DialogFragment() {
     private var proxyPassword: String = ""
     private var proxyToken: String = ""
 
+    // MA Login state (for eager auth)
+    private var maUsername: String = ""
+    private var maPassword: String = ""
+    private var maToken: String? = null  // Token obtained from successful MA login
+
     // Step fragments (for accessing views)
     private var nameFragment: NameStepFragment? = null
     private var localFragment: LocalStepFragment? = null
     private var remoteFragment: RemoteStepFragment? = null
     private var proxyFragment: ProxyStepFragment? = null
+    private var maLoginFragment: MaLoginStepFragment? = null
+
+    // Dynamic step count (changes based on isMusicAssistant checkbox)
+    private var currentStepCount: Int = BASE_STEPS
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,6 +157,7 @@ class AddServerWizardDialog : DialogFragment() {
         editingServer?.let { server ->
             serverName = server.name
             setAsDefault = server.isDefaultServer
+            isMusicAssistant = server.isMusicAssistant
             server.local?.let {
                 localAddress = it.address
             }
@@ -153,7 +170,14 @@ class AddServerWizardDialog : DialogFragment() {
                 proxyUsername = it.username ?: ""
                 proxyAuthMode = AUTH_TOKEN // Default to token mode if we have saved proxy
             }
+            // Load existing MA token if available
+            if (isMusicAssistant) {
+                maToken = MaSettings.getTokenForServer(server.id)
+            }
         }
+
+        // Calculate initial step count
+        updateStepCount()
 
         setupViewPager()
         setupButtons()
@@ -171,13 +195,7 @@ class AddServerWizardDialog : DialogFragment() {
 
         // Sync TabLayout with ViewPager2
         TabLayoutMediator(binding.stepIndicator, binding.wizardPager) { tab, position ->
-            tab.text = when (position) {
-                STEP_NAME -> getString(R.string.wizard_step_name)
-                STEP_LOCAL -> getString(R.string.wizard_step_local)
-                STEP_REMOTE -> getString(R.string.wizard_step_remote)
-                STEP_PROXY -> getString(R.string.wizard_step_proxy)
-                else -> ""
-            }
+            tab.text = getStepTitle(position)
         }.attach()
 
         // Disable swipe (navigation via buttons only)
@@ -189,6 +207,35 @@ class AddServerWizardDialog : DialogFragment() {
                 updateButtonState()
             }
         })
+    }
+
+    private fun getStepTitle(position: Int): String {
+        return when (position) {
+            STEP_NAME -> getString(R.string.wizard_step_name)
+            STEP_LOCAL -> getString(R.string.wizard_step_local)
+            STEP_REMOTE -> getString(R.string.wizard_step_remote)
+            STEP_PROXY -> getString(R.string.wizard_step_proxy)
+            STEP_MA_LOGIN -> getString(R.string.wizard_step_ma_login)
+            else -> ""
+        }
+    }
+
+    /**
+     * Updates the step count based on current wizard state.
+     * MA Login step is only shown when isMusicAssistant is true AND
+     * at least local or proxy is configured.
+     */
+    private fun updateStepCount() {
+        val hasLocalOrProxy = localAddress.isNotBlank() || proxyUrl.isNotBlank()
+        currentStepCount = if (isMusicAssistant && hasLocalOrProxy) MAX_STEPS else BASE_STEPS
+    }
+
+    /**
+     * Checks if MA Login step should be shown based on current state.
+     */
+    private fun shouldShowMaLoginStep(): Boolean {
+        val hasLocalOrProxy = localAddress.isNotBlank() || proxyUrl.isNotBlank()
+        return isMusicAssistant && hasLocalOrProxy
     }
 
     private fun setupButtons() {
@@ -204,36 +251,67 @@ class AddServerWizardDialog : DialogFragment() {
 
         binding.skipButton.setOnClickListener {
             // Skip to next step (for optional steps)
-            if (binding.wizardPager.currentItem < TOTAL_STEPS - 1) {
+            if (binding.wizardPager.currentItem < currentStepCount - 1) {
                 binding.wizardPager.currentItem = binding.wizardPager.currentItem + 1
             }
         }
 
         binding.nextButton.setOnClickListener {
             val currentStep = binding.wizardPager.currentItem
+            val isLastStep = currentStep == currentStepCount - 1
 
-            if (currentStep == TOTAL_STEPS - 1) {
+            if (isLastStep) {
                 // Final step - attempt save
                 attemptSave()
             } else {
                 // Validate current step before proceeding
                 if (validateCurrentStep()) {
+                    // After Proxy step, check if MA Login step should be shown
+                    if (currentStep == STEP_PROXY) {
+                        collectAllConnectionData()
+                        updateStepCount()
+                        // Refresh adapter if step count changed
+                        refreshViewPagerIfNeeded()
+                    }
                     binding.wizardPager.currentItem = currentStep + 1
                 }
             }
         }
     }
 
+    /**
+     * Refreshes the ViewPager adapter when step count changes.
+     */
+    private fun refreshViewPagerIfNeeded() {
+        val adapter = binding.wizardPager.adapter as? WizardPagerAdapter
+        if (adapter != null && adapter.itemCount != currentStepCount) {
+            adapter.notifyDataSetChanged()
+            // Re-attach TabLayoutMediator
+            TabLayoutMediator(binding.stepIndicator, binding.wizardPager) { tab, position ->
+                tab.text = getStepTitle(position)
+            }.attach()
+        }
+    }
+
+    private fun collectAllConnectionData() {
+        collectNameData()
+        collectLocalData()
+        collectRemoteData()
+        collectProxyData()
+    }
+
     private fun updateButtonState() {
         val currentStep = binding.wizardPager.currentItem
         val isFirstStep = currentStep == 0
-        val isLastStep = currentStep == TOTAL_STEPS - 1
+        val isLastStep = currentStep == currentStepCount - 1
+        val isMaLoginStep = currentStep == STEP_MA_LOGIN && shouldShowMaLoginStep()
 
         // Back button: hide on first step
         binding.backButton.visibility = if (isFirstStep) View.INVISIBLE else View.VISIBLE
 
-        // Skip button: show only on optional steps (not name, not final)
-        binding.skipButton.visibility = if (!isFirstStep && !isLastStep) View.VISIBLE else View.GONE
+        // Skip button: show only on optional steps (not name, not final, not MA login if required)
+        // MA Login step is NOT skippable when shown - credentials must be validated
+        binding.skipButton.visibility = if (!isFirstStep && !isLastStep && !isMaLoginStep) View.VISIBLE else View.GONE
 
         // Next button: change text on final step
         binding.nextButton.text = if (isLastStep) {
@@ -280,6 +358,15 @@ class AddServerWizardDialog : DialogFragment() {
                 // Proxy validation happens during save (may involve login)
                 true
             }
+            STEP_MA_LOGIN -> {
+                // MA Login step validation - must have successfully tested connection
+                if (maToken == null) {
+                    showError(getString(R.string.wizard_ma_connection_failed, "Please test connection first"))
+                    false
+                } else {
+                    true
+                }
+            }
             else -> true
         }
     }
@@ -287,6 +374,7 @@ class AddServerWizardDialog : DialogFragment() {
     private fun collectNameData() {
         serverName = nameFragment?.getName() ?: serverName
         setAsDefault = nameFragment?.isSetAsDefault() ?: setAsDefault
+        isMusicAssistant = nameFragment?.isMusicAssistant() ?: isMusicAssistant
     }
 
     private fun collectLocalData() {
@@ -401,11 +489,20 @@ class AddServerWizardDialog : DialogFragment() {
             ) else null,
             connectionPreference = ConnectionPreference.AUTO,
             isDiscovered = false,
-            isDefaultServer = setAsDefault
+            isDefaultServer = setAsDefault,
+            isMusicAssistant = isMusicAssistant
         )
 
         // Save to repository
         UnifiedServerRepository.saveServer(server)
+
+        // Save MA token if we have one (from eager auth during wizard)
+        if (isMusicAssistant && maToken != null) {
+            MaSettings.setTokenForServer(serverId, maToken!!)
+        } else if (!isMusicAssistant) {
+            // Clear any existing MA token if user unchecked Music Assistant
+            MaSettings.clearTokenForServer(serverId)
+        }
 
         // Update default server if needed
         if (setAsDefault) {
@@ -453,7 +550,7 @@ class AddServerWizardDialog : DialogFragment() {
         activity: FragmentActivity
     ) : FragmentStateAdapter(activity) {
 
-        override fun getItemCount(): Int = TOTAL_STEPS
+        override fun getItemCount(): Int = currentStepCount
 
         override fun createFragment(position: Int): Fragment {
             return when (position) {
@@ -461,6 +558,7 @@ class AddServerWizardDialog : DialogFragment() {
                     nameFragment = it
                     it.initialName = serverName
                     it.initialSetAsDefault = setAsDefault
+                    it.initialIsMusicAssistant = isMusicAssistant
                 }
                 STEP_LOCAL -> LocalStepFragment().also {
                     localFragment = it
@@ -478,6 +576,11 @@ class AddServerWizardDialog : DialogFragment() {
                     it.initialToken = proxyToken
                     it.initialAuthMode = proxyAuthMode
                 }
+                STEP_MA_LOGIN -> MaLoginStepFragment().also {
+                    maLoginFragment = it
+                    it.parentDialog = this@AddServerWizardDialog
+                    it.initialUsername = maUsername
+                }
                 else -> throw IllegalArgumentException("Invalid position: $position")
             }
         }
@@ -486,11 +589,12 @@ class AddServerWizardDialog : DialogFragment() {
     // ========== Step Fragments ==========
 
     /**
-     * Step 1: Server Name
+     * Step 1: Server Name + Music Assistant checkbox
      */
     class NameStepFragment : Fragment() {
         var initialName: String = ""
         var initialSetAsDefault: Boolean = false
+        var initialIsMusicAssistant: Boolean = false
         private var _binding: WizardStepNameBinding? = null
         private val binding get() = _binding!!
 
@@ -507,6 +611,7 @@ class AddServerWizardDialog : DialogFragment() {
             super.onViewCreated(view, savedInstanceState)
             binding.nameInput.setText(initialName)
             binding.setAsDefaultCheckbox.isChecked = initialSetAsDefault
+            binding.isMusicAssistantCheckbox.isChecked = initialIsMusicAssistant
         }
 
         override fun onDestroyView() {
@@ -517,6 +622,8 @@ class AddServerWizardDialog : DialogFragment() {
         fun getName(): String = binding.nameInput.text?.toString()?.trim() ?: ""
 
         fun isSetAsDefault(): Boolean = binding.setAsDefaultCheckbox.isChecked
+
+        fun isMusicAssistant(): Boolean = binding.isMusicAssistantCheckbox.isChecked
 
         fun showError(message: String) {
             binding.nameInputLayout.error = message
@@ -855,5 +962,201 @@ class AddServerWizardDialog : DialogFragment() {
         fun getUsername(): String = binding.usernameInput.text?.toString()?.trim() ?: ""
         fun getPassword(): String = binding.passwordInput.text?.toString() ?: ""
         fun getToken(): String = binding.tokenInput.text?.toString()?.trim() ?: ""
+    }
+
+    /**
+     * Step 5: Music Assistant Login (conditional)
+     *
+     * Only shown when:
+     * - isMusicAssistant checkbox is checked
+     * - Local or Proxy connection is configured
+     *
+     * Performs eager authentication to validate credentials before saving.
+     */
+    class MaLoginStepFragment : Fragment() {
+        var parentDialog: AddServerWizardDialog? = null
+        var initialUsername: String = ""
+        private var _binding: WizardStepMaLoginBinding? = null
+        private val binding get() = _binding!!
+        private var isTesting = false
+
+        override fun onCreateView(
+            inflater: LayoutInflater,
+            container: ViewGroup?,
+            savedInstanceState: Bundle?
+        ): View {
+            _binding = WizardStepMaLoginBinding.inflate(inflater, container, false)
+            return binding.root
+        }
+
+        override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+            super.onViewCreated(view, savedInstanceState)
+
+            // Pre-fill username if available
+            binding.maUsernameInput.setText(initialUsername)
+
+            // Test Connection button
+            binding.testConnectionButton.setOnClickListener {
+                testConnection()
+            }
+        }
+
+        override fun onDestroyView() {
+            super.onDestroyView()
+            _binding = null
+        }
+
+        private fun testConnection() {
+            val username = binding.maUsernameInput.text?.toString()?.trim() ?: ""
+            val password = binding.maPasswordInput.text?.toString() ?: ""
+
+            if (username.isBlank() || password.isBlank()) {
+                showStatus(
+                    isError = true,
+                    message = getString(R.string.credentials_required)
+                )
+                return
+            }
+
+            // Derive MA API URL from parent's connection data
+            val dialog = parentDialog ?: return
+            val apiUrl = deriveMaApiUrl(dialog)
+
+            if (apiUrl == null) {
+                showStatus(
+                    isError = true,
+                    message = getString(R.string.wizard_ma_requires_local_or_proxy)
+                )
+                return
+            }
+
+            // Show testing state
+            setTesting(true)
+            showStatus(isLoading = true, message = getString(R.string.wizard_ma_testing))
+
+            // Perform login
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    val result = MusicAssistantAuth.login(apiUrl, username, password)
+
+                    setTesting(false)
+                    showStatus(
+                        isSuccess = true,
+                        message = getString(R.string.wizard_ma_connection_success)
+                    )
+
+                    // Store token in parent dialog's state
+                    dialog.maToken = result.accessToken
+                    dialog.maUsername = username
+
+                } catch (e: MusicAssistantAuth.AuthenticationException) {
+                    setTesting(false)
+                    showStatus(
+                        isError = true,
+                        message = getString(R.string.login_invalid_credentials)
+                    )
+                    dialog.maToken = null
+                } catch (e: IOException) {
+                    setTesting(false)
+                    showStatus(
+                        isError = true,
+                        message = getString(R.string.error_network)
+                    )
+                    dialog.maToken = null
+                } catch (e: Exception) {
+                    setTesting(false)
+                    showStatus(
+                        isError = true,
+                        message = getString(R.string.wizard_ma_connection_failed, e.message ?: "Unknown error")
+                    )
+                    dialog.maToken = null
+                }
+            }
+        }
+
+        /**
+         * Derives the MA API URL from the parent dialog's connection data.
+         * Uses local address (port 8095) or proxy URL.
+         */
+        private fun deriveMaApiUrl(dialog: AddServerWizardDialog): String? {
+            // Try local first
+            if (dialog.localAddress.isNotBlank()) {
+                val host = dialog.localAddress.substringBefore(":")
+                val port = MaSettings.getDefaultPort()
+                return "ws://$host:$port/ws"
+            }
+
+            // Try proxy
+            if (dialog.proxyUrl.isNotBlank()) {
+                val baseUrl = dialog.normalizeProxyUrl(dialog.proxyUrl)
+                    .removeSuffix("/sendspin")
+                    .trimEnd('/')
+
+                val wsUrl = when {
+                    baseUrl.startsWith("https://") -> baseUrl.replaceFirst("https://", "wss://")
+                    baseUrl.startsWith("http://") -> baseUrl.replaceFirst("http://", "ws://")
+                    else -> "wss://$baseUrl"
+                }
+
+                return "$wsUrl/ws"
+            }
+
+            return null
+        }
+
+        private fun setTesting(testing: Boolean) {
+            isTesting = testing
+            binding.testConnectionButton.isEnabled = !testing
+            binding.maUsernameInput.isEnabled = !testing
+            binding.maPasswordInput.isEnabled = !testing
+        }
+
+        private fun showStatus(
+            isLoading: Boolean = false,
+            isSuccess: Boolean = false,
+            isError: Boolean = false,
+            message: String = ""
+        ) {
+            binding.connectionStatusContainer.visibility = View.VISIBLE
+
+            // Progress indicator
+            binding.connectionProgress.visibility = if (isLoading) View.VISIBLE else View.GONE
+
+            // Status icon
+            when {
+                isSuccess -> {
+                    binding.connectionStatusIcon.visibility = View.VISIBLE
+                    binding.connectionStatusIcon.setImageResource(R.drawable.ic_check_circle)
+                    binding.connectionStatusIcon.imageTintList =
+                        android.content.res.ColorStateList.valueOf(
+                            resources.getColor(android.R.color.holo_green_dark, null)
+                        )
+                }
+                isError -> {
+                    binding.connectionStatusIcon.visibility = View.VISIBLE
+                    binding.connectionStatusIcon.setImageResource(R.drawable.ic_error)
+                    binding.connectionStatusIcon.imageTintList =
+                        android.content.res.ColorStateList.valueOf(
+                            resources.getColor(android.R.color.holo_red_dark, null)
+                        )
+                }
+                else -> {
+                    binding.connectionStatusIcon.visibility = View.GONE
+                }
+            }
+
+            // Status text
+            binding.connectionStatusText.text = message
+            binding.connectionStatusText.setTextColor(
+                when {
+                    isSuccess -> resources.getColor(android.R.color.holo_green_dark, null)
+                    isError -> resources.getColor(android.R.color.holo_red_dark, null)
+                    else -> resources.getColor(android.R.color.darker_gray, null)
+                }
+            )
+        }
+
+        fun getUsername(): String = binding.maUsernameInput.text?.toString()?.trim() ?: ""
+        fun getPassword(): String = binding.maPasswordInput.text?.toString() ?: ""
     }
 }

@@ -34,7 +34,20 @@ data class UnifiedServer(
 
     val connectionPreference: ConnectionPreference = ConnectionPreference.AUTO,
     val isDiscovered: Boolean = false,
-    val isDefaultServer: Boolean = false
+    val isDefaultServer: Boolean = false,
+
+    /**
+     * User-declared: this server runs Music Assistant.
+     *
+     * When true, the app will attempt to connect to the MA API for features like:
+     * - Browse library
+     * - Queue management
+     * - Player controls (Choose Players)
+     *
+     * Note: MA API requires a reachable endpoint (Local or Proxy) - Remote-only
+     * connections cannot access the MA API directly.
+     */
+    val isMusicAssistant: Boolean = false
 ) {
     /**
      * Returns true if at least one connection method is configured.
