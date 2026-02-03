@@ -390,4 +390,11 @@
     <string name="accessibility_ma_password_input">Music Assistant password input field</string>
     <string name="accessibility_ma_port_input">Music Assistant API port input field</string>
     <string name="accessibility_ma_test_connection">Test Music Assistant connection</string>
+
+    <!-- Favorite Track -->
+    <string name="favorite_track">Favorite</string>
+    <string name="accessibility_favorite_track">Add current track to favorites</string>
+    <string name="favorite_added">Added to favorites</string>
+    <string name="favorite_error">Could not add to favorites</string>
+    <string name="favorite_no_track">No track currently playing</string>
 </resources>
