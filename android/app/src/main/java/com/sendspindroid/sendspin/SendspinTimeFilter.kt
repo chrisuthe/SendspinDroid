@@ -110,24 +110,26 @@ class SendspinTimeFilter(
         // Physical meaning: Number of round-trip time measurements needed before
         // the filter has enough information for reliable time conversion.
         //
-        // Value rationale: 4 measurements provide:
+        // Value rationale: 2 measurements provide:
         //   - 1st measurement: Initializes offset
-        //   - 2nd measurement: First drift estimate
-        //   - 3rd-4th measurements: Kalman filter converges toward true offset
+        //   - 2nd measurement: First drift estimate and basic convergence
         //
-        // With only 2 measurements, the offset may still be off by 50-100ms due
-        // to RTT asymmetry in the first samples. 4 measurements give the Kalman
-        // filter enough iterations to reduce uncertainty significantly.
+        // ARCHITECTURAL NOTE (2025-02): With the sync error decoupling fix,
+        // Kalman filter learning no longer triggers correction noise. This means:
+        //   - We can safely start playback earlier (2 measurements instead of 4)
+        //   - The filter continues refining in the background
+        //   - Corrections only happen due to actual DAC clock drift
         //
-        // At ~500ms burst interval, this adds ~1 second before playback starts,
-        // but ensures much better initial sync accuracy (avoids "starting too
-        // far apart" issue where playback starts out of sync and must converge).
+        // Previously (4 measurements), we needed the filter to converge before
+        // playback because filter adjustments caused sync error noise that
+        // triggered unnecessary sample insert/drop corrections. Now the sync
+        // error is calculated entirely in client time, independent of Kalman.
         //
-        // If too low (2): Playback may start with poor offset, needing large
-        //                 corrections as filter converges.
+        // At ~500ms burst interval, this reduces startup by ~1 second.
+        // If too low (1): Only offset, no drift estimate at all.
         // If too high: Longer delay before audio starts.
         // ----------------------------------------------------------------------------
-        private const val MIN_MEASUREMENTS = 4
+        private const val MIN_MEASUREMENTS = 2
 
         // ----------------------------------------------------------------------------
         // MIN_MEASUREMENTS_FOR_CONVERGENCE: Measurements for high-confidence sync
