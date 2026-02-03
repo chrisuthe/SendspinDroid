@@ -368,4 +368,23 @@
     <string name="reconnecting_cancelled">Reconnection cancelled</string>
     <string name="reconnecting_toolbar_subtitle">Reconnecting…</string>
     <string name="accessibility_reconnecting">Reconnecting to server, attempt %1$d of %2$d</string>
+
+    <!-- Music Assistant Integration -->
+    <string name="wizard_is_music_assistant">This server runs Music Assistant</string>
+    <string name="wizard_is_music_assistant_hint">Enable to access library browsing and player management</string>
+    <string name="wizard_step_ma_login">MA Login</string>
+    <string name="wizard_ma_login_title">Music Assistant Login</string>
+    <string name="wizard_ma_login_description">Enter your Music Assistant credentials to enable library browsing and player management</string>
+    <string name="wizard_ma_test_connection">Test Connection</string>
+    <string name="wizard_ma_connection_success">Connection successful</string>
+    <string name="wizard_ma_connection_failed">Connection failed: %s</string>
+    <string name="wizard_ma_testing">Testing connection…</string>
+    <string name="wizard_ma_requires_local_or_proxy">Music Assistant requires Local or Proxy connection</string>
+    <string name="wizard_ma_skip_no_endpoint">No MA endpoint available - configure Local or Proxy first</string>
+
+    <!-- Accessibility - Music Assistant -->
+    <string name="accessibility_music_assistant_checkbox">Enable Music Assistant features for this server</string>
+    <string name="accessibility_ma_username_input">Music Assistant username input field</string>
+    <string name="accessibility_ma_password_input">Music Assistant password input field</string>
+    <string name="accessibility_ma_test_connection">Test Music Assistant connection</string>
 </resources>

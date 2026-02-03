@@ -76,8 +76,8 @@ class UnifiedServerConnector(
 
         Log.d(TAG, "Auto-selected ${ConnectionSelector.getConnectionDescription(selected)} for ${server.name}")
 
-        // Execute connection
-        executeConnection(selected, controller)
+        // Execute connection with server ID for MA integration
+        executeConnection(selected, controller, server.id)
         onConnectionStarted?.invoke(selected)
 
         // Update last connected timestamp
@@ -96,7 +96,7 @@ class UnifiedServerConnector(
         val local = server.local ?: return false
 
         val selected = ConnectionSelector.SelectedConnection.Local(local.address, local.path)
-        executeConnection(selected, controller)
+        executeConnection(selected, controller, server.id)
         onConnectionStarted?.invoke(selected)
 
         UnifiedServerRepository.updateLastConnected(server.id)
@@ -113,7 +113,7 @@ class UnifiedServerConnector(
         val remote = server.remote ?: return false
 
         val selected = ConnectionSelector.SelectedConnection.Remote(remote.remoteId)
-        executeConnection(selected, controller)
+        executeConnection(selected, controller, server.id)
         onConnectionStarted?.invoke(selected)
 
         UnifiedServerRepository.updateLastConnected(server.id)
@@ -130,7 +130,7 @@ class UnifiedServerConnector(
         val proxy = server.proxy ?: return false
 
         val selected = ConnectionSelector.SelectedConnection.Proxy(proxy.url, proxy.authToken)
-        executeConnection(selected, controller)
+        executeConnection(selected, controller, server.id)
         onConnectionStarted?.invoke(selected)
 
         UnifiedServerRepository.updateLastConnected(server.id)
@@ -139,39 +139,47 @@ class UnifiedServerConnector(
 
     /**
      * Sends the appropriate command to PlaybackService based on connection type.
+     *
+     * @param selected The selected connection method with connection details
+     * @param controller MediaController for sending commands
+     * @param serverId Optional server ID for MA integration (if known)
      */
     private fun executeConnection(
         selected: ConnectionSelector.SelectedConnection,
-        controller: MediaController
+        controller: MediaController,
+        serverId: String? = null
     ) {
         when (selected) {
             is ConnectionSelector.SelectedConnection.Local -> {
                 val args = Bundle().apply {
                     putString(PlaybackService.ARG_SERVER_ADDRESS, selected.address)
                     putString(PlaybackService.ARG_SERVER_PATH, selected.path)
+                    serverId?.let { putString(PlaybackService.ARG_SERVER_ID, it) }
                 }
                 val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
                 controller.sendCustomCommand(command, args)
-                Log.d(TAG, "Sent local connect: ${selected.address}")
+                Log.d(TAG, "Sent local connect: ${selected.address}, serverId=$serverId")
             }
 
             is ConnectionSelector.SelectedConnection.Remote -> {
                 val args = Bundle().apply {
                     putString(PlaybackService.ARG_REMOTE_ID, selected.remoteId)
+                    serverId?.let { putString(PlaybackService.ARG_SERVER_ID, it) }
                 }
                 val command = SessionCommand(PlaybackService.COMMAND_CONNECT_REMOTE, Bundle.EMPTY)
                 controller.sendCustomCommand(command, args)
-                Log.d(TAG, "Sent remote connect: ${selected.remoteId}")
+                Log.d(TAG, "Sent remote connect: ${selected.remoteId}, serverId=$serverId")
             }
 
             is ConnectionSelector.SelectedConnection.Proxy -> {
                 val args = Bundle().apply {
                     putString(PlaybackService.ARG_PROXY_URL, selected.url)
                     putString(PlaybackService.ARG_AUTH_TOKEN, selected.authToken)
+                    serverId?.let { putString(PlaybackService.ARG_SERVER_ID, it) }
                 }
                 val command = SessionCommand(PlaybackService.COMMAND_CONNECT_PROXY, Bundle.EMPTY)
                 controller.sendCustomCommand(command, args)
-                Log.d(TAG, "Sent proxy connect: ${selected.url}")
+                Log.d(TAG, "Sent proxy connect: ${selected.url}, serverId=$serverId")
             }
         }
     }

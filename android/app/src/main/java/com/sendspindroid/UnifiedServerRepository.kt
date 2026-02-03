@@ -18,12 +18,13 @@ import java.util.UUID
  *
  * ## Serialization Format
  * Uses pipe-delimited format to avoid JSON dependency:
- * `id;;name;;timestamp;;pref;;local;;remote;;proxy;;isDefault`
+ * `id;;name;;timestamp;;pref;;local;;remote;;proxy;;isDefault;;isMusicAssistant`
  * Where each connection is encoded as:
  * - local: `address::path`
  * - remote: `remoteId`
  * - proxy: `url::token::username`
  * - isDefault: `1` or `0` (boolean)
+ * - isMusicAssistant: `1` or `0` (boolean)
  *
  * ## Usage
  * ```kotlin
@@ -346,7 +347,7 @@ object UnifiedServerRepository {
 
     /**
      * Serialize servers to pipe-delimited format.
-     * Format: `id;;name;;timestamp;;pref;;local;;remote;;proxy;;isDefault`
+     * Format: `id;;name;;timestamp;;pref;;local;;remote;;proxy;;isDefault;;isMusicAssistant`
      * Where each connection component uses :: as subfield separator.
      */
     private fun serializeServers(servers: List<UnifiedServer>): String {
@@ -365,14 +366,18 @@ object UnifiedServerRepository {
                 localStr,
                 remoteStr,
                 proxyStr,
-                if (server.isDefaultServer) "1" else "0"
+                if (server.isDefaultServer) "1" else "0",
+                if (server.isMusicAssistant) "1" else "0"
             ).joinToString(FIELD_SEPARATOR)
         }
     }
 
     /**
      * Parse servers from pipe-delimited format.
-     * Supports both old 7-field format and new 8-field format with isDefault.
+     * Supports backward compatibility:
+     * - 7-field format (original)
+     * - 8-field format (+ isDefault)
+     * - 9-field format (+ isMusicAssistant)
      */
     private fun parseServers(data: String): List<UnifiedServer> {
         if (data.isBlank()) return emptyList()
@@ -420,6 +425,9 @@ object UnifiedServerRepository {
                 // Parse isDefault (8th field, defaults to false for backward compatibility)
                 val isDefault = fields.getOrNull(7) == "1"
 
+                // Parse isMusicAssistant (9th field, defaults to false for backward compatibility)
+                val isMusicAssistant = fields.getOrNull(8) == "1"
+
                 UnifiedServer(
                     id = id,
                     name = name,
@@ -429,7 +437,8 @@ object UnifiedServerRepository {
                     remote = remote,
                     proxy = proxy,
                     isDiscovered = false,
-                    isDefaultServer = isDefault
+                    isDefaultServer = isDefault,
+                    isMusicAssistant = isMusicAssistant
                 )
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse server entry: $serverStr", e)
