@@ -133,8 +133,9 @@ class AddServerWizardDialog : DialogFragment() {
     private var proxyFragment: ProxyStepFragment? = null
     private var maLoginFragment: MaLoginStepFragment? = null
 
-    // Dynamic step count (changes based on isMusicAssistant checkbox)
-    private var currentStepCount: Int = BASE_STEPS
+    // Step count is always MAX_STEPS - we handle MA Login visibility in navigation logic
+    // This avoids ViewPager2/RecyclerView inconsistency crashes from dynamic item counts
+    private val currentStepCount: Int = MAX_STEPS
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -176,9 +177,7 @@ class AddServerWizardDialog : DialogFragment() {
             }
         }
 
-        // Calculate initial step count
-        updateStepCount()
-
+        // Step count is always MAX_STEPS (5) - navigation logic handles MA Login visibility
         setupViewPager()
         setupButtons()
         updateButtonState()
@@ -193,6 +192,10 @@ class AddServerWizardDialog : DialogFragment() {
         val adapter = WizardPagerAdapter(requireActivity())
         binding.wizardPager.adapter = adapter
 
+        // Keep all wizard steps in memory so we can read their data at any time
+        // Without this, fragments are destroyed when off-screen and their binding becomes null
+        binding.wizardPager.offscreenPageLimit = MAX_STEPS
+
         // Sync TabLayout with ViewPager2
         TabLayoutMediator(binding.stepIndicator, binding.wizardPager) { tab, position ->
             tab.text = getStepTitle(position)
@@ -204,6 +207,9 @@ class AddServerWizardDialog : DialogFragment() {
         // Update buttons on page change
         binding.wizardPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
+                // Only update button state here - do NOT modify step count or adapter
+                // during page transitions as it causes RecyclerView inconsistency crashes.
+                // Step count updates happen in button handlers BEFORE transitions start.
                 updateButtonState()
             }
         })
@@ -218,16 +224,6 @@ class AddServerWizardDialog : DialogFragment() {
             STEP_MA_LOGIN -> getString(R.string.wizard_step_ma_login)
             else -> ""
         }
-    }
-
-    /**
-     * Updates the step count based on current wizard state.
-     * MA Login step is only shown when isMusicAssistant is true AND
-     * at least local or proxy is configured.
-     */
-    private fun updateStepCount() {
-        val hasLocalOrProxy = localAddress.isNotBlank() || proxyUrl.isNotBlank()
-        currentStepCount = if (isMusicAssistant && hasLocalOrProxy) MAX_STEPS else BASE_STEPS
     }
 
     /**
@@ -250,46 +246,53 @@ class AddServerWizardDialog : DialogFragment() {
         }
 
         binding.skipButton.setOnClickListener {
-            // Skip to next step (for optional steps)
-            if (binding.wizardPager.currentItem < currentStepCount - 1) {
-                binding.wizardPager.currentItem = binding.wizardPager.currentItem + 1
+            val currentStep = binding.wizardPager.currentItem
+
+            // Collect current data
+            collectAllConnectionData()
+
+            // Handle Proxy step specially - may skip MA Login or go to save
+            if (currentStep == STEP_PROXY) {
+                if (shouldShowMaLoginStep()) {
+                    // Go to MA Login step
+                    binding.wizardPager.currentItem = STEP_MA_LOGIN
+                } else {
+                    // No MA Login needed - save directly
+                    attemptSave()
+                }
+            } else if (currentStep < STEP_PROXY) {
+                // Normal skip for Local/Remote steps
+                binding.wizardPager.currentItem = currentStep + 1
             }
         }
 
         binding.nextButton.setOnClickListener {
             val currentStep = binding.wizardPager.currentItem
-            val isLastStep = currentStep == currentStepCount - 1
 
-            if (isLastStep) {
-                // Final step - attempt save
-                attemptSave()
-            } else {
-                // Validate current step before proceeding
-                if (validateCurrentStep()) {
-                    // After Proxy step, check if MA Login step should be shown
-                    if (currentStep == STEP_PROXY) {
-                        collectAllConnectionData()
-                        updateStepCount()
-                        // Refresh adapter if step count changed
-                        refreshViewPagerIfNeeded()
+            // Validate current step before proceeding
+            if (!validateCurrentStep()) return@setOnClickListener
+
+            // Collect current data
+            collectAllConnectionData()
+
+            when (currentStep) {
+                STEP_PROXY -> {
+                    // After Proxy, either go to MA Login or save
+                    if (shouldShowMaLoginStep()) {
+                        binding.wizardPager.currentItem = STEP_MA_LOGIN
+                    } else {
+                        attemptSave()
                     }
+                }
+                STEP_MA_LOGIN -> {
+                    // MA Login is always the last step when shown
+                    attemptSave()
+                }
+                else -> {
+                    // Normal navigation for Name, Local, Remote steps
                     binding.wizardPager.currentItem = currentStep + 1
                 }
             }
-        }
-    }
-
-    /**
-     * Refreshes the ViewPager adapter when step count changes.
-     */
-    private fun refreshViewPagerIfNeeded() {
-        val adapter = binding.wizardPager.adapter as? WizardPagerAdapter
-        if (adapter != null && adapter.itemCount != currentStepCount) {
-            adapter.notifyDataSetChanged()
-            // Re-attach TabLayoutMediator
-            TabLayoutMediator(binding.stepIndicator, binding.wizardPager) { tab, position ->
-                tab.text = getStepTitle(position)
-            }.attach()
         }
     }
 
@@ -303,18 +306,28 @@ class AddServerWizardDialog : DialogFragment() {
     private fun updateButtonState() {
         val currentStep = binding.wizardPager.currentItem
         val isFirstStep = currentStep == 0
-        val isLastStep = currentStep == currentStepCount - 1
-        val isMaLoginStep = currentStep == STEP_MA_LOGIN && shouldShowMaLoginStep()
+        val isMaLoginStep = currentStep == STEP_MA_LOGIN
+
+        // Determine if this is effectively the last step
+        // - MA Login step is always last when shown
+        // - Proxy step is last when MA Login won't be shown
+        val isEffectivelyLastStep = when (currentStep) {
+            STEP_MA_LOGIN -> true
+            STEP_PROXY -> !shouldShowMaLoginStep()
+            else -> false
+        }
 
         // Back button: hide on first step
         binding.backButton.visibility = if (isFirstStep) View.INVISIBLE else View.VISIBLE
 
-        // Skip button: show only on optional steps (not name, not final, not MA login if required)
-        // MA Login step is NOT skippable when shown - credentials must be validated
-        binding.skipButton.visibility = if (!isFirstStep && !isLastStep && !isMaLoginStep) View.VISIBLE else View.GONE
+        // Skip button: show only on optional steps (Local, Remote, Proxy when MA Login will be shown)
+        // MA Login step is NOT skippable - credentials must be validated
+        val showSkip = currentStep in listOf(STEP_LOCAL, STEP_REMOTE) ||
+                       (currentStep == STEP_PROXY && shouldShowMaLoginStep())
+        binding.skipButton.visibility = if (showSkip) View.VISIBLE else View.GONE
 
-        // Next button: change text on final step
-        binding.nextButton.text = if (isLastStep) {
+        // Next button: change text on effective final step
+        binding.nextButton.text = if (isEffectivelyLastStep) {
             getString(R.string.wizard_save)
         } else {
             getString(R.string.wizard_next)
@@ -619,11 +632,11 @@ class AddServerWizardDialog : DialogFragment() {
             _binding = null
         }
 
-        fun getName(): String = binding.nameInput.text?.toString()?.trim() ?: ""
+        fun getName(): String = _binding?.nameInput?.text?.toString()?.trim() ?: ""
 
-        fun isSetAsDefault(): Boolean = binding.setAsDefaultCheckbox.isChecked
+        fun isSetAsDefault(): Boolean = _binding?.setAsDefaultCheckbox?.isChecked ?: false
 
-        fun isMusicAssistant(): Boolean = binding.isMusicAssistantCheckbox.isChecked
+        fun isMusicAssistant(): Boolean = _binding?.isMusicAssistantCheckbox?.isChecked ?: false
 
         fun showError(message: String) {
             binding.nameInputLayout.error = message
@@ -788,7 +801,7 @@ class AddServerWizardDialog : DialogFragment() {
             }
         }
 
-        fun getAddress(): String = binding.addressInput.text?.toString()?.trim() ?: ""
+        fun getAddress(): String = _binding?.addressInput?.text?.toString()?.trim() ?: ""
 
         fun showError(message: String) {
             binding.addressInputLayout.error = message
@@ -879,7 +892,7 @@ class AddServerWizardDialog : DialogFragment() {
         }
 
         fun getRemoteId(): String {
-            val input = binding.remoteIdInput.text?.toString() ?: ""
+            val input = _binding?.remoteIdInput?.text?.toString() ?: ""
             return RemoteConnection.parseRemoteId(input) ?: input.filter { it.isLetterOrDigit() }
         }
 
@@ -957,11 +970,11 @@ class AddServerWizardDialog : DialogFragment() {
             }
         }
 
-        fun getUrl(): String = binding.urlInput.text?.toString()?.trim() ?: ""
+        fun getUrl(): String = _binding?.urlInput?.text?.toString()?.trim() ?: ""
         fun getAuthMode(): Int = currentAuthMode
-        fun getUsername(): String = binding.usernameInput.text?.toString()?.trim() ?: ""
-        fun getPassword(): String = binding.passwordInput.text?.toString() ?: ""
-        fun getToken(): String = binding.tokenInput.text?.toString()?.trim() ?: ""
+        fun getUsername(): String = _binding?.usernameInput?.text?.toString()?.trim() ?: ""
+        fun getPassword(): String = _binding?.passwordInput?.text?.toString() ?: ""
+        fun getToken(): String = _binding?.tokenInput?.text?.toString()?.trim() ?: ""
     }
 
     /**
@@ -994,6 +1007,9 @@ class AddServerWizardDialog : DialogFragment() {
 
             // Pre-fill username if available
             binding.maUsernameInput.setText(initialUsername)
+
+            // Pre-fill port with default
+            binding.maPortInput.setText(MaSettings.getDefaultPort().toString())
 
             // Test Connection button
             binding.testConnectionButton.setOnClickListener {
@@ -1049,6 +1065,12 @@ class AddServerWizardDialog : DialogFragment() {
                     dialog.maToken = result.accessToken
                     dialog.maUsername = username
 
+                    // Save port as new default for future servers
+                    val port = getPort()
+                    if (port != MaSettings.getDefaultPort()) {
+                        MaSettings.setDefaultPort(port)
+                    }
+
                 } catch (e: MusicAssistantAuth.AuthenticationException) {
                     setTesting(false)
                     showStatus(
@@ -1076,13 +1098,13 @@ class AddServerWizardDialog : DialogFragment() {
 
         /**
          * Derives the MA API URL from the parent dialog's connection data.
-         * Uses local address (port 8095) or proxy URL.
+         * Uses local address with user-specified port, or proxy URL.
          */
         private fun deriveMaApiUrl(dialog: AddServerWizardDialog): String? {
             // Try local first
             if (dialog.localAddress.isNotBlank()) {
                 val host = dialog.localAddress.substringBefore(":")
-                val port = MaSettings.getDefaultPort()
+                val port = getPort()
                 return "ws://$host:$port/ws"
             }
 
@@ -1109,6 +1131,7 @@ class AddServerWizardDialog : DialogFragment() {
             binding.testConnectionButton.isEnabled = !testing
             binding.maUsernameInput.isEnabled = !testing
             binding.maPasswordInput.isEnabled = !testing
+            binding.maPortInput.isEnabled = !testing
         }
 
         private fun showStatus(
@@ -1158,5 +1181,9 @@ class AddServerWizardDialog : DialogFragment() {
 
         fun getUsername(): String = binding.maUsernameInput.text?.toString()?.trim() ?: ""
         fun getPassword(): String = binding.maPasswordInput.text?.toString() ?: ""
+        fun getPort(): Int {
+            val portStr = binding.maPortInput.text?.toString()?.trim() ?: ""
+            return portStr.toIntOrNull() ?: MaSettings.getDefaultPort()
+        }
     }
 }

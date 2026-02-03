@@ -77,6 +77,30 @@
 
     </com.google.android.material.textfield.TextInputLayout>
 
+    <!-- Port Input -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/maPortInputLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:hint="@string/wizard_ma_port"
+        app:helperText="@string/wizard_ma_port_hint"
+        app:helperTextEnabled="true"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/maPortInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:inputType="number"
+            android:maxLines="1"
+            android:imeOptions="actionDone"
+            android:contentDescription="@string/accessibility_ma_port_input"
+            tools:text="8095" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
     <!-- Test Connection Button -->
     <com.google.android.material.button.MaterialButton
         android:id="@+id/testConnectionButton"
