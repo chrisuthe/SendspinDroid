@@ -165,18 +165,6 @@
         <item>opus</item>
         <item>flac</item>
     </string-array>
-    <string name="pref_kalman_dimension_title">Sync Filter Mode</string>
-    <string name="pref_kalman_dimension_summary">Algorithm complexity for clock synchronization</string>
-    <string-array name="kalman_dimension_entries">
-        <item>2D - Stable (WiFi recommended)</item>
-        <item>3D - Adaptive (handles drift changes)</item>
-        <item>4D - Network-Aware (Cellular recommended)</item>
-    </string-array>
-    <string-array name="kalman_dimension_values">
-        <item>D2</item>
-        <item>D3</item>
-        <item>D4</item>
-    </string-array>
     <string name="pref_codec_reconnect_title">Reconnect Required</string>
     <string name="pref_codec_reconnect_message">The new codec preference will be used the next time you connect to a server.</string>
 

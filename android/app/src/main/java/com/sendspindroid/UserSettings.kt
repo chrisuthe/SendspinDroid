@@ -5,7 +5,6 @@ import android.content.SharedPreferences
 import android.os.Build
 import androidx.preference.PreferenceManager
 import com.sendspindroid.network.TransportType
-import com.sendspindroid.sendspin.FilterDimension
 import java.util.UUID
 
 /**
@@ -22,7 +21,6 @@ object UserSettings {
     const val KEY_PREFERRED_CODEC = "preferred_codec"
     const val KEY_FULL_SCREEN_MODE = "full_screen_mode"
     const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
-    const val KEY_KALMAN_DIMENSION = "kalman_dimension"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -191,35 +189,6 @@ object UserSettings {
             else -> KEY_PREFERRED_CODEC
         }
         prefs?.edit()?.putString(key, codec)?.apply()
-    }
-
-    // ========== Sync Filter Settings ==========
-
-    /**
-     * Gets the Kalman filter dimension for time synchronization.
-     *
-     * - D2: offset + drift (stable WiFi - fast convergence)
-     * - D3: + acceleration (handles thermal drift over time)
-     * - D4: + RTT tracking (network-aware, detects network changes)
-     *
-     * @return The current filter dimension, defaults to D2
-     */
-    fun getKalmanDimension(): FilterDimension {
-        val value = prefs?.getString(KEY_KALMAN_DIMENSION, "D2") ?: "D2"
-        return try {
-            FilterDimension.valueOf(value)
-        } catch (e: Exception) {
-            FilterDimension.D2
-        }
-    }
-
-    /**
-     * Sets the Kalman filter dimension for time synchronization.
-     *
-     * @param dimension The filter dimension to use
-     */
-    fun setKalmanDimension(dimension: FilterDimension) {
-        prefs?.edit()?.putString(KEY_KALMAN_DIMENSION, dimension.name)?.apply()
     }
 
     // ========== Remote Access Settings ==========

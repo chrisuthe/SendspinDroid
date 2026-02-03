@@ -1,27 +1,19 @@
 package com.sendspindroid
 
-import android.content.ComponentName
 import android.content.Intent
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import android.util.Log
-import androidx.core.content.getSystemService
-import androidx.media3.session.MediaController
-import androidx.media3.session.SessionToken
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import androidx.preference.SwitchPreferenceCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.common.util.concurrent.MoreExecutors
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.sendspindroid.debug.DebugLogger
-import com.sendspindroid.playback.PlaybackService
 import kotlin.system.exitProcess
 
 // Note: SyncOffsetPreference is a custom preference that handles its own UI
@@ -48,10 +40,6 @@ class SettingsFragment : PreferenceFragmentCompat() {
         // Broadcast action for debug logging toggle
         const val ACTION_DEBUG_LOGGING_CHANGED = "com.sendspindroid.ACTION_DEBUG_LOGGING_CHANGED"
         const val EXTRA_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
-
-        // Broadcast action for Kalman dimension change
-        const val ACTION_KALMAN_DIMENSION_CHANGED = "com.sendspindroid.ACTION_KALMAN_DIMENSION_CHANGED"
-        const val EXTRA_KALMAN_DIMENSION = "kalman_dimension"
     }
 
     // Handler for periodic updates of debug log sample count
@@ -148,27 +136,6 @@ class SettingsFragment : PreferenceFragmentCompat() {
             }
         }
 
-        // Set up Kalman dimension with dynamic summary and network hint
-        findPreference<ListPreference>(UserSettings.KEY_KALMAN_DIMENSION)?.apply {
-            updateKalmanDimensionSummary(this)
-
-            setOnPreferenceChangeListener { _, newValue ->
-                val dimension = newValue as String
-                Log.i(TAG, "Kalman dimension changed to: $dimension")
-
-                // Broadcast to PlaybackService to apply immediately
-                val intent = Intent(ACTION_KALMAN_DIMENSION_CHANGED).apply {
-                    putExtra(EXTRA_KALMAN_DIMENSION, dimension)
-                }
-                LocalBroadcastManager.getInstance(requireContext()).sendBroadcast(intent)
-
-                // Update summary on next frame (after preference value is saved)
-                handler.post { updateKalmanDimensionSummary(this) }
-
-                true  // Accept the preference change
-            }
-        }
-
         // Set up version display
         findPreference<Preference>(KEY_APP_VERSION)?.apply {
             summary = try {
@@ -216,39 +183,6 @@ class SettingsFragment : PreferenceFragmentCompat() {
             getString(R.string.pref_debug_logging_summary_on, DebugLogger.getSampleCount())
         } else {
             getString(R.string.pref_debug_logging_summary_off)
-        }
-    }
-
-    /**
-     * Updates the Kalman dimension summary with current selection and network hint.
-     */
-    private fun updateKalmanDimensionSummary(pref: ListPreference?) {
-        pref ?: return
-
-        val currentEntry = pref.entry ?: "2D - Stable"
-        val networkHint = getNetworkHint()
-
-        pref.summary = if (networkHint.isNotEmpty()) {
-            "$currentEntry\n$networkHint"
-        } else {
-            currentEntry
-        }
-    }
-
-    /**
-     * Gets a network-specific recommendation hint for the Kalman dimension.
-     */
-    private fun getNetworkHint(): String {
-        val connectivityManager = context?.getSystemService<ConnectivityManager>() ?: return ""
-        val network = connectivityManager.activeNetwork ?: return ""
-        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return ""
-
-        return when {
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ->
-                "2D recommended for WiFi"
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ->
-                "4D recommended for cellular"
-            else -> ""
         }
     }
 
