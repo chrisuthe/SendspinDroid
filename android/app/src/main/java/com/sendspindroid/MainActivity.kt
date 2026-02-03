@@ -79,6 +79,8 @@ import com.sendspindroid.ui.server.AddServerWizardDialog
 import com.sendspindroid.ui.server.SectionedServerAdapter
 import com.sendspindroid.ui.server.UnifiedServerAdapter
 import com.sendspindroid.ui.server.UnifiedServerConnector
+import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.model.MaConnectionState
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import androidx.lifecycle.lifecycleScope
@@ -595,6 +597,14 @@ class MainActivity : AppCompatActivity() {
         binding.switchGroupButton.setOnClickListener {
             onSwitchGroupClicked()
         }
+
+        // Favorite button - Only visible when connected to MA server
+        binding.favoriteButton?.setOnClickListener {
+            onFavoriteClicked()
+        }
+
+        // Observe MA connection state to show/hide favorite button
+        observeMaConnectionState()
 
         // Volume slider - controls device STREAM_MUSIC (Spotify-style)
         // Initialize slider to current device volume
@@ -2200,6 +2210,46 @@ class MainActivity : AppCompatActivity() {
         val controller = mediaController ?: return
         val command = SessionCommand(PlaybackService.COMMAND_SWITCH_GROUP, Bundle.EMPTY)
         controller.sendCustomCommand(command, Bundle.EMPTY)
+    }
+
+    /**
+     * Handles favorite button click.
+     * Adds the currently playing track to Music Assistant favorites.
+     */
+    private fun onFavoriteClicked() {
+        Log.d(TAG, "Favorite clicked")
+
+        lifecycleScope.launch {
+            val result = MusicAssistantManager.favoriteCurrentTrack()
+            result.fold(
+                onSuccess = { message ->
+                    Snackbar.make(binding.coordinatorLayout, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
+                    announceForAccessibility(getString(R.string.favorite_added))
+                },
+                onFailure = { error ->
+                    val errorMessage = when {
+                        error.message?.contains("No track") == true -> R.string.favorite_no_track
+                        else -> R.string.favorite_error
+                    }
+                    Snackbar.make(binding.coordinatorLayout, errorMessage, Snackbar.LENGTH_SHORT).show()
+                    Log.e(TAG, "Favorite failed: ${error.message}")
+                }
+            )
+        }
+    }
+
+    /**
+     * Observes Music Assistant connection state to show/hide the favorite button.
+     * The favorite button is only visible when connected to an MA-enabled server.
+     */
+    private fun observeMaConnectionState() {
+        lifecycleScope.launch {
+            MusicAssistantManager.connectionState.collectLatest { state ->
+                val isVisible = state is MaConnectionState.Connected
+                binding.favoriteButton?.visibility = if (isVisible) View.VISIBLE else View.GONE
+                Log.d(TAG, "MA connection state changed: $state, favorite button visible: $isVisible")
+            }
+        }
     }
 
     /**

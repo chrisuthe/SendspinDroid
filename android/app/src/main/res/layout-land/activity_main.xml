@@ -491,7 +491,22 @@
                             android:enabled="false"
                             android:focusable="true"
                             android:nextFocusLeft="@id/nextButton"
+                            android:nextFocusRight="@id/favoriteButton"
                             app:icon="@drawable/ic_swap_horiz"
+                            app:iconSize="22dp" />
+
+                        <!-- Favorite Button - Only visible when connected to MA server -->
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/favoriteButton"
+                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                            android:layout_width="44dp"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="8dp"
+                            android:visibility="gone"
+                            android:contentDescription="@string/accessibility_favorite_track"
+                            android:focusable="true"
+                            android:nextFocusLeft="@id/switchGroupButton"
+                            app:icon="@drawable/ic_favorite_border"
                             app:iconSize="22dp" />
 
                     </LinearLayout>
