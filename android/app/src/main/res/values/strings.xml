@@ -376,6 +376,8 @@
     <string name="wizard_ma_login_title">Music Assistant Login</string>
     <string name="wizard_ma_login_description">Enter your Music Assistant credentials to enable library browsing and player management</string>
     <string name="wizard_ma_test_connection">Test Connection</string>
+    <string name="wizard_ma_port">MA Port</string>
+    <string name="wizard_ma_port_hint">Default: 8095</string>
     <string name="wizard_ma_connection_success">Connection successful</string>
     <string name="wizard_ma_connection_failed">Connection failed: %s</string>
     <string name="wizard_ma_testing">Testing connection…</string>
@@ -386,5 +388,6 @@
     <string name="accessibility_music_assistant_checkbox">Enable Music Assistant features for this server</string>
     <string name="accessibility_ma_username_input">Music Assistant username input field</string>
     <string name="accessibility_ma_password_input">Music Assistant password input field</string>
+    <string name="accessibility_ma_port_input">Music Assistant API port input field</string>
     <string name="accessibility_ma_test_connection">Test Music Assistant connection</string>
 </resources>
