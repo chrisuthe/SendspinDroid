@@ -3,162 +3,159 @@
     Wizard Step: Music Assistant Login
     Only shown when server is marked as Music Assistant AND has local/proxy endpoint.
     Performs eager authentication before server is saved.
+    Wrapped in ScrollView for proper keyboard handling in full-screen Activity
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
+    android:fillViewport="true"
     android:background="?attr/colorSurface">
 
-    <!-- Step Title -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/wizard_ma_login_title"
-        android:textAppearance="?attr/textAppearanceTitleLarge"
-        android:textColor="?attr/colorOnSurface" />
-
-    <!-- Step Description -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/wizard_ma_login_description"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textColor="?attr/colorOnSurfaceVariant" />
-
-    <!-- Username Input -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/maUsernameInputLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:hint="@string/username"
-        app:startIconDrawable="@drawable/ic_person"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/maUsernameInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:inputType="text"
-            android:maxLines="1"
-            android:imeOptions="actionNext"
-            android:contentDescription="@string/accessibility_ma_username_input"
-            tools:text="admin" />
-
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- Password Input -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/maPasswordInputLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:hint="@string/password"
-        app:startIconDrawable="@drawable/ic_lock"
-        app:endIconMode="password_toggle"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/maPasswordInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:inputType="textPassword"
-            android:maxLines="1"
-            android:imeOptions="actionDone"
-            android:contentDescription="@string/accessibility_ma_password_input"
-            tools:text="" />
-
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- Port Input -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/maPortInputLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:hint="@string/wizard_ma_port"
-        app:helperText="@string/wizard_ma_port_hint"
-        app:helperTextEnabled="true"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/maPortInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:inputType="number"
-            android:maxLines="1"
-            android:imeOptions="actionDone"
-            android:contentDescription="@string/accessibility_ma_port_input"
-            tools:text="8095" />
-
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- Test Connection Button -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/testConnectionButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/wizard_ma_test_connection"
-        android:contentDescription="@string/accessibility_ma_test_connection"
-        app:icon="@drawable/ic_check_circle"
-        style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
-
-    <!-- Connection Status -->
     <LinearLayout
-        android:id="@+id/connectionStatusContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:visibility="gone"
-        tools:visibility="visible">
+        android:orientation="vertical"
+        android:padding="24dp">
 
-        <ProgressBar
-            android:id="@+id/connectionProgress"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:visibility="gone"
-            tools:visibility="visible" />
-
-        <ImageView
-            android:id="@+id/connectionStatusIcon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:visibility="gone"
-            android:importantForAccessibility="no"
-            tools:src="@drawable/ic_check_circle"
-            tools:visibility="visible" />
-
+        <!-- Step Title -->
         <TextView
-            android:id="@+id/connectionStatusText"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="12dp"
+            android:text="@string/wizard_ma_login_title"
+            android:textAppearance="?attr/textAppearanceTitleLarge"
+            android:textColor="?attr/colorOnSurface" />
+
+        <!-- Step Description -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/wizard_ma_login_description"
             android:textAppearance="?attr/textAppearanceBodyMedium"
-            tools:text="@string/wizard_ma_connection_success" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <!-- Username Input -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/maUsernameInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:hint="@string/username"
+            app:startIconDrawable="@drawable/ic_person"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/maUsernameInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:inputType="text"
+                android:maxLines="1"
+                android:imeOptions="actionNext"
+                android:contentDescription="@string/accessibility_ma_username_input"
+                tools:text="admin" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Password Input -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/maPasswordInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="@string/password"
+            app:startIconDrawable="@drawable/ic_lock"
+            app:endIconMode="password_toggle"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/maPasswordInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:inputType="textPassword"
+                android:maxLines="1"
+                android:imeOptions="actionDone"
+                android:contentDescription="@string/accessibility_ma_password_input"
+                tools:text="" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Port Input -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/maPortInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:hint="@string/wizard_ma_port"
+            app:helperText="@string/wizard_ma_port_hint"
+            app:helperTextEnabled="true"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/maPortInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:inputType="number"
+                android:maxLines="1"
+                android:imeOptions="actionDone"
+                android:contentDescription="@string/accessibility_ma_port_input"
+                tools:text="8095" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Test Connection Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/testConnectionButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/wizard_ma_test_connection"
+            android:contentDescription="@string/accessibility_ma_test_connection"
+            app:icon="@drawable/ic_check_circle"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+
+        <!-- Connection Status -->
+        <LinearLayout
+            android:id="@+id/connectionStatusContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <ProgressBar
+                android:id="@+id/connectionProgress"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <ImageView
+                android:id="@+id/connectionStatusIcon"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:visibility="gone"
+                android:importantForAccessibility="no"
+                tools:src="@drawable/ic_check_circle"
+                tools:visibility="visible" />
+
+            <TextView
+                android:id="@+id/connectionStatusText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="12dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                tools:text="@string/wizard_ma_connection_success" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
-    <!-- Hint text -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/wizard_ma_login_description"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:textStyle="italic"
-        android:visibility="gone" />
-
-</LinearLayout>
+</ScrollView>

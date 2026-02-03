@@ -75,7 +75,7 @@ import com.sendspindroid.network.DefaultServerPinger
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
-import com.sendspindroid.ui.server.AddServerWizardDialog
+import com.sendspindroid.ui.server.AddServerWizardActivity
 import com.sendspindroid.ui.server.SectionedServerAdapter
 import com.sendspindroid.ui.server.UnifiedServerAdapter
 import com.sendspindroid.ui.server.UnifiedServerConnector
@@ -175,6 +175,23 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Notification permission granted")
         } else {
             Log.w(TAG, "Notification permission denied - playback notifications will not appear")
+        }
+    }
+
+    // Add Server Wizard Activity launcher
+    // Uses ActivityResult to receive the new/updated server ID when the wizard completes
+    private val addServerWizardLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val serverId = result.data?.getStringExtra(AddServerWizardActivity.RESULT_SERVER_ID)
+            if (serverId != null) {
+                val server = UnifiedServerRepository.getServer(serverId)
+                if (server != null) {
+                    Log.d(TAG, "Server wizard completed: ${server.name}")
+                    showSuccessSnackbar(getString(R.string.server_added, server.name))
+                }
+            }
         }
     }
 
@@ -1904,13 +1921,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Shows the add server wizard dialog for creating unified servers.
+     * Shows the add server wizard activity for creating unified servers.
+     * Uses full-screen Activity instead of Dialog for proper keyboard handling.
      */
     private fun showAddServerWizard() {
-        AddServerWizardDialog.show(supportFragmentManager) { server ->
-            Log.d(TAG, "Unified server created: ${server.name}")
-            showSuccessSnackbar(getString(R.string.server_added, server.name))
+        val intent = Intent(this, AddServerWizardActivity::class.java)
+        addServerWizardLauncher.launch(intent)
+    }
+
+    /**
+     * Shows the add server wizard activity for editing an existing server.
+     */
+    private fun showEditServerWizard(server: UnifiedServer) {
+        val intent = Intent(this, AddServerWizardActivity::class.java).apply {
+            putExtra(AddServerWizardActivity.EXTRA_EDIT_SERVER_ID, server.id)
         }
+        addServerWizardLauncher.launch(intent)
     }
 
     /**
@@ -2011,9 +2037,7 @@ class MainActivity : AppCompatActivity() {
         if (!server.isDiscovered) {
             items.add(getString(R.string.edit_server))
             actions.add {
-                AddServerWizardDialog.showForEdit(supportFragmentManager, server) { updated ->
-                    showSuccessSnackbar("Server updated: ${updated.name}")
-                }
+                showEditServerWizard(server)
             }
         }
 
@@ -2902,9 +2926,7 @@ class MainActivity : AppCompatActivity() {
                     // Edit the currently connected server
                     val server = UnifiedServerRepository.getServer(currentConnectedServerId!!)
                     if (server != null) {
-                        AddServerWizardDialog.showForEdit(supportFragmentManager, server) { updated ->
-                            showSuccessSnackbar("Server updated: ${updated.name}")
-                        }
+                        showEditServerWizard(server)
                     } else {
                         // Fallback: server not found in repository (discovered server)
                         showAddServerWizard()

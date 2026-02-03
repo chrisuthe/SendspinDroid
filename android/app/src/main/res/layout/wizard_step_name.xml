@@ -2,104 +2,112 @@
 <!--
     Wizard Step 1: Server Name
     Required field - user must provide a friendly name for the server
+    Wrapped in ScrollView for proper keyboard handling in full-screen Activity
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
+    android:fillViewport="true"
     android:background="?attr/colorSurface">
 
-    <!-- Step Title -->
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/wizard_name_title"
-        android:textAppearance="?attr/textAppearanceTitleLarge"
-        android:textColor="?attr/colorOnSurface" />
+        android:orientation="vertical"
+        android:padding="24dp">
 
-    <!-- Step Description -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/wizard_name_description"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textColor="?attr/colorOnSurfaceVariant" />
-
-    <!-- Name Input -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/nameInputLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:hint="@string/server_name"
-        app:counterEnabled="true"
-        app:counterMaxLength="50"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/nameInput"
+        <!-- Step Title -->
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="48dp"
-            android:inputType="text|textCapWords"
-            android:maxLength="50"
-            android:maxLines="1"
-            android:imeOptions="actionNext"
-            android:contentDescription="@string/accessibility_server_name_input"
-            tools:text="Living Room" />
+            android:text="@string/wizard_name_title"
+            android:textAppearance="?attr/textAppearanceTitleLarge"
+            android:textColor="?attr/colorOnSurface" />
 
-    </com.google.android.material.textfield.TextInputLayout>
+        <!-- Step Description -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/wizard_name_description"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
-    <!-- Hint text -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/wizard_name_hint"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:textStyle="italic" />
+        <!-- Name Input -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/nameInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:hint="@string/server_name"
+            app:counterEnabled="true"
+            app:counterMaxLength="50"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
-    <!-- Set as Default -->
-    <com.google.android.material.checkbox.MaterialCheckBox
-        android:id="@+id/setAsDefaultCheckbox"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="@string/set_as_default"
-        android:textColor="?attr/colorOnSurface"
-        android:contentDescription="@string/accessibility_default_server" />
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/nameInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="48dp"
+                android:inputType="text|textCapWords"
+                android:maxLength="50"
+                android:maxLines="1"
+                android:imeOptions="actionNext"
+                android:contentDescription="@string/accessibility_server_name_input"
+                tools:text="Living Room" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="36dp"
-        android:layout_marginTop="4dp"
-        android:text="@string/wizard_default_server_hint"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?attr/colorOnSurfaceVariant" />
+        </com.google.android.material.textfield.TextInputLayout>
 
-    <!-- Music Assistant Checkbox -->
-    <com.google.android.material.checkbox.MaterialCheckBox
-        android:id="@+id/isMusicAssistantCheckbox"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="@string/wizard_is_music_assistant"
-        android:textColor="?attr/colorOnSurface"
-        android:contentDescription="@string/accessibility_music_assistant_checkbox" />
+        <!-- Hint text -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/wizard_name_hint"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textStyle="italic" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="36dp"
-        android:layout_marginTop="4dp"
-        android:text="@string/wizard_is_music_assistant_hint"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?attr/colorOnSurfaceVariant" />
+        <!-- Set as Default -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/setAsDefaultCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/set_as_default"
+            android:textColor="?attr/colorOnSurface"
+            android:contentDescription="@string/accessibility_default_server" />
 
-</LinearLayout>
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="36dp"
+            android:layout_marginTop="4dp"
+            android:text="@string/wizard_default_server_hint"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <!-- Music Assistant Checkbox -->
+        <com.google.android.material.checkbox.MaterialCheckBox
+            android:id="@+id/isMusicAssistantCheckbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/wizard_is_music_assistant"
+            android:textColor="?attr/colorOnSurface"
+            android:contentDescription="@string/accessibility_music_assistant_checkbox" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="36dp"
+            android:layout_marginTop="4dp"
+            android:text="@string/wizard_is_music_assistant_hint"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+    </LinearLayout>
+
+</ScrollView>
