@@ -64,8 +64,9 @@ class SettingsFragment : PreferenceFragmentCompat() {
 
         // Set up debug logging toggle
         findPreference<SwitchPreferenceCompat>(KEY_DEBUG_LOGGING)?.apply {
-            // Initialize from current state
-            isChecked = DebugLogger.isEnabled
+            // Sync in-memory state from the persisted preference value
+            // (SwitchPreferenceCompat automatically reads its persisted value)
+            DebugLogger.isEnabled = isChecked
             updateDebugLoggingSummary(this)
 
             setOnPreferenceChangeListener { _, newValue ->
