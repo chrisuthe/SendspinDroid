@@ -397,4 +397,13 @@
     <string name="favorite_added">Added to favorites</string>
     <string name="favorite_error">Could not add to favorites</string>
     <string name="favorite_no_track">No track currently playing</string>
+
+    <!-- Bottom Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_search">Search</string>
+    <string name="nav_library">Library</string>
+
+    <!-- Navigation Placeholders -->
+    <string name="placeholder_coming_soon">Coming soon</string>
+    <string name="mini_player_tap_to_expand">Tap to expand player</string>
 </resources>

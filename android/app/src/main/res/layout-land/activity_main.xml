@@ -68,7 +68,7 @@
                 android:layout_width="0dp"
                 android:layout_height="0dp"
                 android:clipToPadding="false"
-                android:paddingBottom="88dp"
+                android:paddingBottom="144dp"
                 android:importantForAccessibility="yes"
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -563,19 +563,72 @@
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 
+        <!-- ============================================================ -->
+        <!-- NAVIGATION CONTENT VIEW - Shown when bottom nav tab selected -->
+        <!-- Contains mini player at top and fragment content below       -->
+        <!-- ============================================================ -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/navigationContentView"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:visibility="gone">
+
+            <!-- Mini Player (placeholder - will be styled in Step 3) -->
+            <include
+                android:id="@+id/miniPlayer"
+                layout="@layout/view_mini_player"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <!-- Fragment Container for tab content -->
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/navFragmentContainer"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_marginBottom="56dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/miniPlayer" />
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
     </androidx.constraintlayout.widget.ConstraintLayout>
 
     <!-- FAB for adding servers (visible on server list view) -->
+    <!-- Bottom margin adjusted dynamically: 72dp when bottom nav visible, 16dp when hidden -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/addServerFab"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_margin="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
         android:contentDescription="@string/add_server"
         android:src="@drawable/ic_add"
         android:visibility="visible"
         app:tint="?attr/colorOnPrimaryContainer"
         app:backgroundTint="?attr/colorPrimaryContainer" />
+
+    <!-- Bottom Navigation Bar (hidden by default, shown when MA connected) -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNavigation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:visibility="gone"
+        app:menu="@menu/bottom_nav_menu"
+        app:labelVisibilityMode="labeled"
+        app:itemIconTint="@color/bottom_nav_colors"
+        app:itemTextColor="@color/bottom_nav_colors"
+        style="@style/Widget.Material3.BottomNavigationView" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
