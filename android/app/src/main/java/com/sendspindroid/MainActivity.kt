@@ -38,6 +38,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.view.animation.AnimationUtils
 import android.widget.EditText
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -81,6 +82,10 @@ import com.sendspindroid.ui.server.UnifiedServerAdapter
 import com.sendspindroid.ui.server.UnifiedServerConnector
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaConnectionState
+import com.sendspindroid.ui.navigation.HomeFragment
+import com.sendspindroid.ui.navigation.SearchFragment
+import com.sendspindroid.ui.navigation.LibraryFragment
+import androidx.fragment.app.Fragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import androidx.lifecycle.lifecycleScope
@@ -419,6 +424,9 @@ class MainActivity : AppCompatActivity() {
         initializeMediaController()
         setupUI()
 
+        // Setup back press handling for navigation content
+        setupBackPressHandler()
+
         // Show onboarding dialog for first-time users
         showOnboardingIfNeeded()
 
@@ -449,6 +457,22 @@ class MainActivity : AppCompatActivity() {
 
         // Re-setup all UI bindings
         setupUI()
+
+        // Restore navigation state if we were showing navigation content
+        if (isNavigationContentVisible) {
+            // Re-show the navigation content with the current tab
+            val fragment = when (currentNavTab) {
+                R.id.nav_home -> HomeFragment.newInstance()
+                R.id.nav_search -> SearchFragment.newInstance()
+                R.id.nav_library -> LibraryFragment.newInstance()
+                else -> HomeFragment.newInstance()
+            }
+            // Temporarily set to false so showNavigationContent will show it
+            isNavigationContentVisible = false
+            showNavigationContent(fragment)
+            binding.bottomNavigation?.selectedItemId = currentNavTab
+            return
+        }
 
         // Restore UI state based on current connection state
         when (val state = connectionState) {
@@ -647,6 +671,257 @@ class MainActivity : AppCompatActivity() {
 
         // Start with server list view and begin discovery in background
         showServerListView()
+
+        // Setup bottom navigation (Step 1 - infrastructure only)
+        setupBottomNavigation()
+    }
+
+    // Track whether navigation content is currently shown (vs full player)
+    private var isNavigationContentVisible = false
+
+    // Current selected navigation tab
+    private var currentNavTab: Int = R.id.nav_home
+
+    /**
+     * Sets up the bottom navigation bar with item selection handling.
+     * Handles switching between full player and navigation content views.
+     */
+    private fun setupBottomNavigation() {
+        binding.bottomNavigation?.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_home -> {
+                    Log.d(TAG, "Bottom nav: Home selected")
+                    currentNavTab = R.id.nav_home
+                    showNavigationContent(HomeFragment.newInstance())
+                    true
+                }
+                R.id.nav_search -> {
+                    Log.d(TAG, "Bottom nav: Search selected")
+                    currentNavTab = R.id.nav_search
+                    showNavigationContent(SearchFragment.newInstance())
+                    true
+                }
+                R.id.nav_library -> {
+                    Log.d(TAG, "Bottom nav: Library selected")
+                    currentNavTab = R.id.nav_library
+                    showNavigationContent(LibraryFragment.newInstance())
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // Setup mini player click listener to return to full player
+        binding.miniPlayer?.miniPlayerCard?.setOnClickListener {
+            Log.d(TAG, "Mini player tapped - returning to full player")
+            hideNavigationContent()
+        }
+
+        // Setup mini player control buttons
+        setupMiniPlayerControls()
+
+        // Initially, no tab should be selected (full player is default view)
+        // We clear the selection by setting checked to false on all menu items
+        binding.bottomNavigation?.menu?.let { menu ->
+            for (i in 0 until menu.size()) {
+                menu.getItem(i).isChecked = false
+            }
+        }
+    }
+
+    /**
+     * Sets up click listeners for mini player controls.
+     * Stop disconnects, Play/Pause toggles, volume slider/buttons control device volume.
+     */
+    private fun setupMiniPlayerControls() {
+        binding.miniPlayer?.let { miniPlayer ->
+            // Stop button - disconnect from server
+            miniPlayer.miniPlayerStopButton?.setOnClickListener {
+                Log.d(TAG, "Mini player: Stop/disconnect pressed")
+                // First return to full view, then disconnect
+                hideNavigationContent()
+                onDisconnectClicked()
+            }
+
+            // Play/Pause button - toggle playback
+            miniPlayer.miniPlayerPlayPauseButton?.setOnClickListener {
+                Log.d(TAG, "Mini player: Play/Pause pressed")
+                onPlayPauseClicked()
+            }
+
+            // Volume slider - control device volume
+            miniPlayer.miniPlayerVolumeSlider?.addOnChangeListener { _, value, fromUser ->
+                if (fromUser) {
+                    onVolumeChanged(value / 100f)
+                }
+            }
+
+            // Volume down button - decrease by 5%
+            miniPlayer.miniPlayerVolumeDown?.setOnClickListener {
+                val currentVolume = miniPlayer.miniPlayerVolumeSlider?.value ?: 50f
+                val newVolume = (currentVolume - 5f).coerceIn(0f, 100f)
+                miniPlayer.miniPlayerVolumeSlider?.value = newVolume
+                onVolumeChanged(newVolume / 100f)
+            }
+
+            // Volume up button - increase by 5%
+            miniPlayer.miniPlayerVolumeUp?.setOnClickListener {
+                val currentVolume = miniPlayer.miniPlayerVolumeSlider?.value ?: 50f
+                val newVolume = (currentVolume + 5f).coerceIn(0f, 100f)
+                miniPlayer.miniPlayerVolumeSlider?.value = newVolume
+                onVolumeChanged(newVolume / 100f)
+            }
+        }
+    }
+
+    /**
+     * Shows the navigation content view with the specified fragment.
+     * Hides the full player (now playing view) and shows the mini player.
+     */
+    private fun showNavigationContent(fragment: Fragment) {
+        if (!isNavigationContentVisible) {
+            isNavigationContentVisible = true
+            Log.d(TAG, "Showing navigation content")
+
+            // Hide full player / server list
+            binding.nowPlayingView?.visibility = View.GONE
+            binding.serverListView?.visibility = View.GONE
+            binding.addServerFab?.visibility = View.GONE
+
+            // Show navigation content with mini player
+            binding.navigationContentView?.visibility = View.VISIBLE
+
+            // Update mini player with current track info
+            updateMiniPlayer()
+        }
+
+        // Load the fragment
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .commitAllowingStateLoss()
+    }
+
+    /**
+     * Hides the navigation content view and returns to the full player.
+     * Called when tapping the mini player or pressing back.
+     */
+    private fun hideNavigationContent() {
+        if (isNavigationContentVisible) {
+            isNavigationContentVisible = false
+            Log.d(TAG, "Hiding navigation content, returning to full player")
+
+            // Hide navigation content
+            binding.navigationContentView?.visibility = View.GONE
+
+            // Restore the appropriate view based on connection state
+            when (connectionState) {
+                is AppConnectionState.ServerList -> {
+                    binding.serverListView?.visibility = View.VISIBLE
+                    binding.addServerFab?.visibility = View.VISIBLE
+                }
+                is AppConnectionState.Connected,
+                is AppConnectionState.Connecting,
+                is AppConnectionState.Reconnecting -> {
+                    binding.nowPlayingView?.visibility = View.VISIBLE
+                }
+                is AppConnectionState.Error -> {
+                    binding.serverListView?.visibility = View.VISIBLE
+                    binding.addServerFab?.visibility = View.VISIBLE
+                }
+            }
+
+            // Clear bottom nav selection
+            binding.bottomNavigation?.menu?.let { menu ->
+                for (i in 0 until menu.size()) {
+                    menu.getItem(i).isChecked = false
+                }
+            }
+        }
+    }
+
+    /**
+     * Updates the mini player with current track info from the media controller.
+     */
+    /**
+     * Updates the mini player with current playback state, track info, and volume.
+     * Called when showing navigation content and when metadata/state changes.
+     */
+    private fun updateMiniPlayer() {
+        val metadata = mediaController?.mediaMetadata
+        val isPlaying = mediaController?.isPlaying == true
+
+        binding.miniPlayer?.let { miniPlayer ->
+            // Server name from connection state
+            val serverName = when (val state = connectionState) {
+                is AppConnectionState.Connected -> state.serverName
+                is AppConnectionState.Connecting -> state.serverName
+                is AppConnectionState.Reconnecting -> state.serverName
+                else -> ""
+            }
+            miniPlayer.miniPlayerServerName?.text = serverName
+
+            // Audio indicator visibility based on playback state
+            miniPlayer.miniPlayerAudioIndicator?.visibility = if (isPlaying) View.VISIBLE else View.GONE
+
+            // Track title and artist
+            miniPlayer.miniPlayerTitle?.text = metadata?.title?.toString()
+                ?: getString(R.string.not_playing)
+            miniPlayer.miniPlayerArtist?.text = metadata?.artist?.toString() ?: ""
+
+            // Play/Pause button icon
+            miniPlayer.miniPlayerPlayPauseButton?.setIconResource(
+                if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+            )
+            miniPlayer.miniPlayerPlayPauseButton?.contentDescription = getString(
+                if (isPlaying) R.string.accessibility_pause_button else R.string.accessibility_play_button
+            )
+
+            // Sync volume slider with device volume
+            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            val volumePercent = if (maxVolume > 0) (currentVolume * 100f / maxVolume) else 50f
+            miniPlayer.miniPlayerVolumeSlider?.value = volumePercent
+
+            // Load album art if available
+            metadata?.artworkUri?.let { uri ->
+                miniPlayer.miniPlayerAlbumArt?.load(uri) {
+                    crossfade(true)
+                    placeholder(R.drawable.placeholder_album)
+                    error(R.drawable.placeholder_album)
+                }
+            } ?: run {
+                // Try artworkData if URI not available
+                metadata?.artworkData?.let { data ->
+                    miniPlayer.miniPlayerAlbumArt?.load(data) {
+                        crossfade(true)
+                        placeholder(R.drawable.placeholder_album)
+                        error(R.drawable.placeholder_album)
+                    }
+                } ?: run {
+                    miniPlayer.miniPlayerAlbumArt?.setImageResource(R.drawable.placeholder_album)
+                }
+            }
+        }
+    }
+
+    /**
+     * Sets up the back press handler to return from navigation content to full player.
+     * Uses the modern OnBackPressedCallback approach (onBackPressed is deprecated).
+     */
+    private fun setupBackPressHandler() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (isNavigationContentVisible) {
+                    // Return to full player from navigation content
+                    hideNavigationContent()
+                } else {
+                    // Default back behavior (exit app or navigate back)
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
     }
 
     /**
@@ -2263,15 +2538,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Observes Music Assistant connection state to show/hide the favorite button.
-     * The favorite button is only visible when connected to an MA-enabled server.
+     * Observes Music Assistant connection state to show/hide MA-dependent UI elements.
+     * - Favorite button: only visible when connected to MA
+     * - Bottom navigation: only visible when connected to MA (Home/Search/Library need MA API)
+     * - FAB margin: adjusted based on bottom nav visibility
      */
     private fun observeMaConnectionState() {
         lifecycleScope.launch {
             MusicAssistantManager.connectionState.collectLatest { state ->
-                val isVisible = state is MaConnectionState.Connected
-                binding.favoriteButton?.visibility = if (isVisible) View.VISIBLE else View.GONE
-                Log.d(TAG, "MA connection state changed: $state, favorite button visible: $isVisible")
+                val isMaConnected = state is MaConnectionState.Connected
+
+                // Favorite button visibility
+                binding.favoriteButton?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
+
+                // Bottom navigation visibility - only show when MA is connected
+                binding.bottomNavigation?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
+
+                // Adjust FAB margin based on bottom nav visibility
+                binding.addServerFab?.let { fab ->
+                    val params = fab.layoutParams as? CoordinatorLayout.LayoutParams
+                    params?.let {
+                        val density = resources.displayMetrics.density
+                        // 72dp when bottom nav visible, 16dp when hidden
+                        it.bottomMargin = ((if (isMaConnected) 72 else 16) * density).toInt()
+                        fab.layoutParams = it
+                    }
+                }
+
+                // If MA disconnects while showing navigation content, return to full player
+                if (!isMaConnected && isNavigationContentVisible) {
+                    hideNavigationContent()
+                }
+
+                Log.d(TAG, "MA connection state changed: $state, MA-dependent UI visible: $isMaConnected")
             }
         }
     }
@@ -2350,6 +2649,7 @@ class MainActivity : AppCompatActivity() {
     /**
      * Syncs the volume slider with the current device STREAM_MUSIC volume.
      * Called on startup and when returning from background.
+     * Also syncs mini player volume slider if visible.
      */
     private fun syncSliderWithDeviceVolume() {
         // Safety check - observer callback can fire during lifecycle transitions
@@ -2360,6 +2660,12 @@ class MainActivity : AppCompatActivity() {
         // Round to nearest integer - slider has stepSize=1.0 and crashes on decimal values
         val sliderValue = ((currentVolume.toFloat() / maxVolume) * 100).toInt().toFloat()
         binding.volumeSlider.value = sliderValue
+
+        // Also sync mini player volume slider if visible
+        if (isNavigationContentVisible) {
+            binding.miniPlayer?.miniPlayerVolumeSlider?.value = sliderValue
+        }
+
         Log.d(TAG, "Synced slider with device volume: $currentVolume/$maxVolume ($sliderValue%)")
     }
 
@@ -2505,6 +2811,19 @@ class MainActivity : AppCompatActivity() {
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_play_button)
             supportActionBar?.title = "Paused"
         }
+
+        // Also update mini player if visible
+        if (isNavigationContentVisible) {
+            binding.miniPlayer?.let { miniPlayer ->
+                miniPlayer.miniPlayerPlayPauseButton?.setIconResource(
+                    if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+                )
+                miniPlayer.miniPlayerPlayPauseButton?.contentDescription = getString(
+                    if (isPlaying) R.string.accessibility_pause_button else R.string.accessibility_play_button
+                )
+                miniPlayer.miniPlayerAudioIndicator?.visibility = if (isPlaying) View.VISIBLE else View.GONE
+            }
+        }
     }
 
     private fun updateMetadata(title: String, artist: String, album: String) {
@@ -2528,6 +2847,11 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.album_art)
         }
         binding.albumArtView.contentDescription = artDescription
+
+        // Also update mini player if visible
+        if (isNavigationContentVisible) {
+            updateMiniPlayer()
+        }
     }
 
     /**
