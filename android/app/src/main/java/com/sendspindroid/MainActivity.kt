@@ -892,9 +892,10 @@ class MainActivity : AppCompatActivity() {
             )
 
             // Sync volume slider with device volume
+            // Round to nearest integer - slider has stepSize=1.0 and crashes on decimal values
             val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
             val currentVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-            val volumePercent = if (maxVolume > 0) (currentVolume * 100f / maxVolume) else 50f
+            val volumePercent = if (maxVolume > 0) (currentVolume * 100f / maxVolume).toInt().toFloat() else 50f
             miniPlayer.miniPlayerVolumeSlider?.value = volumePercent
 
             // Load album art if available
