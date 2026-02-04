@@ -430,4 +430,26 @@
     <string name="library_loading_more">Loading more...</string>
     <string name="library_empty">No items found</string>
     <string name="library_error">Failed to load library</string>
+
+    <!-- Search Screen -->
+    <string name="search_hint">Search music...</string>
+    <string name="search_empty_state">Search for music</string>
+    <string name="search_no_results">No results found</string>
+    <string name="search_no_results_for">No results found for \"%s\"</string>
+    <string name="search_error">Search failed</string>
+    <string name="search_filter_albums">Albums</string>
+    <string name="search_filter_artists">Artists</string>
+    <string name="search_filter_tracks">Tracks</string>
+    <string name="search_filter_playlists">Playlists</string>
+    <string name="search_filter_radio">Radio</string>
+    <string name="search_section_artists">Artists</string>
+    <string name="search_section_albums">Albums</string>
+    <string name="search_section_tracks">Tracks</string>
+    <string name="search_section_playlists">Playlists</string>
+    <string name="search_section_radio">Radio</string>
+
+    <!-- Accessibility - Search -->
+    <string name="accessibility_search_input">Search input field</string>
+    <string name="accessibility_search_clear">Clear search</string>
+    <string name="accessibility_filter_chip">Filter by %s</string>
 </resources>

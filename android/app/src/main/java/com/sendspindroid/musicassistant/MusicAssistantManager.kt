@@ -1504,6 +1504,318 @@ object MusicAssistantManager {
         return artists
     }
 
+    // ========================================================================
+    // Search API
+    // ========================================================================
+
+    /**
+     * Aggregated search results from Music Assistant.
+     *
+     * Contains results grouped by media type. Each list may be empty if no
+     * matches were found for that type, or if the type was filtered out.
+     */
+    data class SearchResults(
+        val artists: List<MaArtist> = emptyList(),
+        val albums: List<MaAlbum> = emptyList(),
+        val tracks: List<MaTrack> = emptyList(),
+        val playlists: List<MaPlaylist> = emptyList(),
+        val radios: List<MaRadio> = emptyList()
+    ) {
+        /**
+         * Check if all result lists are empty.
+         */
+        fun isEmpty(): Boolean =
+            artists.isEmpty() && albums.isEmpty() && tracks.isEmpty() &&
+            playlists.isEmpty() && radios.isEmpty()
+
+        /**
+         * Get total count of all results.
+         */
+        fun totalCount(): Int =
+            artists.size + albums.size + tracks.size + playlists.size + radios.size
+    }
+
+    /**
+     * Search Music Assistant library.
+     *
+     * Calls the music/search endpoint which returns results grouped by media type.
+     *
+     * @param query The search query string (minimum 2 characters)
+     * @param mediaTypes Optional filter to specific types. Null means search all types.
+     * @param limit Maximum results per type (default 25)
+     * @param libraryOnly If true, only search local library. If false, includes providers.
+     * @return Result with grouped search results
+     */
+    suspend fun search(
+        query: String,
+        mediaTypes: List<MaMediaType>? = null,
+        limit: Int = 25,
+        libraryOnly: Boolean = true
+    ): Result<SearchResults> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        if (query.length < 2) {
+            return Result.failure(Exception("Query too short (minimum 2 characters)"))
+        }
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Searching for: '$query' (mediaTypes=$mediaTypes, limit=$limit, libraryOnly=$libraryOnly)")
+
+                // Build args map
+                val args = mutableMapOf<String, Any>(
+                    "search_query" to query,
+                    "limit" to limit,
+                    "library_only" to libraryOnly
+                )
+
+                // Add media type filter if specified
+                if (mediaTypes != null && mediaTypes.isNotEmpty()) {
+                    val typeStrings = mediaTypes.map { type ->
+                        when (type) {
+                            MaMediaType.TRACK -> "track"
+                            MaMediaType.ALBUM -> "album"
+                            MaMediaType.ARTIST -> "artist"
+                            MaMediaType.PLAYLIST -> "playlist"
+                            MaMediaType.RADIO -> "radio"
+                        }
+                    }
+                    args["media_types"] = typeStrings
+                }
+
+                val response = sendMaCommand(apiUrl, token, "music/search", args)
+                val results = parseSearchResults(response)
+
+                Log.d(TAG, "Search returned ${results.totalCount()} results " +
+                        "(${results.artists.size} artists, ${results.albums.size} albums, " +
+                        "${results.tracks.size} tracks, ${results.playlists.size} playlists, " +
+                        "${results.radios.size} radios)")
+
+                Result.success(results)
+            } catch (e: Exception) {
+                Log.e(TAG, "Search failed for query: '$query'", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Parse search results from MA API response.
+     *
+     * The response contains grouped results by media type:
+     * {
+     *   "result": {
+     *     "artists": [...],
+     *     "albums": [...],
+     *     "tracks": [...],
+     *     "playlists": [...],
+     *     "radios": [...]
+     *   }
+     * }
+     */
+    private fun parseSearchResults(response: JSONObject): SearchResults {
+        val result = response.optJSONObject("result") ?: return SearchResults()
+
+        return SearchResults(
+            artists = parseArtistsArray(result.optJSONArray("artists")),
+            albums = parseAlbumsArray(result.optJSONArray("albums")),
+            tracks = parseTracksArray(result.optJSONArray("tracks")),
+            playlists = parsePlaylistsArray(result.optJSONArray("playlists")),
+            radios = parseRadiosArray(result.optJSONArray("radios"))
+        )
+    }
+
+    /**
+     * Parse an array of artists from JSON.
+     */
+    private fun parseArtistsArray(array: JSONArray?): List<MaArtist> {
+        if (array == null) return emptyList()
+        val artists = mutableListOf<MaArtist>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+
+            val artistId = item.optString("item_id", "")
+                .ifEmpty { item.optString("artist_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (artistId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty {
+                "library://artist/$artistId"
+            }
+
+            artists.add(MaArtist(
+                artistId = artistId,
+                name = name,
+                imageUri = imageUri,
+                uri = uri
+            ))
+        }
+
+        return artists
+    }
+
+    /**
+     * Parse an array of albums from JSON.
+     */
+    private fun parseAlbumsArray(array: JSONArray?): List<MaAlbum> {
+        if (array == null) return emptyList()
+        val albums = mutableListOf<MaAlbum>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+
+            val albumId = item.optString("item_id", "")
+                .ifEmpty { item.optString("album_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (albumId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val artist = item.optString("artist", "")
+                .ifEmpty {
+                    item.optJSONObject("artist")?.optString("name", "") ?: ""
+                }
+                .ifEmpty {
+                    item.optJSONArray("artists")?.let { artists ->
+                        if (artists.length() > 0) {
+                            artists.optJSONObject(0)?.optString("name", "")
+                        } else null
+                    } ?: ""
+                }
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty {
+                "library://album/$albumId"
+            }
+            val year = item.optInt("year", 0).takeIf { it > 0 }
+            val trackCount = item.optInt("track_count", 0).takeIf { it > 0 }
+            val albumType = item.optString("album_type", "").ifEmpty { null }
+
+            albums.add(MaAlbum(
+                albumId = albumId,
+                name = name,
+                imageUri = imageUri,
+                uri = uri,
+                artist = artist.ifEmpty { null },
+                year = year,
+                trackCount = trackCount,
+                albumType = albumType
+            ))
+        }
+
+        return albums
+    }
+
+    /**
+     * Parse an array of tracks from JSON.
+     */
+    private fun parseTracksArray(array: JSONArray?): List<MaTrack> {
+        if (array == null) return emptyList()
+        val tracks = mutableListOf<MaTrack>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+            val track = parseMediaItem(item)
+            if (track != null) {
+                tracks.add(track)
+            }
+        }
+
+        return tracks
+    }
+
+    /**
+     * Parse an array of playlists from JSON.
+     */
+    private fun parsePlaylistsArray(array: JSONArray?): List<MaPlaylist> {
+        if (array == null) return emptyList()
+        val playlists = mutableListOf<MaPlaylist>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+
+            val playlistId = item.optString("item_id", "")
+                .ifEmpty { item.optString("playlist_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (playlistId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val trackCount = item.optInt("track_count", 0)
+            val owner = item.optString("owner", "").ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty { null }
+
+            playlists.add(MaPlaylist(
+                playlistId = playlistId,
+                name = name,
+                imageUri = imageUri,
+                trackCount = trackCount,
+                owner = owner,
+                uri = uri
+            ))
+        }
+
+        return playlists
+    }
+
+    /**
+     * Parse an array of radio stations from JSON.
+     */
+    private fun parseRadiosArray(array: JSONArray?): List<MaRadio> {
+        if (array == null) return emptyList()
+        val radios = mutableListOf<MaRadio>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+
+            val radioId = item.optString("item_id", "")
+                .ifEmpty { item.optString("radio_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (radioId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty {
+                "library://radio/$radioId"
+            }
+            val provider = item.optString("provider", "")
+                .ifEmpty {
+                    item.optJSONArray("provider_mappings")?.let { mappings ->
+                        if (mappings.length() > 0) {
+                            mappings.optJSONObject(0)?.optString("provider_domain", "")
+                        } else null
+                    } ?: ""
+                }
+
+            radios.add(MaRadio(
+                radioId = radioId,
+                name = name,
+                imageUri = imageUri,
+                uri = uri,
+                provider = provider.ifEmpty { null }
+            ))
+        }
+
+        return radios
+    }
+
     /**
      * Parse radio stations from MA API response.
      */
