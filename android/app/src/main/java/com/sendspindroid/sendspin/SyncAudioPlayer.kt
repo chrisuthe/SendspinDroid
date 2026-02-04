@@ -5,6 +5,7 @@ import android.media.AudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.util.Log
+import com.sendspindroid.debug.FileLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -226,6 +227,7 @@ class SyncAudioPlayer(
 
         // Start gating configuration (from Python reference)
         private const val MIN_BUFFER_BEFORE_START_MS = 200  // Wait for 200ms buffer before scheduling
+        private const val MIN_CHUNKS_BEFORE_START = 16      // Python reference uses 16 chunks (more consistent across devices)
         private const val REANCHOR_THRESHOLD_US = 500_000L  // 500ms error triggers reanchor
         private const val REANCHOR_COOLDOWN_US = 5_000_000L // 5 second cooldown between reanchors
 
@@ -1108,8 +1110,19 @@ class SyncAudioPlayer(
                 samplesReadSinceStart = 0L
 
                 framesDropped += droppedFrames.toLong()
+
+                // Diagnostic logging for multi-device sync debugging
+                val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
+                FileLogger.i(TAG, "Start gating transition (late): " +
+                    "scheduledStart=${scheduledStartLoopTimeUs}us, now=${nowMicros}us, " +
+                    "delta=${deltaUs/1000}ms, " +
+                    "firstServerTs=${firstServerTimestampUs}us, " +
+                    "kalmanOffset=${timeFilter.offsetMicros/1000}ms, " +
+                    "kalmanMeasurements=${timeFilter.measurementCountValue}, " +
+                    "bufferedChunks=${chunkQueue.size}, bufferedMs=$bufferedMs")
+
                 setPlaybackState(PlaybackState.PLAYING)
-                Log.i(TAG, "Start gating complete: dropped $droppedFrames frames, now PLAYING")
+                FileLogger.i(TAG, "Start gating complete: dropped $droppedFrames frames, now PLAYING")
                 return false  // Ready to play
             }
             else -> {
@@ -1132,8 +1145,19 @@ class SyncAudioPlayer(
                 totalFramesAtPlaybackStart = 0L
                 startTimeCalibrated = false
                 samplesReadSinceStart = 0L
+
+                // Diagnostic logging for multi-device sync debugging
+                val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
+                FileLogger.i(TAG, "Start gating transition: " +
+                    "scheduledStart=${scheduledStartLoopTimeUs}us, now=${nowMicros}us, " +
+                    "delta=${deltaUs/1000}ms, " +
+                    "firstServerTs=${firstServerTimestampUs}us, " +
+                    "kalmanOffset=${timeFilter.offsetMicros/1000}ms, " +
+                    "kalmanMeasurements=${timeFilter.measurementCountValue}, " +
+                    "bufferedChunks=${chunkQueue.size}, bufferedMs=$bufferedMs")
+
                 setPlaybackState(PlaybackState.PLAYING)
-                Log.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
+                FileLogger.i(TAG, "Start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
                 return false  // Ready to play
             }
         }
@@ -1293,8 +1317,11 @@ class SyncAudioPlayer(
 
                     PlaybackState.WAITING_FOR_START -> {
                         // Check if we have enough buffer before starting
+                        // Use BOTH duration AND chunk count to match Python reference behavior
+                        // This ensures more consistent startup timing across different devices
                         val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
-                        if (bufferedMs < MIN_BUFFER_BEFORE_START_MS) {
+                        val chunkCount = chunkQueue.size
+                        if (bufferedMs < MIN_BUFFER_BEFORE_START_MS || chunkCount < MIN_CHUNKS_BEFORE_START) {
                             // Pre-calibrate DAC timing while waiting for buffer to fill
                             // This establishes timing calibration BEFORE real audio arrives
                             preCalibrateDacTiming()

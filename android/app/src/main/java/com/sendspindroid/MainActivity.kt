@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import androidx.preference.PreferenceManager
 import android.database.ContentObserver
 import android.media.AudioManager
 import android.provider.Settings
@@ -24,6 +25,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.debug.FileLogger
 import android.util.TypedValue
 import android.app.UiModeManager
@@ -395,7 +397,12 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize file-based debug logger (for devices where logcat is disabled)
         FileLogger.init(this)
-        FileLogger.log(TAG, "MainActivity onCreate")
+
+        // Restore debug logging enabled state from preferences (so startup logs are captured)
+        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+        DebugLogger.isEnabled = prefs.getBoolean("debug_logging_enabled", false)
+
+        FileLogger.i(TAG, "MainActivity onCreate (debug logging: ${DebugLogger.isEnabled})")
 
         // Initialize ServerRepository for sharing server state with PlaybackService
         // This enables Android Auto to see discovered servers

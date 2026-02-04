@@ -2,32 +2,32 @@ package com.sendspindroid.debug
 
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
-import android.util.Log
 import androidx.core.content.FileProvider
 import com.sendspindroid.model.SyncStats
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.ConcurrentLinkedDeque
 
 /**
- * Debug logger for capturing sync statistics over time.
+ * Debug logger facade for sharing logs from test installations.
  *
- * Collects periodic sync stats samples in a ring buffer and allows exporting
- * them to a shareable file for debugging sync issues.
+ * This is a thin wrapper around [FileLogger] that provides:
+ * - Enable/disable toggle (synced with FileLogger)
+ * - Session markers for connect/disconnect events
+ * - Share intent creation for the debug log file
  *
  * ## Usage
  * ```kotlin
- * // Enable logging
+ * // Enable logging (syncs with FileLogger)
  * DebugLogger.isEnabled = true
  *
- * // Log stats periodically (called from playback service)
- * DebugLogger.logStats(syncStats)
+ * // Mark session boundaries
+ * DebugLogger.startSession("MyServer", "192.168.1.100:8080")
+ * // ... app logs via FileLogger.i/d/w/e ...
+ * DebugLogger.endSession()
  *
- * // Export and share
+ * // Share the log file
  * val intent = DebugLogger.createShareIntent(context)
  * context.startActivity(intent)
  * ```
@@ -36,279 +36,152 @@ object DebugLogger {
 
     private const val TAG = "DebugLogger"
 
-    // Maximum number of samples to keep (at 1 sample/sec = ~30 minutes)
-    private const val MAX_SAMPLES = 1800
-
-    // Minimum interval between samples (milliseconds)
-    private const val MIN_SAMPLE_INTERVAL_MS = 1000L
+    // Session tracking for log context
+    private var serverName: String = ""
+    private var serverAddress: String = ""
+    private var sessionStartTimeMs: Long = 0L
 
     /**
      * Whether debug logging is enabled.
-     * When disabled, logStats() does nothing.
+     * Synced with [FileLogger.isEnabled].
      */
-    @Volatile
-    var isEnabled: Boolean = false
-
-    // Ring buffer of stats samples with timestamps
-    private val samples = ConcurrentLinkedDeque<StatsSnapshot>()
-
-    // Timestamp of last sample to enforce minimum interval
-    private var lastSampleTimeMs = 0L
-
-    // Session start time for relative timestamps
-    private var sessionStartTimeMs = 0L
-
-    // Connection info for context
-    private var serverName: String = ""
-    private var serverAddress: String = ""
-
-    /**
-     * A timestamped stats snapshot.
-     */
-    data class StatsSnapshot(
-        val timestampMs: Long,
-        val relativeTimeMs: Long,
-        val stats: SyncStats
-    )
+    var isEnabled: Boolean
+        get() = FileLogger.isEnabled
+        set(value) {
+            FileLogger.isEnabled = value
+            if (value) {
+                FileLogger.section("Debug logging enabled")
+            }
+        }
 
     /**
      * Start a new logging session.
      * Call this when connecting to a server.
+     * Writes a session header to the log file.
      */
     fun startSession(serverName: String, serverAddress: String) {
         this.serverName = serverName
         this.serverAddress = serverAddress
         this.sessionStartTimeMs = System.currentTimeMillis()
-        samples.clear()
-        Log.d(TAG, "Debug logging session started: $serverName ($serverAddress)")
+
+        FileLogger.section("SESSION START")
+        FileLogger.raw("Server: $serverName")
+        FileLogger.raw("Address: $serverAddress")
+        FileLogger.raw("Time: ${formatTimestamp(sessionStartTimeMs)}")
+        FileLogger.i(TAG, "Session started: $serverName ($serverAddress)")
     }
 
     /**
      * End the current logging session.
+     * Writes a session footer to the log file.
      */
     fun endSession() {
-        Log.d(TAG, "Debug logging session ended. ${samples.size} samples collected.")
+        val duration = getSessionDurationString()
+        FileLogger.section("SESSION END")
+        FileLogger.raw("Duration: $duration")
+        FileLogger.i(TAG, "Session ended after $duration")
     }
 
     /**
-     * Log a stats sample if enabled and minimum interval has passed.
+     * Log sync statistics snapshot.
+     * Writes key stats to the log file for debugging sync issues.
      */
     fun logStats(stats: SyncStats) {
         if (!isEnabled) return
 
-        val now = System.currentTimeMillis()
-
-        // Enforce minimum interval
-        if (now - lastSampleTimeMs < MIN_SAMPLE_INTERVAL_MS) {
-            return
-        }
-        lastSampleTimeMs = now
-
-        // Create snapshot
-        val snapshot = StatsSnapshot(
-            timestampMs = now,
-            relativeTimeMs = now - sessionStartTimeMs,
-            stats = stats
-        )
-        samples.addLast(snapshot)
-
-        // Trim to max size
-        while (samples.size > MAX_SAMPLES) {
-            samples.pollFirst()
-        }
+        // Log a compact stats line for time-series analysis
+        FileLogger.d(TAG, "Stats: " +
+            "state=${stats.playbackState.name}, " +
+            "syncErr=${stats.syncErrorUs}us, " +
+            "queue=${stats.queuedSamples}, " +
+            "offset=${stats.clockOffsetUs}us, " +
+            "insertN=${stats.insertEveryNFrames}, dropN=${stats.dropEveryNFrames}, " +
+            "framesIns=${stats.framesInserted}, framesDrop=${stats.framesDropped}")
     }
 
     /**
-     * Get the current sample count.
+     * Get approximate log size indicator.
+     * Returns file size in KB, or 0 if not available.
      */
-    fun getSampleCount(): Int = samples.size
+    fun getSampleCount(): Int {
+        val file = FileLogger.getLogFile() ?: return 0
+        return if (file.exists()) (file.length() / 1024).toInt() else 0
+    }
 
     /**
-     * Clear all collected samples.
+     * Clear the log file contents.
      */
     fun clear() {
-        samples.clear()
-        Log.d(TAG, "Debug log cleared")
+        FileLogger.clear()
     }
 
     /**
-     * Export logs to a file and return a share intent.
+     * Clean up is no longer needed (single file with rotation).
+     * Kept for API compatibility.
+     */
+    fun cleanupOldLogs(context: Context) {
+        // No-op: FileLogger handles rotation internally
+    }
+
+    /**
+     * Create an intent to share the debug log file.
      *
-     * @param context Android context for file operations
-     * @return Intent for sharing the log file, or null if export failed
+     * @param context Android context for FileProvider
+     * @return Share intent, or null if log file is not available
      */
     fun createShareIntent(context: Context): Intent? {
-        try {
-            val logContent = generateLogContent(context)
-            val logFile = writeLogFile(context, logContent)
+        val logFile = FileLogger.getLogFile()
+        if (logFile == null || !logFile.exists()) {
+            FileLogger.w(TAG, "Cannot share: log file not available")
+            return null
+        }
 
-            if (logFile == null) {
-                Log.e(TAG, "Failed to write log file")
-                return null
-            }
+        // Add a final summary before sharing
+        FileLogger.section("LOG EXPORT")
+        FileLogger.raw("Exported at: ${formatTimestamp(System.currentTimeMillis())}")
+        FileLogger.raw("File size: ${logFile.length() / 1024} KB")
 
-            // Create share intent using FileProvider
+        return try {
             val uri = FileProvider.getUriForFile(
                 context,
                 "${context.packageName}.fileprovider",
                 logFile
             )
 
-            return Intent(Intent.ACTION_SEND).apply {
+            Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, "SendSpin Debug Log - ${getTimestampString()}")
-                putExtra(Intent.EXTRA_TEXT, "SendSpin debug log attached. ${samples.size} samples collected over ${getSessionDurationString()}.")
+                putExtra(Intent.EXTRA_TEXT, buildShareMessage(context))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create share intent", e)
-            return null
-        }
-    }
-
-    /**
-     * Generate the log file content.
-     */
-    private fun generateLogContent(context: Context): String {
-        val sb = StringBuilder()
-
-        // Get version info from package manager
-        val (versionName, versionCode) = try {
-            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            val vName = packageInfo.versionName ?: "unknown"
-            val vCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                packageInfo.longVersionCode
-            } else {
-                @Suppress("DEPRECATION")
-                packageInfo.versionCode.toLong()
-            }
-            Pair(vName, vCode)
-        } catch (e: PackageManager.NameNotFoundException) {
-            Pair("unknown", 0L)
-        }
-
-        // Header
-        sb.appendLine("=" .repeat(60))
-        sb.appendLine("SENDSPIN DEBUG LOG")
-        sb.appendLine("=" .repeat(60))
-        sb.appendLine()
-
-        // Device & App Info
-        sb.appendLine("--- DEVICE INFO ---")
-        sb.appendLine("App Version: $versionName ($versionCode)")
-        sb.appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
-        sb.appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
-        sb.appendLine("Build: ${Build.DISPLAY}")
-        sb.appendLine()
-
-        // Session Info
-        sb.appendLine("--- SESSION INFO ---")
-        sb.appendLine("Server: $serverName")
-        sb.appendLine("Address: $serverAddress")
-        sb.appendLine("Session Start: ${formatTimestamp(sessionStartTimeMs)}")
-        sb.appendLine("Log Generated: ${formatTimestamp(System.currentTimeMillis())}")
-        sb.appendLine("Duration: ${getSessionDurationString()}")
-        sb.appendLine("Samples: ${samples.size}")
-        sb.appendLine()
-
-        // Stats Summary
-        sb.appendLine("--- STATS SUMMARY ---")
-        val snapshotList = samples.toList()
-        if (snapshotList.isNotEmpty()) {
-            val syncErrors = snapshotList.map { it.stats.syncErrorUs }
-            val avgSyncError = syncErrors.average()
-            val maxSyncError = syncErrors.maxOrNull() ?: 0
-            val minSyncError = syncErrors.minOrNull() ?: 0
-
-            sb.appendLine("Sync Error (us): avg=${avgSyncError.toLong()}, min=$minSyncError, max=$maxSyncError")
-
-            val lastStats = snapshotList.last().stats
-            sb.appendLine("Total Chunks: received=${lastStats.chunksReceived}, played=${lastStats.chunksPlayed}, dropped=${lastStats.chunksDropped}")
-            sb.appendLine("Frame Corrections: inserted=${lastStats.framesInserted}, dropped=${lastStats.framesDropped}")
-            sb.appendLine("Gaps Filled: ${lastStats.gapsFilled} (${lastStats.gapSilenceMs}ms)")
-            sb.appendLine("Overlaps Trimmed: ${lastStats.overlapsTrimmed} (${lastStats.overlapTrimmedMs}ms)")
-        }
-        sb.appendLine()
-
-        // Time Series Data Header
-        sb.appendLine("--- TIME SERIES DATA ---")
-        sb.appendLine("Columns: RelativeTime(ms), PlaybackState, SyncError(us), QueuedSamples, ClockOffset(us), ClockError(us), InsertN, DropN, FramesIns, FramesDrop, ChunksDrop")
-        sb.appendLine()
-
-        // Time Series Data
-        for (snapshot in snapshotList) {
-            val s = snapshot.stats
-            sb.appendLine(
-                "${snapshot.relativeTimeMs}," +
-                "${s.playbackState.name}," +
-                "${s.syncErrorUs}," +
-                "${s.queuedSamples}," +
-                "${s.clockOffsetUs}," +
-                "${s.clockErrorUs}," +
-                "${s.insertEveryNFrames}," +
-                "${s.dropEveryNFrames}," +
-                "${s.framesInserted}," +
-                "${s.framesDropped}," +
-                "${s.chunksDropped}"
-            )
-        }
-
-        sb.appendLine()
-        sb.appendLine("--- END OF LOG ---")
-
-        return sb.toString()
-    }
-
-    /**
-     * Write log content to a file in the cache directory.
-     */
-    private fun writeLogFile(context: Context, content: String): File? {
-        return try {
-            // Create logs directory in cache
-            val logsDir = File(context.cacheDir, "debug_logs")
-            if (!logsDir.exists()) {
-                logsDir.mkdirs()
-            }
-
-            // Create timestamped log file
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-            val logFile = File(logsDir, "sendspin_debug_$timestamp.txt")
-
-            logFile.writeText(content)
-            Log.d(TAG, "Log written to: ${logFile.absolutePath} (${content.length} bytes)")
-
-            logFile
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write log file", e)
+            FileLogger.e(TAG, "Failed to create share intent", e)
             null
         }
     }
 
-    /**
-     * Clean up old log files (keep last 5).
-     */
-    fun cleanupOldLogs(context: Context) {
-        try {
-            val logsDir = File(context.cacheDir, "debug_logs")
-            if (!logsDir.exists()) return
-
-            val logFiles = logsDir.listFiles { file ->
-                file.name.startsWith("sendspin_debug_") && file.name.endsWith(".txt")
-            }?.sortedByDescending { it.lastModified() } ?: return
-
-            // Delete all but the 5 most recent
-            logFiles.drop(5).forEach { file ->
-                file.delete()
-                Log.d(TAG, "Deleted old log: ${file.name}")
-            }
+    private fun buildShareMessage(context: Context): String {
+        val versionName = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to cleanup old logs", e)
+            "unknown"
+        }
+
+        return buildString {
+            appendLine("SendSpin Debug Log")
+            appendLine()
+            appendLine("App: $versionName")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            if (serverName.isNotEmpty()) {
+                appendLine("Server: $serverName")
+            }
         }
     }
 
     private fun getTimestampString(): String {
-        return SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date())
     }
 
     private fun formatTimestamp(timeMs: Long): String {
@@ -316,6 +189,7 @@ object DebugLogger {
     }
 
     private fun getSessionDurationString(): String {
+        if (sessionStartTimeMs == 0L) return "unknown"
         val durationMs = System.currentTimeMillis() - sessionStartTimeMs
         val seconds = (durationMs / 1000) % 60
         val minutes = (durationMs / 60000) % 60
