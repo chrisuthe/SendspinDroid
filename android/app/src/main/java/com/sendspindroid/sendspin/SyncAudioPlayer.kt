@@ -340,10 +340,15 @@ class SyncAudioPlayer(
     //   Positive = DAC ahead of expected (playing fast) -> need DROP
     //   Negative = DAC behind expected (playing slow) -> need INSERT
     //
-    private var playbackStartClientTimeUs = 0L    // Client time when playback started (from first chunk's clientPlayTimeMicros)
+    private var playbackStartClientTimeUs = 0L    // Client time when playback started - LEGACY, kept for reference
     private var totalFramesAtPlaybackStart = 0L   // Frame position when playback started (from AudioTimestamp)
     private var playbackStartTimeUs = 0L          // When playback started (calibrated from first AudioTimestamp) - LEGACY, kept for stats
     private var startTimeCalibrated = false       // Has playback start been calibrated from AudioTimestamp?
+
+    // Server-time baseline tracking for absolute sync error calculation
+    // At calibration, we capture the relationship between DAC frame position and server time
+    private var baselineFramePosition = 0L        // DAC frame position at calibration
+    private var baselineServerTimeUs = 0L         // Corresponding server time at calibration
     private var samplesReadSinceStart = 0L        // Total samples consumed since playback started
     @Volatile private var syncErrorUs = 0L        // Current sync error (for display)
 
@@ -575,9 +580,12 @@ class SyncAudioPlayer(
             // because System.nanoTime() continues advancing
             clearDacCalibrations()
 
-            // Reset sync error filter - pre-pause error is no longer relevant
+            // Reset sync error filter and server-time baseline - pre-pause state is no longer relevant
             syncErrorFilter.reset()
             syncErrorUs = 0L
+            startTimeCalibrated = false        // Force recalibration after resume
+            baselineFramePosition = 0L
+            baselineServerTimeUs = 0L
 
             // Reset correction schedule - start fresh
             insertEveryNFrames = 0
@@ -790,6 +798,8 @@ class SyncAudioPlayer(
             playbackStartClientTimeUs = 0L   // Reset decoupled tracking
             totalFramesAtPlaybackStart = 0L  // Reset frame baseline
             startTimeCalibrated = false
+            baselineFramePosition = 0L       // Reset server-time baseline
+            baselineServerTimeUs = 0L
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
             syncErrorFilter.reset()
@@ -1266,9 +1276,11 @@ class SyncAudioPlayer(
             totalFramesWritten = 0L
             serverTimelineCursor = 0L
             playbackStartTimeUs = 0L
-            playbackStartClientTimeUs = 0L   // NEW: Reset decoupled tracking
-            totalFramesAtPlaybackStart = 0L  // NEW: Reset frame baseline
+            playbackStartClientTimeUs = 0L   // Reset decoupled tracking
+            totalFramesAtPlaybackStart = 0L  // Reset frame baseline
             startTimeCalibrated = false
+            baselineFramePosition = 0L       // Reset server-time baseline
+            baselineServerTimeUs = 0L
             samplesReadSinceStart = 0L
             syncErrorUs = 0L
             syncErrorFilter.reset()
@@ -1960,9 +1972,6 @@ class SyncAudioPlayer(
         val track = audioTrack ?: return
         if (playbackState != PlaybackState.PLAYING) return
 
-        // NOTE: playbackStartClientTimeUs starts as 0 and gets set during calibration below.
-        // We don't return early if it's 0 because calibration happens inside this function.
-
         try {
             // Query AudioTimestamp on every update
             val success = track.getTimestamp(audioTimestamp)
@@ -1981,75 +1990,77 @@ class SyncAudioPlayer(
                 return
             }
 
-            // Store DAC calibration pair for time conversion (still useful for DAC->loop conversion)
+            // Store DAC calibration pair for time conversion (still useful for other purposes)
             storeDacCalibration(dacTimeMicros, loopTimeUs)
 
             // ================================================================
-            // FIRST VALID TIMESTAMP: Capture baseline in PURE LOOP TIME
+            // FIRST VALID TIMESTAMP: Capture baseline in SERVER TIME
             // ================================================================
-            // CRITICAL: We must capture the baseline in the SAME time domain as
-            // actualDacLoopTimeUs (pure loop time), NOT from chunk.clientPlayTimeMicros
-            // (which has Kalman offset baked in).
+            // CRITICAL FIX: Previous implementation tracked DAC drift from a local
+            // baseline, but didn't measure absolute synchronization to server time.
+            // This caused 500-1000ms offset to go undetected because sync error
+            // only showed ~0ms (tracking drift, not absolute position).
             //
-            // At calibration time:
-            // - framePosition = where the DAC is
-            // - loopTimeUs = current system time (pure loop time)
+            // NEW APPROACH (matching Python reference):
+            // At calibration, capture the relationship between:
+            //   - framePosition: where the DAC currently is
+            //   - firstServerTimestampUs: the server time of the first chunk we're playing
             //
-            // We use loopTimeUs as the baseline, then compare future DAC loop times
-            // against (baseline + expected elapsed). Both values are pure loop time.
+            // Then sync error = (actual playback server time) - (expected playback server time)
+            //
             if (!startTimeCalibrated) {
+                val firstServerTs = firstServerTimestampUs
+                if (firstServerTs == null) {
+                    // Can't calibrate without knowing what server time we started at
+                    return
+                }
+
                 startTimeCalibrated = true
-                totalFramesAtPlaybackStart = framePosition
-                // Use current loop time as baseline - NOT the chunk's Kalman-converted time!
-                playbackStartClientTimeUs = loopTimeUs
-                Log.i(TAG, "Sync baseline calibrated: framePos=$framePosition, baselineLoopTime=${loopTimeUs/1000}ms")
+                baselineFramePosition = framePosition
+                baselineServerTimeUs = firstServerTs
+                totalFramesAtPlaybackStart = framePosition  // Keep for backwards compat
+                playbackStartClientTimeUs = loopTimeUs      // Keep for DAC calibration
+
+                Log.i(TAG, "Sync baseline calibrated in SERVER TIME: " +
+                    "framePos=$framePosition, baselineServerTime=${baselineServerTimeUs}us")
             }
 
             // ================================================================
-            // SYNC ERROR IN CLIENT TIME (Kalman-independent!)
+            // SYNC ERROR IN SERVER TIME (Absolute Synchronization!)
             // ================================================================
             //
-            // This is the key architectural change: we compare two CLIENT-TIME values
-            // with NO Kalman conversions in the sync error path.
+            // This compares where we ARE in server time vs where we SHOULD BE.
+            // Unlike the old approach which only tracked DAC drift, this detects
+            // absolute offset from the synchronized playback position.
             //
-            // The Kalman filter was used ONCE when chunks were queued (clientPlayTimeMicros).
-            // That's the only place Kalman appears. During sync error calculation, we
-            // work entirely in client/loop time.
+            // Python reference (audio.py line 1032):
+            //   sync_error_us = self._last_known_playback_position_us - self._server_ts_cursor_us
             //
-            // This means:
-            // - Kalman learning/adjustments don't cause sync error noise
-            // - Sync error only changes due to actual DAC clock drift
-            // - Sample insert/drop corrects DAC drift, not clock sync artifacts
+            // Our equivalent:
+            //   actualPlaybackServerTimeUs = where DAC is playing in server time
+            //   expectedPlaybackServerTimeUs = where we should be based on what we've written
             //
 
-            // Step 1: Estimate loop time corresponding to the DAC timestamp
-            val actualDacLoopTimeUs = estimateLoopTimeForDacTime(dacTimeMicros)
-            if (actualDacLoopTimeUs == 0L) {
-                // Not enough calibrations yet
-                return
-            }
+            // Step 1: Convert current frame position to server time
+            // Frames played since baseline, converted to elapsed time, added to baseline server time
+            val framesPlayedSinceBaseline = (framePosition - baselineFramePosition).coerceAtLeast(0)
+            val elapsedServerUs = (framesPlayedSinceBaseline * 1_000_000L) / sampleRate
+            val actualPlaybackServerTimeUs = baselineServerTimeUs + elapsedServerUs
 
-            // Step 2: Calculate expected play time in client time
-            // This is when the DAC SHOULD be playing based on frames elapsed since start
-            //
-            // framesPlayedSinceStart = how many frames the DAC has played since we started tracking
-            // expectedElapsedUs = how much time that represents
-            // expectedDacClientTimeUs = playbackStartClientTimeUs + expectedElapsedUs
-            //
-            val framesPlayedSinceStart = (framePosition - totalFramesAtPlaybackStart).coerceAtLeast(0)
-            val expectedElapsedUs = (framesPlayedSinceStart * 1_000_000L) / sampleRate
-            val expectedDacClientTimeUs = playbackStartClientTimeUs + expectedElapsedUs
+            // Step 2: Calculate expected playback position in server time
+            // serverTimelineCursor = server time of audio we've WRITTEN to AudioTrack
+            // We need to account for the AudioTrack buffer (audio written but not yet played)
+            val framesInBuffer = (totalFramesWritten - framePosition).coerceAtLeast(0)
+            val bufferDurationUs = (framesInBuffer * 1_000_000L) / sampleRate
+            val expectedPlaybackServerTimeUs = serverTimelineCursor - bufferDurationUs
 
-            // Step 3: Calculate sync error (ALL IN CLIENT TIME - no Kalman!)
-            //
-            // Positive = DAC is ahead of where it should be (playing fast) -> DROP
-            // Negative = DAC is behind where it should be (playing slow) -> INSERT
-            //
-            val rawSyncError = actualDacLoopTimeUs - expectedDacClientTimeUs
+            // Step 3: Calculate sync error in server time
+            // Positive = playing audio from LATER in server timeline (ahead) -> DROP
+            // Negative = playing audio from EARLIER in server timeline (behind) -> INSERT
+            val rawSyncError = actualPlaybackServerTimeUs - expectedPlaybackServerTimeUs
             syncErrorUs = rawSyncError
 
-            // Apply 2D Kalman filter smoothing (this is for DISPLAY smoothing only,
-            // the sync error itself is already Kalman-independent)
+            // Apply 2D Kalman filter smoothing for display stability
             syncErrorFilter.update(rawSyncError, loopTimeUs)
 
         } catch (e: Exception) {
