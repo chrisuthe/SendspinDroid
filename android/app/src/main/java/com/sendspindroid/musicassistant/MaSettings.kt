@@ -27,6 +27,7 @@ object MaSettings {
     private const val PREFS_NAME = "ma_settings"
     private const val KEY_TOKEN_PREFIX = "token_"
     private const val KEY_DEFAULT_PORT = "default_port"
+    private const val KEY_SELECTED_PLAYER_PREFIX = "selected_player_"
 
     private const val DEFAULT_MA_PORT = 8095
 
@@ -122,5 +123,37 @@ object MaSettings {
                 .forEach { editor.remove(it) }
             editor.apply()
         }
+    }
+
+    /**
+     * Gets the selected MA player ID for a specific server.
+     * This player will be used as the target for playback commands.
+     *
+     * @param serverId The UnifiedServer.id
+     * @return The stored player ID, or null if not set (will use auto-detection)
+     */
+    fun getSelectedPlayerForServer(serverId: String): String? {
+        return prefs?.getString("$KEY_SELECTED_PLAYER_PREFIX$serverId", null)
+    }
+
+    /**
+     * Sets the selected MA player ID for a specific server.
+     * Playback commands will target this player's queue.
+     *
+     * @param serverId The UnifiedServer.id
+     * @param playerId The MA player_id to use for playback
+     */
+    fun setSelectedPlayerForServer(serverId: String, playerId: String) {
+        prefs?.edit()?.putString("$KEY_SELECTED_PLAYER_PREFIX$serverId", playerId)?.apply()
+    }
+
+    /**
+     * Clears the selected player for a specific server.
+     * Playback will fall back to auto-detecting an available player.
+     *
+     * @param serverId The UnifiedServer.id
+     */
+    fun clearSelectedPlayerForServer(serverId: String) {
+        prefs?.edit()?.remove("$KEY_SELECTED_PLAYER_PREFIX$serverId")?.apply()
     }
 }
