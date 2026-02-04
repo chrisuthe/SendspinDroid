@@ -5,6 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
@@ -15,10 +16,13 @@ import kotlinx.coroutines.launch
 /**
  * ViewModel for the Home screen.
  *
- * Manages data loading for three horizontal carousels:
+ * Manages data loading for horizontal carousels:
  * - Recently Played
  * - Recently Added
+ * - Albums
+ * - Artists
  * - Playlists
+ * - Radio Stations
  *
  * Uses sealed class for UI state to cleanly handle loading, success, and error states.
  * Loads all sections in parallel for optimal performance.
@@ -53,8 +57,17 @@ class HomeViewModel : ViewModel() {
     private val _recentlyAdded = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
     val recentlyAdded: LiveData<SectionState<MaLibraryItem>> = _recentlyAdded
 
+    private val _albums = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val albums: LiveData<SectionState<MaLibraryItem>> = _albums
+
+    private val _artists = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val artists: LiveData<SectionState<MaLibraryItem>> = _artists
+
     private val _playlists = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
     val playlists: LiveData<SectionState<MaLibraryItem>> = _playlists
+
+    private val _radioStations = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val radioStations: LiveData<SectionState<MaLibraryItem>> = _radioStations
 
     // Track if initial load has been done
     private var hasLoadedData = false
@@ -82,18 +95,27 @@ class HomeViewModel : ViewModel() {
         // Set all sections to loading state
         _recentlyPlayed.value = SectionState.Loading
         _recentlyAdded.value = SectionState.Loading
+        _albums.value = SectionState.Loading
+        _artists.value = SectionState.Loading
         _playlists.value = SectionState.Loading
+        _radioStations.value = SectionState.Loading
 
         viewModelScope.launch {
-            // Launch all three fetches in parallel
+            // Launch all fetches in parallel for optimal performance
             val recentlyPlayedDeferred = async { loadRecentlyPlayed() }
             val recentlyAddedDeferred = async { loadRecentlyAdded() }
+            val albumsDeferred = async { loadAlbums() }
+            val artistsDeferred = async { loadArtists() }
             val playlistsDeferred = async { loadPlaylists() }
+            val radioDeferred = async { loadRadioStations() }
 
             // Wait for all to complete (each updates its own LiveData)
             recentlyPlayedDeferred.await()
             recentlyAddedDeferred.await()
+            albumsDeferred.await()
+            artistsDeferred.await()
             playlistsDeferred.await()
+            radioDeferred.await()
 
             hasLoadedData = true
             Log.d(TAG, "Home screen data load complete")
@@ -101,16 +123,27 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * Load recently played items.
+     * Load recently played items with smart album grouping.
+     *
+     * Fetches extra items to account for grouping, then applies
+     * LibraryItemGrouper to collapse multiple tracks from the same album.
      */
     private suspend fun loadRecentlyPlayed() {
         try {
-            val result = MusicAssistantManager.getRecentlyPlayed(ITEMS_PER_SECTION)
+            // Fetch more items than needed to account for grouping
+            val fetchLimit = ITEMS_PER_SECTION * 2
+            val result = MusicAssistantManager.getRecentlyPlayed(fetchLimit)
             result.fold(
-                onSuccess = { items ->
-                    Log.d(TAG, "Recently played: ${items.size} items")
-                    // Cast to MaLibraryItem list for unified adapter
-                    _recentlyPlayed.postValue(SectionState.Success(items))
+                onSuccess = { tracks ->
+                    Log.d(TAG, "Recently played: ${tracks.size} tracks fetched")
+
+                    // Build album lookup and apply grouping
+                    val albumLookup = buildAlbumLookup(tracks)
+                    val grouped = LibraryItemGrouper.groupTracks(tracks, albumLookup)
+                        .take(ITEMS_PER_SECTION)
+
+                    Log.d(TAG, "Recently played after grouping: ${grouped.size} items")
+                    _recentlyPlayed.postValue(SectionState.Success(grouped))
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load recently played", error)
@@ -124,15 +157,27 @@ class HomeViewModel : ViewModel() {
     }
 
     /**
-     * Load recently added items.
+     * Load recently added items with smart album grouping.
+     *
+     * Fetches extra items to account for grouping, then applies
+     * LibraryItemGrouper to collapse multiple tracks from the same album.
      */
     private suspend fun loadRecentlyAdded() {
         try {
-            val result = MusicAssistantManager.getRecentlyAdded(ITEMS_PER_SECTION)
+            // Fetch more items than needed to account for grouping
+            val fetchLimit = ITEMS_PER_SECTION * 2
+            val result = MusicAssistantManager.getRecentlyAdded(fetchLimit)
             result.fold(
-                onSuccess = { items ->
-                    Log.d(TAG, "Recently added: ${items.size} items")
-                    _recentlyAdded.postValue(SectionState.Success(items))
+                onSuccess = { tracks ->
+                    Log.d(TAG, "Recently added: ${tracks.size} tracks fetched")
+
+                    // Build album lookup and apply grouping
+                    val albumLookup = buildAlbumLookup(tracks)
+                    val grouped = LibraryItemGrouper.groupTracks(tracks, albumLookup)
+                        .take(ITEMS_PER_SECTION)
+
+                    Log.d(TAG, "Recently added after grouping: ${grouped.size} items")
+                    _recentlyAdded.postValue(SectionState.Success(grouped))
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load recently added", error)
@@ -142,6 +187,38 @@ class HomeViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading recently added", e)
             _recentlyAdded.postValue(SectionState.Error(e.message ?: "Failed to load"))
+        }
+    }
+
+    /**
+     * Build album lookup map for grouping logic.
+     *
+     * This enables:
+     * - Detection of "single" releases (show as album even with 1 track)
+     * - Using proper album artwork instead of track artwork
+     * - Getting correct album metadata (year, track count)
+     *
+     * @param tracks List of tracks to extract unique albums from
+     * @return Map of (album, artist) -> MaAlbum
+     */
+    private suspend fun buildAlbumLookup(
+        tracks: List<MaTrack>
+    ): Map<LibraryItemGrouper.GroupingKey, MaAlbum> {
+        // Extract unique album/artist pairs from tracks
+        val uniqueKeys = tracks
+            .filter { it.album != null }
+            .map { LibraryItemGrouper.GroupingKey(it.album!!, it.artist ?: "") }
+            .distinct()
+
+        if (uniqueKeys.isEmpty()) return emptyMap()
+
+        // Fetch albums from library (limit 100 should cover most cases)
+        val albumsResult = MusicAssistantManager.getAlbums(limit = 100)
+        val albums = albumsResult.getOrNull() ?: return emptyMap()
+
+        // Build lookup map - album name + artist must both match
+        return albums.associateBy {
+            LibraryItemGrouper.GroupingKey(it.name, it.artist ?: "")
         }
     }
 
@@ -164,6 +241,72 @@ class HomeViewModel : ViewModel() {
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading playlists", e)
             _playlists.postValue(SectionState.Error(e.message ?: "Failed to load"))
+        }
+    }
+
+    /**
+     * Load albums from library.
+     */
+    private suspend fun loadAlbums() {
+        try {
+            val result = MusicAssistantManager.getAlbums(ITEMS_PER_SECTION)
+            result.fold(
+                onSuccess = { items ->
+                    Log.d(TAG, "Albums: ${items.size} items")
+                    _albums.postValue(SectionState.Success(items))
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to load albums", error)
+                    _albums.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception loading albums", e)
+            _albums.postValue(SectionState.Error(e.message ?: "Failed to load"))
+        }
+    }
+
+    /**
+     * Load artists from library.
+     */
+    private suspend fun loadArtists() {
+        try {
+            val result = MusicAssistantManager.getArtists(ITEMS_PER_SECTION)
+            result.fold(
+                onSuccess = { items ->
+                    Log.d(TAG, "Artists: ${items.size} items")
+                    _artists.postValue(SectionState.Success(items))
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to load artists", error)
+                    _artists.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception loading artists", e)
+            _artists.postValue(SectionState.Error(e.message ?: "Failed to load"))
+        }
+    }
+
+    /**
+     * Load radio stations from library.
+     */
+    private suspend fun loadRadioStations() {
+        try {
+            val result = MusicAssistantManager.getRadioStations(ITEMS_PER_SECTION)
+            result.fold(
+                onSuccess = { items ->
+                    Log.d(TAG, "Radio stations: ${items.size} items")
+                    _radioStations.postValue(SectionState.Success(items))
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to load radio stations", error)
+                    _radioStations.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                }
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception loading radio stations", e)
+            _radioStations.postValue(SectionState.Error(e.message ?: "Failed to load"))
         }
     }
 
