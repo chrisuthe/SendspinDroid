@@ -52,6 +52,12 @@
         <item name="android:windowLightNavigationBar">true</item>
     </style>
 
+    <!-- Shape Appearances for images -->
+    <style name="ShapeAppearance.App.SmallCorner" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">8dp</item>
+    </style>
+
     <!-- Dialog Theme -->
     <style name="Theme.SendSpinDroid.Dialog" parent="Theme.Material3.DayNight.Dialog">
         <!-- Inherit primary colors from main theme -->

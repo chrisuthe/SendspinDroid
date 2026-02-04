@@ -179,6 +179,18 @@ dependencies {
     // Preference - Settings UI with PreferenceFragmentCompat
     implementation("androidx.preference:preference-ktx:1.2.1")
 
+    // SwipeRefreshLayout - Pull-to-refresh for lists
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+
+    // ViewPager2 - Tab swiping for Library browser
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+
+    // Fragment KTX - activityViewModels() and other fragment extensions
+    implementation("androidx.fragment:fragment-ktx:1.8.6")
+
+    // ViewModel KTX - Kotlin extensions for ViewModel
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.0")
+
     // Java-WebSocket - Lightweight WebSocket server for server-initiated connections
     implementation("org.java-websocket:Java-WebSocket:1.6.0")
 
