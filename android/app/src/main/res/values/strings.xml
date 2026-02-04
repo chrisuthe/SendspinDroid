@@ -406,4 +406,12 @@
     <!-- Navigation Placeholders -->
     <string name="placeholder_coming_soon">Coming soon</string>
     <string name="mini_player_tap_to_expand">Tap to expand player</string>
+
+    <!-- Home Screen -->
+    <string name="home_recently_played">Recently Played</string>
+    <string name="home_recently_added">Recently Added</string>
+    <string name="home_playlists">Playlists</string>
+    <string name="home_loading">Loading...</string>
+    <string name="home_error_load_failed">Failed to load content</string>
+    <string name="home_empty_section">Nothing here yet</string>
 </resources>
