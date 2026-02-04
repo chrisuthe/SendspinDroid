@@ -5,9 +5,10 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sendspindroid.musicassistant.MaMediaItem
 import com.sendspindroid.musicassistant.MaPlaylist
+import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.model.MaLibraryItem
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
@@ -43,17 +44,17 @@ class HomeViewModel : ViewModel() {
     }
 
     // ========================================================================
-    // LiveData for each section
+    // LiveData for each section - all use MaLibraryItem for unified adapter
     // ========================================================================
 
-    private val _recentlyPlayed = MutableLiveData<SectionState<MaMediaItem>>(SectionState.Loading)
-    val recentlyPlayed: LiveData<SectionState<MaMediaItem>> = _recentlyPlayed
+    private val _recentlyPlayed = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val recentlyPlayed: LiveData<SectionState<MaLibraryItem>> = _recentlyPlayed
 
-    private val _recentlyAdded = MutableLiveData<SectionState<MaMediaItem>>(SectionState.Loading)
-    val recentlyAdded: LiveData<SectionState<MaMediaItem>> = _recentlyAdded
+    private val _recentlyAdded = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val recentlyAdded: LiveData<SectionState<MaLibraryItem>> = _recentlyAdded
 
-    private val _playlists = MutableLiveData<SectionState<MaPlaylist>>(SectionState.Loading)
-    val playlists: LiveData<SectionState<MaPlaylist>> = _playlists
+    private val _playlists = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val playlists: LiveData<SectionState<MaLibraryItem>> = _playlists
 
     // Track if initial load has been done
     private var hasLoadedData = false
@@ -108,6 +109,7 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Recently played: ${items.size} items")
+                    // Cast to MaLibraryItem list for unified adapter
                     _recentlyPlayed.postValue(SectionState.Success(items))
                 },
                 onFailure = { error ->

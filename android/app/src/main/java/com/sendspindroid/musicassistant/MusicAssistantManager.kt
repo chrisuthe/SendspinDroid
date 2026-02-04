@@ -5,6 +5,8 @@ import android.util.Log
 import com.sendspindroid.UserSettings.ConnectionMode
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.model.MaConnectionState
+import com.sendspindroid.musicassistant.model.MaLibraryItem
+import com.sendspindroid.musicassistant.model.MaMediaType
 import com.sendspindroid.musicassistant.model.MaServerInfo
 import com.sendspindroid.sendspin.MusicAssistantAuth
 import kotlinx.coroutines.CompletableDeferred
@@ -36,29 +38,100 @@ import java.util.concurrent.TimeUnit
 // ============================================================================
 
 /**
- * Represents a media item from Music Assistant (track, album, artist, etc.)
+ * Represents a track from Music Assistant.
+ *
+ * Implements MaLibraryItem for use in unified adapters and generic lists.
+ * Renamed from MaMediaItem to better reflect its specific purpose as tracks.
  */
-data class MaMediaItem(
+data class MaTrack(
     val itemId: String,
-    val name: String,
+    override val name: String,
     val artist: String?,
     val album: String?,
-    val imageUri: String?,
-    val mediaType: String,  // "track", "album", "artist", "playlist", "radio"
-    val uri: String?        // MA URI for playback (e.g., "library://track/123")
-)
+    override val imageUri: String?,
+    override val uri: String?,
+    val duration: Long? = null
+) : MaLibraryItem {
+    override val id: String get() = itemId
+    override val mediaType: MaMediaType = MaMediaType.TRACK
+}
 
 /**
- * Represents a playlist from Music Assistant
+ * Type alias for backward compatibility during migration.
+ * TODO: Remove after all usages are migrated to MaTrack.
+ */
+@Deprecated("Use MaTrack instead", ReplaceWith("MaTrack"))
+typealias MaMediaItem = MaTrack
+
+/**
+ * Represents a playlist from Music Assistant.
+ *
+ * Implements MaLibraryItem for use in unified adapters.
  */
 data class MaPlaylist(
     val playlistId: String,
-    val name: String,
-    val imageUri: String?,
+    override val name: String,
+    override val imageUri: String?,
     val trackCount: Int,
     val owner: String?,
-    val uri: String?
-)
+    override val uri: String?
+) : MaLibraryItem {
+    override val id: String get() = playlistId
+    override val mediaType: MaMediaType = MaMediaType.PLAYLIST
+}
+
+/**
+ * Represents an album from Music Assistant.
+ *
+ * Implements MaLibraryItem for use in unified adapters.
+ * Subtitle rendering: "Artist Name" or "Artist Name - 2024"
+ */
+data class MaAlbum(
+    val albumId: String,
+    override val name: String,
+    override val imageUri: String?,
+    override val uri: String?,
+    val artist: String?,          // Primary artist name
+    val year: Int?,               // Release year
+    val trackCount: Int?,         // Number of tracks
+    val albumType: String?        // "album", "single", "ep", "compilation"
+) : MaLibraryItem {
+    override val id: String get() = albumId
+    override val mediaType: MaMediaType = MaMediaType.ALBUM
+}
+
+/**
+ * Represents an artist from Music Assistant.
+ *
+ * Implements MaLibraryItem for use in unified adapters.
+ * Subtitle rendering: Empty (or genre if available later)
+ */
+data class MaArtist(
+    val artistId: String,
+    override val name: String,
+    override val imageUri: String?,
+    override val uri: String?
+) : MaLibraryItem {
+    override val id: String get() = artistId
+    override val mediaType: MaMediaType = MaMediaType.ARTIST
+}
+
+/**
+ * Represents a radio station from Music Assistant.
+ *
+ * Implements MaLibraryItem for use in unified adapters.
+ * Subtitle rendering: Provider name (e.g., "TuneIn")
+ */
+data class MaRadio(
+    val radioId: String,
+    override val name: String,
+    override val imageUri: String?,
+    override val uri: String?,
+    val provider: String?         // "tunein", "radiobrowser", etc.
+) : MaLibraryItem {
+    override val id: String get() = radioId
+    override val mediaType: MaMediaType = MaMediaType.RADIO
+}
 
 /**
  * Global singleton managing Music Assistant API availability.
@@ -641,9 +714,9 @@ object MusicAssistantManager {
      * that were recently played on this MA instance.
      *
      * @param limit Maximum number of items to return (default 15)
-     * @return Result with list of recently played media items
+     * @return Result with list of recently played tracks
      */
-    suspend fun getRecentlyPlayed(limit: Int = 15): Result<List<MaMediaItem>> {
+    suspend fun getRecentlyPlayed(limit: Int = 15): Result<List<MaTrack>> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -673,9 +746,9 @@ object MusicAssistantManager {
      * to get the newest additions to the library.
      *
      * @param limit Maximum number of items to return (default 15)
-     * @return Result with list of recently added media items
+     * @return Result with list of recently added tracks
      */
-    suspend fun getRecentlyAdded(limit: Int = 15): Result<List<MaMediaItem>> {
+    suspend fun getRecentlyAdded(limit: Int = 15): Result<List<MaTrack>> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -732,13 +805,100 @@ object MusicAssistantManager {
     }
 
     /**
+     * Get albums from Music Assistant library.
+     *
+     * @param limit Maximum number of albums to return (default 15)
+     * @return Result with list of albums
+     */
+    suspend fun getAlbums(limit: Int = 15): Result<List<MaAlbum>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching albums (limit=$limit)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/albums/library_items",
+                    mapOf("limit" to limit)
+                )
+                val albums = parseAlbums(response)
+                Log.d(TAG, "Got ${albums.size} albums")
+                Result.success(albums)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch albums", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get artists from Music Assistant library.
+     *
+     * @param limit Maximum number of artists to return (default 15)
+     * @return Result with list of artists
+     */
+    suspend fun getArtists(limit: Int = 15): Result<List<MaArtist>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching artists (limit=$limit)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/artists/library_items",
+                    mapOf("limit" to limit)
+                )
+                val artists = parseArtists(response)
+                Log.d(TAG, "Got ${artists.size} artists")
+                Result.success(artists)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch artists", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get radio stations from Music Assistant.
+     *
+     * @param limit Maximum number of radio stations to return (default 15)
+     * @return Result with list of radio stations
+     */
+    suspend fun getRadioStations(limit: Int = 15): Result<List<MaRadio>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching radio stations (limit=$limit)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/radio/library_items",
+                    mapOf("limit" to limit)
+                )
+                val radios = parseRadioStations(response)
+                Log.d(TAG, "Got ${radios.size} radio stations")
+                Result.success(radios)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch radio stations", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Parse media items from MA API response.
      *
      * MA returns items in different formats depending on the endpoint.
      * This handles both array responses and paginated responses.
      */
-    private fun parseMediaItems(response: JSONObject): List<MaMediaItem> {
-        val items = mutableListOf<MaMediaItem>()
+    private fun parseMediaItems(response: JSONObject): List<MaTrack> {
+        val items = mutableListOf<MaTrack>()
 
         // Try to get result as array (direct response)
         val resultArray = response.optJSONArray("result")
@@ -759,7 +919,7 @@ object MusicAssistantManager {
     /**
      * Parse a single media item from JSON.
      */
-    private fun parseMediaItem(json: JSONObject): MaMediaItem? {
+    private fun parseMediaItem(json: JSONObject): MaTrack? {
         // Item ID can be in different fields
         val itemId = json.optString("item_id", "")
             .ifEmpty { json.optString("track_id", "") }
@@ -796,17 +956,17 @@ object MusicAssistantManager {
         val imageUri = extractImageUri(json)
 
 
-        val mediaType = json.optString("media_type", "track")
         val uri = json.optString("uri", "")
+        val duration = json.optLong("duration", 0L).takeIf { it > 0 }
 
-        return MaMediaItem(
+        return MaTrack(
             itemId = itemId,
             name = name,
             artist = artist.ifEmpty { null },
             album = album.ifEmpty { null },
             imageUri = imageUri.ifEmpty { null },
-            mediaType = mediaType,
-            uri = uri.ifEmpty { null }
+            uri = uri.ifEmpty { null },
+            duration = duration
         )
     }
 
@@ -981,5 +1141,151 @@ object MusicAssistantManager {
         }
 
         return playlists
+    }
+
+    /**
+     * Parse albums from MA API response.
+     */
+    private fun parseAlbums(response: JSONObject): List<MaAlbum> {
+        val albums = mutableListOf<MaAlbum>()
+
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return albums
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val albumId = item.optString("item_id", "")
+                .ifEmpty { item.optString("album_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (albumId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            // Artist can be a string, object, or array
+            val artist = item.optString("artist", "")
+                .ifEmpty {
+                    item.optJSONObject("artist")?.optString("name", "") ?: ""
+                }
+                .ifEmpty {
+                    // Try artists array - get first artist
+                    item.optJSONArray("artists")?.let { artists ->
+                        if (artists.length() > 0) {
+                            artists.optJSONObject(0)?.optString("name", "")
+                        } else null
+                    } ?: ""
+                }
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty { null }
+            val year = item.optInt("year", 0).takeIf { it > 0 }
+            val trackCount = item.optInt("track_count", 0).takeIf { it > 0 }
+            val albumType = item.optString("album_type", "").ifEmpty { null }
+
+            albums.add(
+                MaAlbum(
+                    albumId = albumId,
+                    name = name,
+                    imageUri = imageUri,
+                    uri = uri,
+                    artist = artist.ifEmpty { null },
+                    year = year,
+                    trackCount = trackCount,
+                    albumType = albumType
+                )
+            )
+        }
+
+        return albums
+    }
+
+    /**
+     * Parse artists from MA API response.
+     */
+    private fun parseArtists(response: JSONObject): List<MaArtist> {
+        val artists = mutableListOf<MaArtist>()
+
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return artists
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val artistId = item.optString("item_id", "")
+                .ifEmpty { item.optString("artist_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (artistId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty { null }
+
+            artists.add(
+                MaArtist(
+                    artistId = artistId,
+                    name = name,
+                    imageUri = imageUri,
+                    uri = uri
+                )
+            )
+        }
+
+        return artists
+    }
+
+    /**
+     * Parse radio stations from MA API response.
+     */
+    private fun parseRadioStations(response: JSONObject): List<MaRadio> {
+        val radios = mutableListOf<MaRadio>()
+
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return radios
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val radioId = item.optString("item_id", "")
+                .ifEmpty { item.optString("radio_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (radioId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty { null }
+
+            // Provider can be direct field or from provider_mappings
+            val provider = item.optString("provider", "")
+                .ifEmpty {
+                    item.optJSONArray("provider_mappings")?.let { mappings ->
+                        if (mappings.length() > 0) {
+                            mappings.optJSONObject(0)?.optString("provider_domain", "")
+                        } else null
+                    } ?: ""
+                }
+
+            radios.add(
+                MaRadio(
+                    radioId = radioId,
+                    name = name,
+                    imageUri = imageUri,
+                    uri = uri,
+                    provider = provider.ifEmpty { null }
+                )
+            )
+        }
+
+        return radios
     }
 }

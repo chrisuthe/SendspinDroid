@@ -9,12 +9,12 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.sendspindroid.databinding.FragmentHomeBinding
-import com.sendspindroid.musicassistant.MaMediaItem
 import com.sendspindroid.musicassistant.MaPlaylist
+import com.sendspindroid.musicassistant.MaTrack
+import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.ui.navigation.home.HomeViewModel
 import com.sendspindroid.ui.navigation.home.HomeViewModel.SectionState
-import com.sendspindroid.ui.navigation.home.MediaCardAdapter
-import com.sendspindroid.ui.navigation.home.PlaylistCardAdapter
+import com.sendspindroid.ui.navigation.home.LibraryItemAdapter
 
 /**
  * Home tab fragment displaying three horizontal carousels:
@@ -38,10 +38,10 @@ class HomeFragment : Fragment() {
 
     private val viewModel: HomeViewModel by viewModels()
 
-    // Adapters for each section
-    private lateinit var recentlyPlayedAdapter: MediaCardAdapter
-    private lateinit var recentlyAddedAdapter: MediaCardAdapter
-    private lateinit var playlistsAdapter: PlaylistCardAdapter
+    // Unified adapters for all sections (using MaLibraryItem interface)
+    private lateinit var recentlyPlayedAdapter: LibraryItemAdapter
+    private lateinit var recentlyAddedAdapter: LibraryItemAdapter
+    private lateinit var playlistsAdapter: LibraryItemAdapter
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -63,12 +63,15 @@ class HomeFragment : Fragment() {
     }
 
     /**
-     * Initialize the three horizontal RecyclerViews with adapters and snap helpers.
+     * Initialize the three horizontal RecyclerViews with unified adapters.
+     *
+     * All sections now use LibraryItemAdapter which handles any MaLibraryItem type.
+     * The adapter renders different subtitles based on the item's concrete type.
      */
     private fun setupRecyclerViews() {
         // Recently Played
-        recentlyPlayedAdapter = MediaCardAdapter { item ->
-            onMediaItemClick(item)
+        recentlyPlayedAdapter = LibraryItemAdapter { item ->
+            onLibraryItemClick(item)
         }
         binding.recentlyPlayedRecyclerView.apply {
             layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
@@ -78,8 +81,8 @@ class HomeFragment : Fragment() {
         }
 
         // Recently Added
-        recentlyAddedAdapter = MediaCardAdapter { item ->
-            onMediaItemClick(item)
+        recentlyAddedAdapter = LibraryItemAdapter { item ->
+            onLibraryItemClick(item)
         }
         binding.recentlyAddedRecyclerView.apply {
             layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
@@ -88,8 +91,8 @@ class HomeFragment : Fragment() {
         }
 
         // Playlists
-        playlistsAdapter = PlaylistCardAdapter { playlist ->
-            onPlaylistClick(playlist)
+        playlistsAdapter = LibraryItemAdapter { item ->
+            onLibraryItemClick(item)
         }
         binding.playlistsRecyclerView.apply {
             layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
@@ -100,6 +103,9 @@ class HomeFragment : Fragment() {
 
     /**
      * Observe ViewModel LiveData and update UI accordingly.
+     *
+     * All sections now use the same updateSectionState method since
+     * they all work with MaLibraryItem through the unified adapter.
      */
     private fun observeViewModel() {
         // Recently Played
@@ -124,21 +130,29 @@ class HomeFragment : Fragment() {
             )
         }
 
-        // Playlists
+        // Playlists - now uses the same unified method
         viewModel.playlists.observe(viewLifecycleOwner) { state ->
-            updatePlaylistsSectionState(state)
+            updateSectionState(
+                state = state,
+                recyclerView = binding.playlistsRecyclerView,
+                loadingView = binding.playlistsLoading,
+                emptyView = binding.playlistsEmpty,
+                adapter = playlistsAdapter
+            )
         }
     }
 
     /**
-     * Update a media section's UI based on its state.
+     * Update a section's UI based on its state.
+     *
+     * Now handles all item types through the unified MaLibraryItem interface.
      */
     private fun updateSectionState(
-        state: SectionState<MaMediaItem>,
+        state: SectionState<MaLibraryItem>,
         recyclerView: View,
         loadingView: View,
         emptyView: View,
-        adapter: MediaCardAdapter
+        adapter: LibraryItemAdapter
     ) {
         when (state) {
             is SectionState.Loading -> {
@@ -167,51 +181,25 @@ class HomeFragment : Fragment() {
     }
 
     /**
-     * Update the playlists section UI (uses different adapter type).
+     * Handle click on any library item.
+     *
+     * Uses smart casting to determine the item type and take appropriate action.
+     * Future: Start playback for tracks, navigate to detail for playlists/albums.
      */
-    private fun updatePlaylistsSectionState(state: SectionState<MaPlaylist>) {
-        when (state) {
-            is SectionState.Loading -> {
-                binding.playlistsRecyclerView.visibility = View.GONE
-                binding.playlistsLoading.visibility = View.VISIBLE
-                binding.playlistsEmpty.visibility = View.GONE
+    private fun onLibraryItemClick(item: MaLibraryItem) {
+        when (item) {
+            is MaTrack -> {
+                Log.d(TAG, "Track clicked: ${item.name} by ${item.artist}")
+                // TODO: Implement track playback
             }
-            is SectionState.Success -> {
-                binding.playlistsLoading.visibility = View.GONE
-                if (state.items.isEmpty()) {
-                    binding.playlistsRecyclerView.visibility = View.GONE
-                    binding.playlistsEmpty.visibility = View.VISIBLE
-                } else {
-                    binding.playlistsRecyclerView.visibility = View.VISIBLE
-                    binding.playlistsEmpty.visibility = View.GONE
-                    playlistsAdapter.submitList(state.items)
-                }
+            is MaPlaylist -> {
+                Log.d(TAG, "Playlist clicked: ${item.name} (${item.trackCount} tracks)")
+                // TODO: Implement playlist navigation
             }
-            is SectionState.Error -> {
-                binding.playlistsLoading.visibility = View.GONE
-                binding.playlistsRecyclerView.visibility = View.GONE
-                binding.playlistsEmpty.visibility = View.VISIBLE
-                Log.e(TAG, "Playlists error: ${state.message}")
+            else -> {
+                Log.d(TAG, "Library item clicked: ${item.name} (${item.mediaType})")
             }
         }
-    }
-
-    /**
-     * Handle click on a media item (track, album, etc.).
-     * Future: Start playback or navigate to detail view.
-     */
-    private fun onMediaItemClick(item: MaMediaItem) {
-        Log.d(TAG, "Media item clicked: ${item.name} (${item.mediaType})")
-        // TODO: Implement playback or navigation
-    }
-
-    /**
-     * Handle click on a playlist.
-     * Future: Navigate to playlist detail view.
-     */
-    private fun onPlaylistClick(playlist: MaPlaylist) {
-        Log.d(TAG, "Playlist clicked: ${playlist.name}")
-        // TODO: Implement playlist navigation
     }
 
     override fun onDestroyView() {
