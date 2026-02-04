@@ -122,6 +122,9 @@ class MainActivity : AppCompatActivity() {
     // Track last artwork to prevent duplicate background updates
     private var lastArtworkSource: String? = null
 
+    // Store the last applied background color for restoring after navigation
+    private var lastBackgroundColor: Int? = null
+
     // NsdManager-based discovery (Android native - more reliable than Go's hashicorp/mdns)
     private var discoveryManager: NsdDiscoveryManager? = null
 
@@ -791,6 +794,9 @@ class MainActivity : AppCompatActivity() {
             // Show navigation content with mini player
             binding.navigationContentView?.visibility = View.VISIBLE
 
+            // Clear the big player background (blurred art + tint) when navigating away
+            clearPlayerBackground()
+
             // Update mini player with current track info
             updateMiniPlayer()
         }
@@ -823,6 +829,8 @@ class MainActivity : AppCompatActivity() {
                 is AppConnectionState.Connecting,
                 is AppConnectionState.Reconnecting -> {
                     binding.nowPlayingView?.visibility = View.VISIBLE
+                    // Restore the big player background (blurred art + tint)
+                    restorePlayerBackground()
                 }
                 is AppConnectionState.Error -> {
                     binding.serverListView?.visibility = View.VISIBLE
@@ -2994,7 +3002,8 @@ class MainActivity : AppCompatActivity() {
                     ContextCompat.getColor(this, R.color.md_theme_dark_background)
                 }
 
-                // Apply background color to entire window (root CoordinatorLayout)
+                // Store and apply background color to entire window (root CoordinatorLayout)
+                lastBackgroundColor = backgroundColor
                 binding.coordinatorLayout.setBackgroundColor(backgroundColor)
                 Log.d(TAG, "Applied background color to window: ${Integer.toHexString(backgroundColor)}")
             }
@@ -3104,6 +3113,40 @@ class MainActivity : AppCompatActivity() {
                 binding.backgroundArtView.alpha = 0.5f // Reset for next use
             }
             .start()
+    }
+
+    /**
+     * Clears the player background (blurred art and tint) when navigating to other screens.
+     * The now playing view is hidden, so we don't want its background showing through.
+     */
+    private fun clearPlayerBackground() {
+        // Reset to default dark background
+        val defaultBg = ContextCompat.getColor(this, R.color.md_theme_dark_background)
+        binding.coordinatorLayout.setBackgroundColor(defaultBg)
+
+        // Hide the blurred background art (don't clear it, just hide for quick restore)
+        binding.backgroundArtView.alpha = 0f
+        Log.d(TAG, "Cleared player background for navigation")
+    }
+
+    /**
+     * Restores the player background when returning to the now playing view.
+     * Uses the stored background color and shows the blurred art again.
+     */
+    private fun restorePlayerBackground() {
+        // Restore the tinted background color
+        lastBackgroundColor?.let { color ->
+            binding.coordinatorLayout.setBackgroundColor(color)
+            Log.d(TAG, "Restored background color: ${Integer.toHexString(color)}")
+        }
+
+        // Fade in the blurred background art
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            binding.backgroundArtView.animate()
+                .alpha(0.5f)
+                .setDuration(300)
+                .start()
+        }
     }
 
     /**

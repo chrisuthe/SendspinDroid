@@ -142,7 +142,8 @@
                 android:layout_height="44dp"
                 android:contentDescription="@string/accessibility_play_button"
                 app:icon="@drawable/ic_play"
-                app:iconSize="24dp" />
+                app:iconSize="24dp"
+                app:iconGravity="textStart" />
 
         </LinearLayout>
 
