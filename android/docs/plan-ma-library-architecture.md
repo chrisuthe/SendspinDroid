@@ -1,6 +1,6 @@
 # MA Library Data Architecture - Implementation Plan
 
-## Status: Phase 2 Complete
+## Status: Phase 4 Complete
 
 Last updated: 2026-02-04
 
@@ -22,72 +22,28 @@ Last updated: 2026-02-04
 - Added parse methods: `parseAlbums()`, `parseArtists()`, `parseRadioStations()`
 - Updated `LibraryItemAdapter` to render all five types with appropriate subtitles
 
----
+### Phase 3: Home Screen Integration (Done)
+- Added Albums, Artists, Radio sections to Home screen
+- Updated HomeViewModel with LiveData for all six sections
+- All sections load in parallel using async/await
+- Updated HomeFragment with adapters and observers for new sections
+- Updated fragment_home.xml with new section layouts
+- Added string resources for section titles
+- Fixed radio endpoint (`music/radios/library_items` - plural)
+- Fixed album name parsing bug (optString returning JSON object as string)
+- Added media_type filter to exclude standalone artists from Recently Played
 
-## Phase 3: Home Screen Integration
-
-### Goal
-Add Albums, Artists, and Radio sections to the Home screen using the new data types.
-
-### Tasks
-
-#### 3.1 Update HomeViewModel
-**File**: `ui/navigation/home/HomeViewModel.kt`
-
-Add StateFlows for new content types:
-```kotlin
-private val _albums = MutableStateFlow<List<MaAlbum>>(emptyList())
-val albums: StateFlow<List<MaAlbum>> = _albums.asStateFlow()
-
-private val _artists = MutableStateFlow<List<MaArtist>>(emptyList())
-val artists: StateFlow<List<MaArtist>> = _artists.asStateFlow()
-
-private val _radioStations = MutableStateFlow<List<MaRadio>>(emptyList())
-val radioStations: StateFlow<List<MaRadio>> = _radioStations.asStateFlow()
-```
-
-Add fetch methods:
-```kotlin
-private fun loadAlbums() {
-    viewModelScope.launch {
-        MusicAssistantManager.getAlbums().onSuccess { _albums.value = it }
-    }
-}
-// Similar for artists, radioStations
-```
-
-#### 3.2 Update HomeFragment
-**File**: `ui/navigation/home/HomeFragment.kt`
-
-- Add RecyclerViews for Albums, Artists, Radio sections
-- Create adapters using `LibraryItemAdapter`
-- Collect from new StateFlows and update adapters
-- Consider section visibility based on content availability
-
-#### 3.3 Update Home Layout
-**File**: `res/layout/fragment_home.xml` (or wherever home layout is)
-
-Add section containers:
-```xml
-<!-- Albums Section -->
-<include layout="@layout/view_home_section" android:id="@+id/albumsSection" />
-
-<!-- Artists Section -->
-<include layout="@layout/view_home_section" android:id="@+id/artistsSection" />
-
-<!-- Radio Section -->
-<include layout="@layout/view_home_section" android:id="@+id/radioSection" />
-```
-
-### Verification
-1. Build: `./gradlew assembleDebug`
-2. Test on device with MA server connected
-3. Verify all sections load and display correctly
-4. Verify images load through imageproxy
+### Phase 4: Playback Integration (Done)
+- Added `playMedia()` method to MusicAssistantManager
+- Uses app's own player ID (`UserSettings.getPlayerId()`) as queue target
+- Click handlers in HomeFragment trigger playback via MA API
+- Fixed URI construction for albums/artists/radio (construct `library://{type}/{id}` if API returns empty)
+- Fixed LibraryItemGrouper to construct URIs for synthetic album cards
+- Added player selection storage in MaSettings (for future "Choose Players" feature)
 
 ---
 
-## Phase 4: Playback Integration (Future)
+## Phase 5: Browse Library Screen (Future)
 
 ### Goal
 Enable playing items when tapped in Home screen carousels.
@@ -121,6 +77,19 @@ Full library browsing with search, filters, and pagination.
 - Add search functionality
 - Implement infinite scroll / pagination
 - Add sorting options (name, date added, etc.)
+
+---
+
+## Phase 6: Choose Players (Future)
+
+### Goal
+Let users select which MA player to control from the app.
+
+### Tasks
+- Implement player list fetching (`players/all`)
+- Create ChoosePlayersBottomSheet UI
+- Store selected player per-server in MaSettings
+- Show current player name in UI
 
 ---
 

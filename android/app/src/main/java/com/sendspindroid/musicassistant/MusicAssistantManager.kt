@@ -2,6 +2,7 @@ package com.sendspindroid.musicassistant
 
 import android.content.Context
 import android.util.Log
+import com.sendspindroid.UserSettings
 import com.sendspindroid.UserSettings.ConnectionMode
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.model.MaConnectionState
@@ -50,7 +51,10 @@ data class MaTrack(
     val album: String?,
     override val imageUri: String?,
     override val uri: String?,
-    val duration: Long? = null
+    val duration: Long? = null,
+    // Album reference fields for grouping
+    val albumId: String? = null,
+    val albumType: String? = null  // "album", "single", "ep", "compilation"
 ) : MaLibraryItem {
     override val id: String get() = itemId
     override val mediaType: MaMediaType = MaMediaType.TRACK
@@ -306,6 +310,17 @@ object MusicAssistantManager {
                 Log.i(TAG, "MA API connected successfully")
                 _connectionState.value = MaConnectionState.Connected(serverInfo)
 
+                // Auto-select a player for playback commands
+                // This ensures we have a consistent target for play commands
+                autoSelectPlayer().fold(
+                    onSuccess = { playerId ->
+                        Log.i(TAG, "Auto-selected player for playback: $playerId")
+                    },
+                    onFailure = { error ->
+                        Log.w(TAG, "No players available for auto-selection: ${error.message}")
+                    }
+                )
+
             } catch (e: MusicAssistantAuth.AuthenticationException) {
                 Log.e(TAG, "Token authentication failed", e)
                 // Token expired or invalid - clear it and request re-login
@@ -499,6 +514,164 @@ object MusicAssistantManager {
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * Play a media item on the active MA player.
+     *
+     * This sends a play command to Music Assistant with the item's URI.
+     * Works for tracks, albums, artists, playlists, and radio stations.
+     *
+     * @param uri The Music Assistant URI (e.g., "library://track/123")
+     * @param mediaType Optional media type hint for the API
+     * @return Result with success or failure
+     */
+    suspend fun playMedia(uri: String, mediaType: String? = null): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Playing media: $uri")
+
+                // Use THIS app's player ID - the same ID we registered with SendSpin
+                // This ensures playback goes to OUR queue, not some other player
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Using our player ID: $playerId")
+
+                // Build play command arguments
+                val args = mutableMapOf<String, Any>(
+                    "queue_id" to playerId,
+                    "media" to uri
+                )
+                if (mediaType != null) {
+                    args["media_type"] = mediaType
+                }
+
+                // Send play command - play_media replaces queue and starts playback
+                sendMaCommand(apiUrl, token, "player_queues/play_media", args)
+
+                Log.i(TAG, "Successfully started playback: $uri")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to play media: $uri", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Auto-detect and store the active player for the current server.
+     *
+     * Call this after MA connection is established to set a default player
+     * for playback commands. This ensures consistent behavior - the same player
+     * will be used for all playback until changed.
+     *
+     * @return Result with the selected player ID, or failure if no players found
+     */
+    suspend fun autoSelectPlayer(): Result<String> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                // Check if we already have a selected player
+                val existingPlayer = MaSettings.getSelectedPlayerForServer(server.id)
+                if (existingPlayer != null) {
+                    Log.d(TAG, "Player already selected: $existingPlayer")
+                    return@withContext Result.success(existingPlayer)
+                }
+
+                // Fetch all players and select one
+                val playersResponse = sendMaCommand(apiUrl, token, "players/all", emptyMap())
+                val playerId = parseActivePlayerId(playersResponse)
+                if (playerId == null) {
+                    Log.w(TAG, "No available players found")
+                    return@withContext Result.failure(Exception("No players available"))
+                }
+
+                // Store for future use
+                Log.i(TAG, "Auto-selected player: $playerId")
+                MaSettings.setSelectedPlayerForServer(server.id, playerId)
+                Result.success(playerId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to auto-select player", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get the currently selected player for the connected server.
+     *
+     * @return The selected player ID, or null if none selected
+     */
+    fun getSelectedPlayer(): String? {
+        val server = currentServer ?: return null
+        return MaSettings.getSelectedPlayerForServer(server.id)
+    }
+
+    /**
+     * Set the player to use for playback commands.
+     *
+     * @param playerId The MA player_id to use
+     */
+    fun setSelectedPlayer(playerId: String) {
+        val server = currentServer ?: return
+        Log.i(TAG, "Selected player set to: $playerId")
+        MaSettings.setSelectedPlayerForServer(server.id, playerId)
+    }
+
+    /**
+     * Clear the selected player, reverting to auto-detection.
+     */
+    fun clearSelectedPlayer() {
+        val server = currentServer ?: return
+        Log.i(TAG, "Selected player cleared")
+        MaSettings.clearSelectedPlayerForServer(server.id)
+    }
+
+    /**
+     * Parse the active player ID from the players/all response.
+     *
+     * Returns the first player that is currently playing, or if none are playing,
+     * returns the first available player.
+     *
+     * @param response The JSON response from players/all command
+     * @return The player ID, or null if no players found
+     */
+    private fun parseActivePlayerId(response: JSONObject): String? {
+        val players = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("players")
+            ?: return null
+
+        var firstPlayerId: String? = null
+
+        for (i in 0 until players.length()) {
+            val player = players.optJSONObject(i) ?: continue
+            val playerId = player.optString("player_id", "")
+                .ifEmpty { player.optString("id", "") }
+            val state = player.optString("state", "")
+            val available = player.optBoolean("available", true)
+
+            if (playerId.isEmpty() || !available) continue
+
+            // Remember first available player as fallback
+            if (firstPlayerId == null) {
+                firstPlayerId = playerId
+            }
+
+            // Prefer currently playing player
+            if (state == "playing" || state == "paused") {
+                return playerId
+            }
+        }
+
+        return firstPlayerId
     }
 
     /**
@@ -729,6 +902,7 @@ object MusicAssistantManager {
                     apiUrl, token, "music/recently_played_items",
                     mapOf("limit" to limit)
                 )
+                // Parse minimal track data - grouping won't work but tracks will display
                 val items = parseMediaItems(response)
                 Log.d(TAG, "Got ${items.size} recently played items")
                 Result.success(items)
@@ -877,8 +1051,9 @@ object MusicAssistantManager {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "Fetching radio stations (limit=$limit)")
+                // Note: MA API uses plural "radios" for the endpoint
                 val response = sendMaCommand(
-                    apiUrl, token, "music/radio/library_items",
+                    apiUrl, token, "music/radios/library_items",
                     mapOf("limit" to limit)
                 )
                 val radios = parseRadioStations(response)
@@ -918,8 +1093,18 @@ object MusicAssistantManager {
 
     /**
      * Parse a single media item from JSON.
+     *
+     * Only parses track items - filters out artists, albums, playlists, etc.
+     * This ensures Recently Played only shows playable track items.
      */
     private fun parseMediaItem(json: JSONObject): MaTrack? {
+        // Check media_type - only process tracks
+        val mediaType = json.optString("media_type", "track")
+        if (mediaType != "track") {
+            Log.d(TAG, "Skipping non-track item: media_type=$mediaType, name=${json.optString("name")}")
+            return null
+        }
+
         // Item ID can be in different fields
         val itemId = json.optString("item_id", "")
             .ifEmpty { json.optString("track_id", "") }
@@ -947,14 +1132,24 @@ object MusicAssistantManager {
                 } ?: ""
             }
 
-        val album = json.optString("album", "")
-            .ifEmpty {
-                json.optJSONObject("album")?.optString("name", "") ?: ""
-            }
+        // Album can be string or object - extract both name and metadata
+        // IMPORTANT: Check for object FIRST - optString returns JSON string when field is object!
+        val albumObj = json.optJSONObject("album")
+        val album = if (albumObj != null) {
+            // Album is a JSON object - extract the name field
+            albumObj.optString("name", "")
+        } else {
+            // Album might be a simple string
+            json.optString("album", "")
+        }
+
+        // Extract album ID and type for grouping
+        val albumId = albumObj?.optString("item_id", "")?.ifEmpty { null }
+            ?: albumObj?.optString("album_id", "")?.ifEmpty { null }
+        val albumType = albumObj?.optString("album_type", "")?.ifEmpty { null }
 
         // Image URI - MA stores images in metadata.images array
         val imageUri = extractImageUri(json)
-
 
         val uri = json.optString("uri", "")
         val duration = json.optLong("duration", 0L).takeIf { it > 0 }
@@ -966,7 +1161,9 @@ object MusicAssistantManager {
             album = album.ifEmpty { null },
             imageUri = imageUri.ifEmpty { null },
             uri = uri.ifEmpty { null },
-            duration = duration
+            duration = duration,
+            albumId = albumId,
+            albumType = albumType
         )
     }
 
@@ -1180,7 +1377,11 @@ object MusicAssistantManager {
                 }
 
             val imageUri = extractImageUri(item).ifEmpty { null }
-            val uri = item.optString("uri", "").ifEmpty { null }
+            // URI may be returned from API, or we construct it from item_id
+            val uri = item.optString("uri", "").ifEmpty {
+                // Construct URI for album - format is "library://album/{item_id}"
+                "library://album/$albumId"
+            }
             val year = item.optInt("year", 0).takeIf { it > 0 }
             val trackCount = item.optInt("track_count", 0).takeIf { it > 0 }
             val albumType = item.optString("album_type", "").ifEmpty { null }
@@ -1190,7 +1391,7 @@ object MusicAssistantManager {
                     albumId = albumId,
                     name = name,
                     imageUri = imageUri,
-                    uri = uri,
+                    uri = uri,  // Now always has a value
                     artist = artist.ifEmpty { null },
                     year = year,
                     trackCount = trackCount,
@@ -1225,14 +1426,18 @@ object MusicAssistantManager {
             if (name.isEmpty()) continue
 
             val imageUri = extractImageUri(item).ifEmpty { null }
-            val uri = item.optString("uri", "").ifEmpty { null }
+            // URI may be returned from API, or we construct it from item_id
+            val uri = item.optString("uri", "").ifEmpty {
+                // Construct URI for artist - format is "library://artist/{item_id}"
+                "library://artist/$artistId"
+            }
 
             artists.add(
                 MaArtist(
                     artistId = artistId,
                     name = name,
                     imageUri = imageUri,
-                    uri = uri
+                    uri = uri  // Now always has a value
                 )
             )
         }
@@ -1263,7 +1468,11 @@ object MusicAssistantManager {
             if (name.isEmpty()) continue
 
             val imageUri = extractImageUri(item).ifEmpty { null }
-            val uri = item.optString("uri", "").ifEmpty { null }
+            // URI may be returned from API, or we construct it from item_id
+            val uri = item.optString("uri", "").ifEmpty {
+                // Construct URI for radio - format is "library://radio/{item_id}"
+                "library://radio/$radioId"
+            }
 
             // Provider can be direct field or from provider_mappings
             val provider = item.optString("provider", "")
@@ -1280,7 +1489,7 @@ object MusicAssistantManager {
                     radioId = radioId,
                     name = name,
                     imageUri = imageUri,
-                    uri = uri,
+                    uri = uri,  // Now always has a value
                     provider = provider.ifEmpty { null }
                 )
             )

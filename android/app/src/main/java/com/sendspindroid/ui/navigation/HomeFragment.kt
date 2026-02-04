@@ -5,22 +5,32 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.sendspindroid.databinding.FragmentHomeBinding
+import com.sendspindroid.musicassistant.MaAlbum
+import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MaPlaylist
+import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
+import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.ui.navigation.home.HomeViewModel
 import com.sendspindroid.ui.navigation.home.HomeViewModel.SectionState
 import com.sendspindroid.ui.navigation.home.LibraryItemAdapter
+import kotlinx.coroutines.launch
 
 /**
- * Home tab fragment displaying three horizontal carousels:
+ * Home tab fragment displaying horizontal carousels:
  * - Recently Played
  * - Recently Added
+ * - Albums
+ * - Artists
  * - Playlists
+ * - Radio Stations
  *
  * Uses ViewModel to manage data loading and survive configuration changes.
  * RecyclerViews use horizontal LinearLayoutManager with snap-to-item behavior.
@@ -41,7 +51,10 @@ class HomeFragment : Fragment() {
     // Unified adapters for all sections (using MaLibraryItem interface)
     private lateinit var recentlyPlayedAdapter: LibraryItemAdapter
     private lateinit var recentlyAddedAdapter: LibraryItemAdapter
+    private lateinit var albumsAdapter: LibraryItemAdapter
+    private lateinit var artistsAdapter: LibraryItemAdapter
     private lateinit var playlistsAdapter: LibraryItemAdapter
+    private lateinit var radioAdapter: LibraryItemAdapter
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -63,9 +76,9 @@ class HomeFragment : Fragment() {
     }
 
     /**
-     * Initialize the three horizontal RecyclerViews with unified adapters.
+     * Initialize horizontal RecyclerViews with unified adapters.
      *
-     * All sections now use LibraryItemAdapter which handles any MaLibraryItem type.
+     * All sections use LibraryItemAdapter which handles any MaLibraryItem type.
      * The adapter renders different subtitles based on the item's concrete type.
      */
     private fun setupRecyclerViews() {
@@ -90,6 +103,26 @@ class HomeFragment : Fragment() {
             isNestedScrollingEnabled = false
         }
 
+        // Albums
+        albumsAdapter = LibraryItemAdapter { item ->
+            onLibraryItemClick(item)
+        }
+        binding.albumsRecyclerView.apply {
+            layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
+            adapter = albumsAdapter
+            isNestedScrollingEnabled = false
+        }
+
+        // Artists
+        artistsAdapter = LibraryItemAdapter { item ->
+            onLibraryItemClick(item)
+        }
+        binding.artistsRecyclerView.apply {
+            layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
+            adapter = artistsAdapter
+            isNestedScrollingEnabled = false
+        }
+
         // Playlists
         playlistsAdapter = LibraryItemAdapter { item ->
             onLibraryItemClick(item)
@@ -99,12 +132,22 @@ class HomeFragment : Fragment() {
             adapter = playlistsAdapter
             isNestedScrollingEnabled = false
         }
+
+        // Radio Stations
+        radioAdapter = LibraryItemAdapter { item ->
+            onLibraryItemClick(item)
+        }
+        binding.radioRecyclerView.apply {
+            layoutManager = LinearLayoutManager(context, LinearLayoutManager.HORIZONTAL, false)
+            adapter = radioAdapter
+            isNestedScrollingEnabled = false
+        }
     }
 
     /**
      * Observe ViewModel LiveData and update UI accordingly.
      *
-     * All sections now use the same updateSectionState method since
+     * All sections use the same updateSectionState method since
      * they all work with MaLibraryItem through the unified adapter.
      */
     private fun observeViewModel() {
@@ -130,7 +173,29 @@ class HomeFragment : Fragment() {
             )
         }
 
-        // Playlists - now uses the same unified method
+        // Albums
+        viewModel.albums.observe(viewLifecycleOwner) { state ->
+            updateSectionState(
+                state = state,
+                recyclerView = binding.albumsRecyclerView,
+                loadingView = binding.albumsLoading,
+                emptyView = binding.albumsEmpty,
+                adapter = albumsAdapter
+            )
+        }
+
+        // Artists
+        viewModel.artists.observe(viewLifecycleOwner) { state ->
+            updateSectionState(
+                state = state,
+                recyclerView = binding.artistsRecyclerView,
+                loadingView = binding.artistsLoading,
+                emptyView = binding.artistsEmpty,
+                adapter = artistsAdapter
+            )
+        }
+
+        // Playlists
         viewModel.playlists.observe(viewLifecycleOwner) { state ->
             updateSectionState(
                 state = state,
@@ -138,6 +203,17 @@ class HomeFragment : Fragment() {
                 loadingView = binding.playlistsLoading,
                 emptyView = binding.playlistsEmpty,
                 adapter = playlistsAdapter
+            )
+        }
+
+        // Radio Stations
+        viewModel.radioStations.observe(viewLifecycleOwner) { state ->
+            updateSectionState(
+                state = state,
+                recyclerView = binding.radioRecyclerView,
+                loadingView = binding.radioLoading,
+                emptyView = binding.radioEmpty,
+                adapter = radioAdapter
             )
         }
     }
@@ -183,22 +259,35 @@ class HomeFragment : Fragment() {
     /**
      * Handle click on any library item.
      *
-     * Uses smart casting to determine the item type and take appropriate action.
-     * Future: Start playback for tracks, navigate to detail for playlists/albums.
+     * All item types start playback immediately when tapped.
+     * The MA API handles playing albums, artists, playlists etc. appropriately.
      */
     private fun onLibraryItemClick(item: MaLibraryItem) {
-        when (item) {
-            is MaTrack -> {
-                Log.d(TAG, "Track clicked: ${item.name} by ${item.artist}")
-                // TODO: Implement track playback
-            }
-            is MaPlaylist -> {
-                Log.d(TAG, "Playlist clicked: ${item.name} (${item.trackCount} tracks)")
-                // TODO: Implement playlist navigation
-            }
-            else -> {
-                Log.d(TAG, "Library item clicked: ${item.name} (${item.mediaType})")
-            }
+        val uri = item.uri
+        if (uri.isNullOrBlank()) {
+            Log.w(TAG, "Item ${item.name} has no URI, cannot play")
+            Toast.makeText(context, "Cannot play: no URI available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Log.d(TAG, "Playing ${item.mediaType}: ${item.name} (uri=$uri)")
+
+        // Play the item
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = MusicAssistantManager.playMedia(uri, item.mediaType.name.lowercase())
+            result.fold(
+                onSuccess = {
+                    Log.d(TAG, "Playback started: ${item.name}")
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to play ${item.name}", error)
+                    Toast.makeText(
+                        context,
+                        "Failed to play: ${error.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
         }
     }
 

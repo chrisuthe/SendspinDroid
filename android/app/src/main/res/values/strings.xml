@@ -410,7 +410,10 @@
     <!-- Home Screen -->
     <string name="home_recently_played">Recently Played</string>
     <string name="home_recently_added">Recently Added</string>
+    <string name="home_albums">Albums</string>
+    <string name="home_artists">Artists</string>
     <string name="home_playlists">Playlists</string>
+    <string name="home_radio">Radio</string>
     <string name="home_loading">Loading...</string>
     <string name="home_error_load_failed">Failed to load content</string>
     <string name="home_empty_section">Nothing here yet</string>
