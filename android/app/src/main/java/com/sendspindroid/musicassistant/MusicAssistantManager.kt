@@ -27,8 +27,38 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+// ============================================================================
+// Data Models for Music Assistant API responses
+// ============================================================================
+
+/**
+ * Represents a media item from Music Assistant (track, album, artist, etc.)
+ */
+data class MaMediaItem(
+    val itemId: String,
+    val name: String,
+    val artist: String?,
+    val album: String?,
+    val imageUri: String?,
+    val mediaType: String,  // "track", "album", "artist", "playlist", "radio"
+    val uri: String?        // MA URI for playback (e.g., "library://track/123")
+)
+
+/**
+ * Represents a playlist from Music Assistant
+ */
+data class MaPlaylist(
+    val playlistId: String,
+    val name: String,
+    val imageUri: String?,
+    val trackCount: Int,
+    val owner: String?,
+    val uri: String?
+)
 
 /**
  * Global singleton managing Music Assistant API availability.
@@ -598,5 +628,358 @@ object MusicAssistantManager {
             url.startsWith("wss://") || url.startsWith("ws://") -> url
             else -> "wss://$url"
         }
+    }
+
+    // ========================================================================
+    // Home Screen API Methods
+    // ========================================================================
+
+    /**
+     * Get recently played items from Music Assistant.
+     *
+     * Calls the music/recent endpoint which returns tracks, albums, etc.
+     * that were recently played on this MA instance.
+     *
+     * @param limit Maximum number of items to return (default 15)
+     * @return Result with list of recently played media items
+     */
+    suspend fun getRecentlyPlayed(limit: Int = 15): Result<List<MaMediaItem>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching recently played items (limit=$limit)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/recently_played_items",
+                    mapOf("limit" to limit)
+                )
+                val items = parseMediaItems(response)
+                Log.d(TAG, "Got ${items.size} recently played items")
+                Result.success(items)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch recently played", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get recently added items from Music Assistant library.
+     *
+     * Calls music/library/items with ordering by timestamp_added DESC
+     * to get the newest additions to the library.
+     *
+     * @param limit Maximum number of items to return (default 15)
+     * @return Result with list of recently added media items
+     */
+    suspend fun getRecentlyAdded(limit: Int = 15): Result<List<MaMediaItem>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching recently added items (limit=$limit)")
+                // Use music/tracks/library_items ordered by timestamp_added
+                val response = sendMaCommand(
+                    apiUrl, token, "music/tracks/library_items",
+                    mapOf(
+                        "limit" to limit,
+                        "order_by" to "timestamp_added_desc"
+                    )
+                )
+                val items = parseMediaItems(response)
+                Log.d(TAG, "Got ${items.size} recently added items")
+                Result.success(items)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch recently added", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get playlists from Music Assistant.
+     *
+     * @param limit Maximum number of playlists to return (default 15)
+     * @return Result with list of playlists
+     */
+    suspend fun getPlaylists(limit: Int = 15): Result<List<MaPlaylist>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching playlists (limit=$limit)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/playlists/library_items",
+                    mapOf("limit" to limit)
+                )
+                val playlists = parsePlaylists(response)
+                Log.d(TAG, "Got ${playlists.size} playlists")
+                Result.success(playlists)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch playlists", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Parse media items from MA API response.
+     *
+     * MA returns items in different formats depending on the endpoint.
+     * This handles both array responses and paginated responses.
+     */
+    private fun parseMediaItems(response: JSONObject): List<MaMediaItem> {
+        val items = mutableListOf<MaMediaItem>()
+
+        // Try to get result as array (direct response)
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return items
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+            val mediaItem = parseMediaItem(item)
+            if (mediaItem != null) {
+                items.add(mediaItem)
+            }
+        }
+
+        return items
+    }
+
+    /**
+     * Parse a single media item from JSON.
+     */
+    private fun parseMediaItem(json: JSONObject): MaMediaItem? {
+        // Item ID can be in different fields
+        val itemId = json.optString("item_id", "")
+            .ifEmpty { json.optString("track_id", "") }
+            .ifEmpty { json.optString("album_id", "") }
+            .ifEmpty { json.optString("uri", "") }
+
+        if (itemId.isEmpty()) return null
+
+        val name = json.optString("name", "")
+            .ifEmpty { json.optString("title", "") }
+
+        if (name.isEmpty()) return null
+
+        // Artist can be a string or an object with name
+        val artist = json.optString("artist", "")
+            .ifEmpty {
+                json.optJSONObject("artist")?.optString("name", "") ?: ""
+            }
+            .ifEmpty {
+                // Try artists array
+                json.optJSONArray("artists")?.let { artists ->
+                    if (artists.length() > 0) {
+                        artists.optJSONObject(0)?.optString("name", "")
+                    } else null
+                } ?: ""
+            }
+
+        val album = json.optString("album", "")
+            .ifEmpty {
+                json.optJSONObject("album")?.optString("name", "") ?: ""
+            }
+
+        // Image URI - MA stores images in metadata.images array
+        val imageUri = extractImageUri(json)
+
+
+        val mediaType = json.optString("media_type", "track")
+        val uri = json.optString("uri", "")
+
+        return MaMediaItem(
+            itemId = itemId,
+            name = name,
+            artist = artist.ifEmpty { null },
+            album = album.ifEmpty { null },
+            imageUri = imageUri.ifEmpty { null },
+            mediaType = mediaType,
+            uri = uri.ifEmpty { null }
+        )
+    }
+
+    /**
+     * Extract image URI from MA item JSON.
+     *
+     * MA stores images in metadata.images array with objects like:
+     * {"type": "thumb", "path": "/library/metadata/123/thumb/456", "provider": "plex--xxx"}
+     *
+     * We need to construct a full URL using the MA API base URL + the path.
+     */
+    private fun extractImageUri(json: JSONObject): String {
+        // Convert WebSocket URL to HTTP URL for imageproxy endpoint
+        // ws://host:port/ws -> http://host:port
+        // wss://host:port/ws -> https://host:port
+        val baseUrl = currentApiUrl
+            ?.replace("/ws", "")
+            ?.replace("wss://", "https://")
+            ?.replace("ws://", "http://")
+            ?: ""
+
+        // Try direct image field - can be a URL string or a JSONObject with path/provider
+        val imageField = json.opt("image")
+        when (imageField) {
+            is String -> {
+                if (imageField.startsWith("http")) return imageField
+            }
+            is JSONObject -> {
+                // Image is an object with path, provider, type
+                val url = buildImageProxyUrl(imageField, baseUrl)
+                if (url.isNotEmpty()) return url
+            }
+        }
+
+        if (baseUrl.isEmpty()) return ""
+
+        // Try metadata.images array - need to use imageproxy endpoint
+        val metadata = json.optJSONObject("metadata")
+        if (metadata != null) {
+            val imageUrl = extractImageFromMetadata(metadata, baseUrl)
+            if (imageUrl.isNotEmpty()) return imageUrl
+        }
+
+        // Try album.image as fallback
+        val album = json.optJSONObject("album")
+        if (album != null) {
+            // Album image can also be object or string
+            val albumImageField = album.opt("image")
+            when (albumImageField) {
+                is String -> {
+                    if (albumImageField.startsWith("http")) return albumImageField
+                }
+                is JSONObject -> {
+                    val url = buildImageProxyUrl(albumImageField, baseUrl)
+                    if (url.isNotEmpty()) return url
+                }
+            }
+
+            // Also check album's metadata.images
+            val albumMetadata = album.optJSONObject("metadata")
+            if (albumMetadata != null) {
+                val imageUrl = extractImageFromMetadata(albumMetadata, baseUrl)
+                if (imageUrl.isNotEmpty()) return imageUrl
+            }
+        }
+
+        return ""
+    }
+
+    /**
+     * Build imageproxy URL from an image object with path/provider fields.
+     */
+    private fun buildImageProxyUrl(imageObj: JSONObject, baseUrl: String): String {
+        val path = imageObj.optString("path", "")
+        val provider = imageObj.optString("provider", "")
+
+        if (path.isEmpty() || baseUrl.isEmpty()) return ""
+
+        // If path is already a URL, proxy it
+        if (path.startsWith("http")) {
+            val encodedPath = URLEncoder.encode(path, "UTF-8")
+            return "$baseUrl/imageproxy?size=300&fmt=jpeg&path=$encodedPath" +
+                    if (provider.isNotEmpty()) "&provider=$provider" else ""
+        }
+
+        // Local path - must have provider
+        if (provider.isNotEmpty()) {
+            val encodedPath = URLEncoder.encode(path, "UTF-8")
+            return "$baseUrl/imageproxy?provider=$provider&size=300&fmt=jpeg&path=$encodedPath"
+        }
+
+        return ""
+    }
+
+    /**
+     * Extract image URL from metadata.images array using the imageproxy endpoint.
+     *
+     * MA images marked with "remotely_accessible": false need to go through
+     * the /imageproxy endpoint with provider, size, and path parameters.
+     *
+     * Example URL: http://192.168.1.100:8095/imageproxy?provider=plex--xxx&size=300&fmt=jpeg&path=%2Flibrary%2Fmetadata%2F123%2Fthumb%2F456
+     */
+    private fun extractImageFromMetadata(metadata: JSONObject, baseUrl: String): String {
+        val images = metadata.optJSONArray("images")
+        if (images == null || images.length() == 0) return ""
+
+        // Find a thumb image, or use the last one as fallback
+        for (i in 0 until images.length()) {
+            val img = images.optJSONObject(i) ?: continue
+            val imgType = img.optString("type", "")
+            val path = img.optString("path", "")
+            val provider = img.optString("provider", "")
+
+            if (path.isNotEmpty() && (imgType == "thumb" || i == images.length() - 1)) {
+                // If path is a remote URL, proxy it
+                if (path.startsWith("http")) {
+                    val encodedPath = URLEncoder.encode(path, "UTF-8")
+                    return "$baseUrl/imageproxy?size=300&fmt=jpeg&path=$encodedPath" +
+                            if (provider.isNotEmpty()) "&provider=$provider" else ""
+                }
+
+                // Local path - requires provider
+                if (provider.isNotEmpty()) {
+                    val encodedPath = URLEncoder.encode(path, "UTF-8")
+                    return "$baseUrl/imageproxy?provider=$provider&size=300&fmt=jpeg&path=$encodedPath"
+                }
+            }
+        }
+
+        return ""
+    }
+
+    /**
+     * Parse playlists from MA API response.
+     */
+    private fun parsePlaylists(response: JSONObject): List<MaPlaylist> {
+        val playlists = mutableListOf<MaPlaylist>()
+
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return playlists
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val playlistId = item.optString("item_id", "")
+                .ifEmpty { item.optString("playlist_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (playlistId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            // Use same image extraction logic as media items
+            val imageUri = extractImageUri(item).ifEmpty { null }
+
+            val trackCount = item.optInt("track_count", 0)
+            val owner = item.optString("owner", "").ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty { null }
+
+            playlists.add(
+                MaPlaylist(
+                    playlistId = playlistId,
+                    name = name,
+                    imageUri = imageUri,
+                    trackCount = trackCount,
+                    owner = owner,
+                    uri = uri
+                )
+            )
+        }
+
+        return playlists
     }
 }
