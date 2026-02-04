@@ -953,9 +953,15 @@ object MusicAssistantManager {
      * Get playlists from Music Assistant.
      *
      * @param limit Maximum number of playlists to return (default 15)
+     * @param offset Number of items to skip for pagination (default 0)
+     * @param orderBy Sort order (default "name")
      * @return Result with list of playlists
      */
-    suspend fun getPlaylists(limit: Int = 15): Result<List<MaPlaylist>> {
+    suspend fun getPlaylists(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name"
+    ): Result<List<MaPlaylist>> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -963,10 +969,10 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Fetching playlists (limit=$limit)")
+                Log.d(TAG, "Fetching playlists (limit=$limit, offset=$offset, orderBy=$orderBy)")
                 val response = sendMaCommand(
                     apiUrl, token, "music/playlists/library_items",
-                    mapOf("limit" to limit)
+                    mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
                 )
                 val playlists = parsePlaylists(response)
                 Log.d(TAG, "Got ${playlists.size} playlists")
@@ -982,9 +988,15 @@ object MusicAssistantManager {
      * Get albums from Music Assistant library.
      *
      * @param limit Maximum number of albums to return (default 15)
+     * @param offset Number of items to skip for pagination (default 0)
+     * @param orderBy Sort order: "name", "timestamp_added_desc", "year" (default "name")
      * @return Result with list of albums
      */
-    suspend fun getAlbums(limit: Int = 15): Result<List<MaAlbum>> {
+    suspend fun getAlbums(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name"
+    ): Result<List<MaAlbum>> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -992,10 +1004,10 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Fetching albums (limit=$limit)")
+                Log.d(TAG, "Fetching albums (limit=$limit, offset=$offset, orderBy=$orderBy)")
                 val response = sendMaCommand(
                     apiUrl, token, "music/albums/library_items",
-                    mapOf("limit" to limit)
+                    mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
                 )
                 val albums = parseAlbums(response)
                 Log.d(TAG, "Got ${albums.size} albums")
@@ -1011,9 +1023,15 @@ object MusicAssistantManager {
      * Get artists from Music Assistant library.
      *
      * @param limit Maximum number of artists to return (default 15)
+     * @param offset Number of items to skip for pagination (default 0)
+     * @param orderBy Sort order (default "name")
      * @return Result with list of artists
      */
-    suspend fun getArtists(limit: Int = 15): Result<List<MaArtist>> {
+    suspend fun getArtists(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name"
+    ): Result<List<MaArtist>> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -1021,10 +1039,10 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Fetching artists (limit=$limit)")
+                Log.d(TAG, "Fetching artists (limit=$limit, offset=$offset, orderBy=$orderBy)")
                 val response = sendMaCommand(
                     apiUrl, token, "music/artists/library_items",
-                    mapOf("limit" to limit)
+                    mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
                 )
                 val artists = parseArtists(response)
                 Log.d(TAG, "Got ${artists.size} artists")
@@ -1040,9 +1058,15 @@ object MusicAssistantManager {
      * Get radio stations from Music Assistant.
      *
      * @param limit Maximum number of radio stations to return (default 15)
+     * @param offset Number of items to skip for pagination (default 0)
+     * @param orderBy Sort order (default "name")
      * @return Result with list of radio stations
      */
-    suspend fun getRadioStations(limit: Int = 15): Result<List<MaRadio>> {
+    suspend fun getRadioStations(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name"
+    ): Result<List<MaRadio>> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -1050,17 +1074,52 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Fetching radio stations (limit=$limit)")
+                Log.d(TAG, "Fetching radio stations (limit=$limit, offset=$offset, orderBy=$orderBy)")
                 // Note: MA API uses plural "radios" for the endpoint
                 val response = sendMaCommand(
                     apiUrl, token, "music/radios/library_items",
-                    mapOf("limit" to limit)
+                    mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
                 )
                 val radios = parseRadioStations(response)
                 Log.d(TAG, "Got ${radios.size} radio stations")
                 Result.success(radios)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch radio stations", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get tracks from Music Assistant library.
+     *
+     * @param limit Maximum number of tracks to return (default 25)
+     * @param offset Number of items to skip for pagination (default 0)
+     * @param orderBy Sort order: "name", "timestamp_added_desc" (default "name")
+     * @return Result with list of tracks
+     */
+    suspend fun getTracks(
+        limit: Int = 25,
+        offset: Int = 0,
+        orderBy: String = "name"
+    ): Result<List<MaTrack>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching tracks (limit=$limit, offset=$offset, orderBy=$orderBy)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/tracks/library_items",
+                    mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
+                )
+                val tracks = parseMediaItems(response)
+                Log.d(TAG, "Got ${tracks.size} tracks")
+                Result.success(tracks)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch tracks", e)
                 Result.failure(e)
             }
         }
