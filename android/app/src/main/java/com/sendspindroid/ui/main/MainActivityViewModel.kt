@@ -1,0 +1,252 @@
+package com.sendspindroid.ui.main
+
+import android.app.Application
+import android.util.Log
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.sendspindroid.model.AppConnectionState
+import com.sendspindroid.model.UnifiedServer
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+/**
+ * ViewModel for MainActivity.
+ *
+ * Manages all UI state for the main activity, including:
+ * - Connection state machine
+ * - Playback state and metadata
+ * - Volume control
+ * - Navigation state
+ * - Reconnection tracking
+ *
+ * This ViewModel survives configuration changes, ensuring playback state
+ * is preserved during rotation.
+ */
+class MainActivityViewModel(application: Application) : AndroidViewModel(application) {
+
+    companion object {
+        private const val TAG = "MainActivityViewModel"
+    }
+
+    // ========================================================================
+    // Connection State
+    // ========================================================================
+
+    private val _connectionState = MutableStateFlow<AppConnectionState>(AppConnectionState.ServerList)
+    val connectionState: StateFlow<AppConnectionState> = _connectionState.asStateFlow()
+
+    private val _currentConnectedServerId = MutableStateFlow<String?>(null)
+    val currentConnectedServerId: StateFlow<String?> = _currentConnectedServerId.asStateFlow()
+
+    private val _userManuallyDisconnected = MutableStateFlow(false)
+    val userManuallyDisconnected: StateFlow<Boolean> = _userManuallyDisconnected.asStateFlow()
+
+    // ========================================================================
+    // Playback State
+    // ========================================================================
+
+    private val _isPlaying = MutableStateFlow(false)
+    val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+
+    private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
+    val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    private val _metadata = MutableStateFlow(TrackMetadata.EMPTY)
+    val metadata: StateFlow<TrackMetadata> = _metadata.asStateFlow()
+
+    private val _groupName = MutableStateFlow("")
+    val groupName: StateFlow<String> = _groupName.asStateFlow()
+
+    // ========================================================================
+    // Artwork State
+    // ========================================================================
+
+    private val _artworkSource = MutableStateFlow<ArtworkSource?>(null)
+    val artworkSource: StateFlow<ArtworkSource?> = _artworkSource.asStateFlow()
+
+    private val _playerColors = MutableStateFlow<PlayerColors?>(null)
+    val playerColors: StateFlow<PlayerColors?> = _playerColors.asStateFlow()
+
+    // ========================================================================
+    // Volume State
+    // ========================================================================
+
+    private val _volume = MutableStateFlow(0.75f)
+    val volume: StateFlow<Float> = _volume.asStateFlow()
+
+    // ========================================================================
+    // Navigation State
+    // ========================================================================
+
+    private val _isNavigationContentVisible = MutableStateFlow(false)
+    val isNavigationContentVisible: StateFlow<Boolean> = _isNavigationContentVisible.asStateFlow()
+
+    private val _currentNavTab = MutableStateFlow(NavTab.HOME)
+    val currentNavTab: StateFlow<NavTab> = _currentNavTab.asStateFlow()
+
+    // ========================================================================
+    // Reconnection State
+    // ========================================================================
+
+    private val _reconnectingState = MutableStateFlow<ReconnectingState?>(null)
+    val reconnectingState: StateFlow<ReconnectingState?> = _reconnectingState.asStateFlow()
+
+    private val _reconnectingToServer = MutableStateFlow<UnifiedServer?>(null)
+    val reconnectingToServer: StateFlow<UnifiedServer?> = _reconnectingToServer.asStateFlow()
+
+    // ========================================================================
+    // UI State
+    // ========================================================================
+
+    private val _isBuffering = MutableStateFlow(false)
+    val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
+
+    private val _isConnectionLoading = MutableStateFlow(false)
+    val isConnectionLoading: StateFlow<Boolean> = _isConnectionLoading.asStateFlow()
+
+    // Music Assistant state
+    private val _isMaConnected = MutableStateFlow(false)
+    val isMaConnected: StateFlow<Boolean> = _isMaConnected.asStateFlow()
+
+    // ========================================================================
+    // Connection State Updates
+    // ========================================================================
+
+    fun updateConnectionState(state: AppConnectionState) {
+        Log.d(TAG, "Connection state: $state")
+        _connectionState.value = state
+
+        // Update loading state based on connection state
+        _isConnectionLoading.value = state is AppConnectionState.Connecting
+    }
+
+    fun setCurrentConnectedServerId(serverId: String?) {
+        _currentConnectedServerId.value = serverId
+    }
+
+    fun setUserManuallyDisconnected(disconnected: Boolean) {
+        _userManuallyDisconnected.value = disconnected
+    }
+
+    // ========================================================================
+    // Playback State Updates
+    // ========================================================================
+
+    fun updatePlaybackState(isPlaying: Boolean, state: PlaybackState) {
+        _isPlaying.value = isPlaying
+        _playbackState.value = state
+        _isBuffering.value = state == PlaybackState.BUFFERING
+    }
+
+    fun updateMetadata(title: String, artist: String, album: String) {
+        _metadata.value = TrackMetadata(title, artist, album)
+    }
+
+    fun updateGroupName(name: String) {
+        _groupName.value = name
+    }
+
+    // ========================================================================
+    // Artwork Updates
+    // ========================================================================
+
+    fun updateArtwork(source: ArtworkSource?) {
+        _artworkSource.value = source
+    }
+
+    fun updatePlayerColors(colors: PlayerColors?) {
+        _playerColors.value = colors
+    }
+
+    fun clearArtwork() {
+        _artworkSource.value = null
+        _playerColors.value = null
+    }
+
+    // ========================================================================
+    // Volume Updates
+    // ========================================================================
+
+    fun updateVolume(volume: Float) {
+        _volume.value = volume.coerceIn(0f, 1f)
+    }
+
+    // ========================================================================
+    // Navigation Updates
+    // ========================================================================
+
+    fun setNavigationContentVisible(visible: Boolean) {
+        _isNavigationContentVisible.value = visible
+    }
+
+    fun setCurrentNavTab(tab: NavTab) {
+        _currentNavTab.value = tab
+    }
+
+    // ========================================================================
+    // Reconnection Updates
+    // ========================================================================
+
+    fun updateReconnectingState(serverName: String, attempt: Int, bufferMs: Long) {
+        _reconnectingState.value = ReconnectingState(serverName, attempt, bufferMs)
+    }
+
+    fun clearReconnectingState() {
+        _reconnectingState.value = null
+    }
+
+    fun setReconnectingToServer(server: UnifiedServer?) {
+        _reconnectingToServer.value = server
+    }
+
+    // ========================================================================
+    // Music Assistant Updates
+    // ========================================================================
+
+    fun setMaConnected(connected: Boolean) {
+        _isMaConnected.value = connected
+    }
+
+    // ========================================================================
+    // Reset State
+    // ========================================================================
+
+    /**
+     * Reset all playback-related state when disconnecting.
+     */
+    fun resetPlaybackState() {
+        _isPlaying.value = false
+        _playbackState.value = PlaybackState.IDLE
+        _metadata.value = TrackMetadata.EMPTY
+        _groupName.value = ""
+        _artworkSource.value = null
+        _playerColors.value = null
+        _isBuffering.value = false
+        _isMaConnected.value = false
+    }
+
+    /**
+     * Reset all state to initial values.
+     */
+    fun resetToServerList() {
+        _connectionState.value = AppConnectionState.ServerList
+        _currentConnectedServerId.value = null
+        _isNavigationContentVisible.value = false
+        _reconnectingState.value = null
+        _reconnectingToServer.value = null
+        _isConnectionLoading.value = false
+        resetPlaybackState()
+    }
+}
+
+/**
+ * Playback state from MediaPlayer.
+ */
+enum class PlaybackState {
+    IDLE,
+    BUFFERING,
+    READY,
+    ENDED
+}

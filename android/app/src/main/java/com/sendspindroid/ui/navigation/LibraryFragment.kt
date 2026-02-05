@@ -1,94 +1,135 @@
 package com.sendspindroid.ui.navigation
 
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Toast
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
-import com.google.android.material.tabs.TabLayoutMediator
+import androidx.fragment.app.viewModels
+import androidx.lifecycle.lifecycleScope
 import com.sendspindroid.R
-import com.sendspindroid.databinding.FragmentLibraryBinding
-import com.sendspindroid.ui.navigation.library.LibraryPagerAdapter
+import com.sendspindroid.musicassistant.MaAlbum
+import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.model.MaLibraryItem
+import com.sendspindroid.ui.detail.AlbumDetailFragment
+import com.sendspindroid.ui.detail.ArtistDetailFragment
+import com.sendspindroid.ui.navigation.library.LibraryScreen
 import com.sendspindroid.ui.navigation.library.LibraryViewModel
+import com.sendspindroid.ui.theme.SendSpinTheme
+import kotlinx.coroutines.launch
 
 /**
  * Library tab fragment displaying tabbed content browser.
  *
  * Provides full library browsing with:
- * - TabLayout with scrollable tabs (Albums, Artists, Playlists, Tracks, Radio)
- * - ViewPager2 hosting BrowseListFragment for each tab
+ * - Tabs (Albums, Artists, Playlists, Tracks, Radio)
+ * - HorizontalPager for swipeable content
  * - Shared LibraryViewModel for state management across tabs
  *
  * Each tab displays a vertical scrolling list with:
  * - Sort options (where applicable)
  * - Pull-to-refresh
  * - Infinite scroll pagination
+ *
+ * Uses Jetpack Compose for UI rendering via ComposeView.
  */
 class LibraryFragment : Fragment() {
 
-    private var _binding: FragmentLibraryBinding? = null
-    private val binding get() = _binding!!
+    companion object {
+        private const val TAG = "LibraryFragment"
 
-    private var pagerAdapter: LibraryPagerAdapter? = null
+        fun newInstance() = LibraryFragment()
+    }
+
+    private val viewModel: LibraryViewModel by viewModels()
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = FragmentLibraryBinding.inflate(inflater, container, false)
-        return binding.root
-    }
+        return ComposeView(requireContext()).apply {
+            // Dispose composition when fragment's view is destroyed
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        setupViewPager()
-        setupTabs()
-    }
-
-    /**
-     * Set up ViewPager2 with the pager adapter.
-     */
-    private fun setupViewPager() {
-        pagerAdapter = LibraryPagerAdapter(this)
-        binding.viewPager.adapter = pagerAdapter
-
-        // Disable swipe between tabs if desired (uncomment below)
-        // binding.viewPager.isUserInputEnabled = false
-    }
-
-    /**
-     * Set up TabLayout and connect to ViewPager2.
-     */
-    private fun setupTabs() {
-        TabLayoutMediator(binding.tabLayout, binding.viewPager) { tab, position ->
-            tab.text = getTabTitle(position)
-        }.attach()
-    }
-
-    /**
-     * Get the display title for a tab position.
-     */
-    private fun getTabTitle(position: Int): String {
-        return when (LibraryViewModel.ContentType.entries[position]) {
-            LibraryViewModel.ContentType.ALBUMS -> getString(R.string.library_tab_albums)
-            LibraryViewModel.ContentType.ARTISTS -> getString(R.string.library_tab_artists)
-            LibraryViewModel.ContentType.PLAYLISTS -> getString(R.string.library_tab_playlists)
-            LibraryViewModel.ContentType.TRACKS -> getString(R.string.library_tab_tracks)
-            LibraryViewModel.ContentType.RADIO -> getString(R.string.library_tab_radio)
+            setContent {
+                SendSpinTheme {
+                    LibraryScreen(
+                        viewModel = viewModel,
+                        onAlbumClick = { album -> navigateToAlbumDetail(album) },
+                        onArtistClick = { artist -> navigateToArtistDetail(artist) },
+                        onItemClick = { item -> playItem(item) }
+                    )
+                }
+            }
         }
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        // Clear adapter to prevent memory leaks
-        binding.viewPager.adapter = null
-        pagerAdapter = null
-        _binding = null
+    /**
+     * Navigate to artist detail screen.
+     */
+    private fun navigateToArtistDetail(artist: MaArtist) {
+        Log.d(TAG, "Navigating to artist detail: ${artist.name}")
+        val fragment = ArtistDetailFragment.newInstance(
+            artistId = artist.artistId,
+            artistName = artist.name
+        )
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
     }
 
-    companion object {
-        fun newInstance() = LibraryFragment()
+    /**
+     * Navigate to album detail screen.
+     */
+    private fun navigateToAlbumDetail(album: MaAlbum) {
+        Log.d(TAG, "Navigating to album detail: ${album.name}")
+        val fragment = AlbumDetailFragment.newInstance(
+            albumId = album.albumId,
+            albumName = album.name
+        )
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
+    /**
+     * Play an item immediately.
+     *
+     * Used for tracks, playlists, and radio stations.
+     */
+    private fun playItem(item: MaLibraryItem) {
+        val uri = item.uri
+        if (uri.isNullOrBlank()) {
+            Log.w(TAG, "Item ${item.name} has no URI, cannot play")
+            Toast.makeText(context, "Cannot play: no URI available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Log.d(TAG, "Playing ${item.mediaType}: ${item.name} (uri=$uri)")
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = MusicAssistantManager.playMedia(uri, item.mediaType.name.lowercase())
+            result.fold(
+                onSuccess = {
+                    Log.d(TAG, "Playback started: ${item.name}")
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to play ${item.name}", error)
+                    Toast.makeText(
+                        context,
+                        "Failed to play: ${error.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
+        }
     }
 }

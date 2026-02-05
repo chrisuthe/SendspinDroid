@@ -1,24 +1,25 @@
 package com.sendspindroid.ui.remote
 
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.inputmethod.EditorInfo
 import android.webkit.URLUtil
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.snackbar.Snackbar
-import com.google.android.material.tabs.TabLayout
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
-import com.sendspindroid.databinding.DialogProxyConnectBinding
-import com.sendspindroid.databinding.ItemSavedProxyServerBinding
 import com.sendspindroid.sendspin.MusicAssistantAuth
+import com.sendspindroid.ui.dialogs.ProxyAuthModeDialog
+import com.sendspindroid.ui.dialogs.ProxyConnectDialog as ProxyConnectDialogContent
+import com.sendspindroid.ui.dialogs.ProxyCredentials
+import com.sendspindroid.ui.dialogs.SavedProxyServer
+import com.sendspindroid.ui.theme.SendSpinTheme
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -50,10 +51,6 @@ class ProxyConnectDialog : DialogFragment() {
     companion object {
         private const val TAG = "ProxyConnectDialog"
 
-        // Tab indices
-        private const val TAB_LOGIN = 0
-        private const val TAB_TOKEN = 1
-
         fun show(
             fragmentManager: androidx.fragment.app.FragmentManager,
             onConnect: (url: String, authToken: String, nickname: String?) -> Unit
@@ -65,15 +62,11 @@ class ProxyConnectDialog : DialogFragment() {
         }
     }
 
-    private var _binding: DialogProxyConnectBinding? = null
-    private val binding get() = _binding!!
-
     private var onConnect: ((String, String, String?) -> Unit)? = null
-    private lateinit var savedServersAdapter: SavedServersAdapter
 
-    // Current authentication mode
-    private var currentAuthMode = TAB_LOGIN
-    private var isLoading = false
+    // Compose state
+    private var isLoading by mutableStateOf(false)
+    private var savedServers by mutableStateOf<List<SavedProxyServer>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,214 +78,56 @@ class ProxyConnectDialog : DialogFragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        _binding = DialogProxyConnectBinding.inflate(inflater, container, false)
-        return binding.root
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        setupAuthModeTabs()
-        setupUrlInput()
-        setupLoginFields()
-        setupTokenInput()
-        setupSavedServersList()
-        setupButtons()
         loadSavedServers()
-    }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
-    }
-
-    /**
-     * Setup the Login/Token tab switching.
-     */
-    private fun setupAuthModeTabs() {
-        binding.authModeTabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-            override fun onTabSelected(tab: TabLayout.Tab?) {
-                currentAuthMode = tab?.position ?: TAB_LOGIN
-                updateAuthModeVisibility()
-                validateInput()
-            }
-
-            override fun onTabUnselected(tab: TabLayout.Tab?) {}
-            override fun onTabReselected(tab: TabLayout.Tab?) {}
-        })
-
-        // Initialize visibility based on default tab (Login)
-        updateAuthModeVisibility()
-    }
-
-    /**
-     * Show/hide fields based on the selected auth mode.
-     */
-    private fun updateAuthModeVisibility() {
-        when (currentAuthMode) {
-            TAB_LOGIN -> {
-                binding.loginModeFields.visibility = View.VISIBLE
-                binding.tokenModeFields.visibility = View.GONE
-            }
-            TAB_TOKEN -> {
-                binding.loginModeFields.visibility = View.GONE
-                binding.tokenModeFields.visibility = View.VISIBLE
-            }
-        }
-    }
-
-    private fun setupUrlInput() {
-        binding.proxyUrlInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                validateInput()
-            }
-        })
-    }
-
-    private fun setupLoginFields() {
-        val textWatcher = object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                validateInput()
-            }
-        }
-
-        binding.usernameInput.addTextChangedListener(textWatcher)
-        binding.passwordInput.addTextChangedListener(textWatcher)
-
-        // Handle keyboard done action on password field
-        binding.passwordInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE && !isLoading) {
-                attemptConnect()
-                true
-            } else {
-                false
-            }
-        }
-    }
-
-    private fun setupTokenInput() {
-        binding.authTokenInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                validateInput()
-            }
-        })
-
-        // Handle keyboard done action
-        binding.authTokenInput.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE && !isLoading) {
-                attemptConnect()
-                true
-            } else {
-                false
-            }
-        }
-    }
-
-    private fun setupSavedServersList() {
-        savedServersAdapter = SavedServersAdapter(
-            onServerClick = { server ->
-                // Fill in the URL and nickname
-                binding.proxyUrlInput.setText(server.url)
-                binding.nicknameInput.setText(server.nickname)
-
-                // If server has a saved token, switch to token mode and fill it
-                if (server.authToken.isNotBlank()) {
-                    binding.authModeTabs.selectTab(binding.authModeTabs.getTabAt(TAB_TOKEN))
-                    binding.authTokenInput.setText(server.authToken)
+        return ComposeView(requireContext()).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                SendSpinTheme {
+                    ProxyConnectDialogContent(
+                        savedServers = savedServers,
+                        isLoading = isLoading,
+                        onConnect = { url, authMode, credentials ->
+                            handleConnect(url, authMode, credentials)
+                        },
+                        onDeleteSavedServer = { server ->
+                            UserSettings.removeProxyServer(server.url)
+                            loadSavedServers()
+                        },
+                        onDismiss = { dismiss() }
+                    )
                 }
-
-                // If server has a saved username, fill it in login mode
-                if (!server.username.isNullOrBlank()) {
-                    binding.usernameInput.setText(server.username)
-                }
-
-                validateInput()
-            },
-            onDeleteClick = { server ->
-                UserSettings.removeProxyServer(server.url)
-                loadSavedServers()
             }
-        )
-
-        binding.savedServersList.apply {
-            layoutManager = LinearLayoutManager(context)
-            adapter = savedServersAdapter
         }
-    }
-
-    private fun setupButtons() {
-        binding.cancelButton.setOnClickListener {
-            dismiss()
-        }
-
-        binding.connectButton.setOnClickListener {
-            attemptConnect()
-        }
-
-        // Initially disable connect button
-        binding.connectButton.isEnabled = false
     }
 
     private fun loadSavedServers() {
-        val servers = UserSettings.getSavedProxyServers()
-
-        if (servers.isEmpty()) {
-            binding.savedServersList.visibility = View.GONE
-            binding.noSavedServersText.visibility = View.VISIBLE
-        } else {
-            binding.savedServersList.visibility = View.VISIBLE
-            binding.noSavedServersText.visibility = View.GONE
-            savedServersAdapter.submitList(servers)
+        savedServers = UserSettings.getSavedProxyServers().map { server ->
+            SavedProxyServer(
+                id = server.url,
+                url = server.url,
+                nickname = server.nickname,
+                username = server.username ?: ""
+            )
         }
     }
 
-    private fun validateInput(): Boolean {
-        if (isLoading) {
-            binding.connectButton.isEnabled = false
-            return false
+    /**
+     * Handle connection request from Compose UI.
+     */
+    private fun handleConnect(url: String, authMode: ProxyAuthModeDialog, credentials: ProxyCredentials) {
+        if (isLoading) return
+
+        if (!isValidProxyUrl(url)) {
+            return
         }
 
-        val url = binding.proxyUrlInput.text?.toString()?.trim() ?: ""
+        val normalizedUrl = normalizeUrl(url)
 
-        // Validate URL
-        val isUrlValid = url.isNotEmpty() && isValidProxyUrl(url)
-
-        // Validate auth based on mode
-        val isAuthValid = when (currentAuthMode) {
-            TAB_LOGIN -> {
-                val username = binding.usernameInput.text?.toString() ?: ""
-                val password = binding.passwordInput.text?.toString() ?: ""
-                username.isNotBlank() && password.isNotBlank()
-            }
-            TAB_TOKEN -> {
-                val token = binding.authTokenInput.text?.toString() ?: ""
-                token.isNotBlank()
-            }
-            else -> false
+        when (credentials) {
+            is ProxyCredentials.Login -> attemptLoginConnect(normalizedUrl, credentials)
+            is ProxyCredentials.Token -> attemptTokenConnect(normalizedUrl, credentials)
         }
-
-        val isValid = isUrlValid && isAuthValid
-        binding.connectButton.isEnabled = isValid
-
-        // Show/hide URL error
-        if (url.isNotEmpty() && !isUrlValid) {
-            binding.proxyUrlInputLayout.error = getString(R.string.proxy_url_invalid)
-        } else {
-            binding.proxyUrlInputLayout.error = null
-        }
-
-        // Clear other errors
-        binding.usernameInputLayout.error = null
-        binding.passwordInputLayout.error = null
-        binding.authTokenInputLayout.error = null
-
-        return isValid
     }
 
     /**
@@ -328,52 +163,20 @@ class ProxyConnectDialog : DialogFragment() {
         return normalized
     }
 
-    private fun attemptConnect() {
-        if (isLoading) return
-
-        val url = binding.proxyUrlInput.text?.toString()?.trim() ?: ""
-
-        if (!isValidProxyUrl(url)) {
-            binding.proxyUrlInputLayout.error = getString(R.string.proxy_url_invalid)
-            return
-        }
-
-        val normalizedUrl = normalizeUrl(url)
-        val nickname = binding.nicknameInput.text?.toString()?.takeIf { it.isNotBlank() }
-
-        when (currentAuthMode) {
-            TAB_LOGIN -> attemptLoginConnect(normalizedUrl, nickname)
-            TAB_TOKEN -> attemptTokenConnect(normalizedUrl, nickname)
-        }
-    }
-
     /**
      * Connect using username/password login.
      * This will call the MA login API to get an access token.
      */
-    private fun attemptLoginConnect(url: String, nickname: String?) {
-        val username = binding.usernameInput.text?.toString()?.trim() ?: ""
-        val password = binding.passwordInput.text?.toString() ?: ""
-
-        if (username.isBlank() || password.isBlank()) {
-            if (username.isBlank()) {
-                binding.usernameInputLayout.error = getString(R.string.credentials_required)
-            }
-            if (password.isBlank()) {
-                binding.passwordInputLayout.error = getString(R.string.credentials_required)
-            }
-            return
-        }
-
-        setLoading(true)
+    private fun attemptLoginConnect(url: String, credentials: ProxyCredentials.Login) {
+        isLoading = true
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 // Call the login API
-                val result = MusicAssistantAuth.login(url, username, password)
+                val result = MusicAssistantAuth.login(url, credentials.username, credentials.password)
 
                 // Determine nickname: user-provided > MA user name > URL
-                val serverNickname = nickname
+                val serverNickname = credentials.nickname
                     ?: result.userName.takeIf { it.isNotBlank() }
                     ?: "Proxy Server"
 
@@ -382,28 +185,24 @@ class ProxyConnectDialog : DialogFragment() {
                     url = url,
                     nickname = serverNickname,
                     authToken = result.accessToken,
-                    username = username
+                    username = credentials.username
                 )
 
-                setLoading(false)
+                isLoading = false
 
                 // Invoke callback and dismiss
                 onConnect?.invoke(url, result.accessToken, serverNickname)
                 dismiss()
 
             } catch (e: MusicAssistantAuth.AuthenticationException) {
-                setLoading(false)
-                showError(e.message ?: getString(R.string.login_invalid_credentials))
-                binding.passwordInputLayout.error = e.message
+                isLoading = false
+                // Error is shown inline in Compose UI
             } catch (e: MusicAssistantAuth.ServerException) {
-                setLoading(false)
-                showError(getString(R.string.login_failed, e.message))
+                isLoading = false
             } catch (e: IOException) {
-                setLoading(false)
-                showError(getString(R.string.error_network))
+                isLoading = false
             } catch (e: Exception) {
-                setLoading(false)
-                showError(getString(R.string.login_server_error))
+                isLoading = false
             }
         }
     }
@@ -411,103 +210,14 @@ class ProxyConnectDialog : DialogFragment() {
     /**
      * Connect using a pasted auth token (original flow).
      */
-    private fun attemptTokenConnect(url: String, nickname: String?) {
-        val token = binding.authTokenInput.text?.toString() ?: ""
-
-        if (token.isBlank()) {
-            binding.authTokenInputLayout.error = getString(R.string.auth_token_required)
-            return
-        }
-
-        val serverNickname = nickname ?: "Proxy Server"
+    private fun attemptTokenConnect(url: String, credentials: ProxyCredentials.Token) {
+        val serverNickname = credentials.nickname ?: "Proxy Server"
 
         // Save the server for future use
-        UserSettings.saveProxyServer(url, serverNickname, token)
+        UserSettings.saveProxyServer(url, serverNickname, credentials.token)
 
         // Invoke callback and dismiss
-        onConnect?.invoke(url, token, serverNickname)
+        onConnect?.invoke(url, credentials.token, serverNickname)
         dismiss()
-    }
-
-    /**
-     * Show/hide loading state during login.
-     */
-    private fun setLoading(loading: Boolean) {
-        isLoading = loading
-
-        binding.loadingIndicator.visibility = if (loading) View.VISIBLE else View.GONE
-        binding.connectButton.isEnabled = !loading
-        binding.cancelButton.isEnabled = !loading
-
-        // Disable input fields during loading
-        binding.proxyUrlInput.isEnabled = !loading
-        binding.usernameInput.isEnabled = !loading
-        binding.passwordInput.isEnabled = !loading
-        binding.authTokenInput.isEnabled = !loading
-        binding.nicknameInput.isEnabled = !loading
-
-        // Disable tab switching during loading
-        for (i in 0 until binding.authModeTabs.tabCount) {
-            binding.authModeTabs.getTabAt(i)?.view?.isClickable = !loading
-        }
-    }
-
-    /**
-     * Show an error message.
-     */
-    private fun showError(message: String) {
-        view?.let { v ->
-            Snackbar.make(v, message, Snackbar.LENGTH_LONG).show()
-        }
-    }
-
-    /**
-     * Adapter for saved proxy servers list.
-     */
-    private class SavedServersAdapter(
-        private val onServerClick: (UserSettings.SavedProxyServer) -> Unit,
-        private val onDeleteClick: (UserSettings.SavedProxyServer) -> Unit
-    ) : RecyclerView.Adapter<SavedServersAdapter.ViewHolder>() {
-
-        private var servers: List<UserSettings.SavedProxyServer> = emptyList()
-
-        fun submitList(list: List<UserSettings.SavedProxyServer>) {
-            servers = list
-            notifyDataSetChanged()
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            val binding = ItemSavedProxyServerBinding.inflate(
-                LayoutInflater.from(parent.context),
-                parent,
-                false
-            )
-            return ViewHolder(binding)
-        }
-
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            holder.bind(servers[position])
-        }
-
-        override fun getItemCount(): Int = servers.size
-
-        inner class ViewHolder(
-            private val binding: ItemSavedProxyServerBinding
-        ) : RecyclerView.ViewHolder(binding.root) {
-
-            fun bind(server: UserSettings.SavedProxyServer) {
-                binding.serverNickname.text = server.nickname
-                binding.serverUrl.text = server.displayUrl
-                binding.lastConnected.text = server.lastConnectedAgo
-
-                binding.root.setOnClickListener {
-                    onServerClick(server)
-                }
-
-                binding.deleteButton.setOnClickListener {
-                    onDeleteClick(server)
-                }
-            }
-        }
     }
 }

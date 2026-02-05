@@ -578,10 +578,9 @@
             app:layout_constraintTop_toTopOf="parent"
             tools:visibility="gone">
 
-            <!-- Mini Player (placeholder - will be styled in Step 3) -->
-            <include
-                android:id="@+id/miniPlayer"
-                layout="@layout/view_mini_player"
+            <!-- Mini Player (Compose) -->
+            <com.sendspindroid.ui.main.MiniPlayerComposeView
+                android:id="@+id/miniPlayerComposeView"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 app:layout_constraintEnd_toEndOf="parent"
@@ -597,7 +596,7 @@
                 app:layout_constraintBottom_toBottomOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/miniPlayer" />
+                app:layout_constraintTop_toBottomOf="@id/miniPlayerComposeView" />
 
         </androidx.constraintlayout.widget.ConstraintLayout>
 

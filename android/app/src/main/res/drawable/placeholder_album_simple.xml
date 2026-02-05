@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple vector placeholder for Compose painterResource compatibility.
+     The original layer-list placeholder_album.xml doesn't work with Compose. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- Gray background -->
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M0,0h48v48h-48z" />
+    <!-- Music note icon (scaled and centered) -->
+    <path
+        android:fillColor="#9E9E9E"
+        android:pathData="M24,8v17.55c-0.98,-0.57 -2.12,-0.92 -3.33,-0.92c-3.68,0 -6.67,2.99 -6.67,6.67s2.99,6.67 6.67,6.67s6.67,-2.99 6.67,-6.67V14.67h6.67V8H24z" />
+</vector>

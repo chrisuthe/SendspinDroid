@@ -1855,17 +1855,21 @@ object MusicAssistantManager {
 
                 // Fetch artist metadata
                 val artistResponse = sendMaCommand(
-                    apiUrl, token, "music/artists/get_library_item",
-                    mapOf("item_id" to artistId)
+                    apiUrl, token, "music/artists/get",
+                    mapOf(
+                        "item_id" to artistId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
                 )
                 val artist = parseArtistFromResult(artistResponse)
                     ?: return@withContext Result.failure(Exception("Artist not found"))
 
                 // Fetch artist's tracks (top tracks by play count)
                 val tracksResponse = sendMaCommand(
-                    apiUrl, token, "music/artists/tracks",
+                    apiUrl, token, "music/artists/artist_tracks",
                     mapOf(
                         "item_id" to artistId,
+                        "provider_instance_id_or_domain" to "library",
                         "in_library_only" to false
                     )
                 )
@@ -1875,9 +1879,10 @@ object MusicAssistantManager {
 
                 // Fetch artist's albums
                 val albumsResponse = sendMaCommand(
-                    apiUrl, token, "music/artists/albums",
+                    apiUrl, token, "music/artists/artist_albums",
                     mapOf(
                         "item_id" to artistId,
+                        "provider_instance_id_or_domain" to "library",
                         "in_library_only" to false
                     )
                 )
@@ -1918,9 +1923,10 @@ object MusicAssistantManager {
 
                 // Fetch album tracks
                 val response = sendMaCommand(
-                    apiUrl, token, "music/albums/tracks",
+                    apiUrl, token, "music/albums/album_tracks",
                     mapOf(
                         "item_id" to albumId,
+                        "provider_instance_id_or_domain" to "library",
                         "in_library_only" to false
                     )
                 )
@@ -1952,8 +1958,11 @@ object MusicAssistantManager {
                 Log.d(TAG, "Fetching album: $albumId")
 
                 val response = sendMaCommand(
-                    apiUrl, token, "music/albums/get_library_item",
-                    mapOf("item_id" to albumId)
+                    apiUrl, token, "music/albums/get",
+                    mapOf(
+                        "item_id" to albumId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
                 )
                 val album = parseAlbumFromResult(response)
                     ?: return@withContext Result.failure(Exception("Album not found"))
@@ -1984,8 +1993,11 @@ object MusicAssistantManager {
                 Log.d(TAG, "Fetching artist: $artistId")
 
                 val response = sendMaCommand(
-                    apiUrl, token, "music/artists/get_library_item",
-                    mapOf("item_id" to artistId)
+                    apiUrl, token, "music/artists/get",
+                    mapOf(
+                        "item_id" to artistId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
                 )
                 val artist = parseArtistFromResult(response)
                     ?: return@withContext Result.failure(Exception("Artist not found"))
@@ -2000,7 +2012,7 @@ object MusicAssistantManager {
     }
 
     /**
-     * Parse a single artist from a get_library_item result.
+     * Parse a single artist from a get result.
      */
     private fun parseArtistFromResult(response: JSONObject): MaArtist? {
         val item = response.optJSONObject("result") ?: return null
@@ -2026,7 +2038,7 @@ object MusicAssistantManager {
     }
 
     /**
-     * Parse a single album from a get_library_item result.
+     * Parse a single album from a get result.
      */
     private fun parseAlbumFromResult(response: JSONObject): MaAlbum? {
         val item = response.optJSONObject("result") ?: return null

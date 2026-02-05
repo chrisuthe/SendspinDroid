@@ -200,6 +200,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
 
+    // Compose Runtime LiveData - observeAsState() for LiveData in Compose
+    implementation("androidx.compose.runtime:runtime-livedata")
+
     // Palette - Extract prominent colors from images for dynamic theming
     implementation("androidx.palette:palette-ktx:1.0.0")
 
