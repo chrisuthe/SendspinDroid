@@ -21,6 +21,7 @@ object UserSettings {
     const val KEY_PREFERRED_CODEC = "preferred_codec"
     const val KEY_FULL_SCREEN_MODE = "full_screen_mode"
     const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+    const val KEY_MINI_PLAYER_POSITION = "mini_player_position"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -142,6 +143,34 @@ object UserSettings {
      */
     val keepScreenOn: Boolean
         get() = prefs?.getBoolean(KEY_KEEP_SCREEN_ON, false) ?: false
+
+    /**
+     * Position of the mini player in the navigation content area.
+     */
+    enum class MiniPlayerPosition {
+        TOP, BOTTOM
+    }
+
+    /**
+     * Gets the mini player position.
+     * Defaults to TOP (current behavior).
+     */
+    val miniPlayerPosition: MiniPlayerPosition
+        get() {
+            val value = prefs?.getString(KEY_MINI_PLAYER_POSITION, "TOP")
+            return try {
+                MiniPlayerPosition.valueOf(value ?: "TOP")
+            } catch (e: Exception) {
+                MiniPlayerPosition.TOP
+            }
+        }
+
+    /**
+     * Sets the mini player position.
+     */
+    fun setMiniPlayerPosition(position: MiniPlayerPosition) {
+        prefs?.edit()?.putString(KEY_MINI_PLAYER_POSITION, position.name)?.apply()
+    }
 
     /**
      * Gets the preferred audio codec for streaming.

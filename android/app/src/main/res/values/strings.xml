@@ -12,6 +12,7 @@
     <string name="volume">Volume</string>
     <string name="group_label">Group: %s</string>
     <string name="not_connected">Not Connected</string>
+    <string name="connected">Connected</string>
     <string name="discovering">Discovering servers...</string>
     <string name="no_servers_found">No servers found</string>
     <string name="add_server_manually">Add Server Manually</string>
@@ -99,10 +100,14 @@
     <string name="stats_footer_note">Updates every 500ms • Values color-coded: green (good), yellow (warning), red (bad)</string>
 
     <!-- Stats sections -->
+    <string name="stats_section_connection">CONNECTION</string>
+    <string name="stats_section_network">NETWORK</string>
     <string name="stats_section_sync_status">SYNC STATUS</string>
+    <string name="stats_section_sync_error">SYNC ERROR</string>
     <string name="stats_section_buffer">BUFFER</string>
     <string name="stats_section_sync_correction">SYNC CORRECTION</string>
     <string name="stats_section_clock_sync">CLOCK SYNC</string>
+    <string name="stats_section_dac_audio">DAC / AUDIO</string>
 
     <!-- Stats labels - Connection -->
     <string name="stats_audio_codec">Codec</string>
@@ -144,6 +149,10 @@
     <string name="pref_full_screen_summary">Hide status bar and navigation bar. Swipe from edges to reveal.</string>
     <string name="pref_keep_screen_on_title">Keep Screen On</string>
     <string name="pref_keep_screen_on_summary">Prevent screen from dimming while audio is playing</string>
+    <string name="pref_mini_player_position_title">Mini Player Position</string>
+    <string name="pref_mini_player_position_summary">Where the mini player appears when browsing</string>
+    <string name="pref_mini_player_position_top">Top</string>
+    <string name="pref_mini_player_position_bottom">Bottom</string>
     <string name="pref_player_name_title">Player Name</string>
     <string name="pref_player_name_summary">Name shown to SendSpin server</string>
     <string name="pref_category_audio">Audio Sync</string>
@@ -292,6 +301,7 @@
     <string name="unified_server">Server</string>
     <string name="add_server">Add Server</string>
     <string name="edit_server">Edit Server</string>
+    <string name="delete">Delete</string>
     <string name="delete_server">Delete Server</string>
     <string name="save_server">Save Server</string>
     <string name="quick_connect">Quick Connect</string>
@@ -369,6 +379,9 @@
     <string name="reconnecting_cancelled">Reconnection cancelled</string>
     <string name="reconnecting_toolbar_subtitle">Reconnecting…</string>
     <string name="accessibility_reconnecting">Reconnecting to server, attempt %1$d of %2$d</string>
+    <string name="reconnecting_attempt">Reconnecting to %1$s (attempt %2$d)</string>
+    <string name="reconnecting_with_buffer">Reconnecting to %1$s (attempt %2$d, %3$ds buffer)</string>
+    <string name="connecting_to">Connecting to %s</string>
 
     <!-- Music Assistant Integration -->
     <string name="wizard_is_music_assistant">This server runs Music Assistant</string>
@@ -518,4 +531,31 @@
     <string name="accessibility_search_input">Search input field</string>
     <string name="accessibility_search_clear">Clear search</string>
     <string name="accessibility_filter_chip">Filter by %s</string>
+
+    <!-- Wizard - Additional Strings -->
+    <string name="wizard_welcome_subtitle">Connect to your SendSpin server for synchronized audio</string>
+    <string name="wizard_setup_my_server">Set Up My Server</string>
+    <string name="wizard_setup_my_server_desc">Configure local and remote access for your server</string>
+    <string name="wizard_find_other_servers">Find Other Servers</string>
+    <string name="wizard_find_other_servers_desc">Discover and quick-connect to servers on your network</string>
+    <string name="wizard_test_success">Connection successful</string>
+    <string name="wizard_test_failed">Connection failed</string>
+    <string name="wizard_remote_id_option">Remote Access ID</string>
+    <string name="wizard_remote_id_option_desc">Connect via built-in Music Assistant Remote Access service configured in Settings -> Remote Access</string>
+    <string name="wizard_proxy_option">Reverse Proxy</string>
+    <string name="wizard_proxy_option_desc">Connect through your authenticated proxy server</string>
+    <string name="wizard_local_only_option">Local Only</string>
+    <string name="wizard_local_only_option_desc">Only connect when on the same network or when using VPN</string>
+    <string name="wizard_music_assistant_checkbox">Music Assistant Server</string>
+    <string name="wizard_music_assistant_checkbox_desc">Enable to access library browsing and remote access features</string>
+    <string name="wizard_remote_id_info_title">Where to find your Remote ID</string>
+    <string name="scan_qr">Scan QR Code</string>
+    <string name="proxy_auth_login">Login</string>
+    <string name="proxy_auth_token">Token</string>
+    <string name="proxy_username">Username</string>
+    <string name="proxy_password">Password</string>
+    <string name="proxy_token">Auth Token</string>
+    <string name="ma_username">Username</string>
+    <string name="ma_password">Password</string>
+    <string name="ma_port">API Port</string>
 </resources>
