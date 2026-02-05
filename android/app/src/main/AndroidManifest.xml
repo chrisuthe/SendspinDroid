@@ -105,12 +105,14 @@
              - exported: Allow external apps to launch (required for MAIN/LAUNCHER intent-filter)
              - Security: Only export activities that should be accessible externally
              - configChanges: Handle rotation manually to prevent Activity recreation
-               which triggers false network change detection and disconnects -->
+               which triggers false network change detection and disconnects
+             - windowSoftInputMode: adjustPan keeps focused input visible when keyboard opens -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:configChanges="orientation|screenSize|screenLayout">
+            android:configChanges="orientation|screenSize|screenLayout"
+            android:windowSoftInputMode="adjustPan">
 
             <!-- intent-filter: Defines how this activity can be started
                  This combination makes MainActivity the app's launcher icon -->
