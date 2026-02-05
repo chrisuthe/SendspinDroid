@@ -1816,6 +1816,321 @@ object MusicAssistantManager {
         return radios
     }
 
+    // ========================================================================
+    // Detail Screen API Methods
+    // ========================================================================
+
+    /**
+     * Aggregated artist details including top tracks and discography.
+     *
+     * Used by the Artist Detail screen to display complete artist information
+     * in a single request.
+     */
+    data class ArtistDetails(
+        val artist: MaArtist,
+        val topTracks: List<MaTrack>,
+        val albums: List<MaAlbum>
+    )
+
+    /**
+     * Get complete artist details including top tracks and discography.
+     *
+     * Makes multiple API calls to fetch:
+     * 1. Artist metadata
+     * 2. Top tracks (sorted by play count or popularity)
+     * 3. All albums/singles/EPs by the artist
+     *
+     * @param artistId The MA artist item_id
+     * @return Result with complete artist details
+     */
+    suspend fun getArtistDetails(artistId: String): Result<ArtistDetails> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching artist details for: $artistId")
+
+                // Fetch artist metadata
+                val artistResponse = sendMaCommand(
+                    apiUrl, token, "music/artists/get_library_item",
+                    mapOf("item_id" to artistId)
+                )
+                val artist = parseArtistFromResult(artistResponse)
+                    ?: return@withContext Result.failure(Exception("Artist not found"))
+
+                // Fetch artist's tracks (top tracks by play count)
+                val tracksResponse = sendMaCommand(
+                    apiUrl, token, "music/artists/tracks",
+                    mapOf(
+                        "item_id" to artistId,
+                        "in_library_only" to false
+                    )
+                )
+                val topTracks = parseTracksArray(
+                    tracksResponse.optJSONArray("result")
+                ).take(10)
+
+                // Fetch artist's albums
+                val albumsResponse = sendMaCommand(
+                    apiUrl, token, "music/artists/albums",
+                    mapOf(
+                        "item_id" to artistId,
+                        "in_library_only" to false
+                    )
+                )
+                val albums = parseAlbumsArray(
+                    albumsResponse.optJSONArray("result")
+                ).sortedByDescending { it.year ?: 0 }
+
+                Log.d(TAG, "Got artist details: ${artist.name} - " +
+                        "${topTracks.size} top tracks, ${albums.size} albums")
+
+                Result.success(ArtistDetails(
+                    artist = artist,
+                    topTracks = topTracks,
+                    albums = albums
+                ))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch artist details: $artistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get album details with full track listing.
+     *
+     * @param albumId The MA album item_id
+     * @return Result with album and its tracks
+     */
+    suspend fun getAlbumTracks(albumId: String): Result<List<MaTrack>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching album tracks for: $albumId")
+
+                // Fetch album tracks
+                val response = sendMaCommand(
+                    apiUrl, token, "music/albums/tracks",
+                    mapOf(
+                        "item_id" to albumId,
+                        "in_library_only" to false
+                    )
+                )
+                val tracks = parseAlbumTracks(response.optJSONArray("result"))
+
+                Log.d(TAG, "Got ${tracks.size} tracks for album $albumId")
+                Result.success(tracks)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch album tracks: $albumId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get a single album by ID.
+     *
+     * @param albumId The MA album item_id
+     * @return Result with the album
+     */
+    suspend fun getAlbum(albumId: String): Result<MaAlbum> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching album: $albumId")
+
+                val response = sendMaCommand(
+                    apiUrl, token, "music/albums/get_library_item",
+                    mapOf("item_id" to albumId)
+                )
+                val album = parseAlbumFromResult(response)
+                    ?: return@withContext Result.failure(Exception("Album not found"))
+
+                Log.d(TAG, "Got album: ${album.name}")
+                Result.success(album)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch album: $albumId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get a single artist by ID.
+     *
+     * @param artistId The MA artist item_id
+     * @return Result with the artist
+     */
+    suspend fun getArtist(artistId: String): Result<MaArtist> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching artist: $artistId")
+
+                val response = sendMaCommand(
+                    apiUrl, token, "music/artists/get_library_item",
+                    mapOf("item_id" to artistId)
+                )
+                val artist = parseArtistFromResult(response)
+                    ?: return@withContext Result.failure(Exception("Artist not found"))
+
+                Log.d(TAG, "Got artist: ${artist.name}")
+                Result.success(artist)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch artist: $artistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Parse a single artist from a get_library_item result.
+     */
+    private fun parseArtistFromResult(response: JSONObject): MaArtist? {
+        val item = response.optJSONObject("result") ?: return null
+
+        val artistId = item.optString("item_id", "")
+            .ifEmpty { item.optString("artist_id", "") }
+            .ifEmpty { return null }
+
+        val name = item.optString("name", "")
+        if (name.isEmpty()) return null
+
+        val imageUri = extractImageUri(item).ifEmpty { null }
+        val uri = item.optString("uri", "").ifEmpty {
+            "library://artist/$artistId"
+        }
+
+        return MaArtist(
+            artistId = artistId,
+            name = name,
+            imageUri = imageUri,
+            uri = uri
+        )
+    }
+
+    /**
+     * Parse a single album from a get_library_item result.
+     */
+    private fun parseAlbumFromResult(response: JSONObject): MaAlbum? {
+        val item = response.optJSONObject("result") ?: return null
+
+        val albumId = item.optString("item_id", "")
+            .ifEmpty { item.optString("album_id", "") }
+            .ifEmpty { return null }
+
+        val name = item.optString("name", "")
+        if (name.isEmpty()) return null
+
+        val artist = item.optString("artist", "")
+            .ifEmpty {
+                item.optJSONObject("artist")?.optString("name", "") ?: ""
+            }
+            .ifEmpty {
+                item.optJSONArray("artists")?.let { artists ->
+                    if (artists.length() > 0) {
+                        artists.optJSONObject(0)?.optString("name", "")
+                    } else null
+                } ?: ""
+            }
+
+        val imageUri = extractImageUri(item).ifEmpty { null }
+        val uri = item.optString("uri", "").ifEmpty {
+            "library://album/$albumId"
+        }
+        val year = item.optInt("year", 0).takeIf { it > 0 }
+        val trackCount = item.optInt("track_count", 0).takeIf { it > 0 }
+        val albumType = item.optString("album_type", "").ifEmpty { null }
+
+        return MaAlbum(
+            albumId = albumId,
+            name = name,
+            imageUri = imageUri,
+            uri = uri,
+            artist = artist.ifEmpty { null },
+            year = year,
+            trackCount = trackCount,
+            albumType = albumType
+        )
+    }
+
+    /**
+     * Parse album tracks with track numbers preserved.
+     */
+    private fun parseAlbumTracks(array: JSONArray?): List<MaTrack> {
+        if (array == null) return emptyList()
+        val tracks = mutableListOf<MaTrack>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+
+            val itemId = item.optString("item_id", "")
+                .ifEmpty { item.optString("track_id", "") }
+                .ifEmpty { item.optString("uri", "") }
+
+            if (itemId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+                .ifEmpty { item.optString("title", "") }
+
+            if (name.isEmpty()) continue
+
+            // Artist for track
+            val artist = item.optString("artist", "")
+                .ifEmpty {
+                    item.optJSONObject("artist")?.optString("name", "") ?: ""
+                }
+                .ifEmpty {
+                    item.optJSONArray("artists")?.let { artists ->
+                        if (artists.length() > 0) {
+                            artists.optJSONObject(0)?.optString("name", "")
+                        } else null
+                    } ?: ""
+                }
+
+            // Album info
+            val albumObj = item.optJSONObject("album")
+            val album = albumObj?.optString("name", "")
+            val albumId = albumObj?.optString("item_id", "")?.ifEmpty { null }
+                ?: albumObj?.optString("album_id", "")?.ifEmpty { null }
+            val albumType = albumObj?.optString("album_type", "")?.ifEmpty { null }
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "")
+            val duration = item.optLong("duration", 0L).takeIf { it > 0 }
+
+            tracks.add(MaTrack(
+                itemId = itemId,
+                name = name,
+                artist = artist.ifEmpty { null },
+                album = album?.ifEmpty { null },
+                imageUri = imageUri,
+                uri = uri.ifEmpty { null },
+                duration = duration,
+                albumId = albumId,
+                albumType = albumType
+            ))
+        }
+
+        return tracks
+    }
+
     /**
      * Parse radio stations from MA API response.
      */
