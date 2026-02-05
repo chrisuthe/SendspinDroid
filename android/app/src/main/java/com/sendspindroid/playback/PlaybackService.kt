@@ -42,8 +42,8 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.sendspindroid.MainActivity
 import com.sendspindroid.ServerRepository
-import com.sendspindroid.SettingsFragment
 import com.sendspindroid.SyncOffsetPreference
+import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
@@ -130,7 +130,7 @@ class PlaybackService : MediaLibraryService() {
     private val debugLoggingReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val enabled = intent.getBooleanExtra(
-                SettingsFragment.EXTRA_DEBUG_LOGGING_ENABLED, false
+                SettingsViewModel.EXTRA_DEBUG_LOGGING_ENABLED, false
             )
             Log.i(TAG, "Debug logging changed: $enabled")
 
@@ -373,7 +373,7 @@ class PlaybackService : MediaLibraryService() {
         // Register receiver for debug logging toggle changes from settings
         LocalBroadcastManager.getInstance(this).registerReceiver(
             debugLoggingReceiver,
-            IntentFilter(SettingsFragment.ACTION_DEBUG_LOGGING_CHANGED)
+            IntentFilter(SettingsViewModel.ACTION_DEBUG_LOGGING_CHANGED)
         )
 
         // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)

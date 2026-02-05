@@ -5,9 +5,19 @@ import androidx.lifecycle.viewModelScope
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.sendspin.MusicAssistantAuth
+import com.sendspindroid.ui.wizard.ConnectionTestState
+import com.sendspindroid.ui.wizard.DiscoveredServerUi
+import com.sendspindroid.ui.wizard.ProxyAuthMode
+import com.sendspindroid.ui.wizard.RemoteAccessMethod
+import com.sendspindroid.ui.wizard.WizardState
+import com.sendspindroid.ui.wizard.WizardStep
+import com.sendspindroid.ui.wizard.WizardStepAction
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import java.io.IOException
 
@@ -25,76 +35,19 @@ import java.io.IOException
  * - WizardStep: Which screen/step is currently showing
  * - ConnectionTestState: Inline connection test results at each step
  * - RemoteAccessMethod: User's choice for remote connectivity
+ *
+ * Uses types from com.sendspindroid.ui.wizard package for Compose integration.
  */
 class AddServerWizardViewModel : ViewModel() {
 
     companion object {
-        // Proxy auth modes
+        // Proxy auth modes (for compatibility)
         const val AUTH_LOGIN = 0
         const val AUTH_TOKEN = 1
     }
 
-    // ========================================================================
-    // Wizard Step State Machine
-    // ========================================================================
-
-    /**
-     * Represents each step in the wizard flow.
-     * Steps are not necessarily sequential - the flow branches based on user choices.
-     */
-    sealed class WizardStep {
-        /** Welcome screen with two paths: "Set up my server" or "Find other servers" */
-        data object Welcome : WizardStep()
-
-        /** Find server via mDNS discovery or manual entry */
-        data object FindServer : WizardStep()
-
-        /** Testing local connection inline */
-        data object TestingLocal : WizardStep()
-
-        /** Music Assistant login - shown after successful local/proxy connection */
-        data object MaLogin : WizardStep()
-
-        /** Choose remote access method: Remote ID, Proxy, or None */
-        data object RemoteChoice : WizardStep()
-
-        /** Enter Remote ID + QR scan option */
-        data object RemoteId : WizardStep()
-
-        /** Configure proxy URL + auth */
-        data object Proxy : WizardStep()
-
-        /** Testing remote/proxy connection */
-        data object TestingRemote : WizardStep()
-
-        /** Warning when configuring remote-only (no local connection) */
-        data object RemoteOnlyWarning : WizardStep()
-
-        /** Final summary screen with name + save */
-        data object Save : WizardStep()
-    }
-
-    /**
-     * User's choice for how to access the server remotely.
-     */
-    enum class RemoteAccessMethod {
-        NONE,       // Local only, no remote access
-        REMOTE_ID,  // Via Music Assistant Remote Access ID
-        PROXY       // Via authenticated reverse proxy
-    }
-
-    /**
-     * State of inline connection testing.
-     */
-    sealed class ConnectionTestState {
-        data object Idle : ConnectionTestState()
-        data object Testing : ConnectionTestState()
-        data class Success(val message: String) : ConnectionTestState()
-        data class Failed(val error: String) : ConnectionTestState()
-    }
-
     // Current wizard step
-    private val _currentStep = MutableStateFlow<WizardStep>(WizardStep.Welcome)
+    private val _currentStep = MutableStateFlow(WizardStep.Welcome)
     val currentStep: StateFlow<WizardStep> = _currentStep.asStateFlow()
 
     // Connection test state (for inline testing at Find Server and Remote steps)
@@ -112,48 +65,209 @@ class AddServerWizardViewModel : ViewModel() {
     private val _remoteAccessMethod = MutableStateFlow(RemoteAccessMethod.NONE)
     val remoteAccessMethod: StateFlow<RemoteAccessMethod> = _remoteAccessMethod.asStateFlow()
 
+    // Discovered servers from mDNS
+    private val _discoveredServers = MutableStateFlow<List<DiscoveredServerUi>>(emptyList())
+    val discoveredServers: StateFlow<List<DiscoveredServerUi>> = _discoveredServers.asStateFlow()
+
+    // Whether mDNS discovery is in progress
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+
     // Whether the user explicitly chose to skip local connection
     var localConnectionSkipped: Boolean = false
         private set
 
     // ========================================================================
-    // Server Data Fields
+    // Server Data Fields (reactive for Compose)
     // ========================================================================
 
     // Server identification
-    var serverName: String = ""
-    var setAsDefault: Boolean = false
-    var isMusicAssistant: Boolean = false
+    private val _serverName = MutableStateFlow("")
+    var serverName: String
+        get() = _serverName.value
+        set(value) { _serverName.value = value }
+
+    private val _setAsDefault = MutableStateFlow(false)
+    var setAsDefault: Boolean
+        get() = _setAsDefault.value
+        set(value) { _setAsDefault.value = value }
+
+    private val _isMusicAssistant = MutableStateFlow(false)
+    var isMusicAssistant: Boolean
+        get() = _isMusicAssistant.value
+        set(value) { _isMusicAssistant.value = value }
 
     // Local connection
-    var localAddress: String = ""
+    private val _localAddress = MutableStateFlow("")
+    var localAddress: String
+        get() = _localAddress.value
+        set(value) { _localAddress.value = value }
 
     // Remote connection
-    var remoteId: String = ""
+    private val _remoteId = MutableStateFlow("")
+    var remoteId: String
+        get() = _remoteId.value
+        set(value) { _remoteId.value = value }
 
     // Proxy connection
-    var proxyUrl: String = ""
-    var proxyAuthMode: Int = AUTH_LOGIN
-    var proxyUsername: String = ""
-    var proxyPassword: String = ""
-    var proxyToken: String = ""
+    private val _proxyUrl = MutableStateFlow("")
+    var proxyUrl: String
+        get() = _proxyUrl.value
+        set(value) { _proxyUrl.value = value }
+
+    private val _proxyAuthMode = MutableStateFlow(ProxyAuthMode.LOGIN)
+    var proxyAuthMode: Int
+        get() = if (_proxyAuthMode.value == ProxyAuthMode.LOGIN) AUTH_LOGIN else AUTH_TOKEN
+        set(value) { _proxyAuthMode.value = if (value == AUTH_LOGIN) ProxyAuthMode.LOGIN else ProxyAuthMode.TOKEN }
+
+    private val _proxyUsername = MutableStateFlow("")
+    var proxyUsername: String
+        get() = _proxyUsername.value
+        set(value) { _proxyUsername.value = value }
+
+    private val _proxyPassword = MutableStateFlow("")
+    var proxyPassword: String
+        get() = _proxyPassword.value
+        set(value) { _proxyPassword.value = value }
+
+    private val _proxyToken = MutableStateFlow("")
+    var proxyToken: String
+        get() = _proxyToken.value
+        set(value) { _proxyToken.value = value }
 
     // Music Assistant login state (for eager auth)
-    var maUsername: String = ""
-    var maPassword: String = ""
-    var maToken: String? = null  // Token obtained from successful MA login
-    var maPort: Int = MaSettings.getDefaultPort()
+    private val _maUsername = MutableStateFlow("")
+    var maUsername: String
+        get() = _maUsername.value
+        set(value) { _maUsername.value = value }
+
+    private val _maPassword = MutableStateFlow("")
+    var maPassword: String
+        get() = _maPassword.value
+        set(value) { _maPassword.value = value }
+
+    private val _maToken = MutableStateFlow<String?>(null)
+    var maToken: String?
+        get() = _maToken.value
+        set(value) { _maToken.value = value }
+
+    private val _maPort = MutableStateFlow(MaSettings.getDefaultPort())
+    var maPort: Int
+        get() = _maPort.value
+        set(value) { _maPort.value = value }
 
     // Discovered server info (pre-filled from mDNS)
     var discoveredServerName: String? = null
     var discoveredServerAddress: String? = null
 
     // Editing mode - non-null when editing an existing server
-    var editingServer: UnifiedServer? = null
-        private set
+    private val _editingServer = MutableStateFlow<UnifiedServer?>(null)
+    var editingServer: UnifiedServer?
+        get() = _editingServer.value
+        private set(value) { _editingServer.value = value }
 
     // Loading state
     var isLoading: Boolean = false
+
+    // ========================================================================
+    // Combined Wizard State (for Compose)
+    // ========================================================================
+
+    /**
+     * Combined wizard state for Compose UI consumption.
+     * Merges all individual state flows into a single WizardState.
+     * Note: We combine all user-editable fields to ensure UI updates when any field changes.
+     */
+    val wizardState: StateFlow<WizardState> = combine(
+        _currentStep,
+        _localTestState,
+        _remoteTestState,
+        _maTestState,
+        _remoteAccessMethod,
+        _localAddress,
+        _serverName,
+        _remoteId,
+        _proxyUrl,
+        _proxyAuthMode,
+        _proxyUsername,
+        _proxyPassword,
+        _proxyToken,
+        _discoveredServers,
+        _isSearching,
+        _maUsername,
+        _maPassword,
+        _maToken,
+        _isMusicAssistant
+    ) { values ->
+        // Destructure the array of values
+        val step = values[0] as WizardStep
+        val localTest = values[1] as ConnectionTestState
+        val remoteTest = values[2] as ConnectionTestState
+        val maTest = values[3] as ConnectionTestState
+        val remoteMethod = values[4] as RemoteAccessMethod
+        val localAddr = values[5] as String
+        val name = values[6] as String
+        val remote = values[7] as String
+        val proxyUrlVal = values[8] as String
+        val proxyAuthModeVal = values[9] as ProxyAuthMode
+        val proxyUsernameVal = values[10] as String
+        val proxyPasswordVal = values[11] as String
+        val proxyTokenVal = values[12] as String
+        @Suppress("UNCHECKED_CAST")
+        val discovered = values[13] as List<DiscoveredServerUi>
+        val searching = values[14] as Boolean
+        val maUser = values[15] as String
+        val maPass = values[16] as String
+        val maTokenVal = values[17] as String?
+        val isMusicAssistantVal = values[18] as Boolean
+
+        WizardState(
+            currentStep = step,
+            isEditMode = _editingServer.value != null,
+            isNextEnabled = computeNextEnabled(step),
+            serverName = name,
+            setAsDefault = _setAsDefault.value,
+            isMusicAssistant = isMusicAssistantVal,
+            localAddress = localAddr,
+            discoveredServers = discovered,
+            isSearching = searching,
+            localTestState = localTest,
+            remoteAccessMethod = remoteMethod,
+            remoteId = remote,
+            remoteTestState = remoteTest,
+            proxyUrl = proxyUrlVal,
+            proxyAuthMode = proxyAuthModeVal,
+            proxyUsername = proxyUsernameVal,
+            proxyPassword = proxyPasswordVal,
+            proxyToken = proxyTokenVal,
+            maUsername = maUser,
+            maPassword = maPass,
+            maPort = _maPort.value,
+            maToken = maTokenVal,
+            maTestState = maTest
+        )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = WizardState()
+    )
+
+    /**
+     * Compute whether the "Next" button should be enabled based on current step.
+     */
+    private fun computeNextEnabled(step: WizardStep): Boolean {
+        return when (step) {
+            WizardStep.Welcome -> true
+            WizardStep.FindServer -> _localAddress.value.isNotBlank()
+            WizardStep.TestingLocal, WizardStep.TestingRemote -> false
+            WizardStep.MaLogin -> _maToken.value != null
+            WizardStep.RemoteChoice -> true
+            WizardStep.RemoteId -> true  // Can proceed even without remote ID
+            WizardStep.Proxy -> true  // Can proceed even without proxy
+            WizardStep.RemoteOnlyWarning -> true
+            WizardStep.Save -> _serverName.value.isNotBlank() && hasValidConnectionMethod()
+        }
+    }
 
     // ========================================================================
     // Navigation Methods
@@ -242,11 +356,17 @@ class AddServerWizardViewModel : ViewModel() {
     /**
      * Handle "Back" action based on current step.
      * Returns the previous step, or null if at the beginning.
+     *
+     * In edit mode, we don't allow going back past the Save step since
+     * the user started there and shouldn't see the initial setup wizard.
      */
     fun onBack(): WizardStep? {
         val previous = when (_currentStep.value) {
             WizardStep.Welcome -> null
-            WizardStep.FindServer -> WizardStep.Welcome
+            WizardStep.FindServer -> {
+                // In edit mode, don't go back to Welcome
+                if (isEditMode) null else WizardStep.Welcome
+            }
             WizardStep.TestingLocal -> WizardStep.FindServer
             WizardStep.MaLogin -> WizardStep.FindServer
             WizardStep.RemoteChoice -> {
@@ -268,10 +388,15 @@ class AddServerWizardViewModel : ViewModel() {
             }
             WizardStep.RemoteOnlyWarning -> WizardStep.FindServer
             WizardStep.Save -> {
-                when (_remoteAccessMethod.value) {
-                    RemoteAccessMethod.REMOTE_ID -> WizardStep.RemoteId
-                    RemoteAccessMethod.PROXY -> WizardStep.Proxy
-                    RemoteAccessMethod.NONE -> WizardStep.RemoteChoice
+                // In edit mode, don't allow going back from Save - close the wizard instead
+                if (isEditMode) {
+                    null
+                } else {
+                    when (_remoteAccessMethod.value) {
+                        RemoteAccessMethod.REMOTE_ID -> WizardStep.RemoteId
+                        RemoteAccessMethod.PROXY -> WizardStep.Proxy
+                        RemoteAccessMethod.NONE -> WizardStep.RemoteChoice
+                    }
                 }
             }
         }
@@ -558,6 +683,144 @@ class AddServerWizardViewModel : ViewModel() {
     }
 
     // ========================================================================
+    // Step Action Handling (for Compose)
+    // ========================================================================
+
+    /**
+     * Handle step-specific actions from the Compose UI.
+     * Returns true if the action requires additional handling by the Activity
+     * (e.g., starting mDNS discovery, launching QR scanner).
+     */
+    fun handleStepAction(action: WizardStepAction): Boolean {
+        return when (action) {
+            // Welcome step
+            WizardStepAction.SetupMyServer -> {
+                _currentStep.value = WizardStep.FindServer
+                false
+            }
+            WizardStepAction.FindOtherServers -> {
+                _currentStep.value = WizardStep.FindServer
+                true // Activity should start mDNS discovery
+            }
+
+            // Find server step
+            is WizardStepAction.UpdateLocalAddress -> {
+                localAddress = action.address
+                false
+            }
+            is WizardStepAction.SelectDiscoveredServer -> {
+                applyDiscoveredServer(action.server.name, action.server.address)
+                false
+            }
+            is WizardStepAction.UpdateIsMusicAssistant -> {
+                isMusicAssistant = action.isMusicAssistant
+                false
+            }
+            WizardStepAction.StartDiscovery -> {
+                true // Activity should start mDNS discovery
+            }
+            WizardStepAction.RetryLocalTest -> {
+                resetLocalTest()
+                _currentStep.value = WizardStep.FindServer
+                false
+            }
+
+            // MA Login step
+            is WizardStepAction.UpdateMaUsername -> {
+                maUsername = action.username
+                false
+            }
+            is WizardStepAction.UpdateMaPassword -> {
+                maPassword = action.password
+                false
+            }
+            is WizardStepAction.UpdateMaPort -> {
+                maPort = action.port
+                false
+            }
+            WizardStepAction.TestMaConnection -> {
+                true // Activity should trigger MA connection test
+            }
+
+            // Remote choice step
+            is WizardStepAction.SelectRemoteMethod -> {
+                setRemoteMethod(action.method)
+                false
+            }
+
+            // Remote ID step
+            is WizardStepAction.UpdateRemoteId -> {
+                remoteId = action.id.uppercase().take(26)
+                false
+            }
+            WizardStepAction.ScanQrCode -> {
+                true // Activity should launch QR scanner
+            }
+            WizardStepAction.RetryRemoteTest -> {
+                resetRemoteTest()
+                when (_remoteAccessMethod.value) {
+                    RemoteAccessMethod.REMOTE_ID -> _currentStep.value = WizardStep.RemoteId
+                    RemoteAccessMethod.PROXY -> _currentStep.value = WizardStep.Proxy
+                    RemoteAccessMethod.NONE -> _currentStep.value = WizardStep.RemoteChoice
+                }
+                false
+            }
+
+            // Proxy step
+            is WizardStepAction.UpdateProxyUrl -> {
+                proxyUrl = action.url
+                false
+            }
+            is WizardStepAction.UpdateProxyAuthMode -> {
+                _proxyAuthMode.value = action.mode
+                false
+            }
+            is WizardStepAction.UpdateProxyUsername -> {
+                proxyUsername = action.username
+                false
+            }
+            is WizardStepAction.UpdateProxyPassword -> {
+                proxyPassword = action.password
+                false
+            }
+            is WizardStepAction.UpdateProxyToken -> {
+                proxyToken = action.token
+                false
+            }
+
+            // Remote only warning
+            WizardStepAction.AcknowledgeRemoteOnlyWarning -> {
+                _currentStep.value = WizardStep.RemoteChoice
+                false
+            }
+
+            // Save step
+            is WizardStepAction.UpdateServerName -> {
+                serverName = action.name
+                false
+            }
+            is WizardStepAction.UpdateSetAsDefault -> {
+                setAsDefault = action.isDefault
+                false
+            }
+        }
+    }
+
+    /**
+     * Update the list of discovered servers (called from Activity during mDNS discovery).
+     */
+    fun updateDiscoveredServers(servers: List<DiscoveredServerUi>) {
+        _discoveredServers.value = servers
+    }
+
+    /**
+     * Update the searching state (called from Activity during mDNS discovery).
+     */
+    fun setSearching(searching: Boolean) {
+        _isSearching.value = searching
+    }
+
+    // ========================================================================
     // Utility Methods
     // ========================================================================
 
@@ -592,25 +855,32 @@ class AddServerWizardViewModel : ViewModel() {
      * Clear all state (useful if the ViewModel is reused).
      */
     fun clear() {
-        serverName = ""
-        setAsDefault = false
-        isMusicAssistant = false
-        localAddress = ""
+        // Clear reactive state flows
+        _serverName.value = ""
+        _setAsDefault.value = false
+        _isMusicAssistant.value = false
+        _localAddress.value = ""
+        _remoteId.value = ""
+        _proxyUrl.value = ""
+        _proxyAuthMode.value = ProxyAuthMode.LOGIN
+        _proxyUsername.value = ""
+        _proxyPassword.value = ""
+        _proxyToken.value = ""
+        _maUsername.value = ""
+        _maPassword.value = ""
+        _maToken.value = null
+        _maPort.value = MaSettings.getDefaultPort()
+        _editingServer.value = null
+        _discoveredServers.value = emptyList()
+        _isSearching.value = false
+
+        // Clear non-reactive fields
         localConnectionSkipped = false
-        remoteId = ""
-        proxyUrl = ""
-        proxyAuthMode = AUTH_LOGIN
-        proxyUsername = ""
-        proxyPassword = ""
-        proxyToken = ""
-        maUsername = ""
-        maPassword = ""
-        maToken = null
-        maPort = MaSettings.getDefaultPort()
         discoveredServerName = null
         discoveredServerAddress = null
-        editingServer = null
         isLoading = false
+
+        // Clear step and test state flows
         _currentStep.value = WizardStep.Welcome
         _localTestState.value = ConnectionTestState.Idle
         _remoteTestState.value = ConnectionTestState.Idle
