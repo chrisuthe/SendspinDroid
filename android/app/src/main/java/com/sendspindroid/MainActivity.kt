@@ -800,9 +800,22 @@ class MainActivity : AppCompatActivity() {
         val constraintSet = ConstraintSet()
         constraintSet.clone(navigationContentView)
 
-        // Bottom nav height in dp
-        val bottomNavHeightDp = 56
-        val bottomNavHeightPx = (bottomNavHeightDp * resources.displayMetrics.density).toInt()
+        // Bottom nav height - get actual height from the view if visible
+        // The bottom nav includes extra padding for system navigation bar (gesture nav)
+        val bottomNav = binding.bottomNavigation
+        val bottomNavHeightPx = if (bottomNav?.visibility == View.VISIBLE && bottomNav.height > 0) {
+            Log.d(TAG, "Using measured bottom nav height: ${bottomNav.height}px")
+            bottomNav.height
+        } else {
+            // Fallback: 56dp for bottom nav + estimate system nav bar
+            // On gesture navigation devices, this can be ~48dp extra
+            val density = resources.displayMetrics.density
+            val bottomNavDp = 56
+            val systemNavEstimateDp = 48 // Gesture navigation area
+            val totalHeightPx = ((bottomNavDp + systemNavEstimateDp) * density).toInt()
+            Log.d(TAG, "Using fallback bottom nav height: ${totalHeightPx}px (${bottomNavDp + systemNavEstimateDp}dp)")
+            totalHeightPx
+        }
 
         if (position == UserSettings.MiniPlayerPosition.TOP) {
             // Mini player at top, fragment below
