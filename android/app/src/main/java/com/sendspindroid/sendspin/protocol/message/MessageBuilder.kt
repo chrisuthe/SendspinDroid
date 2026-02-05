@@ -42,19 +42,6 @@ object MessageBuilder {
             })
         }
 
-        // Build artwork support configuration (required when artwork@v1 role is advertised)
-        val artworkSupport = JSONObject().apply {
-            put("channels", JSONArray().apply {
-                // Album art channel - main artwork display
-                put(JSONObject().apply {
-                    put("source", "album")
-                    put("format", "jpeg")
-                    put("media_width", 500)
-                    put("media_height", 500)
-                })
-            })
-        }
-
         val payload = JSONObject().apply {
             put("client_id", clientId)
             put("name", deviceName)
@@ -63,12 +50,10 @@ object MessageBuilder {
                 put(SendSpinProtocol.Roles.PLAYER)
                 put(SendSpinProtocol.Roles.CONTROLLER)
                 put(SendSpinProtocol.Roles.METADATA)
-                put(SendSpinProtocol.Roles.ARTWORK)
             })
             put("device_info", deviceInfo)
             // Legacy field names (server accepts these, spec-compliant names cause connection failure)
             put("player_support", playerSupport)
-            put("artwork_support", artworkSupport)
         }
 
         return JSONObject().apply {
