@@ -328,6 +328,7 @@
     <string name="wizard_remote_title">Remote Access</string>
     <string name="wizard_remote_description">Connect from anywhere using Music Assistant Remote ID</string>
     <string name="wizard_remote_skip">Skip if you don\'t use Remote Access</string>
+    <string name="wizard_remote_id_info">Find your Remote ID in Music Assistant Settings under Remote Access. Tap the QR code icon to scan it directly.</string>
 
     <string name="wizard_proxy_title">Proxy Connection</string>
     <string name="wizard_proxy_description">Connect through your authenticated reverse proxy</string>
@@ -383,6 +384,71 @@
     <string name="wizard_ma_testing">Testing connection…</string>
     <string name="wizard_ma_requires_local_or_proxy">Music Assistant requires Local or Proxy connection</string>
     <string name="wizard_ma_skip_no_endpoint">No MA endpoint available - configure Local or Proxy first</string>
+
+    <!-- New Wizard Flow - Welcome -->
+    <string name="wizard_welcome_title">Welcome to SendSpin</string>
+    <string name="wizard_welcome_description">Connect to your SendSpin or Music Assistant server for synchronized audio playback</string>
+    <string name="wizard_setup_server_title">Set up my server</string>
+    <string name="wizard_setup_server_subtitle">Configure a server with local and remote access</string>
+    <string name="wizard_find_servers_title">Find other servers</string>
+    <string name="wizard_find_servers_subtitle">Discover and connect to servers on your network</string>
+    <string name="wizard_setup_server_accessibility">Set up a new server with full configuration</string>
+    <string name="wizard_find_servers_accessibility">Find and connect to servers on the network</string>
+
+    <!-- New Wizard Flow - Find Server -->
+    <string name="wizard_find_server_title">Find Your Server</string>
+    <string name="wizard_find_server_description">Select a discovered server or enter the address manually</string>
+    <string name="wizard_find_server_discovered">Discovered Servers</string>
+    <string name="wizard_find_server_manual">Manual Entry</string>
+    <string name="wizard_find_server_testing">Testing connection...</string>
+    <string name="wizard_find_server_success">Connected successfully</string>
+    <string name="wizard_find_server_failed">Connection failed: %s</string>
+    <string name="wizard_find_server_retry">Try Again</string>
+    <string name="wizard_find_server_skip">Skip local connection</string>
+    <string name="wizard_find_server_skip_hint">You can still connect via Remote ID or Proxy</string>
+
+    <!-- New Wizard Flow - Remote Choice -->
+    <string name="wizard_remote_choice_title">Remote Access</string>
+    <string name="wizard_remote_choice_description">Would you like to add remote access for when you\'re away from home?</string>
+    <string name="wizard_remote_choice_none">Local Connection</string>
+    <string name="wizard_remote_choice_none_desc">Connect directly when on the same network</string>
+    <string name="wizard_remote_choice_remote_id">Remote Access ID</string>
+    <string name="wizard_remote_choice_remote_id_desc">Use Music Assistant Remote Access service</string>
+    <string name="wizard_remote_choice_proxy">Reverse Proxy</string>
+    <string name="wizard_remote_choice_proxy_desc">Connect through your own proxy server</string>
+
+    <!-- New Wizard Flow - Remote Only Warning -->
+    <string name="wizard_remote_only_title">Remote Only Mode</string>
+    <string name="wizard_remote_only_description">Without a local connection, some features may be limited:</string>
+    <string name="wizard_remote_only_warning_1">Higher latency for audio sync</string>
+    <string name="wizard_remote_only_warning_2">Music Assistant features require proxy authentication</string>
+    <string name="wizard_remote_only_warning_3">Connection depends on remote service availability</string>
+    <string name="wizard_remote_only_continue">Continue Anyway</string>
+    <string name="wizard_remote_only_go_back">Go Back</string>
+
+    <!-- New Wizard Flow - Save -->
+    <string name="wizard_save_title">Save Server</string>
+    <string name="wizard_save_description">Review and save your server configuration</string>
+    <string name="wizard_save_name_label">Server Name</string>
+    <string name="wizard_save_name_hint">Give your server a friendly name</string>
+    <string name="wizard_save_connections">Connection Methods</string>
+    <string name="wizard_save_ma_status">Music Assistant</string>
+    <string name="wizard_save_ma_authenticated">Authenticated</string>
+    <string name="wizard_save_ma_not_configured">Not configured</string>
+
+    <!-- New Wizard Flow - Testing -->
+    <string name="wizard_testing_title">Testing Connection</string>
+    <string name="wizard_testing_local">Connecting to local server...</string>
+    <string name="wizard_testing_remote">Testing remote access...</string>
+    <string name="wizard_testing_proxy">Connecting via proxy...</string>
+    <string name="wizard_testing_try_different">Try Different Address</string>
+    <string name="wizard_testing_skip_local">Skip Local</string>
+
+    <!-- Accessibility - New Wizard -->
+    <string name="accessibility_wizard_discovered_server">Discovered server: %1$s at %2$s</string>
+    <string name="accessibility_wizard_connection_success">Connection test successful</string>
+    <string name="accessibility_wizard_connection_failed">Connection test failed</string>
+    <string name="accessibility_wizard_remote_choice">Remote access method selection</string>
 
     <!-- Accessibility - Music Assistant -->
     <string name="accessibility_music_assistant_checkbox">Enable Music Assistant features for this server</string>

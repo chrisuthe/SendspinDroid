@@ -2099,7 +2099,25 @@ class PlaybackService : MediaLibraryService() {
     override fun onGetSession(
         controllerInfo: MediaSession.ControllerInfo
     ): MediaLibrarySession? {
-        Log.d(TAG, "onGetSession called by: ${controllerInfo.packageName}")
+        Log.d(TAG, "onGetSession called by: ${controllerInfo.packageName}, mediaSession=${mediaSession != null}")
+
+        // Defensive: ensure MediaSession exists for external callers like Android Auto
+        if (mediaSession == null) {
+            Log.w(TAG, "MediaSession is null when onGetSession called - attempting recovery")
+            if (sendSpinPlayer == null) {
+                Log.d(TAG, "Creating SendSpinPlayer for external caller")
+                initializePlayer()
+            }
+            if (sendSpinPlayer != null) {
+                Log.d(TAG, "Creating MediaSession for external caller")
+                initializeMediaSession()
+            }
+        }
+
+        if (mediaSession == null) {
+            Log.e(TAG, "Failed to create MediaSession for ${controllerInfo.packageName}")
+        }
+
         return mediaSession
     }
 

@@ -37,21 +37,6 @@
             app:title="@string/wizard_title_add_server"
             app:titleTextColor="?attr/colorOnSurface" />
 
-        <!-- Step indicator tabs -->
-        <com.google.android.material.tabs.TabLayout
-            android:id="@+id/stepIndicator"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="8dp"
-            app:tabMode="scrollable"
-            app:tabGravity="start"
-            app:tabIndicatorFullWidth="false"
-            app:tabIndicatorHeight="3dp"
-            app:tabSelectedTextColor="?attr/colorPrimary"
-            app:tabTextColor="?attr/colorOnSurfaceVariant"
-            app:tabRippleColor="?attr/colorControlHighlight"
-            app:tabMinWidth="64dp" />
-
         <!-- Progress indicator (subtle line at bottom of app bar) -->
         <com.google.android.material.progressindicator.LinearProgressIndicator
             android:id="@+id/progressIndicator"
@@ -66,21 +51,13 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- Main content area - ViewPager2 for wizard steps -->
-    <androidx.core.widget.NestedScrollView
-        android:id="@+id/contentScrollView"
+    <!-- Main content area - step container for dynamic step views -->
+    <FrameLayout
+        android:id="@+id/stepContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:fillViewport="true"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
-        <!-- ViewPager2 takes full height, individual steps handle their own scrolling -->
-        <androidx.viewpager2.widget.ViewPager2
-            android:id="@+id/wizardPager"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-    </androidx.core.widget.NestedScrollView>
+        android:layout_marginBottom="72dp"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
     <!-- Fixed bottom navigation bar -->
     <!-- This LinearLayout stays at the bottom and rises above the keyboard
