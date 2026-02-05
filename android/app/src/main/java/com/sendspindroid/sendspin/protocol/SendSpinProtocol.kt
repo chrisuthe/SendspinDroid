@@ -72,10 +72,9 @@ object SendSpinProtocol {
      * Supported client roles.
      */
     object Roles {
-        const val PLAYER = "player@v1"
-        const val CONTROLLER = "controller@v1"
-        const val METADATA = "metadata@v1"
-        const val ARTWORK = "artwork@v1"
+        const val PLAYER = "player"
+        const val CONTROLLER = "controller"
+        const val METADATA = "metadata"
     }
 }
 
