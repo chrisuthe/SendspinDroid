@@ -10,6 +10,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.sendspindroid.R
 import com.sendspindroid.databinding.FragmentHomeBinding
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
@@ -18,6 +19,8 @@ import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
+import com.sendspindroid.ui.detail.AlbumDetailFragment
+import com.sendspindroid.ui.detail.ArtistDetailFragment
 import com.sendspindroid.ui.navigation.home.HomeViewModel
 import com.sendspindroid.ui.navigation.home.HomeViewModel.SectionState
 import com.sendspindroid.ui.navigation.home.LibraryItemAdapter
@@ -259,10 +262,61 @@ class HomeFragment : Fragment() {
     /**
      * Handle click on any library item.
      *
-     * All item types start playback immediately when tapped.
-     * The MA API handles playing albums, artists, playlists etc. appropriately.
+     * Artists and albums navigate to detail screens.
+     * Tracks, playlists, and radio stations start playback immediately.
      */
     private fun onLibraryItemClick(item: MaLibraryItem) {
+        when (item) {
+            // Navigate to detail screens for artists and albums
+            is MaArtist -> {
+                Log.d(TAG, "Navigating to artist detail: ${item.name}")
+                navigateToArtistDetail(item)
+            }
+            is MaAlbum -> {
+                Log.d(TAG, "Navigating to album detail: ${item.name}")
+                navigateToAlbumDetail(item)
+            }
+            // Play other items immediately
+            else -> {
+                playItem(item)
+            }
+        }
+    }
+
+    /**
+     * Navigate to artist detail screen.
+     */
+    private fun navigateToArtistDetail(artist: MaArtist) {
+        val fragment = ArtistDetailFragment.newInstance(
+            artistId = artist.artistId,
+            artistName = artist.name
+        )
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
+    /**
+     * Navigate to album detail screen.
+     */
+    private fun navigateToAlbumDetail(album: MaAlbum) {
+        val fragment = AlbumDetailFragment.newInstance(
+            albumId = album.albumId,
+            albumName = album.name
+        )
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
+    /**
+     * Play an item immediately.
+     *
+     * Used for tracks, playlists, and radio stations.
+     */
+    private fun playItem(item: MaLibraryItem) {
         val uri = item.uri
         if (uri.isNullOrBlank()) {
             Log.w(TAG, "Item ${item.name} has no URI, cannot play")
@@ -272,7 +326,6 @@ class HomeFragment : Fragment() {
 
         Log.d(TAG, "Playing ${item.mediaType}: ${item.name} (uri=$uri)")
 
-        // Play the item
         viewLifecycleOwner.lifecycleScope.launch {
             val result = MusicAssistantManager.playMedia(uri, item.mediaType.name.lowercase())
             result.fold(

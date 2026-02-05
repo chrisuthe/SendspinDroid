@@ -6,6 +6,9 @@ plugins {
     // AGP 9.0+ includes built-in Kotlin support, no separate plugin needed
     id("com.android.application")
 
+    // Compose compiler plugin - required for Kotlin 2.0+ with Jetpack Compose
+    id("org.jetbrains.kotlin.plugin.compose")
+
     // TODO: Consider adding kotlin-parcelize for efficient Parcelable implementation
     // TODO: Consider adding kotlin-kapt if Room or Dagger is added
 }
@@ -127,8 +130,9 @@ android {
         // Recommended over DataBinding for simple use cases
         viewBinding = true
 
-        // TODO: Consider enabling Compose for modern UI
-        // compose = true
+        // Jetpack Compose: Modern declarative UI toolkit
+        // Used for Artist/Album detail screens (incremental migration)
+        compose = true
 
         // buildConfig = false (default in AGP 8.0+)
         // Enable if you need BuildConfig.DEBUG or custom build config fields
@@ -172,6 +176,29 @@ dependencies {
 
     // Coil - Kotlin-first image loading library for album artwork
     implementation("io.coil-kt:coil:2.7.0")
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // ========== Jetpack Compose ==========
+    // BOM (Bill of Materials) ensures all Compose libraries use compatible versions
+    val composeBom = platform("androidx.compose:compose-bom:2025.01.01")
+    implementation(composeBom)
+
+    // Material Design 3 for Compose - modern theming and components
+    implementation("androidx.compose.material3:material3")
+
+    // Foundation - core layout primitives (Column, Row, Box, LazyColumn)
+    implementation("androidx.compose.foundation:foundation")
+
+    // UI Tooling - @Preview support and debugging tools
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Activity Compose - setContent {} in Activity/Fragment
+    implementation("androidx.activity:activity-compose:1.10.0")
+
+    // Lifecycle Compose - collectAsStateWithLifecycle()
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
 
     // Palette - Extract prominent colors from images for dynamic theming
     implementation("androidx.palette:palette-ktx:1.0.0")

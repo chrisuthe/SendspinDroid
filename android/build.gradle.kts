@@ -9,4 +9,7 @@ plugins {
     // Kotlin Android plugin - enables Kotlin compilation for Android
     // Version 2.1.0 is compatible with AGP 8.13.x
     id("org.jetbrains.kotlin.android") version "2.3.0" apply false
+
+    // Compose compiler plugin - required for Kotlin 2.0+ with Jetpack Compose
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.0" apply false
 }

@@ -16,8 +16,12 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.chip.Chip
 import com.sendspindroid.R
 import com.sendspindroid.databinding.FragmentBrowseListBinding
+import com.sendspindroid.musicassistant.MaAlbum
+import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
+import com.sendspindroid.ui.detail.AlbumDetailFragment
+import com.sendspindroid.ui.detail.ArtistDetailFragment
 import kotlinx.coroutines.launch
 
 /**
@@ -268,8 +272,62 @@ class BrowseListFragment : Fragment() {
 
     /**
      * Handle click on a library item.
+     *
+     * Artists and albums navigate to detail screens.
+     * Tracks, playlists, and radio stations start playback immediately.
      */
     private fun onItemClick(item: MaLibraryItem) {
+        when (item) {
+            // Navigate to detail screens for artists and albums
+            is MaArtist -> {
+                Log.d(TAG, "Navigating to artist detail: ${item.name}")
+                navigateToArtistDetail(item)
+            }
+            is MaAlbum -> {
+                Log.d(TAG, "Navigating to album detail: ${item.name}")
+                navigateToAlbumDetail(item)
+            }
+            // Play other items immediately
+            else -> {
+                playItem(item)
+            }
+        }
+    }
+
+    /**
+     * Navigate to artist detail screen.
+     */
+    private fun navigateToArtistDetail(artist: MaArtist) {
+        val fragment = ArtistDetailFragment.newInstance(
+            artistId = artist.artistId,
+            artistName = artist.name
+        )
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
+    /**
+     * Navigate to album detail screen.
+     */
+    private fun navigateToAlbumDetail(album: MaAlbum) {
+        val fragment = AlbumDetailFragment.newInstance(
+            albumId = album.albumId,
+            albumName = album.name
+        )
+        parentFragmentManager.beginTransaction()
+            .replace(R.id.navFragmentContainer, fragment)
+            .addToBackStack(null)
+            .commit()
+    }
+
+    /**
+     * Play an item immediately.
+     *
+     * Used for tracks, playlists, and radio stations.
+     */
+    private fun playItem(item: MaLibraryItem) {
         val uri = item.uri
         if (uri.isNullOrBlank()) {
             Log.w(TAG, "Item ${item.name} has no URI, cannot play")
