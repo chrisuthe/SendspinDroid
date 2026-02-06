@@ -32,6 +32,7 @@
     <string name="accessibility_previous_button">Previous track button</string>
     <string name="accessibility_next_button">Next track button</string>
     <string name="accessibility_switch_group_button">Switch to next playback group</string>
+    <string name="accessibility_open_full_player">Open full player</string>
     <string name="accessibility_volume_slider">Volume slider</string>
     <string name="accessibility_volume_percent">Volume %1$d percent</string>
     <string name="accessibility_progress_slider">Track progress slider</string>

@@ -11,28 +11,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -47,17 +40,15 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
  * Album Detail screen displaying album info and track listing.
+ * Back navigation is handled by the Activity toolbar.
  *
  * @param albumId The MA album item_id to display
- * @param onBackClick Called when back navigation is requested
  * @param onArtistClick Called when the artist name is tapped (navigates to artist detail)
  * @param viewModel The ViewModel managing album state
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlbumDetailScreen(
     albumId: String,
-    onBackClick: () -> Unit,
     onArtistClick: (artistName: String) -> Unit,
     viewModel: AlbumDetailViewModel = viewModel()
 ) {
@@ -67,54 +58,17 @@ fun AlbumDetailScreen(
     }
 
     val uiState by viewModel.uiState.collectAsState()
-    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            TopAppBar(
-                title = {
-                    when (val state = uiState) {
-                        is AlbumDetailUiState.Success -> Text(state.album.name)
-                        else -> Text("")
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBackClick) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                scrollBehavior = scrollBehavior
-            )
-        },
-        floatingActionButton = {
-            if (uiState is AlbumDetailUiState.Success) {
-                FloatingActionButton(
-                    onClick = { viewModel.playAll() },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Play all"
-                    )
-                }
-            }
-        }
-    ) { paddingValues ->
+    Box(modifier = Modifier.fillMaxSize()) {
         when (val state = uiState) {
             is AlbumDetailUiState.Loading -> {
-                LoadingContent(modifier = Modifier.padding(paddingValues))
+                LoadingContent()
             }
 
             is AlbumDetailUiState.Error -> {
                 ErrorContent(
                     message = state.message,
-                    onRetry = { viewModel.refresh() },
-                    modifier = Modifier.padding(paddingValues)
+                    onRetry = { viewModel.refresh() }
                 )
             }
 
@@ -124,8 +78,7 @@ fun AlbumDetailScreen(
                     onTrackClick = { viewModel.playTrack(it) },
                     onArtistClick = onArtistClick,
                     onShuffle = { viewModel.shuffleAll() },
-                    onAddToQueue = { viewModel.addToQueue() },
-                    modifier = Modifier.padding(paddingValues)
+                    onAddToQueue = { viewModel.addToQueue() }
                 )
             }
         }
