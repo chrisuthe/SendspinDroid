@@ -44,13 +44,17 @@ private const val TAG = "LibraryScreen"
  * @param onAlbumClick Called when an album is tapped (navigates to detail)
  * @param onArtistClick Called when an artist is tapped (navigates to detail)
  * @param onItemClick Called when any other item is tapped (plays immediately)
+ * @param onAddToPlaylist Called when "Add to Playlist" is selected from item overflow menu
+ * @param onAddToQueue Called when "Add to Queue" is selected from item overflow menu
  */
 @Composable
 fun LibraryScreen(
     viewModel: LibraryViewModel,
     onAlbumClick: (MaAlbum) -> Unit,
     onArtistClick: (MaArtist) -> Unit,
-    onItemClick: (MaLibraryItem) -> Unit
+    onItemClick: (MaLibraryItem) -> Unit,
+    onAddToPlaylist: (MaLibraryItem) -> Unit = {},
+    onAddToQueue: (MaLibraryItem) -> Unit = {}
 ) {
     val tabs = LibraryViewModel.ContentType.entries
     val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -112,7 +116,9 @@ fun LibraryScreen(
                     onRefresh = { viewModel.refresh(contentType) },
                     onItemClick = { item ->
                         handleItemClick(item, onAlbumClick, onArtistClick, onItemClick)
-                    }
+                    },
+                    onAddToPlaylist = onAddToPlaylist,
+                    onAddToQueue = onAddToQueue
                 )
             }
         }

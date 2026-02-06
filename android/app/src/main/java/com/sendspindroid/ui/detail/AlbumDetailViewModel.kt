@@ -146,9 +146,23 @@ class AlbumDetailViewModel : ViewModel() {
         val current = _uiState.value
         if (current !is AlbumDetailUiState.Success) return
 
+        val uri = current.album.uri
+        if (uri.isNullOrBlank()) {
+            Log.w(TAG, "Album ${current.album.name} has no URI, cannot add to queue")
+            return
+        }
+
         viewModelScope.launch {
             Log.d(TAG, "Adding album to queue: ${current.album.name}")
-            // TODO: Implement queue append when MA supports it
+            val result = MusicAssistantManager.playMedia(uri, "album", enqueue = true)
+            result.fold(
+                onSuccess = {
+                    Log.d(TAG, "Album added to queue: ${current.album.name}")
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to add album to queue", error)
+                }
+            )
         }
     }
 

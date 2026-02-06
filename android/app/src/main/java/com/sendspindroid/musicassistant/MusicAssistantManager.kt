@@ -526,7 +526,11 @@ object MusicAssistantManager {
      * @param mediaType Optional media type hint for the API
      * @return Result with success or failure
      */
-    suspend fun playMedia(uri: String, mediaType: String? = null): Result<Unit> {
+    suspend fun playMedia(
+        uri: String,
+        mediaType: String? = null,
+        enqueue: Boolean = false
+    ): Result<Unit> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
@@ -534,7 +538,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Playing media: $uri")
+                Log.d(TAG, "${if (enqueue) "Enqueuing" else "Playing"} media: $uri")
 
                 // Use THIS app's player ID - the same ID we registered with SendSpin
                 // This ensures playback goes to OUR queue, not some other player
@@ -549,14 +553,18 @@ object MusicAssistantManager {
                 if (mediaType != null) {
                     args["media_type"] = mediaType
                 }
+                if (enqueue) {
+                    // "add" appends to current queue without replacing
+                    args["enqueue"] = "add"
+                }
 
-                // Send play command - play_media replaces queue and starts playback
+                // Send play command - play_media replaces queue unless enqueue is set
                 sendMaCommand(apiUrl, token, "player_queues/play_media", args)
 
-                Log.i(TAG, "Successfully started playback: $uri")
+                Log.i(TAG, "Successfully ${if (enqueue) "enqueued" else "started playback"}: $uri")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to play media: $uri", e)
+                Log.e(TAG, "Failed to ${if (enqueue) "enqueue" else "play"} media: $uri", e)
                 Result.failure(e)
             }
         }
@@ -979,6 +987,245 @@ object MusicAssistantManager {
                 Result.success(playlists)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch playlists", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get a single playlist by ID.
+     *
+     * @param playlistId The MA playlist item_id
+     * @return Result with the playlist
+     */
+    suspend fun getPlaylist(playlistId: String): Result<MaPlaylist> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching playlist: $playlistId")
+
+                val response = sendMaCommand(
+                    apiUrl, token, "music/playlists/get",
+                    mapOf(
+                        "item_id" to playlistId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
+                )
+                val item = response.optJSONObject("result")
+                    ?: return@withContext Result.failure(Exception("Playlist not found"))
+
+                val id = item.optString("item_id", "")
+                    .ifEmpty { item.optString("playlist_id", "") }
+                    .ifEmpty { return@withContext Result.failure(Exception("Playlist has no ID")) }
+
+                val name = item.optString("name", "")
+                if (name.isEmpty()) return@withContext Result.failure(Exception("Playlist has no name"))
+
+                val imageUri = extractImageUri(item).ifEmpty { null }
+                val trackCount = item.optInt("track_count", 0)
+                val owner = item.optString("owner", "").ifEmpty { null }
+                val uri = item.optString("uri", "").ifEmpty { null }
+
+                val playlist = MaPlaylist(
+                    playlistId = id,
+                    name = name,
+                    imageUri = imageUri,
+                    trackCount = trackCount,
+                    owner = owner,
+                    uri = uri
+                )
+
+                Log.d(TAG, "Got playlist: ${playlist.name}")
+                Result.success(playlist)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch playlist: $playlistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get tracks in a playlist.
+     *
+     * @param playlistId The MA playlist item_id
+     * @return Result with list of tracks
+     */
+    suspend fun getPlaylistTracks(playlistId: String): Result<List<MaTrack>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching playlist tracks for: $playlistId")
+
+                val response = sendMaCommand(
+                    apiUrl, token, "music/playlists/playlist_tracks",
+                    mapOf(
+                        "item_id" to playlistId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
+                )
+                val tracks = parseAlbumTracks(response.optJSONArray("result"))
+
+                Log.d(TAG, "Got ${tracks.size} tracks for playlist $playlistId")
+                Result.success(tracks)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch playlist tracks: $playlistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Create a new playlist.
+     *
+     * @param name The playlist name
+     * @return Result with the created playlist
+     */
+    suspend fun createPlaylist(name: String): Result<MaPlaylist> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Creating playlist: $name")
+
+                val response = sendMaCommand(
+                    apiUrl, token, "music/playlists/create_playlist",
+                    mapOf("name" to name)
+                )
+                val item = response.optJSONObject("result")
+                    ?: return@withContext Result.failure(Exception("Failed to create playlist"))
+
+                val id = item.optString("item_id", "")
+                    .ifEmpty { item.optString("playlist_id", "") }
+                    .ifEmpty { return@withContext Result.failure(Exception("Created playlist has no ID")) }
+
+                val imageUri = extractImageUri(item).ifEmpty { null }
+                val uri = item.optString("uri", "").ifEmpty { null }
+
+                val playlist = MaPlaylist(
+                    playlistId = id,
+                    name = item.optString("name", name),
+                    imageUri = imageUri,
+                    trackCount = 0,
+                    owner = item.optString("owner", "").ifEmpty { null },
+                    uri = uri
+                )
+
+                Log.d(TAG, "Created playlist: ${playlist.name} (id=${playlist.playlistId})")
+                Result.success(playlist)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create playlist: $name", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Delete a playlist from the library.
+     *
+     * @param playlistId The MA playlist item_id
+     * @return Result indicating success or failure
+     */
+    suspend fun deletePlaylist(playlistId: String): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Deleting playlist: $playlistId")
+
+                sendMaCommand(
+                    apiUrl, token, "music/playlists/remove",
+                    mapOf(
+                        "item_id" to playlistId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
+                )
+
+                Log.d(TAG, "Deleted playlist: $playlistId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete playlist: $playlistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Add tracks to a playlist.
+     *
+     * @param playlistId The MA playlist item_id
+     * @param trackUris List of track URIs to add
+     * @return Result indicating success or failure
+     */
+    suspend fun addPlaylistTracks(playlistId: String, trackUris: List<String>): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Adding ${trackUris.size} tracks to playlist: $playlistId")
+
+                sendMaCommand(
+                    apiUrl, token, "music/playlists/add_playlist_tracks",
+                    mapOf(
+                        "db_playlist_id" to playlistId,
+                        "uris" to trackUris
+                    )
+                )
+
+                Log.d(TAG, "Added tracks to playlist: $playlistId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to add tracks to playlist: $playlistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Remove tracks from a playlist by position.
+     *
+     * @param playlistId The MA playlist item_id
+     * @param positions List of 1-based track positions to remove
+     * @return Result indicating success or failure
+     */
+    suspend fun removePlaylistTracks(playlistId: String, positions: List<Int>): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Removing ${positions.size} tracks from playlist: $playlistId")
+
+                sendMaCommand(
+                    apiUrl, token, "music/playlists/remove_playlist_tracks",
+                    mapOf(
+                        "db_playlist_id" to playlistId,
+                        "positions_to_remove" to positions
+                    )
+                )
+
+                Log.d(TAG, "Removed tracks from playlist: $playlistId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove tracks from playlist: $playlistId", e)
                 Result.failure(e)
             }
         }
@@ -1900,6 +2147,46 @@ object MusicAssistantManager {
                 ))
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to fetch artist details: $artistId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Get ALL tracks for an artist (no truncation).
+     *
+     * Unlike getArtistDetails() which returns only top 10 tracks,
+     * this returns the full list for bulk operations like "Add to Playlist".
+     *
+     * @param artistId The MA artist item_id
+     * @return Result with complete list of artist tracks
+     */
+    suspend fun getArtistTracks(artistId: String): Result<List<MaTrack>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching all tracks for artist: $artistId")
+
+                val tracksResponse = sendMaCommand(
+                    apiUrl, token, "music/artists/artist_tracks",
+                    mapOf(
+                        "item_id" to artistId,
+                        "provider_instance_id_or_domain" to "library",
+                        "in_library_only" to false
+                    )
+                )
+                val tracks = parseTracksArray(
+                    tracksResponse.optJSONArray("result")
+                )
+
+                Log.d(TAG, "Got ${tracks.size} tracks for artist $artistId")
+                Result.success(tracks)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch artist tracks: $artistId", e)
                 Result.failure(e)
             }
         }

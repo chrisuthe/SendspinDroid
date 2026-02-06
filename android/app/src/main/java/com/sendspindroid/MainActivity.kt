@@ -86,6 +86,7 @@ import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.ui.navigation.HomeFragment
 import com.sendspindroid.ui.navigation.SearchFragment
 import com.sendspindroid.ui.navigation.LibraryFragment
+import com.sendspindroid.ui.navigation.PlaylistsFragment
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
 import kotlinx.coroutines.flow.collectLatest
@@ -283,6 +284,13 @@ class MainActivity : AppCompatActivity() {
      * @param errorType The type of error (determines styling and duration)
      * @param retryAction Optional action to execute when user taps "Retry"
      */
+    /**
+     * Simple public overload for showing an error snackbar from Fragments.
+     */
+    fun showErrorSnackbar(message: String) {
+        showErrorSnackbar(message, ErrorType.GENERAL, null)
+    }
+
     private fun showErrorSnackbar(
         message: String,
         errorType: ErrorType = ErrorType.GENERAL,
@@ -320,7 +328,7 @@ class MainActivity : AppCompatActivity() {
      *
      * @param message The success message to display
      */
-    private fun showSuccessSnackbar(message: String) {
+    fun showSuccessSnackbar(message: String) {
         val snackbar = Snackbar.make(
             binding.coordinatorLayout,
             message,
@@ -346,6 +354,40 @@ class MainActivity : AppCompatActivity() {
             message,
             Snackbar.LENGTH_SHORT
         ).show()
+    }
+
+    /**
+     * Shows a Snackbar with an Undo action for reversible operations.
+     *
+     * The operation is deferred until the snackbar dismisses naturally.
+     * If the user taps Undo, the operation is cancelled and onUndo is called.
+     *
+     * @param message The message to display
+     * @param onUndo Called when the user taps Undo (restore the item)
+     * @param onDismissed Called when snackbar dismisses without Undo (execute the deletion)
+     */
+    fun showUndoSnackbar(
+        message: String,
+        onUndo: () -> Unit,
+        onDismissed: () -> Unit = {}
+    ) {
+        val snackbar = Snackbar.make(
+            binding.coordinatorLayout,
+            message,
+            Snackbar.LENGTH_LONG
+        )
+        snackbar.setAction("Undo") {
+            onUndo()
+        }
+        snackbar.addCallback(object : Snackbar.Callback() {
+            override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
+                if (event != DISMISS_EVENT_ACTION) {
+                    // Dismissed without pressing Undo -> execute the actual operation
+                    onDismissed()
+                }
+            }
+        })
+        snackbar.show()
     }
 
     /**
@@ -728,6 +770,13 @@ class MainActivity : AppCompatActivity() {
                     showNavigationContent(LibraryFragment.newInstance())
                     true
                 }
+                R.id.nav_playlists -> {
+                    Log.d(TAG, "Bottom nav: Playlists selected")
+                    currentNavTab = R.id.nav_playlists
+                    viewModel.setCurrentNavTab(NavTab.PLAYLISTS)
+                    showNavigationContent(PlaylistsFragment.newInstance())
+                    true
+                }
                 else -> false
             }
         }
@@ -892,6 +941,7 @@ class MainActivity : AppCompatActivity() {
             R.id.nav_home -> getString(R.string.nav_home)
             R.id.nav_search -> getString(R.string.nav_search)
             R.id.nav_library -> getString(R.string.nav_library)
+            R.id.nav_playlists -> getString(R.string.nav_playlists)
             else -> getString(R.string.app_name)
         }
         supportActionBar?.subtitle = null

@@ -36,6 +36,7 @@ import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.ui.detail.components.ActionRow
+import com.sendspindroid.ui.detail.components.AddToQueueButton
 import com.sendspindroid.ui.detail.components.AlbumGridItem
 import com.sendspindroid.ui.detail.components.HeroHeader
 import com.sendspindroid.ui.detail.components.TrackListItem
@@ -54,6 +55,9 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 fun ArtistDetailScreen(
     artistId: String,
     onAlbumClick: (MaAlbum) -> Unit,
+    onAddToPlaylist: (MaTrack) -> Unit = {},
+    onAddArtistToPlaylist: () -> Unit = {},
+    onAddAlbumToPlaylist: (MaAlbum) -> Unit = {},
     viewModel: ArtistDetailViewModel = viewModel()
 ) {
     // Load artist when screen is first shown
@@ -82,6 +86,9 @@ fun ArtistDetailScreen(
                     onTrackClick = { viewModel.playTrack(it) },
                     onShowAllTracksClick = { viewModel.toggleShowAllTracks() },
                     onAlbumClick = onAlbumClick,
+                    onAddToPlaylist = onAddToPlaylist,
+                    onAddArtistToPlaylist = onAddArtistToPlaylist,
+                    onAddAlbumToPlaylist = onAddAlbumToPlaylist,
                     onShuffle = { viewModel.shuffleAll() },
                     onAddToQueue = { viewModel.addToQueue() }
                 )
@@ -96,6 +103,9 @@ private fun ArtistDetailContent(
     onTrackClick: (MaTrack) -> Unit,
     onShowAllTracksClick: () -> Unit,
     onAlbumClick: (MaAlbum) -> Unit,
+    onAddToPlaylist: (MaTrack) -> Unit = {},
+    onAddArtistToPlaylist: () -> Unit = {},
+    onAddAlbumToPlaylist: (MaAlbum) -> Unit = {},
     onShuffle: () -> Unit,
     onAddToQueue: () -> Unit,
     modifier: Modifier = Modifier
@@ -120,8 +130,13 @@ private fun ArtistDetailContent(
         item {
             ActionRow(
                 onShuffle = onShuffle,
-                onAddToQueue = onAddToQueue
+                onAddToPlaylist = onAddArtistToPlaylist
             )
+        }
+
+        // Add to Queue button
+        item {
+            AddToQueueButton(onClick = onAddToQueue)
         }
 
         // Top tracks section
@@ -138,7 +153,8 @@ private fun ArtistDetailContent(
                     track = track,
                     trackNumber = index + 1,
                     showArtist = false,
-                    onClick = { onTrackClick(track) }
+                    onClick = { onTrackClick(track) },
+                    onAddToPlaylist = { onAddToPlaylist(track) }
                 )
             }
 
@@ -170,7 +186,8 @@ private fun ArtistDetailContent(
             item {
                 AlbumGrid(
                     albums = state.albums,
-                    onAlbumClick = onAlbumClick
+                    onAlbumClick = onAlbumClick,
+                    onAddAlbumToPlaylist = onAddAlbumToPlaylist
                 )
             }
         }
@@ -186,6 +203,7 @@ private fun ArtistDetailContent(
 private fun AlbumGrid(
     albums: List<MaAlbum>,
     onAlbumClick: (MaAlbum) -> Unit,
+    onAddAlbumToPlaylist: (MaAlbum) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Fixed-height grid for use inside LazyColumn
@@ -210,7 +228,8 @@ private fun AlbumGrid(
         ) { album ->
             AlbumGridItem(
                 album = album,
-                onClick = { onAlbumClick(album) }
+                onClick = { onAlbumClick(album) },
+                onAddToPlaylist = { onAddAlbumToPlaylist(album) }
             )
         }
     }
@@ -299,6 +318,9 @@ private fun ArtistDetailScreenPreview() {
             onTrackClick = {},
             onShowAllTracksClick = {},
             onAlbumClick = {},
+            onAddToPlaylist = {},
+            onAddArtistToPlaylist = {},
+            onAddAlbumToPlaylist = {},
             onShuffle = {},
             onAddToQueue = {}
         )

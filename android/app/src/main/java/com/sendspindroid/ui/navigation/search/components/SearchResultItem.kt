@@ -1,6 +1,7 @@
 package com.sendspindroid.ui.navigation.search.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,13 +10,26 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -39,21 +53,37 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * - Radio: Provider
  * - Artist: No subtitle
  *
+ * When [onAddToPlaylist] or [onAddToQueue] is non-null and the item is a [MaTrack],
+ * [MaAlbum], or [MaArtist], a three-dot overflow menu appears with available actions.
+ *
  * @param item The library item to display
  * @param onClick Called when the item is tapped
+ * @param onAddToPlaylist Called when "Add to Playlist" is selected (tracks, albums, artists)
+ * @param onAddToQueue Called when "Add to Queue" is selected (tracks, albums, artists)
  * @param modifier Modifier for the item
  */
 @Composable
 fun SearchResultItem(
     item: MaLibraryItem,
     onClick: () -> Unit,
+    onAddToPlaylist: (() -> Unit)? = null,
+    onAddToQueue: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val isActionableType = item is MaTrack || item is MaAlbum || item is MaArtist
+    val showOverflow = isActionableType && (onAddToPlaylist != null || onAddToQueue != null)
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                start = 16.dp,
+                end = if (showOverflow) 4.dp else 16.dp,
+                top = 12.dp,
+                bottom = 12.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Thumbnail
@@ -89,6 +119,67 @@ fun SearchResultItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+        }
+
+        // Overflow menu (tracks only)
+        if (showOverflow) {
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MoreVert,
+                        contentDescription = "More options",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Play") },
+                        leadingIcon = {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        },
+                        onClick = {
+                            showMenu = false
+                            onClick()
+                        }
+                    )
+
+                    if (onAddToQueue != null) {
+                        DropdownMenuItem(
+                            text = { Text("Add to Queue") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Add, contentDescription = null)
+                            },
+                            onClick = {
+                                showMenu = false
+                                onAddToQueue()
+                            }
+                        )
+                    }
+
+                    if (onAddToPlaylist != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.add_to_playlist)) },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = null
+                                )
+                            },
+                            onClick = {
+                                showMenu = false
+                                onAddToPlaylist()
+                            }
+                        )
+                    }
+                }
             }
         }
     }
@@ -148,7 +239,8 @@ private fun SearchResultItemTrackPreview() {
                 uri = null,
                 duration = 225
             ),
-            onClick = {}
+            onClick = {},
+            onAddToPlaylist = {}
         )
     }
 }

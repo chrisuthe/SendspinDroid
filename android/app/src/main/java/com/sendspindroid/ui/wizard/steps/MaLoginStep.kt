@@ -17,6 +17,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -99,11 +103,15 @@ fun MaLoginStep(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Port field
+        // Port field - use local string state so the user can freely clear/edit
+        var portText by remember { mutableStateOf(port.toString()) }
         OutlinedTextField(
-            value = port.toString(),
+            value = portText,
             onValueChange = { value ->
-                value.toIntOrNull()?.let { onPortChange(it) }
+                // Allow only digits (or empty for clearing)
+                val filtered = value.filter { it.isDigit() }
+                portText = filtered
+                filtered.toIntOrNull()?.let { onPortChange(it) }
             },
             modifier = Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.ma_port)) },
