@@ -2,9 +2,7 @@ package com.sendspindroid.ui.navigation.home
 
 import android.util.Log
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
@@ -173,10 +171,6 @@ private fun HomeScreenContent(
                 )
             }
 
-            // Bottom padding for mini player
-            item(key = "bottom_spacing") {
-                Spacer(modifier = Modifier.height(80.dp))
-            }
         }
     }
 }

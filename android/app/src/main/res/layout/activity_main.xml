@@ -17,468 +17,451 @@
         android:alpha="0.5"
         android:importantForAccessibility="no" />
 
-    <!-- App Bar with Toolbar (semi-transparent to show blurred background) -->
-    <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/appBarLayout"
+    <!-- Vertical stack: Toolbar, MiniPlayer(top), Content, MiniPlayer(bottom), BottomNav -->
+    <LinearLayout
+        android:id="@+id/mainVerticalStack"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fitsSystemWindows="true"
-        android:background="@android:color/transparent"
-        app:liftOnScroll="false">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:fitsSystemWindows="true">
 
+        <!-- Element 1: Toolbar (always visible) -->
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             style="@style/Widget.Material3.Toolbar"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:minHeight="50dp"
+            android:layout_height="?attr/actionBarSize"
             android:alpha="0.6"
             android:background="?attr/colorSurface"
             app:navigationIcon="@null"
             app:title="@string/app_name"
             app:titleCentered="false" />
 
-    </com.google.android.material.appbar.AppBarLayout>
+        <!-- Element 2: Mini Player TOP position -->
+        <com.sendspindroid.ui.main.MiniPlayerComposeView
+            android:id="@+id/miniPlayerTop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
 
-    <!-- Main Content Area (scrolls under app bar) -->
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
-        <!-- ============================================================ -->
-        <!-- SERVER LIST VIEW - Shows saved and discovered servers        -->
-        <!-- ============================================================ -->
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/serverListView"
-            android:layout_width="0dp"
+        <!-- Element 3: Content area (fills remaining space) -->
+        <!-- Only ONE of the three children is VISIBLE at a time -->
+        <FrameLayout
+            android:id="@+id/contentArea"
+            android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:visibility="visible"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent">
+            android:layout_weight="1">
 
-            <!-- Server list with sections -->
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/serverListRecyclerView"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:clipToPadding="false"
-                android:paddingBottom="144dp"
-                android:importantForAccessibility="yes"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
-
-            <!-- Empty state (shown when no servers at all - rare edge case) -->
-            <LinearLayout
-                android:id="@+id/emptyServerListView"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:visibility="gone"
-                app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintEnd_toEndOf="parent">
-
-                <ImageView
-                    android:layout_width="64dp"
-                    android:layout_height="64dp"
-                    android:src="@drawable/ic_server"
-                    android:alpha="0.4"
-                    android:importantForAccessibility="no"
-                    app:tint="?attr/colorOnSurfaceVariant" />
-
-                <TextView
-                    android:id="@+id/emptyStateTitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="@string/no_servers_yet"
-                    android:textSize="16sp"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
-
-                <TextView
-                    android:id="@+id/emptyStateSubtitle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/searching_for_servers"
-                    android:textSize="14sp"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:alpha="0.7"
-                    android:gravity="center" />
-
-                <ProgressBar
-                    android:id="@+id/emptyStateProgress"
-                    style="?android:attr/progressBarStyleSmall"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_marginTop="16dp"
-                    android:indeterminate="true" />
-
-            </LinearLayout>
-
-        </androidx.constraintlayout.widget.ConstraintLayout>
-
-        <!-- ============================================================ -->
-        <!-- NOW PLAYING VIEW - Shown when connected to a server          -->
-        <!-- ============================================================ -->
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/nowPlayingView"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            tools:visibility="visible">
-
-            <!-- Connection Progress (shown during connecting) -->
-            <LinearLayout
-                android:id="@+id/connectionProgressContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center"
-                android:padding="32dp"
-                android:visibility="gone"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent"
-                tools:visibility="gone">
-
-                <com.google.android.material.progressindicator.CircularProgressIndicator
-                    android:id="@+id/connectionProgressIndicator"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:indeterminate="true"
-                    android:importantForAccessibility="no"
-                    app:indicatorSize="64dp"
-                    app:trackThickness="4dp" />
-
-                <TextView
-                    android:id="@+id/connectionStatusText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:text="@string/connecting"
-                    android:textSize="16sp"
-                    android:importantForAccessibility="yes"
-                    android:accessibilityLiveRegion="polite" />
-
-            </LinearLayout>
-
-            <!-- Now Playing Content -->
+            <!-- Server List (shown when not connected) -->
             <androidx.constraintlayout.widget.ConstraintLayout
-                android:id="@+id/nowPlayingContent"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:visibility="visible"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent">
+                android:id="@+id/serverListView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="visible">
 
-                <!-- Large Album Art with Buffering Overlay -->
-                <FrameLayout
-                    android:id="@+id/albumArtContainer"
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/serverListRecyclerView"
                     android:layout_width="0dp"
                     android:layout_height="0dp"
-                    app:layout_constraintDimensionRatio="1:1"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:layout_constraintWidth_max="@dimen/album_art_max_width"
-                    app:layout_constraintWidth_percent="0.7">
-
-                    <com.google.android.material.card.MaterialCardView
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        app:cardCornerRadius="16dp"
-                        app:cardElevation="8dp">
-
-                        <ImageView
-                            android:id="@+id/albumArtView"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:scaleType="centerCrop"
-                            android:src="@drawable/placeholder_album"
-                            android:contentDescription="@string/album_art"
-                            android:importantForAccessibility="yes" />
-
-                    </com.google.android.material.card.MaterialCardView>
-
-                    <!-- Buffering Indicator Overlay -->
-                    <com.google.android.material.progressindicator.CircularProgressIndicator
-                        android:id="@+id/bufferingIndicator"
-                        android:layout_width="64dp"
-                        android:layout_height="64dp"
-                        android:layout_gravity="center"
-                        android:indeterminate="true"
-                        android:visibility="gone"
-                        android:importantForAccessibility="no"
-                        app:indicatorSize="64dp"
-                        app:trackThickness="4dp"
-                        app:indicatorColor="?attr/colorPrimary"
-                        tools:visibility="visible" />
-
-                </FrameLayout>
-
-                <!-- Track Info - Title with larger, bolder text -->
-                <TextView
-                    android:id="@+id/nowPlayingText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/title_margin_top"
-                    android:gravity="center"
-                    android:text="@string/not_playing"
-                    android:textSize="24sp"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorOnBackground"
-                    android:letterSpacing="-0.02"
-                    android:lineSpacingMultiplier="1.1"
-                    android:maxLines="2"
-                    android:ellipsize="end"
+                    android:clipToPadding="false"
+                    android:paddingBottom="80dp"
                     android:importantForAccessibility="yes"
-                    android:accessibilityLiveRegion="polite"
+                    app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/albumArtContainer" />
+                    app:layout_constraintTop_toTopOf="parent" />
 
-                <!-- Metadata (artist/album) - Dimmer, smaller secondary text -->
-                <TextView
-                    android:id="@+id/metadataText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/spacing_xs"
-                    android:gravity="center"
-                    android:text=""
-                    android:textSize="14sp"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:alpha="0.9"
-                    android:letterSpacing="0.01"
-                    android:maxLines="2"
-                    android:ellipsize="end"
-                    android:importantForAccessibility="yes"
-                    android:accessibilityLiveRegion="polite"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/nowPlayingText" />
-
-                <!-- Group name display -->
-                <TextView
-                    android:id="@+id/groupNameText"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/spacing_sm"
-                    android:gravity="center"
-                    android:text=""
-                    android:textSize="12sp"
-                    android:textColor="?attr/colorPrimary"
-                    android:alpha="0.9"
-                    android:maxLines="1"
-                    android:ellipsize="end"
-                    android:visibility="gone"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/metadataText" />
-
-                <!-- Playback Controls Container -->
+                <!-- Empty state -->
                 <LinearLayout
-                    android:id="@+id/playbackControlsContainer"
+                    android:id="@+id/emptyServerListView"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/controls_margin_top"
                     android:orientation="vertical"
-                    android:gravity="center_horizontal"
-                    app:layout_constraintEnd_toEndOf="parent"
+                    android:gravity="center"
+                    android:visibility="gone"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/groupNameText">
-
-                    <!-- Main Controls Row: Previous, Play/Pause, Next -->
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/previousButton"
-                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="@dimen/playback_button_size_small"
-                            android:layout_height="@dimen/playback_button_size_small"
-                            android:layout_marginEnd="@dimen/playback_button_spacing"
-                            android:contentDescription="@string/accessibility_previous_button"
-                            android:enabled="false"
-                            android:focusable="true"
-                            android:nextFocusRight="@id/playPauseButton"
-                            app:icon="@drawable/ic_skip_previous"
-                            app:iconSize="@dimen/playback_icon_size_small" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/playPauseButton"
-                            style="@style/Widget.Material3.Button.IconButton.Filled"
-                            android:layout_width="@dimen/playback_button_size_large"
-                            android:layout_height="@dimen/playback_button_size_large"
-                            android:contentDescription="@string/accessibility_play_button"
-                            android:enabled="false"
-                            android:focusable="true"
-                            android:nextFocusLeft="@id/previousButton"
-                            android:nextFocusRight="@id/nextButton"
-                            android:stateListAnimator="@animator/button_scale"
-                            app:icon="@drawable/ic_play"
-                            app:iconSize="48dp"
-                            app:iconGravity="textStart" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/nextButton"
-                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="@dimen/playback_button_size_small"
-                            android:layout_height="@dimen/playback_button_size_small"
-                            android:layout_marginStart="@dimen/playback_button_spacing"
-                            android:contentDescription="@string/accessibility_next_button"
-                            android:enabled="false"
-                            android:focusable="true"
-                            android:nextFocusLeft="@id/playPauseButton"
-                            app:icon="@drawable/ic_skip_next"
-                            app:iconSize="@dimen/playback_icon_size_small" />
-
-                    </LinearLayout>
-
-                    <!-- Secondary Row: Switch Group + Favorite -->
-                    <LinearLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/spacing_sm"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/switchGroupButton"
-                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:contentDescription="@string/accessibility_switch_group_button"
-                            android:enabled="false"
-                            app:icon="@drawable/ic_swap_horiz"
-                            app:iconSize="20dp"
-                            app:iconPadding="0dp" />
-
-                        <!-- Favorite Button - Only visible when connected to MA server -->
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/favoriteButton"
-                            style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="8dp"
-                            android:visibility="gone"
-                            android:contentDescription="@string/accessibility_favorite_track"
-                            app:icon="@drawable/ic_favorite_border"
-                            app:iconSize="20dp"
-                            app:iconPadding="0dp" />
-
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- Volume Control -->
-                <LinearLayout
-                    android:id="@+id/volumeContainer"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/volume_margin_top"
-                    android:layout_marginBottom="@dimen/spacing_md"
-                    android:paddingHorizontal="8dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/playbackControlsContainer">
+                    app:layout_constraintEnd_toEndOf="parent">
 
                     <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_volume_down"
-                        android:contentDescription="@null"
+                        android:layout_width="64dp"
+                        android:layout_height="64dp"
+                        android:src="@drawable/ic_server"
+                        android:alpha="0.4"
                         android:importantForAccessibility="no"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:alpha="0.7" />
+                        app:tint="?attr/colorOnSurfaceVariant" />
 
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/volumeSlider"
-                        android:layout_width="0dp"
+                    <TextView
+                        android:id="@+id/emptyStateTitle"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginHorizontal="12dp"
-                        android:valueFrom="0"
-                        android:valueTo="100"
-                        android:value="75"
-                        android:stepSize="1"
-                        android:contentDescription="@string/accessibility_volume_slider"
-                        android:enabled="false" />
+                        android:layout_marginTop="16dp"
+                        android:text="@string/no_servers_yet"
+                        android:textSize="16sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@drawable/ic_volume_up"
-                        android:contentDescription="@null"
-                        android:importantForAccessibility="no"
-                        app:tint="?attr/colorOnSurfaceVariant"
-                        android:alpha="0.7" />
+                    <TextView
+                        android:id="@+id/emptyStateSubtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/searching_for_servers"
+                        android:textSize="14sp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:alpha="0.7"
+                        android:gravity="center" />
+
+                    <ProgressBar
+                        android:id="@+id/emptyStateProgress"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginTop="16dp"
+                        android:indeterminate="true" />
 
                 </LinearLayout>
 
             </androidx.constraintlayout.widget.ConstraintLayout>
 
-        </androidx.constraintlayout.widget.ConstraintLayout>
+            <!-- Now Playing (shown when connected, full player) -->
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/nowPlayingView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone"
+                tools:visibility="visible">
 
-        <!-- ============================================================ -->
-        <!-- NAVIGATION CONTENT VIEW - Shown when bottom nav tab selected -->
-        <!-- Contains mini player at top and fragment content below       -->
-        <!-- ============================================================ -->
-        <androidx.constraintlayout.widget.ConstraintLayout
-            android:id="@+id/navigationContentView"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:visibility="gone"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            tools:visibility="gone">
+                <!-- Connection Progress (shown during connecting) -->
+                <LinearLayout
+                    android:id="@+id/connectionProgressContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                    android:padding="32dp"
+                    android:visibility="gone"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    tools:visibility="gone">
 
-            <!-- Mini Player (Compose) -->
-            <com.sendspindroid.ui.main.MiniPlayerComposeView
-                android:id="@+id/miniPlayerComposeView"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                    <com.google.android.material.progressindicator.CircularProgressIndicator
+                        android:id="@+id/connectionProgressIndicator"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:indeterminate="true"
+                        android:importantForAccessibility="no"
+                        app:indicatorSize="64dp"
+                        app:trackThickness="4dp" />
 
-            <!-- Fragment Container for tab content -->
+                    <TextView
+                        android:id="@+id/connectionStatusText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:text="@string/connecting"
+                        android:textSize="16sp"
+                        android:importantForAccessibility="yes"
+                        android:accessibilityLiveRegion="polite" />
+
+                </LinearLayout>
+
+                <!-- Now Playing Content -->
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/nowPlayingContent"
+                    android:layout_width="0dp"
+                    android:layout_height="0dp"
+                    android:visibility="visible"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent">
+
+                    <!-- Large Album Art with Buffering Overlay -->
+                    <FrameLayout
+                        android:id="@+id/albumArtContainer"
+                        android:layout_width="0dp"
+                        android:layout_height="0dp"
+                        app:layout_constraintDimensionRatio="1:1"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        app:layout_constraintWidth_max="@dimen/album_art_max_width"
+                        app:layout_constraintWidth_percent="0.7">
+
+                        <com.google.android.material.card.MaterialCardView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="8dp">
+
+                            <ImageView
+                                android:id="@+id/albumArtView"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:scaleType="centerCrop"
+                                android:src="@drawable/placeholder_album"
+                                android:contentDescription="@string/album_art"
+                                android:importantForAccessibility="yes" />
+
+                        </com.google.android.material.card.MaterialCardView>
+
+                        <!-- Buffering Indicator Overlay -->
+                        <com.google.android.material.progressindicator.CircularProgressIndicator
+                            android:id="@+id/bufferingIndicator"
+                            android:layout_width="64dp"
+                            android:layout_height="64dp"
+                            android:layout_gravity="center"
+                            android:indeterminate="true"
+                            android:visibility="gone"
+                            android:importantForAccessibility="no"
+                            app:indicatorSize="64dp"
+                            app:trackThickness="4dp"
+                            app:indicatorColor="?attr/colorPrimary"
+                            tools:visibility="visible" />
+
+                    </FrameLayout>
+
+                    <!-- Track Info - Title -->
+                    <TextView
+                        android:id="@+id/nowPlayingText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/title_margin_top"
+                        android:gravity="center"
+                        android:text="@string/not_playing"
+                        android:textSize="24sp"
+                        android:textStyle="bold"
+                        android:textColor="?attr/colorOnBackground"
+                        android:letterSpacing="-0.02"
+                        android:lineSpacingMultiplier="1.1"
+                        android:maxLines="2"
+                        android:ellipsize="end"
+                        android:importantForAccessibility="yes"
+                        android:accessibilityLiveRegion="polite"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/albumArtContainer" />
+
+                    <!-- Metadata (artist/album) -->
+                    <TextView
+                        android:id="@+id/metadataText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/spacing_xs"
+                        android:gravity="center"
+                        android:text=""
+                        android:textSize="14sp"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:alpha="0.9"
+                        android:letterSpacing="0.01"
+                        android:maxLines="2"
+                        android:ellipsize="end"
+                        android:importantForAccessibility="yes"
+                        android:accessibilityLiveRegion="polite"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/nowPlayingText" />
+
+                    <!-- Group name display -->
+                    <TextView
+                        android:id="@+id/groupNameText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/spacing_sm"
+                        android:gravity="center"
+                        android:text=""
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorPrimary"
+                        android:alpha="0.9"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:visibility="gone"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/metadataText" />
+
+                    <!-- Playback Controls Container -->
+                    <LinearLayout
+                        android:id="@+id/playbackControlsContainer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/controls_margin_top"
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/groupNameText">
+
+                        <!-- Main Controls Row: Previous, Play/Pause, Next -->
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/previousButton"
+                                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                                android:layout_width="@dimen/playback_button_size_small"
+                                android:layout_height="@dimen/playback_button_size_small"
+                                android:layout_marginEnd="@dimen/playback_button_spacing"
+                                android:contentDescription="@string/accessibility_previous_button"
+                                android:enabled="false"
+                                android:focusable="true"
+                                android:nextFocusRight="@id/playPauseButton"
+                                app:icon="@drawable/ic_skip_previous"
+                                app:iconSize="@dimen/playback_icon_size_small" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/playPauseButton"
+                                style="@style/Widget.Material3.Button.IconButton.Filled"
+                                android:layout_width="@dimen/playback_button_size_large"
+                                android:layout_height="@dimen/playback_button_size_large"
+                                android:contentDescription="@string/accessibility_play_button"
+                                android:enabled="false"
+                                android:focusable="true"
+                                android:nextFocusLeft="@id/previousButton"
+                                android:nextFocusRight="@id/nextButton"
+                                android:stateListAnimator="@animator/button_scale"
+                                app:icon="@drawable/ic_play"
+                                app:iconSize="48dp"
+                                app:iconGravity="textStart" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/nextButton"
+                                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                                android:layout_width="@dimen/playback_button_size_small"
+                                android:layout_height="@dimen/playback_button_size_small"
+                                android:layout_marginStart="@dimen/playback_button_spacing"
+                                android:contentDescription="@string/accessibility_next_button"
+                                android:enabled="false"
+                                android:focusable="true"
+                                android:nextFocusLeft="@id/playPauseButton"
+                                app:icon="@drawable/ic_skip_next"
+                                app:iconSize="@dimen/playback_icon_size_small" />
+
+                        </LinearLayout>
+
+                        <!-- Secondary Row: Switch Group + Favorite -->
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/spacing_sm"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/switchGroupButton"
+                                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:contentDescription="@string/accessibility_switch_group_button"
+                                android:enabled="false"
+                                app:icon="@drawable/ic_swap_horiz"
+                                app:iconSize="20dp"
+                                app:iconPadding="0dp" />
+
+                            <!-- Favorite Button - Only visible when connected to MA server -->
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/favoriteButton"
+                                style="@style/Widget.Material3.Button.IconButton.Filled.Tonal"
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:layout_marginStart="8dp"
+                                android:visibility="gone"
+                                android:contentDescription="@string/accessibility_favorite_track"
+                                app:icon="@drawable/ic_favorite_border"
+                                app:iconSize="20dp"
+                                app:iconPadding="0dp" />
+
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Volume Control -->
+                    <LinearLayout
+                        android:id="@+id/volumeContainer"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/volume_margin_top"
+                        android:layout_marginBottom="@dimen/spacing_md"
+                        android:paddingHorizontal="8dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/playbackControlsContainer">
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_volume_down"
+                            android:contentDescription="@null"
+                            android:importantForAccessibility="no"
+                            app:tint="?attr/colorOnSurfaceVariant"
+                            android:alpha="0.7" />
+
+                        <com.google.android.material.slider.Slider
+                            android:id="@+id/volumeSlider"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginHorizontal="12dp"
+                            android:valueFrom="0"
+                            android:valueTo="100"
+                            android:value="75"
+                            android:stepSize="1"
+                            android:contentDescription="@string/accessibility_volume_slider"
+                            android:enabled="false" />
+
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_volume_up"
+                            android:contentDescription="@null"
+                            android:importantForAccessibility="no"
+                            app:tint="?attr/colorOnSurfaceVariant"
+                            android:alpha="0.7" />
+
+                    </LinearLayout>
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <!-- Navigation Content (Home/Search/Library fragment, shown when tab selected) -->
             <androidx.fragment.app.FragmentContainerView
                 android:id="@+id/navFragmentContainer"
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_marginBottom="56dp"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/miniPlayerComposeView" />
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
 
-        </androidx.constraintlayout.widget.ConstraintLayout>
+        </FrameLayout>
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+        <!-- Element 4: Mini Player BOTTOM position -->
+        <com.sendspindroid.ui.main.MiniPlayerComposeView
+            android:id="@+id/miniPlayerBottom"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
 
-    <!-- FAB for adding servers (visible on server list view) -->
-    <!-- Bottom margin adjusted dynamically: 72dp when bottom nav visible, 16dp when hidden -->
+        <!-- Element 5: Bottom Navigation (shown when connected to MA) -->
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottomNavigation"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            app:menu="@menu/bottom_nav_menu"
+            app:labelVisibilityMode="labeled"
+            app:itemIconTint="@color/bottom_nav_colors"
+            app:itemTextColor="@color/bottom_nav_colors"
+            style="@style/Widget.Material3.BottomNavigationView" />
+
+    </LinearLayout>
+
+    <!-- FAB for adding servers (visible on server list only) -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/addServerFab"
         android:layout_width="wrap_content"
@@ -491,21 +474,5 @@
         android:visibility="visible"
         app:tint="?attr/colorOnPrimaryContainer"
         app:backgroundTint="?attr/colorPrimaryContainer" />
-
-    <!-- Bottom Navigation Bar (hidden by default, shown when MA connected) -->
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottomNavigation"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:minHeight="56dp"
-        android:paddingTop="0dp"
-        android:paddingBottom="0dp"
-        android:visibility="gone"
-        app:menu="@menu/bottom_nav_menu"
-        app:labelVisibilityMode="labeled"
-        app:itemIconTint="@color/bottom_nav_colors"
-        app:itemTextColor="@color/bottom_nav_colors"
-        style="@style/Widget.Material3.BottomNavigationView" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

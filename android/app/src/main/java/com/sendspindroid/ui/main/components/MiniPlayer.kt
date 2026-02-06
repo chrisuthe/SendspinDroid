@@ -2,9 +2,12 @@ package com.sendspindroid.ui.main.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,6 +23,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -58,192 +62,186 @@ fun MiniPlayer(
     onVolumeChange: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 8.dp)
+            .height(88.dp)
             .clickable(onClick = onCardClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        color = MaterialTheme.colorScheme.surfaceVariant
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            // Album Art - full height, square, flush left
+            val context = LocalContext.current
+            val imageRequest = when (artworkSource) {
+                is ArtworkSource.ByteArray -> {
+                    ImageRequest.Builder(context)
+                        .data(artworkSource.data)
+                        .crossfade(true)
+                        .build()
+                }
+                is ArtworkSource.Uri -> {
+                    ImageRequest.Builder(context)
+                        .data(artworkSource.uri)
+                        .crossfade(true)
+                        .build()
+                }
+                is ArtworkSource.Url -> {
+                    ImageRequest.Builder(context)
+                        .data(artworkSource.url)
+                        .crossfade(true)
+                        .build()
+                }
+                null -> null
+            }
+
+            AsyncImage(
+                model = imageRequest,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(1f),
+                contentScale = ContentScale.Crop,
+                placeholder = painterResource(R.drawable.placeholder_album_simple),
+                error = painterResource(R.drawable.placeholder_album_simple),
+                fallback = painterResource(R.drawable.placeholder_album_simple)
+            )
+
+            // Right side content
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // Album Art
-                Card(
-                    modifier = Modifier.size(48.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                // Top row: Track info + controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val context = LocalContext.current
-                    val imageRequest = when (artworkSource) {
-                        is ArtworkSource.ByteArray -> {
-                            ImageRequest.Builder(context)
-                                .data(artworkSource.data)
-                                .crossfade(true)
-                                .build()
+                    // Track Info
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        // Server name with playing indicator
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isPlaying) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_audio_playing),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = serverName,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        is ArtworkSource.Uri -> {
-                            ImageRequest.Builder(context)
-                                .data(artworkSource.uri)
-                                .crossfade(true)
-                                .build()
+
+                        // Track title
+                        Text(
+                            text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+
+                        // Artist
+                        if (metadata.artist.isNotEmpty()) {
+                            Text(
+                                text = metadata.artist,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
-                        is ArtworkSource.Url -> {
-                            ImageRequest.Builder(context)
-                                .data(artworkSource.url)
-                                .crossfade(true)
-                                .build()
-                        }
-                        null -> null
                     }
 
-                    AsyncImage(
-                        model = imageRequest,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop,
-                        placeholder = painterResource(R.drawable.placeholder_album_simple),
-                        error = painterResource(R.drawable.placeholder_album_simple),
-                        fallback = painterResource(R.drawable.placeholder_album_simple)
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                // Track Info
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    // Server name with playing indicator
+                    // Controls
                     Row(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (isPlaying) {
+                        // Stop Button
+                        IconButton(
+                            onClick = onStopClick,
+                            modifier = Modifier.size(36.dp)
+                        ) {
                             Icon(
-                                painter = painterResource(R.drawable.ic_audio_playing),
-                                contentDescription = null,
-                                modifier = Modifier.size(14.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                                painter = painterResource(R.drawable.ic_stop),
+                                contentDescription = stringResource(R.string.disconnect),
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
                         }
-                        Text(
-                            text = serverName,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
 
-                    // Track title
-                    Text(
-                        text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    // Artist
-                    if (metadata.artist.isNotEmpty()) {
-                        Text(
-                            text = metadata.artist,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        // Play/Pause Button
+                        FilledIconButton(
+                            onClick = onPlayPauseClick,
+                            modifier = Modifier.size(40.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+                                ),
+                                contentDescription = stringResource(
+                                    if (isPlaying) R.string.accessibility_pause_button
+                                    else R.string.accessibility_play_button
+                                ),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
                     }
                 }
 
-                // Controls
+                // Bottom row: Volume slider
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Stop Button
-                    IconButton(
-                        onClick = onStopClick,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_stop),
-                            contentDescription = stringResource(R.string.disconnect),
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Play/Pause Button
-                    FilledIconButton(
-                        onClick = onPlayPauseClick,
-                        modifier = Modifier.size(44.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        )
-                    ) {
-                        Icon(
-                            painter = painterResource(
-                                if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-                            ),
-                            contentDescription = stringResource(
-                                if (isPlaying) R.string.accessibility_pause_button
-                                else R.string.accessibility_play_button
-                            ),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Volume Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_volume_down),
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Slider(
-                    value = volume,
-                    onValueChange = onVolumeChange,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp),
-                    valueRange = 0f..1f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary
+                    Icon(
+                        painter = painterResource(R.drawable.ic_volume_down),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                )
 
-                Icon(
-                    painter = painterResource(R.drawable.ic_volume_up),
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    Slider(
+                        value = volume,
+                        onValueChange = onVolumeChange,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 4.dp),
+                        valueRange = 0f..1f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+
+                    Icon(
+                        painter = painterResource(R.drawable.ic_volume_up),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

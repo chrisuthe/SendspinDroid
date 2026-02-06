@@ -27,7 +27,6 @@ import android.os.Looper
 import android.util.Log
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.debug.FileLogger
-import android.util.TypedValue
 import android.app.UiModeManager
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
@@ -52,9 +51,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.doOnLayout
 import androidx.core.view.updatePadding
-import com.google.android.material.appbar.AppBarLayout
 import androidx.palette.graphics.Palette
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
@@ -444,9 +441,6 @@ class MainActivity : AppCompatActivity() {
         initializeMediaController()
         setupUI()
 
-        // Apply mini-player position preference
-        updateMiniPlayerPosition()
-
         // Setup back press handling for navigation content
         setupBackPressHandler()
 
@@ -480,9 +474,6 @@ class MainActivity : AppCompatActivity() {
 
         // Re-setup all UI bindings
         setupUI()
-
-        // Re-apply mini-player position after re-inflating layout
-        updateMiniPlayerPosition()
 
         // Restore navigation state if we were showing navigation content
         if (isNavigationContentVisible) {
@@ -584,8 +575,7 @@ class MainActivity : AppCompatActivity() {
      * overlap with status bar, navigation bar, or display cutouts.
      */
     private fun setupWindowInsets() {
-        // mainContentArea only exists in landscape layout
-        val contentArea = binding.root.findViewById<View>(R.id.mainContentArea) ?: return
+        val contentArea = binding.contentArea ?: return
 
         ViewCompat.setOnApplyWindowInsetsListener(contentArea) { view, windowInsets ->
             val insets = windowInsets.getInsets(
@@ -755,97 +745,51 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Sets up the Compose-based mini player view with the ViewModel.
-     * The Compose UI observes ViewModel state and updates automatically.
+     * Sets up both Compose-based mini player views (top and bottom) with the ViewModel.
+     * Only one is visible at a time based on user setting.
      */
     private fun setupMiniPlayerComposeView() {
-        binding.miniPlayerComposeView?.apply {
-            viewModel = this@MainActivity.viewModel
+        listOf(binding.miniPlayerTop, binding.miniPlayerBottom).forEach { miniPlayer ->
+            miniPlayer?.apply {
+                viewModel = this@MainActivity.viewModel
 
-            onCardClick = {
-                Log.d(TAG, "Mini player tapped - returning to full player")
-                hideNavigationContent()
-            }
+                onCardClick = {
+                    Log.d(TAG, "Mini player tapped - returning to full player")
+                    hideNavigationContent()
+                }
 
-            onStopClick = {
-                Log.d(TAG, "Mini player: Stop/disconnect pressed")
-                // First return to full view, then disconnect
-                hideNavigationContent()
-                onDisconnectClicked()
-            }
+                onStopClick = {
+                    Log.d(TAG, "Mini player: Stop/disconnect pressed")
+                    // First return to full view, then disconnect
+                    hideNavigationContent()
+                    onDisconnectClicked()
+                }
 
-            onPlayPauseClick = {
-                Log.d(TAG, "Mini player: Play/Pause pressed")
-                onPlayPauseClicked()
-            }
+                onPlayPauseClick = {
+                    Log.d(TAG, "Mini player: Play/Pause pressed")
+                    onPlayPauseClicked()
+                }
 
-            onVolumeChange = { newVolume ->
-                // Compose slider uses 0-1 range
-                onVolumeChanged(newVolume)
+                onVolumeChange = { newVolume ->
+                    // Compose slider uses 0-1 range
+                    onVolumeChanged(newVolume)
+                }
             }
         }
     }
 
     /**
      * Updates the mini-player position based on user setting.
-     * TOP: Mini-player at top, fragment content below
-     * BOTTOM: Fragment content at top, mini-player at bottom (above bottom nav)
+     * Simply toggles visibility of top vs bottom mini player instances.
      */
     private fun updateMiniPlayerPosition() {
-        val navigationContentView = binding.navigationContentView as? ConstraintLayout ?: return
-        val miniPlayer = binding.miniPlayerComposeView ?: return
-        val fragmentContainer = binding.navFragmentContainer ?: return
+        if (!isNavigationContentVisible) return  // Only matters when nav content is showing
 
         val position = UserSettings.miniPlayerPosition
-        val constraintSet = ConstraintSet()
-        constraintSet.clone(navigationContentView)
-
-        // Bottom nav height - get actual height from the view if visible
-        // The bottom nav includes extra padding for system navigation bar (gesture nav)
-        val bottomNav = binding.bottomNavigation
-        val bottomNavHeightPx = if (bottomNav?.visibility == View.VISIBLE && bottomNav.height > 0) {
-            Log.d(TAG, "Using measured bottom nav height: ${bottomNav.height}px")
-            bottomNav.height
-        } else {
-            // Fallback: 56dp for bottom nav + estimate system nav bar
-            // On gesture navigation devices, this can be ~48dp extra
-            val density = resources.displayMetrics.density
-            val bottomNavDp = 56
-            val systemNavEstimateDp = 48 // Gesture navigation area
-            val totalHeightPx = ((bottomNavDp + systemNavEstimateDp) * density).toInt()
-            Log.d(TAG, "Using fallback bottom nav height: ${totalHeightPx}px (${bottomNavDp + systemNavEstimateDp}dp)")
-            totalHeightPx
-        }
-
-        if (position == UserSettings.MiniPlayerPosition.TOP) {
-            // Mini player at top, fragment below
-            // Mini player: top to parent top, clear bottom
-            constraintSet.connect(miniPlayer.id, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP)
-            constraintSet.clear(miniPlayer.id, ConstraintSet.BOTTOM)
-
-            // Fragment: top to mini player bottom, bottom to parent bottom
-            constraintSet.connect(fragmentContainer.id, ConstraintSet.TOP, miniPlayer.id, ConstraintSet.BOTTOM)
-            constraintSet.connect(fragmentContainer.id, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
-
-            // Margins: fragment has bottom margin for bottom nav, mini player has none
-            constraintSet.setMargin(fragmentContainer.id, ConstraintSet.BOTTOM, bottomNavHeightPx)
-            constraintSet.setMargin(miniPlayer.id, ConstraintSet.BOTTOM, 0)
-        } else {
-            // Mini player at bottom, fragment above
-            // Fragment: top to parent top, bottom to mini player top
-            constraintSet.connect(fragmentContainer.id, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP)
-            constraintSet.connect(fragmentContainer.id, ConstraintSet.BOTTOM, miniPlayer.id, ConstraintSet.TOP)
-
-            // Mini player: bottom to parent bottom, clear top constraint to parent
-            constraintSet.clear(miniPlayer.id, ConstraintSet.TOP)
-            constraintSet.connect(miniPlayer.id, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM)
-
-            // Margins: mini player has bottom margin for bottom nav, fragment has none
-            constraintSet.setMargin(miniPlayer.id, ConstraintSet.BOTTOM, bottomNavHeightPx)
-            constraintSet.setMargin(fragmentContainer.id, ConstraintSet.BOTTOM, 0)
-        }
-
-        constraintSet.applyTo(navigationContentView)
+        binding.miniPlayerTop?.visibility =
+            if (position == UserSettings.MiniPlayerPosition.TOP) View.VISIBLE else View.GONE
+        binding.miniPlayerBottom?.visibility =
+            if (position == UserSettings.MiniPlayerPosition.BOTTOM) View.VISIBLE else View.GONE
     }
 
     /**
@@ -859,18 +803,21 @@ class MainActivity : AppCompatActivity() {
             viewModel.setNavigationContentVisible(true)
             Log.d(TAG, "Showing navigation content")
 
-            // Hide full player / server list
-            binding.nowPlayingView?.visibility = View.GONE
+            // Content visibility: show nav fragment, hide others
+            binding.nowPlayingView.visibility = View.GONE
             binding.serverListView?.visibility = View.GONE
+            binding.navFragmentContainer?.visibility = View.VISIBLE
             binding.addServerFab?.visibility = View.GONE
 
-            // Show navigation content with mini player
-            binding.navigationContentView?.visibility = View.VISIBLE
+            // Show mini player in correct position
+            val position = UserSettings.miniPlayerPosition
+            binding.miniPlayerTop?.visibility =
+                if (position == UserSettings.MiniPlayerPosition.TOP) View.VISIBLE else View.GONE
+            binding.miniPlayerBottom?.visibility =
+                if (position == UserSettings.MiniPlayerPosition.BOTTOM) View.VISIBLE else View.GONE
 
             // Clear the big player background (blurred art + tint) when navigating away
             clearPlayerBackground()
-
-            // Mini player updates automatically via Compose/ViewModel state observation
         }
 
         // Load the fragment
@@ -890,8 +837,10 @@ class MainActivity : AppCompatActivity() {
             viewModel.setNavigationContentVisible(false)
             Log.d(TAG, "Hiding navigation content, returning to full player")
 
-            // Hide navigation content
-            binding.navigationContentView?.visibility = View.GONE
+            // Hide nav content and both mini players
+            binding.navFragmentContainer?.visibility = View.GONE
+            binding.miniPlayerTop?.visibility = View.GONE
+            binding.miniPlayerBottom?.visibility = View.GONE
 
             // Restore the appropriate view based on connection state
             when (connectionState) {
@@ -902,7 +851,7 @@ class MainActivity : AppCompatActivity() {
                 is AppConnectionState.Connected,
                 is AppConnectionState.Connecting,
                 is AppConnectionState.Reconnecting -> {
-                    binding.nowPlayingView?.visibility = View.VISIBLE
+                    binding.nowPlayingView.visibility = View.VISIBLE
                     // Restore the big player background (blurred art + tint)
                     restorePlayerBackground()
                 }
@@ -1157,18 +1106,17 @@ class MainActivity : AppCompatActivity() {
         // Clear toolbar subtitle when not connected
         supportActionBar?.subtitle = null
 
-        // Always show app bar in non-playing views
-        binding.appBarLayout.visibility = View.VISIBLE
-        // Reset toolbar content insets (may have been offset for landscape now-playing)
-        val defaultInset = (16 * resources.displayMetrics.density).toInt()
-        binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
-
-        // Animate view transitions
+        // Content visibility
         if (binding.serverListView?.visibility != View.VISIBLE) {
             binding.serverListView?.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
         }
         binding.serverListView?.visibility = View.VISIBLE
         binding.nowPlayingView.visibility = View.GONE
+        binding.navFragmentContainer?.visibility = View.GONE
+
+        // No mini player on server list
+        binding.miniPlayerTop?.visibility = View.GONE
+        binding.miniPlayerBottom?.visibility = View.GONE
 
         // Show FAB for adding servers
         binding.addServerFab?.visibility = View.VISIBLE
@@ -1287,56 +1235,18 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.title = if (isPlaying) "Playing" else "Paused"
         supportActionBar?.subtitle = null
 
-        // In landscape, keep toolbar visible but only over the right side (controls area)
-        val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        binding.appBarLayout.visibility = View.VISIBLE
-
-        val mainContentArea = binding.root.findViewById<View>(R.id.mainContentArea)
-        if (isLandscape) {
-            // Remove scrolling behavior so content fills full screen under the AppBarLayout
-            mainContentArea?.let { content ->
-                val params = content.layoutParams as? CoordinatorLayout.LayoutParams
-                params?.behavior = null
-                content.layoutParams = params
-            }
-
-            // Push toolbar title to align with the controls container; toolbar stays full-width
-            // so the overflow menu button renders at the right edge
-            binding.controlsContainer?.doOnLayout { controls ->
-                val controlsLoc = IntArray(2).also { controls.getLocationInWindow(it) }
-                val toolbarLoc = IntArray(2).also { binding.toolbar.getLocationInWindow(it) }
-                val inset = controlsLoc[0] - toolbarLoc[0]
-                binding.toolbar.setContentInsetsAbsolute(inset, 0)
-            }
-
-            // Push controls down below the toolbar overlay
-            val actionBarSize = TypedValue().let { tv ->
-                theme.resolveAttribute(android.R.attr.actionBarSize, tv, true)
-                TypedValue.complexToDimensionPixelSize(tv.data, resources.displayMetrics)
-            }
-            binding.controlsContainer?.setPadding(0, actionBarSize, 0, 0)
-        } else {
-            // Portrait: restore normal scrolling behavior and reset toolbar insets
-            mainContentArea?.let { content ->
-                val params = content.layoutParams as? CoordinatorLayout.LayoutParams
-                params?.behavior = AppBarLayout.ScrollingViewBehavior()
-                content.layoutParams = params
-            }
-            val defaultInset = (16 * resources.displayMetrics.density).toInt()
-            binding.toolbar.setContentInsetsAbsolute(defaultInset, 0)
-            binding.controlsContainer?.setPadding(0, 0, 0, 0)
-        }
-
+        // Content visibility
         binding.serverListView?.visibility = View.GONE
         binding.nowPlayingView.visibility = View.VISIBLE
+        binding.navFragmentContainer?.visibility = View.GONE
+
+        // No mini player on full player view
+        binding.miniPlayerTop?.visibility = View.GONE
+        binding.miniPlayerBottom?.visibility = View.GONE
 
         // Hide FAB when in now playing view
         binding.addServerFab?.visibility = View.GONE
 
-        // Animate view transition with slide up
-        if (binding.nowPlayingView.visibility != View.VISIBLE) {
-            binding.nowPlayingView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.slide_in_up))
-        }
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
 
@@ -2598,7 +2508,6 @@ class MainActivity : AppCompatActivity() {
      * Observes Music Assistant connection state to show/hide MA-dependent UI elements.
      * - Favorite button: only visible when connected to MA
      * - Bottom navigation: only visible when connected to MA (Home/Search/Library need MA API)
-     * - FAB margin: adjusted based on bottom nav visibility
      */
     private fun observeMaConnectionState() {
         lifecycleScope.launch {
@@ -2609,18 +2518,8 @@ class MainActivity : AppCompatActivity() {
                 binding.favoriteButton?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
 
                 // Bottom navigation visibility - only show when MA is connected
+                // LinearLayout stack handles spacing automatically, no margin hacks needed
                 binding.bottomNavigation?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
-
-                // Adjust FAB margin based on bottom nav visibility
-                binding.addServerFab?.let { fab ->
-                    val params = fab.layoutParams as? CoordinatorLayout.LayoutParams
-                    params?.let {
-                        val density = resources.displayMetrics.density
-                        // 72dp when bottom nav visible, 16dp when hidden
-                        it.bottomMargin = ((if (isMaConnected) 72 else 16) * density).toInt()
-                        fab.layoutParams = it
-                    }
-                }
 
                 // If MA disconnects while showing navigation content, return to full player
                 if (!isMaConnected && isNavigationContentVisible) {
