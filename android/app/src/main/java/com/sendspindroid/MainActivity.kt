@@ -87,6 +87,7 @@ import com.sendspindroid.ui.navigation.HomeFragment
 import com.sendspindroid.ui.navigation.SearchFragment
 import com.sendspindroid.ui.navigation.LibraryFragment
 import com.sendspindroid.ui.navigation.PlaylistsFragment
+import com.sendspindroid.ui.queue.QueueSheetFragment
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
 import kotlinx.coroutines.flow.collectLatest
@@ -702,7 +703,12 @@ class MainActivity : AppCompatActivity() {
             onFavoriteClicked()
         }
 
-        // Observe MA connection state to show/hide favorite button
+        // Queue button - Only visible when connected to MA server
+        binding.queueButton?.setOnClickListener {
+            showQueueSheet()
+        }
+
+        // Observe MA connection state to show/hide MA-dependent UI elements
         observeMaConnectionState()
 
         // Volume slider - controls device STREAM_MUSIC (Spotify-style)
@@ -2619,8 +2625,29 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Shows the queue management bottom sheet.
+     * Displays the current queue from Music Assistant with controls for
+     * reordering, removing, and jumping to tracks.
+     */
+    private fun showQueueSheet() {
+        Log.d(TAG, "Queue button clicked - showing queue sheet")
+
+        // Avoid showing multiple instances
+        val existing = supportFragmentManager.findFragmentByTag(QueueSheetFragment.TAG)
+        if (existing != null) return
+
+        val fragment = QueueSheetFragment.newInstance()
+        fragment.onBrowseLibrary = {
+            // Navigate to Library tab when "Browse Library" is tapped from empty queue
+            binding.bottomNavigation?.selectedItemId = R.id.nav_library
+        }
+        fragment.show(supportFragmentManager, QueueSheetFragment.TAG)
+    }
+
+    /**
      * Observes Music Assistant connection state to show/hide MA-dependent UI elements.
      * - Favorite button: only visible when connected to MA
+     * - Queue button: only visible when connected to MA
      * - Bottom navigation: only visible when connected to MA (Home/Search/Library need MA API)
      */
     private fun observeMaConnectionState() {
@@ -2630,6 +2657,9 @@ class MainActivity : AppCompatActivity() {
 
                 // Favorite button visibility
                 binding.favoriteButton?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
+
+                // Queue button visibility
+                binding.queueButton?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
 
                 // Bottom navigation visibility - only show when MA is connected
                 // LinearLayout stack handles spacing automatically, no margin hacks needed

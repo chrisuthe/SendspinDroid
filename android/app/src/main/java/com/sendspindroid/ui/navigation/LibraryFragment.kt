@@ -78,7 +78,8 @@ class LibraryFragment : Fragment() {
                             bulkAddState = null
                             selectedPlaylist = null
                         },
-                        onAddToQueue = { item -> addToQueue(item) }
+                        onAddToQueue = { item -> addToQueue(item) },
+                        onPlayNext = { item -> playNext(item) }
                     )
 
                     // Playlist picker dialog
@@ -211,6 +212,44 @@ class LibraryFragment : Fragment() {
                     Toast.makeText(
                         context,
                         "Failed to add to queue: ${error.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            )
+        }
+    }
+
+    /**
+     * Insert an item to play next in the queue (after the current track).
+     */
+    private fun playNext(item: MaLibraryItem) {
+        val uri = item.uri
+        if (uri.isNullOrBlank()) {
+            Log.w(TAG, "Item ${item.name} has no URI, cannot play next")
+            Toast.makeText(context, "Cannot play next: no URI available", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Log.d(TAG, "Play next: ${item.name} (uri=$uri)")
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            val result = MusicAssistantManager.playMedia(
+                uri,
+                item.mediaType.name.lowercase(),
+                enqueueMode = MusicAssistantManager.EnqueueMode.NEXT
+            )
+            result.fold(
+                onSuccess = {
+                    Log.d(TAG, "Playing next: ${item.name}")
+                    (activity as? MainActivity)?.showSuccessSnackbar(
+                        "Playing next: ${item.name}"
+                    )
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to play next: ${item.name}", error)
+                    Toast.makeText(
+                        context,
+                        "Failed to play next: ${error.message}",
                         Toast.LENGTH_SHORT
                     ).show()
                 }

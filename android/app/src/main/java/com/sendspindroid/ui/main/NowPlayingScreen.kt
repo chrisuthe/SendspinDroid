@@ -38,6 +38,7 @@ import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.ui.main.components.AlbumArtCard
 import com.sendspindroid.ui.main.components.ConnectionProgress
 import com.sendspindroid.ui.main.components.PlaybackControls
+import com.sendspindroid.ui.main.components.QueueButton
 import com.sendspindroid.ui.main.components.ReconnectingBanner
 import com.sendspindroid.ui.main.components.VolumeSlider
 import com.sendspindroid.ui.theme.SendSpinTheme
@@ -57,6 +58,7 @@ fun NowPlayingScreen(
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onQueueClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
@@ -114,7 +116,8 @@ fun NowPlayingScreen(
                 onNextClick = onNextClick,
                 onSwitchGroupClick = onSwitchGroupClick,
                 onFavoriteClick = onFavoriteClick,
-                onVolumeChange = onVolumeChange
+                onVolumeChange = onVolumeChange,
+                onQueueClick = onQueueClick
             )
         } else {
             NowPlayingPortrait(
@@ -132,7 +135,8 @@ fun NowPlayingScreen(
                 onNextClick = onNextClick,
                 onSwitchGroupClick = onSwitchGroupClick,
                 onFavoriteClick = onFavoriteClick,
-                onVolumeChange = onVolumeChange
+                onVolumeChange = onVolumeChange,
+                onQueueClick = onQueueClick
             )
         }
 
@@ -168,6 +172,7 @@ private fun NowPlayingPortrait(
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onQueueClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -260,6 +265,13 @@ private fun NowPlayingPortrait(
             accentColor = accentColor
         )
 
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Queue button
+        if (isMaConnected) {
+            QueueButton(onClick = onQueueClick)
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
     }
 }
@@ -284,6 +296,7 @@ private fun NowPlayingLandscape(
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    onQueueClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -379,6 +392,12 @@ private fun NowPlayingLandscape(
                 enabled = controlsEnabled,
                 accentColor = accentColor
             )
+
+            // Queue button
+            if (isMaConnected) {
+                Spacer(modifier = Modifier.height(8.dp))
+                QueueButton(onClick = onQueueClick)
+            }
         }
     }
 }
@@ -424,7 +443,8 @@ private fun NowPlayingPortraitPreview() {
             onNextClick = {},
             onSwitchGroupClick = {},
             onFavoriteClick = {},
-            onVolumeChange = {}
+            onVolumeChange = {},
+            onQueueClick = {}
         )
     }
 }
@@ -452,7 +472,8 @@ private fun NowPlayingLandscapePreview() {
             onNextClick = {},
             onSwitchGroupClick = {},
             onFavoriteClick = {},
-            onVolumeChange = {}
+            onVolumeChange = {},
+            onQueueClick = {}
         )
     }
 }
@@ -476,7 +497,8 @@ private fun NowPlayingBufferingPreview() {
             onNextClick = {},
             onSwitchGroupClick = {},
             onFavoriteClick = {},
-            onVolumeChange = {}
+            onVolumeChange = {},
+            onQueueClick = {}
         )
     }
 }

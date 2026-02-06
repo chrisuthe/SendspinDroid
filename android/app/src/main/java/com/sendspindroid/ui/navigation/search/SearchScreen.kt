@@ -67,7 +67,8 @@ fun SearchScreen(
     viewModel: SearchViewModel,
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
-    onAddToQueue: (MaLibraryItem) -> Unit = {}
+    onAddToQueue: (MaLibraryItem) -> Unit = {},
+    onPlayNext: (MaLibraryItem) -> Unit = {}
 ) {
     val state by viewModel.searchState.collectAsState()
 
@@ -80,7 +81,8 @@ fun SearchScreen(
             onItemClick(item)
         },
         onAddToPlaylist = onAddToPlaylist,
-        onAddToQueue = onAddToQueue
+        onAddToQueue = onAddToQueue,
+        onPlayNext = onPlayNext
     )
 }
 
@@ -92,7 +94,8 @@ private fun SearchScreenContent(
     onFilterToggle: (MaMediaType, Boolean) -> Unit,
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
-    onAddToQueue: (MaLibraryItem) -> Unit = {}
+    onAddToQueue: (MaLibraryItem) -> Unit = {},
+    onPlayNext: (MaLibraryItem) -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -144,7 +147,8 @@ private fun SearchScreenContent(
                             results = state.results,
                             onItemClick = onItemClick,
                             onAddToPlaylist = onAddToPlaylist,
-                            onAddToQueue = onAddToQueue
+                            onAddToQueue = onAddToQueue,
+                            onPlayNext = onPlayNext
                         )
                     }
                     else -> {
@@ -233,6 +237,7 @@ private fun SearchResultsList(
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},
+    onPlayNext: (MaLibraryItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -252,7 +257,8 @@ private fun SearchResultsList(
                     item = artist,
                     onClick = { onItemClick(artist) },
                     onAddToPlaylist = { onAddToPlaylist(artist) },
-                    onAddToQueue = { onAddToQueue(artist) }
+                    onAddToQueue = { onAddToQueue(artist) },
+                    onPlayNext = { onPlayNext(artist) }
                 )
             }
         }
@@ -270,7 +276,8 @@ private fun SearchResultsList(
                     item = album,
                     onClick = { onItemClick(album) },
                     onAddToPlaylist = { onAddToPlaylist(album) },
-                    onAddToQueue = { onAddToQueue(album) }
+                    onAddToQueue = { onAddToQueue(album) },
+                    onPlayNext = { onPlayNext(album) }
                 )
             }
         }
@@ -288,7 +295,8 @@ private fun SearchResultsList(
                     item = track,
                     onClick = { onItemClick(track) },
                     onAddToPlaylist = { onAddToPlaylist(track) },
-                    onAddToQueue = { onAddToQueue(track) }
+                    onAddToQueue = { onAddToQueue(track) },
+                    onPlayNext = { onPlayNext(track) }
                 )
             }
         }

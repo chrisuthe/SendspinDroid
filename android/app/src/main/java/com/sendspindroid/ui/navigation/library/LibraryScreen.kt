@@ -54,7 +54,8 @@ fun LibraryScreen(
     onArtistClick: (MaArtist) -> Unit,
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
-    onAddToQueue: (MaLibraryItem) -> Unit = {}
+    onAddToQueue: (MaLibraryItem) -> Unit = {},
+    onPlayNext: (MaLibraryItem) -> Unit = {}
 ) {
     val tabs = LibraryViewModel.ContentType.entries
     val pagerState = rememberPagerState(pageCount = { tabs.size })
@@ -118,7 +119,8 @@ fun LibraryScreen(
                         handleItemClick(item, onAlbumClick, onArtistClick, onItemClick)
                     },
                     onAddToPlaylist = onAddToPlaylist,
-                    onAddToQueue = onAddToQueue
+                    onAddToQueue = onAddToQueue,
+                    onPlayNext = onPlayNext
                 )
             }
         }
