@@ -8,7 +8,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AbstractComposeView
-import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.ui.main.components.MiniPlayer
 import com.sendspindroid.ui.theme.SendSpinTheme
 
@@ -42,18 +41,9 @@ class MiniPlayerComposeView @JvmOverloads constructor(
         val artworkSource by vm.artworkSource.collectAsState()
         val isPlaying by vm.isPlaying.collectAsState()
         val volume by vm.volume.collectAsState()
-        val connectionState by vm.connectionState.collectAsState()
-
-        // Get server name from connection state
-        val serverName = when (val state = connectionState) {
-            is AppConnectionState.Connected -> state.serverName
-            is AppConnectionState.Reconnecting -> state.serverName
-            else -> ""
-        }
 
         SendSpinTheme {
             MiniPlayer(
-                serverName = serverName,
                 metadata = metadata,
                 artworkSource = artworkSource,
                 isPlaying = isPlaying,

@@ -760,8 +760,8 @@ class MainActivity : AppCompatActivity() {
 
                 onStopClick = {
                     Log.d(TAG, "Mini player: Stop/disconnect pressed")
-                    // First return to full view, then disconnect
-                    hideNavigationContent()
+                    // Just disconnect -- state machine will transition to ServerList
+                    // and call showServerListView() via PlayerStateListener
                     onDisconnectClicked()
                 }
 
@@ -820,6 +820,9 @@ class MainActivity : AppCompatActivity() {
             clearPlayerBackground()
         }
 
+        // Update toolbar to reflect the current tab
+        updateToolbarForNavigation()
+
         // Load the fragment
         supportFragmentManager.beginTransaction()
             .replace(R.id.navFragmentContainer, fragment)
@@ -842,6 +845,11 @@ class MainActivity : AppCompatActivity() {
             binding.miniPlayerTop?.visibility = View.GONE
             binding.miniPlayerBottom?.visibility = View.GONE
 
+            // Clear any fragment back stack (detail screens)
+            for (i in 0 until supportFragmentManager.backStackEntryCount) {
+                supportFragmentManager.popBackStackImmediate()
+            }
+
             // Restore the appropriate view based on connection state
             when (connectionState) {
                 is AppConnectionState.ServerList -> {
@@ -854,6 +862,9 @@ class MainActivity : AppCompatActivity() {
                     binding.nowPlayingView.visibility = View.VISIBLE
                     // Restore the big player background (blurred art + tint)
                     restorePlayerBackground()
+                    // Ensure volume slider matches device volume
+                    syncSliderWithDeviceVolume()
+                    updateToolbarForNowPlaying()
                 }
                 is AppConnectionState.Error -> {
                     binding.serverListView?.visibility = View.VISIBLE
@@ -870,7 +881,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // updateMiniPlayer() removed - Compose MiniPlayer observes ViewModel state directly
+    // -- Toolbar title management --
+
+    /**
+     * Updates the toolbar title/subtitle for the current navigation tab.
+     * No back button since tabs are top-level destinations.
+     */
+    private fun updateToolbarForNavigation() {
+        supportActionBar?.title = when (currentNavTab) {
+            R.id.nav_home -> getString(R.string.nav_home)
+            R.id.nav_search -> getString(R.string.nav_search)
+            R.id.nav_library -> getString(R.string.nav_library)
+            else -> getString(R.string.app_name)
+        }
+        supportActionBar?.subtitle = null
+        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+    }
+
+    /**
+     * Updates the toolbar for a detail screen (album, artist, etc).
+     * Shows a back arrow and the detail title.
+     */
+    fun updateToolbarForDetail(title: String) {
+        supportActionBar?.title = title
+        supportActionBar?.subtitle = null
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+    }
+
+    /**
+     * Restores the toolbar for the now playing screen.
+     */
+    private fun updateToolbarForNowPlaying() {
+        supportActionBar?.title = getString(R.string.now_playing)
+        supportActionBar?.subtitle = null
+        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+    }
 
     /**
      * Sets up the back press handler to return from navigation content to full player.
@@ -880,8 +925,14 @@ class MainActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (isNavigationContentVisible) {
-                    // Return to full player from navigation content
-                    hideNavigationContent()
+                    if (supportFragmentManager.backStackEntryCount > 0) {
+                        // Pop detail fragment back to tab root (e.g., Album -> Home)
+                        supportFragmentManager.popBackStack()
+                        updateToolbarForNavigation()
+                    } else {
+                        // At tab root -- return to full player
+                        hideNavigationContent()
+                    }
                 } else {
                     // Default back behavior (exit app or navigate back)
                     isEnabled = false
@@ -1103,8 +1154,16 @@ class MainActivity : AppCompatActivity() {
      * mDNS discovery runs in the background, updating the discovered section.
      */
     private fun showServerListView() {
-        // Clear toolbar subtitle when not connected
+        // Reset navigation state -- we're leaving browsing/player for the server list
+        if (isNavigationContentVisible) {
+            isNavigationContentVisible = false
+            viewModel.setNavigationContentVisible(false)
+        }
+
+        // Set toolbar to app name
+        supportActionBar?.title = getString(R.string.app_name)
         supportActionBar?.subtitle = null
+        supportActionBar?.setDisplayHomeAsUpEnabled(false)
 
         // Content visibility
         if (binding.serverListView?.visibility != View.VISIBLE) {
@@ -1230,10 +1289,7 @@ class MainActivity : AppCompatActivity() {
      * Called when connected to a server.
      */
     private fun showNowPlayingView(serverName: String) {
-        // Set toolbar state based on current playing state, no subtitle
-        val isPlaying = mediaController?.isPlaying == true
-        supportActionBar?.title = if (isPlaying) "Playing" else "Paused"
-        supportActionBar?.subtitle = null
+        updateToolbarForNowPlaying()
 
         // Content visibility
         binding.serverListView?.visibility = View.GONE
@@ -1259,6 +1315,7 @@ class MainActivity : AppCompatActivity() {
         syncSliderWithDeviceVolume()
 
         // Sync play/pause button with current state
+        val isPlaying = mediaController?.isPlaying == true
         updatePlayPauseButton(isPlaying)
     }
 
@@ -1666,6 +1723,13 @@ class MainActivity : AppCompatActivity() {
                 val serverName = extras.getString(PlaybackService.EXTRA_SERVER_NAME, "Unknown Server")
                 Log.d(TAG, "Connected to: $serverName")
 
+                // Only act on actual connection transitions (Connecting/Reconnecting -> Connected).
+                // broadcastSessionExtras() re-sends STATE_CONNECTED on every metadata/volume/group
+                // update, so we must ignore it when already Connected.
+                if (connectionState is AppConnectionState.Connected) {
+                    return
+                }
+
                 // Get address from current connecting state or reconnecting state
                 val address = when (val currentState = connectionState) {
                     is AppConnectionState.Connecting -> currentState.serverAddress
@@ -1862,7 +1926,9 @@ class MainActivity : AppCompatActivity() {
                         enablePlaybackControls(true)
                         hideConnectionLoading()
                         hideBufferingIndicator()
-                        // Transition to Connected state and show now playing view
+                        // Only show now playing on initial connection (Connecting -> Connected).
+                        // If already Connected, do NOT call showNowPlayingView() --
+                        // the user may be browsing tabs or interacting with the mini player.
                         val currentState = connectionState
                         if (currentState is AppConnectionState.Connecting) {
                             connectionState = AppConnectionState.Connected(
@@ -1870,8 +1936,6 @@ class MainActivity : AppCompatActivity() {
                                 currentState.serverAddress
                             )
                             viewModel.updateConnectionState(connectionState)
-                            showNowPlayingView(currentState.serverName)
-                        } else if (currentState is AppConnectionState.Connected) {
                             showNowPlayingView(currentState.serverName)
                         }
                         // Announce connection for accessibility
@@ -2618,7 +2682,8 @@ class MainActivity : AppCompatActivity() {
         val sliderValue = ((currentVolume.toFloat() / maxVolume) * 100).toInt().toFloat()
         binding.volumeSlider.value = sliderValue
 
-        // Mini player volume updates automatically via Compose/ViewModel state observation
+        // Sync Compose UI (mini player + now playing Compose slider)
+        viewModel.updateVolume(sliderValue / 100f)
 
         Log.d(TAG, "Synced slider with device volume: $currentVolume/$maxVolume ($sliderValue%)")
     }
@@ -2743,14 +2808,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updatePlaybackState(state: String) {
-        // Show playback state in the toolbar title
-        supportActionBar?.title = when (state) {
-            "playing" -> "Playing"
-            "paused" -> "Paused"
-            "stopped" -> "Stopped"
-            else -> "Not Playing"
-        }
+    private fun updatePlaybackState(@Suppress("UNUSED_PARAMETER") state: String) {
+        // Toolbar title is now managed by updateToolbarForNowPlaying/updateToolbarForNavigation.
+        // This method is kept for future use (e.g., notification updates).
     }
 
     /**
@@ -2762,11 +2822,9 @@ class MainActivity : AppCompatActivity() {
         if (isPlaying) {
             binding.playPauseButton.setIconResource(R.drawable.ic_pause)
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_pause_button)
-            supportActionBar?.title = "Playing"
         } else {
             binding.playPauseButton.setIconResource(R.drawable.ic_play)
             binding.playPauseButton.contentDescription = getString(R.string.accessibility_play_button)
-            supportActionBar?.title = "Paused"
         }
 
         // Mini player updates automatically via Compose/ViewModel state observation
@@ -3221,6 +3279,14 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
+            android.R.id.home -> {
+                // Toolbar back button -- pop detail fragment back to tab root
+                if (supportFragmentManager.backStackEntryCount > 0) {
+                    supportFragmentManager.popBackStack()
+                    updateToolbarForNavigation()
+                }
+                true
+            }
             R.id.action_stats -> {
                 // Show Stats for Nerds bottom sheet
                 StatsBottomSheet().show(supportFragmentManager, "stats")

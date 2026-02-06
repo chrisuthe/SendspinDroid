@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
+import com.sendspindroid.MainActivity
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -45,9 +46,6 @@ class ArtistDetailFragment : Fragment() {
                 SendSpinTheme {
                     ArtistDetailScreen(
                         artistId = artistId,
-                        onBackClick = {
-                            parentFragmentManager.popBackStack()
-                        },
                         onAlbumClick = { album ->
                             // Navigate to album detail
                             parentFragmentManager.beginTransaction()
@@ -65,6 +63,13 @@ class ArtistDetailFragment : Fragment() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Update the Activity toolbar with artist name and back button
+        val artistName = arguments?.getString(ARG_ARTIST_NAME) ?: ""
+        (activity as? MainActivity)?.updateToolbarForDetail(artistName)
     }
 
     companion object {

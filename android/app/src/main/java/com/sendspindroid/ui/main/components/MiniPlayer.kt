@@ -1,5 +1,6 @@
 package com.sendspindroid.ui.main.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,7 +36,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.sendspindroid.R
@@ -48,10 +46,11 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 /**
  * Mini player card shown when navigating to Home/Search/Library tabs.
  * Displays current track info with compact controls.
+ *
+ * Only tapping the album art opens the full player view.
  */
 @Composable
 fun MiniPlayer(
-    serverName: String,
     metadata: TrackMetadata,
     artworkSource: ArtworkSource?,
     isPlaying: Boolean,
@@ -65,14 +64,13 @@ fun MiniPlayer(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(88.dp)
-            .clickable(onClick = onCardClick),
+            .height(88.dp),
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
         Row(
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Album Art - full height, square, flush left
+            // Album Art - tappable to open full player, with up-arrow overlay
             val context = LocalContext.current
             val imageRequest = when (artworkSource) {
                 is ArtworkSource.ByteArray -> {
@@ -96,17 +94,40 @@ fun MiniPlayer(
                 null -> null
             }
 
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = null,
+            Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .aspectRatio(1f),
-                contentScale = ContentScale.Crop,
-                placeholder = painterResource(R.drawable.placeholder_album_simple),
-                error = painterResource(R.drawable.placeholder_album_simple),
-                fallback = painterResource(R.drawable.placeholder_album_simple)
-            )
+                    .aspectRatio(1f)
+                    .clickable(onClick = onCardClick)
+            ) {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = stringResource(R.string.accessibility_open_full_player),
+                    modifier = Modifier.matchParentSize(),
+                    contentScale = ContentScale.Crop,
+                    placeholder = painterResource(R.drawable.placeholder_album_simple),
+                    error = painterResource(R.drawable.placeholder_album_simple),
+                    fallback = painterResource(R.drawable.placeholder_album_simple)
+                )
+                // Up-arrow hint overlay at bottom-center
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 2.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(4.dp)
+                        )
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_expand_up),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
 
             // Right side content
             Column(
@@ -121,11 +142,11 @@ fun MiniPlayer(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Track Info
+                    // Track Info (not clickable -- only album art opens full player)
                     Column(
                         modifier = Modifier.weight(1f)
                     ) {
-                        // Server name with playing indicator
+                        // Track title with playing indicator
                         Row(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -139,24 +160,14 @@ fun MiniPlayer(
                                 Spacer(modifier = Modifier.width(4.dp))
                             }
                             Text(
-                                text = serverName,
-                                style = MaterialTheme.typography.labelSmall,
+                                text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
+                                style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
-
-                        // Track title
-                        Text(
-                            text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
 
                         // Artist
                         if (metadata.artist.isNotEmpty()) {
@@ -252,7 +263,6 @@ fun MiniPlayer(
 private fun MiniPlayerPreview() {
     SendSpinTheme {
         MiniPlayer(
-            serverName = "Living Room",
             metadata = TrackMetadata(
                 title = "Track Title Goes Here",
                 artist = "Artist Name",
@@ -274,7 +284,6 @@ private fun MiniPlayerPreview() {
 private fun MiniPlayerNotPlayingPreview() {
     SendSpinTheme {
         MiniPlayer(
-            serverName = "Kitchen",
             metadata = TrackMetadata.EMPTY,
             artworkSource = null,
             isPlaying = false,
