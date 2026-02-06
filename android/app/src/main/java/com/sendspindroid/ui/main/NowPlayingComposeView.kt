@@ -43,6 +43,7 @@ class NowPlayingComposeView @JvmOverloads constructor(
     private var onSwitchGroupClick: () -> Unit = {}
     private var onFavoriteClick: () -> Unit = {}
     private var onVolumeChange: (Float) -> Unit = {}
+    private var onQueueClick: () -> Unit = {}
 
     /**
      * Sets the ViewModel that provides state for this view.
@@ -60,7 +61,8 @@ class NowPlayingComposeView @JvmOverloads constructor(
         onNextClick: () -> Unit,
         onSwitchGroupClick: () -> Unit,
         onFavoriteClick: () -> Unit,
-        onVolumeChange: (Float) -> Unit
+        onVolumeChange: (Float) -> Unit,
+        onQueueClick: () -> Unit = {}
     ) {
         this.onPreviousClick = onPreviousClick
         this.onPlayPauseClick = onPlayPauseClick
@@ -68,6 +70,7 @@ class NowPlayingComposeView @JvmOverloads constructor(
         this.onSwitchGroupClick = onSwitchGroupClick
         this.onFavoriteClick = onFavoriteClick
         this.onVolumeChange = onVolumeChange
+        this.onQueueClick = onQueueClick
     }
 
     @Composable
@@ -82,7 +85,8 @@ class NowPlayingComposeView @JvmOverloads constructor(
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
-                    onVolumeChange = onVolumeChange
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = onQueueClick
                 )
             }
         }

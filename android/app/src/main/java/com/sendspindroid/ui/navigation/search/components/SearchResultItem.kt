@@ -60,6 +60,7 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * @param onClick Called when the item is tapped
  * @param onAddToPlaylist Called when "Add to Playlist" is selected (tracks, albums, artists)
  * @param onAddToQueue Called when "Add to Queue" is selected (tracks, albums, artists)
+ * @param onPlayNext Called when "Play Next" is selected (tracks, albums, artists)
  * @param modifier Modifier for the item
  */
 @Composable
@@ -68,10 +69,11 @@ fun SearchResultItem(
     onClick: () -> Unit,
     onAddToPlaylist: (() -> Unit)? = null,
     onAddToQueue: (() -> Unit)? = null,
+    onPlayNext: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val isActionableType = item is MaTrack || item is MaAlbum || item is MaArtist
-    val showOverflow = isActionableType && (onAddToPlaylist != null || onAddToQueue != null)
+    val showOverflow = isActionableType && (onAddToPlaylist != null || onAddToQueue != null || onPlayNext != null)
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -150,6 +152,19 @@ fun SearchResultItem(
                             onClick()
                         }
                     )
+
+                    if (onPlayNext != null) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.play_next)) },
+                            leadingIcon = {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            },
+                            onClick = {
+                                showMenu = false
+                                onPlayNext()
+                            }
+                        )
+                    }
 
                     if (onAddToQueue != null) {
                         DropdownMenuItem(

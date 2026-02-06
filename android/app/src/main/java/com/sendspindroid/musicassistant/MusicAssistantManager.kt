@@ -138,6 +138,34 @@ data class MaRadio(
 }
 
 /**
+ * Represents an item in the player queue from Music Assistant.
+ *
+ * Queue items have their own queue_item_id which is distinct from the
+ * media item's library ID. The queue_item_id is needed for operations
+ * like remove, reorder, and jump-to.
+ */
+data class MaQueueItem(
+    val queueItemId: String,
+    val name: String,
+    val artist: String?,
+    val album: String?,
+    val imageUri: String?,
+    val duration: Long?,       // seconds
+    val uri: String?,          // media URI (e.g., "library://track/123")
+    val isCurrentItem: Boolean // is this the currently playing track
+)
+
+/**
+ * Represents the full queue state including settings.
+ */
+data class MaQueueState(
+    val items: List<MaQueueItem>,
+    val currentIndex: Int,
+    val shuffleEnabled: Boolean,
+    val repeatMode: String     // "off", "one", "all"
+)
+
+/**
  * Global singleton managing Music Assistant API availability.
  *
  * Provides a single source of truth for whether MA features should be
@@ -526,19 +554,37 @@ object MusicAssistantManager {
      * @param mediaType Optional media type hint for the API
      * @return Result with success or failure
      */
+    /**
+     * Enqueue mode for playMedia().
+     */
+    enum class EnqueueMode(val apiValue: String?) {
+        /** Replace queue and start playing immediately */
+        PLAY(null),
+        /** Append to end of queue */
+        ADD("add"),
+        /** Insert after currently playing track */
+        NEXT("next"),
+        /** Replace queue but don't start playing */
+        REPLACE("replace")
+    }
+
     suspend fun playMedia(
         uri: String,
         mediaType: String? = null,
-        enqueue: Boolean = false
+        enqueue: Boolean = false,
+        enqueueMode: EnqueueMode? = null
     ): Result<Unit> {
         val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
         val server = currentServer ?: return Result.failure(Exception("No server connected"))
         val token = MaSettings.getTokenForServer(server.id)
             ?: return Result.failure(Exception("No auth token available"))
 
+        // Resolve the effective enqueue mode
+        val effectiveMode = enqueueMode ?: if (enqueue) EnqueueMode.ADD else EnqueueMode.PLAY
+
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "${if (enqueue) "Enqueuing" else "Playing"} media: $uri")
+                Log.d(TAG, "${effectiveMode.name} media: $uri")
 
                 // Use THIS app's player ID - the same ID we registered with SendSpin
                 // This ensures playback goes to OUR queue, not some other player
@@ -553,18 +599,239 @@ object MusicAssistantManager {
                 if (mediaType != null) {
                     args["media_type"] = mediaType
                 }
-                if (enqueue) {
-                    // "add" appends to current queue without replacing
-                    args["enqueue"] = "add"
-                }
+                effectiveMode.apiValue?.let { args["enqueue"] = it }
 
                 // Send play command - play_media replaces queue unless enqueue is set
                 sendMaCommand(apiUrl, token, "player_queues/play_media", args)
 
-                Log.i(TAG, "Successfully ${if (enqueue) "enqueued" else "started playback"}: $uri")
+                Log.i(TAG, "Successfully ${effectiveMode.name}: $uri")
                 Result.success(Unit)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to ${if (enqueue) "enqueue" else "play"} media: $uri", e)
+                Log.e(TAG, "Failed to ${effectiveMode.name} media: $uri", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    // ========================================================================
+    // Queue Management
+    // ========================================================================
+
+    /**
+     * Get the current queue items for the player.
+     *
+     * @param limit Maximum number of items to return (default 200, max 500)
+     * @param offset Starting position in the queue
+     * @return Result with the queue state including items and settings
+     */
+    suspend fun getQueueItems(limit: Int = 200, offset: Int = 0): Result<MaQueueState> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Fetching queue items for player: $playerId (limit=$limit, offset=$offset)")
+
+                // First get the queue state (shuffle, repeat, current index)
+                val queueResponse = sendMaCommand(
+                    apiUrl, token, "player_queues/get",
+                    mapOf("queue_id" to playerId)
+                )
+
+                // Then get the queue items
+                val itemsResponse = sendMaCommand(
+                    apiUrl, token, "player_queues/items",
+                    mapOf("queue_id" to playerId, "limit" to limit, "offset" to offset)
+                )
+
+                val queueState = parseQueueState(queueResponse, itemsResponse)
+                Log.i(TAG, "Fetched ${queueState.items.size} queue items (current index: ${queueState.currentIndex})")
+                Result.success(queueState)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch queue items", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Clear all items from the queue.
+     */
+    suspend fun clearQueue(): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Clearing queue for player: $playerId")
+
+                sendMaCommand(apiUrl, token, "player_queues/clear", mapOf("queue_id" to playerId))
+
+                Log.i(TAG, "Queue cleared")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to clear queue", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Jump to and play a specific item in the queue.
+     *
+     * @param queueItemId The queue_item_id to play
+     */
+    suspend fun playQueueItem(queueItemId: String): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Playing queue item: $queueItemId on player: $playerId")
+
+                sendMaCommand(
+                    apiUrl, token, "player_queues/play_index",
+                    mapOf("queue_id" to playerId, "queue_item_id" to queueItemId)
+                )
+
+                Log.i(TAG, "Jumped to queue item: $queueItemId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to play queue item: $queueItemId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Remove a specific item from the queue.
+     *
+     * @param queueItemId The queue_item_id to remove
+     */
+    suspend fun removeQueueItem(queueItemId: String): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Removing queue item: $queueItemId from player: $playerId")
+
+                sendMaCommand(
+                    apiUrl, token, "player_queues/delete_item",
+                    mapOf("queue_id" to playerId, "item_id_or_index" to queueItemId)
+                )
+
+                Log.i(TAG, "Removed queue item: $queueItemId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove queue item: $queueItemId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Move a queue item to a new position.
+     *
+     * @param queueItemId The queue_item_id to move
+     * @param newIndex The target position index
+     */
+    suspend fun moveQueueItem(queueItemId: String, newIndex: Int): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Moving queue item $queueItemId to position $newIndex")
+
+                sendMaCommand(
+                    apiUrl, token, "player_queues/move_item",
+                    mapOf(
+                        "queue_id" to playerId,
+                        "queue_item_id" to queueItemId,
+                        "pos_shift" to newIndex
+                    )
+                )
+
+                Log.i(TAG, "Moved queue item: $queueItemId to position $newIndex")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to move queue item: $queueItemId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Toggle shuffle mode for the queue.
+     *
+     * @param enabled Whether shuffle should be enabled
+     */
+    suspend fun setQueueShuffle(enabled: Boolean): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Setting shuffle ${if (enabled) "ON" else "OFF"} for player: $playerId")
+
+                sendMaCommand(
+                    apiUrl, token, "player_queues/shuffle",
+                    mapOf("queue_id" to playerId, "shuffle_enabled" to enabled)
+                )
+
+                Log.i(TAG, "Shuffle set to: $enabled")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set shuffle", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Set repeat mode for the queue.
+     *
+     * @param mode Repeat mode: "off", "one", or "all"
+     */
+    suspend fun setQueueRepeat(mode: String): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val playerId = UserSettings.getPlayerId()
+                Log.d(TAG, "Setting repeat mode '$mode' for player: $playerId")
+
+                sendMaCommand(
+                    apiUrl, token, "player_queues/repeat",
+                    mapOf("queue_id" to playerId, "repeat_mode" to mode)
+                )
+
+                Log.i(TAG, "Repeat mode set to: $mode")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set repeat mode", e)
                 Result.failure(e)
             }
         }
@@ -2481,5 +2748,183 @@ object MusicAssistantManager {
         }
 
         return radios
+    }
+
+    // ========================================================================
+    // Queue Response Parsing
+    // ========================================================================
+
+    /**
+     * Parse queue state from the queue/get and queue/items responses.
+     *
+     * The queue/get response contains queue metadata (shuffle, repeat, current_index).
+     * The queue/items response contains the actual track items in the queue.
+     */
+    private fun parseQueueState(
+        queueResponse: JSONObject,
+        itemsResponse: JSONObject
+    ): MaQueueState {
+        // Parse queue settings from queue/get response
+        val queueResult = queueResponse.optJSONObject("result") ?: queueResponse
+        val shuffleEnabled = queueResult.optBoolean("shuffle_enabled", false)
+        val repeatModeRaw = queueResult.optString("repeat_mode", "off")
+        val repeatMode = when {
+            repeatModeRaw.contains("one", ignoreCase = true) -> "one"
+            repeatModeRaw.contains("all", ignoreCase = true) -> "all"
+            else -> "off"
+        }
+        val currentIndex = queueResult.optInt("current_index", -1)
+        val currentItemId = queueResult.optString("current_item", "")
+
+        // Parse queue items from queue/items response
+        val items = mutableListOf<MaQueueItem>()
+        val resultArray = itemsResponse.optJSONArray("result")
+            ?: itemsResponse.optJSONObject("result")?.optJSONArray("items")
+            ?: JSONArray()
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val queueItemId = item.optString("queue_item_id", "")
+                .ifEmpty { item.optString("item_id", "") }
+                .ifEmpty { item.optString("id", "") }
+
+            if (queueItemId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+                .ifEmpty {
+                    // Try nested media_item for track name
+                    item.optJSONObject("media_item")?.optString("name", "") ?: ""
+                }
+
+            // Try to get artist/album from the item or its nested media_item
+            val mediaItem = item.optJSONObject("media_item")
+            val artist = extractQueueItemArtist(item, mediaItem)
+            val album = extractQueueItemAlbum(item, mediaItem)
+            val imageUri = extractQueueItemImage(item, mediaItem)
+            val duration = item.optLong("duration", 0L).let { if (it > 0) it else null }
+            val uri = item.optString("uri", "")
+                .ifEmpty { mediaItem?.optString("uri", "") ?: "" }
+                .ifEmpty { null }
+
+            // Determine if this is the currently playing item
+            val isCurrentItem = (i == currentIndex) ||
+                (currentItemId.isNotEmpty() && queueItemId == currentItemId)
+
+            items.add(
+                MaQueueItem(
+                    queueItemId = queueItemId,
+                    name = name.ifEmpty { "Unknown Track" },
+                    artist = artist,
+                    album = album,
+                    imageUri = imageUri,
+                    duration = duration,
+                    uri = uri,
+                    isCurrentItem = isCurrentItem
+                )
+            )
+        }
+
+        return MaQueueState(
+            items = items,
+            currentIndex = currentIndex,
+            shuffleEnabled = shuffleEnabled,
+            repeatMode = repeatMode
+        )
+    }
+
+    /**
+     * Extract artist name from a queue item JSON.
+     */
+    private fun extractQueueItemArtist(item: JSONObject, mediaItem: JSONObject?): String? {
+        // Direct artist field
+        val directArtist = item.optString("artist", "")
+        if (directArtist.isNotEmpty()) return directArtist
+
+        // From media_item
+        if (mediaItem != null) {
+            val mediaArtist = mediaItem.optString("artist", "")
+            if (mediaArtist.isNotEmpty()) return mediaArtist
+
+            // From media_item.artists array
+            val artists = mediaItem.optJSONArray("artists")
+            if (artists != null && artists.length() > 0) {
+                val firstArtist = artists.optJSONObject(0)
+                val artistName = firstArtist?.optString("name", "")
+                if (!artistName.isNullOrEmpty()) return artistName
+            }
+        }
+
+        // From item.artists array
+        val artists = item.optJSONArray("artists")
+        if (artists != null && artists.length() > 0) {
+            val firstArtist = artists.optJSONObject(0)
+            val artistName = firstArtist?.optString("name", "")
+            if (!artistName.isNullOrEmpty()) return artistName
+        }
+
+        return null
+    }
+
+    /**
+     * Extract album name from a queue item JSON.
+     */
+    private fun extractQueueItemAlbum(item: JSONObject, mediaItem: JSONObject?): String? {
+        // Direct album field
+        val directAlbum = item.optString("album", "")
+        if (directAlbum.isNotEmpty()) return directAlbum
+
+        // From media_item
+        if (mediaItem != null) {
+            val mediaAlbum = mediaItem.optString("album", "")
+            if (mediaAlbum.isNotEmpty()) return mediaAlbum
+
+            // From media_item.album object
+            val albumObj = mediaItem.optJSONObject("album")
+            if (albumObj != null) {
+                val albumName = albumObj.optString("name", "")
+                if (albumName.isNotEmpty()) return albumName
+            }
+        }
+
+        // From item.album object
+        val albumObj = item.optJSONObject("album")
+        if (albumObj != null) {
+            val albumName = albumObj.optString("name", "")
+            if (albumName.isNotEmpty()) return albumName
+        }
+
+        return null
+    }
+
+    /**
+     * Extract image URI from a queue item JSON.
+     */
+    private fun extractQueueItemImage(item: JSONObject, mediaItem: JSONObject?): String? {
+        // Try item-level image first
+        val itemImage = extractImageUri(item)
+        if (itemImage.isNotEmpty()) return itemImage
+
+        // Try media_item image
+        if (mediaItem != null) {
+            val mediaImage = extractImageUri(mediaItem)
+            if (mediaImage.isNotEmpty()) return mediaImage
+
+            // Try media_item.album image
+            val albumObj = mediaItem.optJSONObject("album")
+            if (albumObj != null) {
+                val albumImage = extractImageUri(albumObj)
+                if (albumImage.isNotEmpty()) return albumImage
+            }
+        }
+
+        // Try item.album image
+        val albumObj = item.optJSONObject("album")
+        if (albumObj != null) {
+            val albumImage = extractImageUri(albumObj)
+            if (albumImage.isNotEmpty()) return albumImage
+        }
+
+        return null
     }
 }

@@ -428,6 +428,23 @@
 
                     </LinearLayout>
 
+                    <!-- Queue Button - Only visible when connected to MA server -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/queueButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/queue_view"
+                        android:visibility="gone"
+                        android:contentDescription="@string/accessibility_queue_button"
+                        app:icon="@drawable/ic_queue_music"
+                        app:iconSize="18dp"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/volumeContainer"
+                        tools:visibility="visible" />
+
                 </androidx.constraintlayout.widget.ConstraintLayout>
 
             </androidx.constraintlayout.widget.ConstraintLayout>

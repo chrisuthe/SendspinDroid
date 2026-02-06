@@ -82,7 +82,8 @@ fun BrowseListScreen(
     onRefresh: () -> Unit,
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
-    onAddToQueue: (MaLibraryItem) -> Unit = {}
+    onAddToQueue: (MaLibraryItem) -> Unit = {},
+    onPlayNext: (MaLibraryItem) -> Unit = {}
 ) {
     val state by stateFlow.collectAsState()
     val pullToRefreshState = rememberPullToRefreshState()
@@ -153,7 +154,8 @@ fun BrowseListScreen(
                             isLoadingMore = state.isLoadingMore,
                             onItemClick = onItemClick,
                             onAddToPlaylist = onAddToPlaylist,
-                            onAddToQueue = onAddToQueue
+                            onAddToQueue = onAddToQueue,
+                            onPlayNext = onPlayNext
                         )
                     }
                 }
@@ -201,6 +203,7 @@ private fun ItemsList(
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit,
     onAddToQueue: (MaLibraryItem) -> Unit,
+    onPlayNext: (MaLibraryItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -217,7 +220,8 @@ private fun ItemsList(
                 item = item,
                 onClick = { onItemClick(item) },
                 onAddToPlaylist = if (isActionable) {{ onAddToPlaylist(item) }} else null,
-                onAddToQueue = if (isActionable) {{ onAddToQueue(item) }} else null
+                onAddToQueue = if (isActionable) {{ onAddToQueue(item) }} else null,
+                onPlayNext = if (isActionable) {{ onPlayNext(item) }} else null
             )
         }
 

@@ -585,4 +585,40 @@
     <string name="ma_username">Username</string>
     <string name="ma_password">Password</string>
     <string name="ma_port">API Port</string>
+
+    <!-- Queue Management -->
+    <string name="queue_title">Queue</string>
+    <string name="queue_now_playing">Now Playing</string>
+    <string name="queue_up_next">Up Next</string>
+    <string name="queue_empty_title">Nothing in queue</string>
+    <string name="queue_empty_subtitle">Add songs from your library or search to start playing</string>
+    <string name="queue_browse_library">Browse Library</string>
+    <string name="queue_item_count">%d items</string>
+    <string name="queue_item_count_one">1 item</string>
+    <string name="queue_clear">Clear Queue</string>
+    <string name="queue_cleared">Queue cleared</string>
+    <string name="queue_clear_failed">Failed to clear queue</string>
+    <string name="queue_item_removed">Removed from queue</string>
+    <string name="queue_item_remove_failed">Failed to remove item</string>
+    <string name="queue_shuffle_on">Shuffle on</string>
+    <string name="queue_shuffle_off">Shuffle off</string>
+    <string name="queue_repeat_off">Repeat off</string>
+    <string name="queue_repeat_all">Repeat all</string>
+    <string name="queue_repeat_one">Repeat one</string>
+    <string name="queue_load_failed">Failed to load queue</string>
+    <string name="queue_view">Queue</string>
+    <string name="play_next">Play Next</string>
+    <string name="added_to_queue">Added to queue</string>
+    <string name="play_next_added">Playing next</string>
+    <string name="queue_move_up">Move up</string>
+    <string name="queue_move_down">Move down</string>
+
+    <!-- Accessibility - Queue -->
+    <string name="accessibility_queue_button">View queue</string>
+    <string name="accessibility_shuffle_toggle">Toggle shuffle</string>
+    <string name="accessibility_repeat_toggle">Cycle repeat mode</string>
+    <string name="accessibility_queue_item">%1$s by %2$s</string>
+    <string name="accessibility_queue_current_track">Currently playing: %1$s by %2$s</string>
+    <string name="accessibility_queue_remove">Remove from queue</string>
+    <string name="accessibility_queue_drag">Drag to reorder</string>
 </resources>

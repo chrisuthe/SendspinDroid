@@ -52,6 +52,25 @@
         <item name="android:windowLightNavigationBar">false</item>
     </style>
 
+    <!-- Bottom Sheet Theme (Dark) -->
+    <style name="Theme.SendSpinDroid.BottomSheet" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/md_theme_dark_primary</item>
+        <item name="colorOnPrimary">@color/md_theme_dark_onPrimary</item>
+        <item name="colorSurface">@color/md_theme_dark_surface</item>
+        <item name="colorOnSurface">@color/md_theme_dark_onSurface</item>
+        <item name="colorSurfaceVariant">@color/md_theme_dark_surfaceVariant</item>
+        <item name="colorOnSurfaceVariant">@color/md_theme_dark_onSurfaceVariant</item>
+        <item name="android:colorBackground">@color/md_theme_dark_surface</item>
+        <item name="colorOnBackground">@color/md_theme_dark_onBackground</item>
+        <item name="bottomSheetDialogTheme">@style/Theme.SendSpinDroid.BottomSheetDialog</item>
+    </style>
+
+    <style name="Theme.SendSpinDroid.BottomSheetDialog" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="colorSurface">@color/md_theme_dark_surface</item>
+        <item name="colorOnSurface">@color/md_theme_dark_onSurface</item>
+        <item name="colorSurfaceContainerLow">@color/md_theme_dark_surface</item>
+    </style>
+
     <!-- Dialog Theme (Dark) -->
     <style name="Theme.SendSpinDroid.Dialog" parent="Theme.Material3.DayNight.Dialog">
         <!-- Inherit primary colors from dark theme -->
