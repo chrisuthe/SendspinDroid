@@ -42,6 +42,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
+import com.sendspindroid.musicassistant.MaAlbum
+import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.ui.navigation.search.components.SearchResultItem
 import com.sendspindroid.ui.theme.SendSpinTheme
@@ -65,6 +68,8 @@ private const val TAG = "BrowseListScreen"
  * @param onLoadMore Called when more items should be loaded (pagination)
  * @param onRefresh Called when pull-to-refresh is triggered
  * @param onItemClick Called when an item is tapped
+ * @param onAddToPlaylist Called when "Add to Playlist" is selected from overflow menu
+ * @param onAddToQueue Called when "Add to Queue" is selected from overflow menu
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,7 +80,9 @@ fun BrowseListScreen(
     onSortChange: (LibraryViewModel.SortOption) -> Unit,
     onLoadMore: () -> Unit,
     onRefresh: () -> Unit,
-    onItemClick: (MaLibraryItem) -> Unit
+    onItemClick: (MaLibraryItem) -> Unit,
+    onAddToPlaylist: (MaLibraryItem) -> Unit = {},
+    onAddToQueue: (MaLibraryItem) -> Unit = {}
 ) {
     val state by stateFlow.collectAsState()
     val pullToRefreshState = rememberPullToRefreshState()
@@ -144,7 +151,9 @@ fun BrowseListScreen(
                             items = state.items,
                             listState = listState,
                             isLoadingMore = state.isLoadingMore,
-                            onItemClick = onItemClick
+                            onItemClick = onItemClick,
+                            onAddToPlaylist = onAddToPlaylist,
+                            onAddToQueue = onAddToQueue
                         )
                     }
                 }
@@ -190,6 +199,8 @@ private fun ItemsList(
     listState: androidx.compose.foundation.lazy.LazyListState,
     isLoadingMore: Boolean,
     onItemClick: (MaLibraryItem) -> Unit,
+    onAddToPlaylist: (MaLibraryItem) -> Unit,
+    onAddToQueue: (MaLibraryItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -201,9 +212,12 @@ private fun ItemsList(
             items = items,
             key = { "${it.mediaType}_${it.id}" }
         ) { item ->
+            val isActionable = item is MaTrack || item is MaAlbum || item is MaArtist
             SearchResultItem(
                 item = item,
-                onClick = { onItemClick(item) }
+                onClick = { onItemClick(item) },
+                onAddToPlaylist = if (isActionable) {{ onAddToPlaylist(item) }} else null,
+                onAddToQueue = if (isActionable) {{ onAddToQueue(item) }} else null
             )
         }
 

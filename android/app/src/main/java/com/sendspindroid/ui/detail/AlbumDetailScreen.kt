@@ -33,6 +33,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.ui.detail.components.ActionRow
+import com.sendspindroid.ui.detail.components.AddToQueueButton
 import com.sendspindroid.ui.detail.components.HeroHeader
 import com.sendspindroid.ui.detail.components.TrackListItem
 import com.sendspindroid.ui.detail.components.buildAlbumSubtitle
@@ -50,6 +51,8 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 fun AlbumDetailScreen(
     albumId: String,
     onArtistClick: (artistName: String) -> Unit,
+    onAddToPlaylist: (MaTrack) -> Unit = {},
+    onAddAlbumToPlaylist: () -> Unit = {},
     viewModel: AlbumDetailViewModel = viewModel()
 ) {
     // Load album when screen is first shown
@@ -77,6 +80,8 @@ fun AlbumDetailScreen(
                     state = state,
                     onTrackClick = { viewModel.playTrack(it) },
                     onArtistClick = onArtistClick,
+                    onAddToPlaylist = onAddToPlaylist,
+                    onAddAlbumToPlaylist = onAddAlbumToPlaylist,
                     onShuffle = { viewModel.shuffleAll() },
                     onAddToQueue = { viewModel.addToQueue() }
                 )
@@ -90,6 +95,8 @@ private fun AlbumDetailContent(
     state: AlbumDetailUiState.Success,
     onTrackClick: (MaTrack) -> Unit,
     onArtistClick: (artistName: String) -> Unit,
+    onAddToPlaylist: (MaTrack) -> Unit = {},
+    onAddAlbumToPlaylist: () -> Unit = {},
     onShuffle: () -> Unit,
     onAddToQueue: () -> Unit,
     modifier: Modifier = Modifier
@@ -111,8 +118,13 @@ private fun AlbumDetailContent(
         item {
             ActionRow(
                 onShuffle = onShuffle,
-                onAddToQueue = onAddToQueue
+                onAddToPlaylist = onAddAlbumToPlaylist
             )
+        }
+
+        // Add to Queue button
+        item {
+            AddToQueueButton(onClick = onAddToQueue)
         }
 
         // Track divider
@@ -132,7 +144,8 @@ private fun AlbumDetailContent(
                 track = track,
                 trackNumber = index + 1,
                 showArtist = track.artist != state.album.artist,
-                onClick = { onTrackClick(track) }
+                onClick = { onTrackClick(track) },
+                onAddToPlaylist = { onAddToPlaylist(track) }
             )
         }
 
@@ -259,6 +272,8 @@ private fun AlbumDetailScreenPreview() {
             ),
             onTrackClick = {},
             onArtistClick = {},
+            onAddToPlaylist = {},
+            onAddAlbumToPlaylist = {},
             onShuffle = {},
             onAddToQueue = {}
         )

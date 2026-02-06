@@ -50,7 +50,7 @@ data class ReconnectingState(
  * Navigation tab for bottom navigation.
  */
 enum class NavTab {
-    HOME, SEARCH, LIBRARY
+    HOME, SEARCH, LIBRARY, PLAYLISTS
 }
 
 /**

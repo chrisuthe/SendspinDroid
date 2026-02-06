@@ -41,7 +41,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
-import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
@@ -66,7 +65,9 @@ private const val TAG = "SearchScreen"
 @Composable
 fun SearchScreen(
     viewModel: SearchViewModel,
-    onItemClick: (MaLibraryItem) -> Unit
+    onItemClick: (MaLibraryItem) -> Unit,
+    onAddToPlaylist: (MaLibraryItem) -> Unit = {},
+    onAddToQueue: (MaLibraryItem) -> Unit = {}
 ) {
     val state by viewModel.searchState.collectAsState()
 
@@ -77,7 +78,9 @@ fun SearchScreen(
         onItemClick = { item ->
             Log.d(TAG, "Item clicked: ${item.name} (${item.mediaType})")
             onItemClick(item)
-        }
+        },
+        onAddToPlaylist = onAddToPlaylist,
+        onAddToQueue = onAddToQueue
     )
 }
 
@@ -87,7 +90,9 @@ private fun SearchScreenContent(
     state: SearchViewModel.SearchState,
     onQueryChange: (String) -> Unit,
     onFilterToggle: (MaMediaType, Boolean) -> Unit,
-    onItemClick: (MaLibraryItem) -> Unit
+    onItemClick: (MaLibraryItem) -> Unit,
+    onAddToPlaylist: (MaLibraryItem) -> Unit = {},
+    onAddToQueue: (MaLibraryItem) -> Unit = {}
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -137,7 +142,9 @@ private fun SearchScreenContent(
                     state.results != null && !state.results.isEmpty() -> {
                         SearchResultsList(
                             results = state.results,
-                            onItemClick = onItemClick
+                            onItemClick = onItemClick,
+                            onAddToPlaylist = onAddToPlaylist,
+                            onAddToQueue = onAddToQueue
                         )
                     }
                     else -> {
@@ -224,6 +231,8 @@ private fun FilterChipsRow(
 private fun SearchResultsList(
     results: MusicAssistantManager.SearchResults,
     onItemClick: (MaLibraryItem) -> Unit,
+    onAddToPlaylist: (MaLibraryItem) -> Unit = {},
+    onAddToQueue: (MaLibraryItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -241,7 +250,9 @@ private fun SearchResultsList(
             ) { artist ->
                 SearchResultItem(
                     item = artist,
-                    onClick = { onItemClick(artist) }
+                    onClick = { onItemClick(artist) },
+                    onAddToPlaylist = { onAddToPlaylist(artist) },
+                    onAddToQueue = { onAddToQueue(artist) }
                 )
             }
         }
@@ -257,7 +268,9 @@ private fun SearchResultsList(
             ) { album ->
                 SearchResultItem(
                     item = album,
-                    onClick = { onItemClick(album) }
+                    onClick = { onItemClick(album) },
+                    onAddToPlaylist = { onAddToPlaylist(album) },
+                    onAddToQueue = { onAddToQueue(album) }
                 )
             }
         }
@@ -273,7 +286,9 @@ private fun SearchResultsList(
             ) { track ->
                 SearchResultItem(
                     item = track,
-                    onClick = { onItemClick(track) }
+                    onClick = { onItemClick(track) },
+                    onAddToPlaylist = { onAddToPlaylist(track) },
+                    onAddToQueue = { onAddToQueue(track) }
                 )
             }
         }
@@ -421,7 +436,8 @@ private fun SearchScreenEmptyPreview() {
             state = SearchViewModel.SearchState(),
             onQueryChange = {},
             onFilterToggle = { _, _ -> },
-            onItemClick = {}
+            onItemClick = {},
+            onAddToPlaylist = {}
         )
     }
 }
@@ -437,7 +453,8 @@ private fun SearchScreenLoadingPreview() {
             ),
             onQueryChange = {},
             onFilterToggle = { _, _ -> },
-            onItemClick = {}
+            onItemClick = {},
+            onAddToPlaylist = {}
         )
     }
 }

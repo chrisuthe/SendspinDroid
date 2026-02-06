@@ -152,9 +152,23 @@ class ArtistDetailViewModel : ViewModel() {
         val current = _uiState.value
         if (current !is ArtistDetailUiState.Success) return
 
+        val uri = current.artist.uri
+        if (uri.isNullOrBlank()) {
+            Log.w(TAG, "Artist ${current.artist.name} has no URI, cannot add to queue")
+            return
+        }
+
         viewModelScope.launch {
             Log.d(TAG, "Adding artist to queue: ${current.artist.name}")
-            // TODO: Implement queue append when MA supports it
+            val result = MusicAssistantManager.playMedia(uri, "artist", enqueue = true)
+            result.fold(
+                onSuccess = {
+                    Log.d(TAG, "Artist added to queue: ${current.artist.name}")
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Failed to add artist to queue", error)
+                }
+            )
         }
     }
 

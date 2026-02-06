@@ -8,33 +8,38 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
- * Row of action buttons for artist/album detail screens.
+ * Row of action buttons for artist/album/playlist detail screens.
  *
- * Displays Shuffle and Add to Queue buttons in an outlined style.
- * These stay in place and don't collapse with the header.
+ * Displays Shuffle and a second action button in an outlined style.
+ * Defaults to "Add to Playlist" but the label and icon can be overridden
+ * (e.g. PlaylistDetailScreen uses "Add Tracks").
  *
  * @param onShuffle Called when Shuffle is tapped
- * @param onAddToQueue Called when Add to Queue is tapped
+ * @param onAddToPlaylist Called when the second button is tapped
  * @param shuffleEnabled Whether the shuffle button is enabled
- * @param queueEnabled Whether the add to queue button is enabled
+ * @param playlistEnabled Whether the second button is enabled
+ * @param secondButtonLabel Label for the second button
+ * @param secondButtonIcon Icon for the second button
  * @param modifier Optional modifier for the row
  */
 @Composable
 fun ActionRow(
     onShuffle: () -> Unit,
-    onAddToQueue: () -> Unit,
+    onAddToPlaylist: () -> Unit,
     shuffleEnabled: Boolean = true,
-    queueEnabled: Boolean = true,
+    playlistEnabled: Boolean = true,
+    secondButtonLabel: String = "Add to Playlist",
+    secondButtonIcon: ImageVector = Icons.Filled.Add,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -57,16 +62,16 @@ fun ActionRow(
         }
 
         OutlinedButton(
-            onClick = onAddToQueue,
-            enabled = queueEnabled,
+            onClick = onAddToPlaylist,
+            enabled = playlistEnabled,
             modifier = Modifier.weight(1f)
         ) {
             Icon(
-                imageVector = Icons.Filled.Add,
+                imageVector = secondButtonIcon,
                 contentDescription = null,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            Text(text = "Add to Queue")
+            Text(text = secondButtonLabel)
         }
     }
 }
@@ -77,7 +82,7 @@ private fun ActionRowPreview() {
     SendSpinTheme {
         ActionRow(
             onShuffle = {},
-            onAddToQueue = {}
+            onAddToPlaylist = {}
         )
     }
 }
@@ -88,9 +93,9 @@ private fun ActionRowDisabledPreview() {
     SendSpinTheme {
         ActionRow(
             onShuffle = {},
-            onAddToQueue = {},
+            onAddToPlaylist = {},
             shuffleEnabled = false,
-            queueEnabled = false
+            playlistEnabled = false
         )
     }
 }
