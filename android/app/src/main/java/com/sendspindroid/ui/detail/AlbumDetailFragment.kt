@@ -7,6 +7,7 @@ import android.view.ViewGroup
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
+import com.sendspindroid.MainActivity
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -45,12 +46,7 @@ class AlbumDetailFragment : Fragment() {
                 SendSpinTheme {
                     AlbumDetailScreen(
                         albumId = albumId,
-                        onBackClick = {
-                            parentFragmentManager.popBackStack()
-                        },
                         onArtistClick = { artistName ->
-                            // For now, search for artist and navigate
-                            // In the future, we can look up artist ID from album data
                             // TODO: Get artistId from album data instead of search
                             android.widget.Toast.makeText(
                                 requireContext(),
@@ -62,6 +58,13 @@ class AlbumDetailFragment : Fragment() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Update the Activity toolbar with album name and back button
+        val albumName = arguments?.getString(ARG_ALBUM_NAME) ?: ""
+        (activity as? MainActivity)?.updateToolbarForDetail(albumName)
     }
 
     companion object {

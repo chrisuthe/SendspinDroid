@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.ui.main.components.MiniPlayer
 import com.sendspindroid.ui.theme.SendSpinTheme
 
@@ -20,7 +19,7 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * The content area is provided via a slot for the FragmentContainerView.
  *
  * @param viewModel The MainActivityViewModel providing playback state
- * @param onMiniPlayerClick Called when mini player card is tapped (navigate to NowPlaying)
+ * @param onMiniPlayerClick Called when mini player album art is tapped (navigate to NowPlaying)
  * @param onStopClick Called when stop button is clicked (disconnect)
  * @param onPlayPauseClick Called when play/pause button is clicked
  * @param content Slot for the fragment content (Home/Search/Library)
@@ -38,17 +37,8 @@ fun NavigationContentScreen(
     val artworkSource by viewModel.artworkSource.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val volume by viewModel.volume.collectAsState()
-    val connectionState by viewModel.connectionState.collectAsState()
-
-    // Get server name from connection state
-    val serverName = when (val state = connectionState) {
-        is AppConnectionState.Connected -> state.serverName
-        is AppConnectionState.Reconnecting -> state.serverName
-        else -> ""
-    }
 
     NavigationContentScreen(
-        serverName = serverName,
         metadata = metadata,
         artworkSource = artworkSource,
         isPlaying = isPlaying,
@@ -67,7 +57,6 @@ fun NavigationContentScreen(
  */
 @Composable
 fun NavigationContentScreen(
-    serverName: String,
     metadata: TrackMetadata,
     artworkSource: ArtworkSource?,
     isPlaying: Boolean,
@@ -84,7 +73,6 @@ fun NavigationContentScreen(
     ) {
         // Mini Player at top
         MiniPlayer(
-            serverName = serverName,
             metadata = metadata,
             artworkSource = artworkSource,
             isPlaying = isPlaying,
@@ -118,7 +106,6 @@ fun NavigationContentScreen(
 private fun NavigationContentScreenPreview() {
     SendSpinTheme {
         NavigationContentScreen(
-            serverName = "Living Room",
             metadata = TrackMetadata(
                 title = "Bohemian Rhapsody",
                 artist = "Queen",
@@ -147,7 +134,6 @@ private fun NavigationContentScreenPreview() {
 private fun NavigationContentScreenPausedPreview() {
     SendSpinTheme {
         NavigationContentScreen(
-            serverName = "Kitchen",
             metadata = TrackMetadata(
                 title = "Another Track",
                 artist = "Some Artist",
