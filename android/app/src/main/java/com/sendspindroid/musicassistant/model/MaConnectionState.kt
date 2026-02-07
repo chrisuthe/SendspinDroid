@@ -108,5 +108,6 @@ sealed class MaConnectionState {
 data class MaServerInfo(
     val serverId: String,
     val serverVersion: String,
-    val apiUrl: String
+    val apiUrl: String,
+    val maServerId: String? = null
 )
