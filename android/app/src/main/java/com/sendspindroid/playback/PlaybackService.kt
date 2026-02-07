@@ -1979,6 +1979,7 @@ class PlaybackService : MediaLibraryService() {
             // DAC/Audio
             bundle.putBoolean("start_time_calibrated", audioStats.startTimeCalibrated)
             bundle.putInt("dac_calibration_count", audioStats.dacCalibrationCount)
+            bundle.putBoolean("dac_timestamps_stable", audioStats.dacTimestampsStable)
             bundle.putLong("samples_read_since_start", audioStats.samplesReadSinceStart)
             bundle.putLong("total_frames_written", audioStats.totalFramesWritten)
             bundle.putLong("buffer_underrun_count", audioStats.bufferUnderrunCount)

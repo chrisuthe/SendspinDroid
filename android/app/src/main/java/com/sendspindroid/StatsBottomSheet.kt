@@ -4,9 +4,13 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.viewModels
@@ -39,6 +43,8 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
 
     private val viewModel: StatsViewModel by viewModels()
 
+    override fun getTheme(): Int = R.style.Theme_SendSpinDroid_BottomSheetDialog
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -51,7 +57,15 @@ class StatsBottomSheet : BottomSheetDialogFragment() {
                 val statsState by viewModel.statsState.collectAsState()
 
                 SendSpinTheme {
-                    StatsContent(state = statsState)
+                    // Surface sets LocalContentColor so all child Text composables
+                    // inherit the correct theme-aware text color
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ) {
+                        StatsContent(state = statsState)
+                    }
                 }
             }
         }

@@ -118,7 +118,10 @@ data class SyncStats(
 
     // === TIMING ===
     val scheduledStartLoopTimeUs: Long? = null,
-    val firstServerTimestampUs: Long? = null
+    val firstServerTimestampUs: Long? = null,
+
+    // === DAC-AWARE STARTUP ===
+    val dacTimestampsStable: Boolean = false
 ) {
     /**
      * Converts stats to a Bundle for MediaSession extras.
@@ -185,6 +188,9 @@ data class SyncStats(
             // Timing
             scheduledStartLoopTimeUs?.let { putLong("scheduled_start_loop_time_us", it) }
             firstServerTimestampUs?.let { putLong("first_server_timestamp_us", it) }
+
+            // DAC-aware startup
+            putBoolean("dac_timestamps_stable", dacTimestampsStable)
         }
     }
 
@@ -257,7 +263,10 @@ data class SyncStats(
                 scheduledStartLoopTimeUs = if (bundle.containsKey("scheduled_start_loop_time_us"))
                     bundle.getLong("scheduled_start_loop_time_us") else null,
                 firstServerTimestampUs = if (bundle.containsKey("first_server_timestamp_us"))
-                    bundle.getLong("first_server_timestamp_us") else null
+                    bundle.getLong("first_server_timestamp_us") else null,
+
+                // DAC-aware startup
+                dacTimestampsStable = bundle.getBoolean("dac_timestamps_stable", false)
             )
         }
     }

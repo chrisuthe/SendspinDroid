@@ -69,6 +69,7 @@ fun StatsContent(
             text = stringResource(R.string.stats_title),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(bottom = 16.dp)
         )
 

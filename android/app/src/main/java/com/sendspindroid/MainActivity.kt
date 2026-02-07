@@ -1296,10 +1296,23 @@ class MainActivity : AppCompatActivity() {
             lifecycleScope.launch {
                 delay(DEFAULT_SERVER_AUTO_CONNECT_DELAY_MS)
 
-                // Only auto-connect if still in ServerList state and user hasn't manually disconnected
+                // Only auto-connect if still in ServerList state and user hasn't manually disconnected.
+                // Wait for MediaController to be ready (avoids "Service not connected" snackbar at startup).
                 if (connectionState == AppConnectionState.ServerList && !userManuallyDisconnected) {
-                    Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
-                    onUnifiedServerSelected(defaultServer)
+                    // MediaController may still be initializing -- wait up to 5 more seconds
+                    var waited = 0
+                    while (mediaController == null && waited < 5000) {
+                        delay(250)
+                        waited += 250
+                    }
+                    if (mediaController != null &&
+                        connectionState == AppConnectionState.ServerList &&
+                        !userManuallyDisconnected) {
+                        Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
+                        onUnifiedServerSelected(defaultServer)
+                    } else {
+                        Log.d(TAG, "Auto-connect skipped: controller=${mediaController != null}, state=$connectionState")
+                    }
                 }
             }
         }
