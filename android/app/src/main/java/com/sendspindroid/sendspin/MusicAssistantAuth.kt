@@ -58,7 +58,9 @@ object MusicAssistantAuth {
     data class LoginResult(
         val accessToken: String,
         val userId: String,
-        val userName: String
+        val userName: String,
+        val serverVersion: String = "unknown",
+        val maServerId: String = ""
     )
 
     /**
@@ -108,6 +110,8 @@ object MusicAssistantAuth {
 
             val listener = object : WebSocketListener() {
                 private var serverInfoReceived = false
+                private var capturedServerVersion = "unknown"
+                private var capturedMaServerId = ""
 
                 override fun onOpen(ws: WebSocket, response: Response) {
                     Log.d(TAG, "WebSocket connected, waiting for server info...")
@@ -123,7 +127,9 @@ object MusicAssistantAuth {
                         // First message should be server info
                         if (!serverInfoReceived && json.has("server_id")) {
                             serverInfoReceived = true
-                            Log.d(TAG, "Server info received, sending login command")
+                            capturedServerVersion = json.optString("server_version", "unknown")
+                            capturedMaServerId = json.optString("server_id", "")
+                            Log.d(TAG, "Server info received (version=$capturedServerVersion), sending login command")
 
                             // Send auth/login command
                             val loginMsg = JSONObject().apply {
@@ -174,7 +180,13 @@ object MusicAssistantAuth {
 
                                 Log.d(TAG, "Login successful for user: $userName")
                                 ws.close(1000, "Login complete")
-                                result.complete(LoginResult(token, userId, userName))
+                                result.complete(LoginResult(
+                                    accessToken = token,
+                                    userId = userId,
+                                    userName = userName,
+                                    serverVersion = capturedServerVersion,
+                                    maServerId = capturedMaServerId
+                                ))
                             } else {
                                 ws.close(1000, "Invalid response")
                                 result.completeExceptionally(
