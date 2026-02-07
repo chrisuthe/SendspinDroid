@@ -1599,6 +1599,7 @@ class MainActivity : AppCompatActivity() {
                     val args = Bundle().apply {
                         putString(PlaybackService.ARG_SERVER_ADDRESS, selectedConnection.address)
                         putString(PlaybackService.ARG_SERVER_PATH, selectedConnection.path)
+                        putString(PlaybackService.ARG_SERVER_ID, server.id)
                     }
                     val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
                     controller.sendCustomCommand(command, args)
@@ -1607,6 +1608,7 @@ class MainActivity : AppCompatActivity() {
                 is ConnectionSelector.SelectedConnection.Remote -> {
                     val args = Bundle().apply {
                         putString(PlaybackService.ARG_REMOTE_ID, selectedConnection.remoteId)
+                        putString(PlaybackService.ARG_SERVER_ID, server.id)
                     }
                     val command = SessionCommand(PlaybackService.COMMAND_CONNECT_REMOTE, Bundle.EMPTY)
                     controller.sendCustomCommand(command, args)
@@ -1616,6 +1618,7 @@ class MainActivity : AppCompatActivity() {
                     val args = Bundle().apply {
                         putString(PlaybackService.ARG_PROXY_URL, selectedConnection.url)
                         putString(PlaybackService.ARG_AUTH_TOKEN, selectedConnection.authToken)
+                        putString(PlaybackService.ARG_SERVER_ID, server.id)
                     }
                     val command = SessionCommand(PlaybackService.COMMAND_CONNECT_PROXY, Bundle.EMPTY)
                     controller.sendCustomCommand(command, args)
