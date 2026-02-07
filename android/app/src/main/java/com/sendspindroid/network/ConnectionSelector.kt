@@ -13,7 +13,7 @@ import com.sendspindroid.model.*
  * | WiFi/Ethernet | Local → Proxy → Remote    | Local has lowest latency           |
  * | Cellular      | Proxy → Remote            | Skip local (not on LAN)            |
  * | VPN           | Proxy → Remote → Local    | VPN may route home, proxy preferred|
- * | Unknown       | Local → Proxy → Remote    | Conservative fallback              |
+ * | Unknown       | Proxy → Remote → Local    | Can't determine network, proxy safest|
  *
  * ## Connection Preference Override
  * If the user has set a connection preference (LOCAL_ONLY, REMOTE_ONLY, PROXY_ONLY),
@@ -123,11 +123,11 @@ object ConnectionSelector {
                 ConnectionType.LOCAL
             )
 
-            // Unknown: Conservative fallback (try local first)
+            // Unknown: Proxy first (can't determine network, local may be unreachable)
             TransportType.UNKNOWN -> listOf(
-                ConnectionType.LOCAL,
                 ConnectionType.PROXY,
-                ConnectionType.REMOTE
+                ConnectionType.REMOTE,
+                ConnectionType.LOCAL
             )
         }
     }

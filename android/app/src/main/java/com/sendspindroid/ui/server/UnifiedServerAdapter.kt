@@ -1,5 +1,6 @@
 package com.sendspindroid.ui.server
 
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -7,6 +8,7 @@ import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.card.MaterialCardView
 import com.sendspindroid.R
 import com.sendspindroid.databinding.ItemUnifiedServerBinding
 import com.sendspindroid.model.UnifiedServer
@@ -96,8 +98,10 @@ class UnifiedServerAdapter(
             // Server name
             binding.serverName.text = server.name
 
-            // Subtitle: show address for discovered, last connected for saved
+            // Subtitle: show status, address for discovered, or last connected for saved
             binding.serverSubtitle.text = when {
+                status == ServerStatus.CONNECTED -> context.getString(R.string.connected)
+                status == ServerStatus.CONNECTING -> context.getString(R.string.connecting)
                 server.isDiscovered && server.local != null -> server.local.address
                 server.lastConnectedMs > 0 -> server.formattedLastConnected
                 server.local != null -> server.local.address
@@ -152,6 +156,18 @@ class UnifiedServerAdapter(
                 )
             }
 
+            // Card border highlight for connected server
+            val card = binding.root as? MaterialCardView
+            if (card != null) {
+                if (status == ServerStatus.CONNECTED) {
+                    card.strokeColor = ContextCompat.getColor(context, R.color.status_connected)
+                    card.strokeWidth = context.resources.getDimensionPixelSize(R.dimen.card_stroke_width_connected)
+                } else {
+                    card.strokeColor = Color.TRANSPARENT
+                    card.strokeWidth = 0
+                }
+            }
+
             // Click listener
             // Discovered servers: Card click = Quick Connect (works for both TV and phone)
             // Saved servers: Card click = Connect (wizard for editing)
@@ -179,11 +195,17 @@ class UnifiedServerAdapter(
                 ", ${context.getString(R.string.accessibility_default_server)}"
             } else ""
 
+            val statusDesc = when (status) {
+                ServerStatus.CONNECTED -> ", ${context.getString(R.string.connected)}"
+                ServerStatus.CONNECTING -> ", ${context.getString(R.string.connecting)}"
+                else -> ""
+            }
+
             binding.root.contentDescription = context.getString(
                 R.string.accessibility_server_card,
                 server.name,
                 methodsDesc.ifEmpty { "no connections" }
-            ) + defaultDesc
+            ) + defaultDesc + statusDesc
         }
     }
 

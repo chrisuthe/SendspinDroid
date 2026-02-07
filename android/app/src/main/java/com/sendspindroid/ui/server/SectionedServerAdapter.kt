@@ -1,11 +1,13 @@
 package com.sendspindroid.ui.server
 
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.card.MaterialCardView
 import com.sendspindroid.R
 import com.sendspindroid.databinding.ItemServerSectionHeaderBinding
 import com.sendspindroid.databinding.ItemUnifiedServerBinding
@@ -321,8 +323,10 @@ class SectionedServerAdapter(
             // Server name
             binding.serverName.text = server.name
 
-            // Subtitle: show reconnect progress, address for discovered, or last connected for saved
+            // Subtitle: show status, reconnect progress, address, or last connected
             binding.serverSubtitle.text = when {
+                status == ServerStatus.CONNECTED -> context.getString(R.string.connected)
+                status == ServerStatus.CONNECTING -> context.getString(R.string.connecting)
                 status == ServerStatus.RECONNECTING && reconnectProgress != null -> {
                     if (reconnectProgress.currentMethod != null) {
                         context.getString(R.string.reconnecting_via_method, reconnectProgress.currentMethod)
@@ -389,11 +393,23 @@ class SectionedServerAdapter(
                 ContextCompat.getColor(context, statusColor)
             )
 
-            // For discovered servers (not reconnecting), always show as online (green)
-            if (server.isDiscovered && status != ServerStatus.RECONNECTING) {
+            // For discovered servers (not reconnecting/connected), always show as online (green)
+            if (server.isDiscovered && status != ServerStatus.RECONNECTING && status != ServerStatus.CONNECTED) {
                 binding.statusIndicator.setBackgroundColor(
                     ContextCompat.getColor(context, R.color.status_discovered)
                 )
+            }
+
+            // Card border highlight for connected server
+            val card = binding.root as? MaterialCardView
+            if (card != null) {
+                if (status == ServerStatus.CONNECTED) {
+                    card.strokeColor = ContextCompat.getColor(context, R.color.status_connected)
+                    card.strokeWidth = context.resources.getDimensionPixelSize(R.dimen.card_stroke_width_connected)
+                } else {
+                    card.strokeColor = Color.TRANSPARENT
+                    card.strokeWidth = 0
+                }
             }
 
             // Click listener
@@ -425,9 +441,13 @@ class SectionedServerAdapter(
                 ", ${context.getString(R.string.accessibility_default_server)}"
             } else ""
 
-            val statusDesc = if (status == ServerStatus.RECONNECTING && reconnectProgress != null) {
-                ", ${context.getString(R.string.accessibility_reconnecting, reconnectProgress.attempt, reconnectProgress.maxAttempts)}"
-            } else ""
+            val statusDesc = when {
+                status == ServerStatus.CONNECTED -> ", ${context.getString(R.string.connected)}"
+                status == ServerStatus.CONNECTING -> ", ${context.getString(R.string.connecting)}"
+                status == ServerStatus.RECONNECTING && reconnectProgress != null ->
+                    ", ${context.getString(R.string.accessibility_reconnecting, reconnectProgress.attempt, reconnectProgress.maxAttempts)}"
+                else -> ""
+            }
 
             binding.root.contentDescription = context.getString(
                 R.string.accessibility_server_card,

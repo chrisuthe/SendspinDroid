@@ -23,6 +23,7 @@ import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.remote.RemoteConnection
+import com.sendspindroid.sendspin.MusicAssistantAuth
 import com.sendspindroid.ui.remote.QrScannerDialog
 import com.sendspindroid.ui.theme.SendSpinTheme
 import com.sendspindroid.ui.wizard.AddServerWizardScreen
@@ -419,7 +420,11 @@ class AddServerWizardActivity : FragmentActivity() {
         lifecycleScope.launch {
             delay(500)
 
-            val result = testProxyConnection()
+            val result = if (viewModel.proxyAuthMode == AddServerWizardViewModel.AUTH_LOGIN) {
+                testProxyLoginConnection()
+            } else {
+                testProxyTokenConnection()
+            }
 
             result.fold(
                 onSuccess = { message ->
@@ -434,7 +439,44 @@ class AddServerWizardActivity : FragmentActivity() {
         }
     }
 
-    private suspend fun testProxyConnection(): Result<String> {
+    /**
+     * Test proxy connection using LOGIN mode (username/password).
+     * Exchanges credentials for a long-lived access token via MusicAssistantAuth,
+     * then stores the token in the ViewModel for saving with the server.
+     */
+    private suspend fun testProxyLoginConnection(): Result<String> {
+        return try {
+            val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
+            Log.d(TAG, "Testing proxy login connection to: $normalizedUrl")
+
+            val loginResult = MusicAssistantAuth.login(
+                baseUrl = normalizedUrl,
+                username = viewModel.proxyUsername,
+                password = viewModel.proxyPassword
+            )
+
+            // Store the access token so it gets saved with the server
+            viewModel.proxyToken = loginResult.accessToken
+            Log.d(TAG, "Proxy login successful, token obtained for user: ${loginResult.userName}")
+
+            Result.success("Authenticated as ${loginResult.userName}")
+        } catch (e: MusicAssistantAuth.AuthenticationException) {
+            Log.e(TAG, "Proxy login auth failed", e)
+            Result.failure(Exception("Invalid credentials: ${e.message}"))
+        } catch (e: MusicAssistantAuth.ServerException) {
+            Log.e(TAG, "Proxy login server error", e)
+            Result.failure(Exception("Server error: ${e.message}"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Proxy login exception", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Test proxy connection using TOKEN mode (pre-existing auth token).
+     * Tests WebSocket connectivity with the provided Bearer token.
+     */
+    private suspend fun testProxyTokenConnection(): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
                 val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
@@ -455,9 +497,8 @@ class AddServerWizardActivity : FragmentActivity() {
                 val requestBuilder = okhttp3.Request.Builder()
                     .url(wsUrl)
 
-                // Add authentication header if using token mode
-                if (viewModel.proxyAuthMode == AddServerWizardViewModel.AUTH_TOKEN &&
-                    viewModel.proxyToken.isNotBlank()) {
+                // Add authentication header if token is available
+                if (viewModel.proxyToken.isNotBlank()) {
                     requestBuilder.addHeader("Authorization", "Bearer ${viewModel.proxyToken}")
                 }
 

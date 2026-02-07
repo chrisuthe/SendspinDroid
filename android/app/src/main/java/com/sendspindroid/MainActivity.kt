@@ -1243,6 +1243,12 @@ class MainActivity : AppCompatActivity() {
         startAutoDiscovery()
         sectionedServerAdapter?.setScanning(true)
 
+        // Re-apply connected server status if still connected (e.g. coming back via "Switch Server")
+        currentConnectedServerId?.let { serverId ->
+            sectionedServerAdapter?.setServerStatus(serverId, SectionedServerAdapter.ServerStatus.CONNECTED)
+            unifiedServerAdapter?.setServerStatus(serverId, UnifiedServerAdapter.ServerStatus.CONNECTED)
+        }
+
         // Update toolbar subtitle to show scanning status
         supportActionBar?.subtitle = getString(R.string.scanning_ellipsis)
 
@@ -1808,6 +1814,12 @@ class MainActivity : AppCompatActivity() {
                 viewModel.updateConnectionState(connectionState)
                 viewModel.clearReconnectingState()
 
+                // Update server list adapters with connected status
+                currentConnectedServerId?.let { serverId ->
+                    sectionedServerAdapter?.setServerStatus(serverId, SectionedServerAdapter.ServerStatus.CONNECTED)
+                    unifiedServerAdapter?.setServerStatus(serverId, UnifiedServerAdapter.ServerStatus.CONNECTED)
+                }
+
                 showNowPlayingView(serverName)
                 enablePlaybackControls(true)
                 hideConnectionLoading()
@@ -1881,11 +1893,13 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         Log.w(TAG, "Cannot start auto-reconnect: no server info available")
                         sectionedServerAdapter?.clearStatuses()
+                        unifiedServerAdapter?.clearStatuses()
                     }
                 } else {
                     // User-initiated or reconnect exhausted - clear statuses
                     reconnectingToServer = null
                     sectionedServerAdapter?.clearStatuses()
+                    unifiedServerAdapter?.clearStatuses()
 
                     // Announce disconnection for accessibility
                     announceForAccessibility(getString(R.string.accessibility_disconnected))

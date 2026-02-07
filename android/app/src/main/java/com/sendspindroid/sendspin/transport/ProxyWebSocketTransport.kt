@@ -34,10 +34,14 @@ import javax.net.ssl.SSLHandshakeException
  * - Use wss:// for encrypted connections through proxies
  *
  * @param url Full URL to connect to (e.g., "https://ma.example.com/sendspin")
+ * @param authToken Optional Bearer token to include in the WebSocket upgrade request header.
+ *   The SendSpin proxy server authenticates via the HTTP upgrade request, not post-connection
+ *   JSON messages. If provided, an `Authorization: Bearer <token>` header is added.
  * @param okHttpClient Optional OkHttpClient instance (creates one if not provided)
  */
 class ProxyWebSocketTransport(
     private val url: String,
+    private val authToken: String? = null,
     pingIntervalSeconds: Long = 30,
     private val okHttpClient: OkHttpClient = createDefaultClient(pingIntervalSeconds)
 ) : SendSpinTransport {
@@ -82,9 +86,15 @@ class ProxyWebSocketTransport(
         val wsUrl = convertToWebSocketUrl(url)
         Log.d(TAG, "Connecting to proxy: $wsUrl")
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(wsUrl)
-            .build()
+
+        // Add Bearer token to the HTTP upgrade request if provided
+        if (!authToken.isNullOrBlank()) {
+            requestBuilder.addHeader("Authorization", "Bearer $authToken")
+        }
+
+        val request = requestBuilder.build()
 
         webSocket = okHttpClient.newWebSocket(request, WebSocketEventListener())
     }

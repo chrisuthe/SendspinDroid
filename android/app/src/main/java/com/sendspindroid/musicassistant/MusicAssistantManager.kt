@@ -42,7 +42,6 @@ import java.util.concurrent.TimeUnit
  * Represents a track from Music Assistant.
  *
  * Implements MaLibraryItem for use in unified adapters and generic lists.
- * Renamed from MaMediaItem to better reflect its specific purpose as tracks.
  */
 data class MaTrack(
     val itemId: String,
@@ -59,13 +58,6 @@ data class MaTrack(
     override val id: String get() = itemId
     override val mediaType: MaMediaType = MaMediaType.TRACK
 }
-
-/**
- * Type alias for backward compatibility during migration.
- * TODO: Remove after all usages are migrated to MaTrack.
- */
-@Deprecated("Use MaTrack instead", ReplaceWith("MaTrack"))
-typealias MaMediaItem = MaTrack
 
 /**
  * Represents a playlist from Music Assistant.
