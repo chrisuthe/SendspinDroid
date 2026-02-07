@@ -504,7 +504,10 @@ class SendSpinClient(
         reconnecting.set(false)
         waitingForNetwork.set(false)
 
-        // Clean up any existing transport
+        // Clean up any existing transport.
+        // Clear the listener first to prevent stale callbacks (e.g., onOpen from
+        // a previous OkHttp WebSocket) from firing on the new transport's listener.
+        transport?.setListener(null)
         transport?.destroy()
         transport = null
     }
@@ -538,9 +541,14 @@ class SendSpinClient(
 
     /**
      * Create and connect a proxy WebSocket transport.
+     * Auth token is passed to the transport for inclusion in the HTTP upgrade request header.
      */
     private fun createProxyTransport(url: String) {
-        val proxyTransport = ProxyWebSocketTransport(url, pingIntervalSeconds = getPingIntervalSeconds())
+        val proxyTransport = ProxyWebSocketTransport(
+            url = url,
+            authToken = authToken,
+            pingIntervalSeconds = getPingIntervalSeconds()
+        )
         transport = proxyTransport
         proxyTransport.setListener(TransportEventListener())
         proxyTransport.connect()
@@ -643,7 +651,7 @@ class SendSpinClient(
         val canReconnect = when (connectionMode) {
             ConnectionMode.LOCAL -> serverAddress != null
             ConnectionMode.REMOTE -> remoteId != null
-            ConnectionMode.PROXY -> serverAddress != null && authToken != null
+            ConnectionMode.PROXY -> serverAddress != null && !authToken.isNullOrBlank()
         }
 
         if (!canReconnect) {
@@ -802,17 +810,24 @@ class SendSpinClient(
         override fun onConnected() {
             Log.d(TAG, "Transport connected")
 
-            if (authToken != null) {
-                // Proxy mode: send auth message, wait for auth_ok, then send hello
-                Log.d(TAG, "Sending auth message for proxy connection")
+            if (connectionMode == ConnectionMode.PROXY && !authToken.isNullOrBlank()) {
+                // Proxy mode: send auth message first, then wait for auth_ok before hello.
+                // The SendSpin server protocol requires a JSON auth message as the first
+                // WebSocket message.
+                Log.d(TAG, "Sending proxy auth message (token ${authToken!!.length} chars)")
                 awaitingAuthResponse = true
                 val authMsg = JSONObject().apply {
                     put("type", "auth")
                     put("token", authToken)
                     put("client_id", clientId)
                 }
-                transport?.send(authMsg.toString())
-                // Don't send hello yet - wait for first message in onMessage
+                val sent = transport?.send(authMsg.toString())
+                Log.d(TAG, "Auth message send result: $sent")
+            } else if (connectionMode == ConnectionMode.PROXY && authToken.isNullOrBlank()) {
+                // Proxy mode but no token available - auth will fail
+                Log.e(TAG, "Proxy connection has no auth token - server will reject")
+                callback.onError("No auth token available. Please re-configure the server with valid credentials.")
+                disconnect()
             } else {
                 // Local/Remote mode: proceed directly with hello
                 sendClientHello()
@@ -821,15 +836,14 @@ class SendSpinClient(
 
         override fun onMessage(text: String) {
             // Check for auth failure (server may send error if token is invalid)
-            if (authToken != null && !handshakeComplete) {
+            if (connectionMode == ConnectionMode.PROXY && !handshakeComplete) {
                 try {
                     val json = JSONObject(text)
                     val msgType = json.optString("type")
                     if (msgType == "auth_failed" || msgType == "error") {
                         val msg = json.optString("message", "Authentication failed")
-                        Log.e(TAG, "Auth failed: $msg")
+                        Log.e(TAG, "Proxy auth failed: $msg")
                         awaitingAuthResponse = false
-                        authToken = null  // Clear token on failure
                         callback.onError("Authentication failed: $msg")
                         disconnect()
                         return
@@ -868,7 +882,7 @@ class SendSpinClient(
             val hasConnectionInfo = when (connectionMode) {
                 ConnectionMode.LOCAL -> serverAddress != null
                 ConnectionMode.REMOTE -> remoteId != null
-                ConnectionMode.PROXY -> serverAddress != null && authToken != null
+                ConnectionMode.PROXY -> serverAddress != null && !authToken.isNullOrBlank()
             }
 
             if (!userInitiatedDisconnect.get() && handshakeComplete && !isNormalClosure && hasConnectionInfo) {
@@ -895,7 +909,7 @@ class SendSpinClient(
             val hasConnectionInfo = when (connectionMode) {
                 ConnectionMode.LOCAL -> serverAddress != null
                 ConnectionMode.REMOTE -> remoteId != null
-                ConnectionMode.PROXY -> serverAddress != null && authToken != null
+                ConnectionMode.PROXY -> serverAddress != null && !authToken.isNullOrBlank()
             }
 
             val shouldReconnect = !userInitiatedDisconnect.get() &&

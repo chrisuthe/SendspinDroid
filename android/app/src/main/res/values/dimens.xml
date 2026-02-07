@@ -17,6 +17,7 @@
     <dimen name="card_corner_radius">12dp</dimen>
     <dimen name="card_corner_radius_large">16dp</dimen>
     <dimen name="card_elevation">8dp</dimen>
+    <dimen name="card_stroke_width_connected">2dp</dimen>
 
     <!-- Album art -->
     <dimen name="album_art_max_width">280dp</dimen>

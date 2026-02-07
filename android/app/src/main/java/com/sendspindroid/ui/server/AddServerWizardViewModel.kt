@@ -609,7 +609,9 @@ class AddServerWizardViewModel : ViewModel() {
             proxyUrl = it.url
             proxyToken = it.authToken
             proxyUsername = it.username ?: ""
-            proxyAuthMode = AUTH_TOKEN  // Default to token mode if we have saved proxy
+            // If we have a username, prefer login mode (token will be re-obtained);
+            // if we have a token but no username, use token mode
+            proxyAuthMode = if (it.username != null) AUTH_LOGIN else AUTH_TOKEN
             _remoteAccessMethod.value = RemoteAccessMethod.PROXY
         }
 
