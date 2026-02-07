@@ -186,6 +186,11 @@ dependencies {
     // Material Design 3 for Compose - modern theming and components
     implementation("androidx.compose.material3:material3")
 
+    // Material3 Adaptive - WindowSizeClass detection and NavigationSuiteScaffold
+    // (auto-switches between BottomNav, NavigationRail, and NavigationDrawer)
+    implementation("androidx.compose.material3:material3-window-size-class")
+    implementation("androidx.compose.material3:material3-adaptive-navigation-suite")
+
     // Foundation - core layout primitives (Column, Row, Box, LazyColumn)
     implementation("androidx.compose.foundation:foundation")
 
