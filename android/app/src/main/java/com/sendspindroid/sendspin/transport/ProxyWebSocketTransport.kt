@@ -38,7 +38,8 @@ import javax.net.ssl.SSLHandshakeException
  */
 class ProxyWebSocketTransport(
     private val url: String,
-    private val okHttpClient: OkHttpClient = createDefaultClient()
+    pingIntervalSeconds: Long = 30,
+    private val okHttpClient: OkHttpClient = createDefaultClient(pingIntervalSeconds)
 ) : SendSpinTransport {
 
     companion object {
@@ -49,13 +50,13 @@ class ProxyWebSocketTransport(
          *
          * - Short connect timeout (10s) for reasonable failure detection
          * - No read timeout (required for WebSocket)
-         * - 30s ping interval to keep connection alive across proxies
+         * - Configurable ping interval (default 30s, 15s in High Power Mode)
          */
-        fun createDefaultClient(): OkHttpClient = OkHttpClient.Builder()
+        fun createDefaultClient(pingIntervalSeconds: Long = 30): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(5, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // Required for WebSocket
-            .pingInterval(30, TimeUnit.SECONDS)
+            .pingInterval(pingIntervalSeconds, TimeUnit.SECONDS)
             .build()
     }
 

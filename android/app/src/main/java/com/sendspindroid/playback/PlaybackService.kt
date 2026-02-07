@@ -143,6 +143,17 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    // BroadcastReceiver for High Power Mode toggle changes from settings
+    private val highPowerModeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val enabled = intent.getBooleanExtra(
+                SettingsViewModel.EXTRA_HIGH_POWER_MODE_ENABLED, false
+            )
+            Log.i(TAG, "High Power Mode changed: $enabled")
+            onHighPowerModeChanged(enabled)
+        }
+    }
+
     // Flag to prevent callbacks from executing after service is destroyed
     @Volatile
     private var isDestroyed = false
@@ -175,6 +186,11 @@ class PlaybackService : MediaLibraryService() {
 
     // WiFi lock to prevent WiFi from going to sleep during playback
     private var wifiLock: WifiManager.WifiLock? = null
+
+    // High Power Mode locks - separate from streaming locks to avoid lifecycle interference
+    // These span the entire connection (not just streaming) when High Power Mode is enabled
+    private var highPowerWakeLock: PowerManager.WakeLock? = null
+    private var highPowerWifiLock: WifiManager.WifiLock? = null
 
     // Handler for periodic wake lock refresh
     private val wakeLockHandler = Handler(Looper.getMainLooper())
@@ -224,9 +240,10 @@ class PlaybackService : MediaLibraryService() {
             // Evaluate network conditions
             networkEvaluator?.evaluateCurrentNetwork(network)
 
-            // If reconnecting, immediately try to reconnect now that network is available
-            // This minimizes buffer exhaustion by not waiting for backoff timer
-            sendSpinClient?.onNetworkAvailable()
+            // Notify client that network is available - this handles both:
+            // 1. Resuming paused reconnection (waitingForNetwork)
+            // 2. Cancelling backoff for immediate retry (existing onNetworkAvailable behavior)
+            sendSpinClient?.setNetworkAvailable(true)
 
             // Only trigger time filter reset if we had a previous network and it changed
             if (lastNetworkId != -1 && lastNetworkId != networkId) {
@@ -241,6 +258,8 @@ class PlaybackService : MediaLibraryService() {
             // Don't reset lastNetworkId here - we want to detect when a new network comes up
             // Update network evaluator to reflect disconnected state
             networkEvaluator?.evaluateCurrentNetwork(null)
+            // Notify client so reconnection pauses instead of wasting attempts
+            sendSpinClient?.setNetworkAvailable(false)
         }
 
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
@@ -374,6 +393,12 @@ class PlaybackService : MediaLibraryService() {
         LocalBroadcastManager.getInstance(this).registerReceiver(
             debugLoggingReceiver,
             IntentFilter(SettingsViewModel.ACTION_DEBUG_LOGGING_CHANGED)
+        )
+
+        // Register receiver for High Power Mode toggle changes from settings
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            highPowerModeReceiver,
+            IntentFilter(SettingsViewModel.ACTION_HIGH_POWER_MODE_CHANGED)
         )
 
         // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)
@@ -591,6 +616,12 @@ class PlaybackService : MediaLibraryService() {
                 // only needed during active audio streaming (acquired in onStreamStart)
                 startForegroundServiceWithNotification(serverName)
 
+                // In High Power Mode, acquire WiFi + CPU locks immediately on connect
+                // to prevent Android from sleeping the connection between streams
+                if (com.sendspindroid.UserSettings.highPowerMode) {
+                    acquireHighPowerLocks()
+                }
+
                 // Start debug logging session if enabled
                 val serverAddr = sendSpinClient?.let {
                     // Get address from connection state or use empty string
@@ -633,6 +664,7 @@ class PlaybackService : MediaLibraryService() {
                     syncAudioPlayer = null
                     sendSpinPlayer?.setSyncAudioPlayer(null)
                     releasePlaybackLocks()
+                    releaseHighPowerLocks()
                     // Stop the foreground notification since we're fully disconnecting
                     stopForegroundNotification()
                 }
@@ -1583,6 +1615,69 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
+     * Acquires High Power Mode locks (WiFi + CPU) for the entire connection lifetime.
+     * These are separate from streaming locks and use low-latency WiFi mode.
+     * Called when High Power Mode is enabled and the client is connected.
+     */
+    @Suppress("DEPRECATION")
+    private fun acquireHighPowerLocks() {
+        // WiFi lock with low-latency mode (API 29+) for faster ping detection
+        if (highPowerWifiLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val wifiMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            }
+            highPowerWifiLock = wifiManager.createWifiLock(wifiMode, "SendSpinDroid::HighPower")
+        }
+        if (highPowerWifiLock?.isHeld == false) {
+            highPowerWifiLock?.acquire()
+            Log.d(TAG, "High Power WiFi lock acquired")
+        }
+
+        // CPU wake lock to prevent deep sleep between tracks
+        if (highPowerWakeLock == null) {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            highPowerWakeLock = powerManager.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "SendSpinDroid::HighPower"
+            )
+        }
+        if (highPowerWakeLock?.isHeld == false) {
+            highPowerWakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
+            Log.d(TAG, "High Power wake lock acquired with ${WAKE_LOCK_TIMEOUT_MS / 60000}min timeout")
+        }
+    }
+
+    /**
+     * Releases High Power Mode locks.
+     * Called on disconnect or when High Power Mode is disabled.
+     */
+    private fun releaseHighPowerLocks() {
+        if (highPowerWakeLock?.isHeld == true) {
+            highPowerWakeLock?.release()
+            Log.d(TAG, "High Power wake lock released")
+        }
+        if (highPowerWifiLock?.isHeld == true) {
+            highPowerWifiLock?.release()
+            Log.d(TAG, "High Power WiFi lock released")
+        }
+    }
+
+    /**
+     * Called when High Power Mode is toggled in settings.
+     * Acquires or releases locks based on the new state and current connection.
+     */
+    private fun onHighPowerModeChanged(enabled: Boolean) {
+        if (enabled && isConnected()) {
+            acquireHighPowerLocks()
+        } else {
+            releaseHighPowerLocks()
+        }
+    }
+
+    /**
      * Stops the foreground service notification.
      * Called when fully disconnecting from a server.
      */
@@ -2169,6 +2264,10 @@ class PlaybackService : MediaLibraryService() {
 
         // Unregister debug logging receiver
         LocalBroadcastManager.getInstance(this).unregisterReceiver(debugLoggingReceiver)
+
+        // Unregister High Power Mode receiver and release locks
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(highPowerModeReceiver)
+        releaseHighPowerLocks()
 
         // Unregister volume observer (only if it was registered)
         if (volumeObserverRegistered) {

@@ -36,7 +36,8 @@ import javax.net.ssl.SSLHandshakeException
 class WebSocketTransport(
     private val address: String,
     private val path: String = "/sendspin",
-    private val okHttpClient: OkHttpClient = createDefaultClient()
+    pingIntervalSeconds: Long = 30,
+    private val okHttpClient: OkHttpClient = createDefaultClient(pingIntervalSeconds)
 ) : SendSpinTransport {
 
     companion object {
@@ -47,13 +48,13 @@ class WebSocketTransport(
          *
          * - Short connect timeout (5s) for fast failure during reconnection
          * - No read timeout (required for WebSocket)
-         * - 30s ping interval to keep connection alive
+         * - Configurable ping interval (default 30s, 15s in High Power Mode)
          */
-        fun createDefaultClient(): OkHttpClient = OkHttpClient.Builder()
+        fun createDefaultClient(pingIntervalSeconds: Long = 30): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .writeTimeout(5, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS) // Required for WebSocket
-            .pingInterval(30, TimeUnit.SECONDS)
+            .pingInterval(pingIntervalSeconds, TimeUnit.SECONDS)
             .build()
     }
 

@@ -1,7 +1,9 @@
 package com.sendspindroid.ui.settings
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -34,6 +36,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         // Broadcast actions
         const val ACTION_DEBUG_LOGGING_CHANGED = "com.sendspindroid.ACTION_DEBUG_LOGGING_CHANGED"
         const val EXTRA_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
+        const val ACTION_HIGH_POWER_MODE_CHANGED = "com.sendspindroid.ACTION_HIGH_POWER_MODE_CHANGED"
+        const val EXTRA_HIGH_POWER_MODE_ENABLED = "high_power_mode_enabled"
     }
 
     private val prefs = PreferenceManager.getDefaultSharedPreferences(application)
@@ -69,6 +73,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     // Performance settings
     private val _lowMemoryMode = MutableStateFlow(UserSettings.lowMemoryMode)
     val lowMemoryMode: StateFlow<Boolean> = _lowMemoryMode.asStateFlow()
+
+    private val _highPowerMode = MutableStateFlow(UserSettings.highPowerMode)
+    val highPowerMode: StateFlow<Boolean> = _highPowerMode.asStateFlow()
+
+    private val _batteryOptExempt = MutableStateFlow(isBatteryOptimizationExempt())
+    val batteryOptExempt: StateFlow<Boolean> = _batteryOptExempt.asStateFlow()
 
     // Debug settings
     private val _debugLogging = MutableStateFlow(DebugLogger.isEnabled)
@@ -173,6 +183,32 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         prefs.edit().putBoolean(UserSettings.KEY_LOW_MEMORY_MODE, enabled).apply()
         _lowMemoryMode.value = enabled
         return true // Always requires restart
+    }
+
+    fun setHighPowerMode(enabled: Boolean) {
+        prefs.edit().putBoolean(UserSettings.KEY_HIGH_POWER_MODE, enabled).apply()
+        _highPowerMode.value = enabled
+
+        // Broadcast to PlaybackService
+        val intent = Intent(ACTION_HIGH_POWER_MODE_CHANGED).apply {
+            putExtra(EXTRA_HIGH_POWER_MODE_ENABLED, enabled)
+        }
+        LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
+    }
+
+    /**
+     * Check if the app is exempt from battery optimization (Doze mode).
+     */
+    fun isBatteryOptimizationExempt(): Boolean {
+        val pm = getApplication<Application>().getSystemService(Context.POWER_SERVICE) as PowerManager
+        return pm.isIgnoringBatteryOptimizations(getApplication<Application>().packageName)
+    }
+
+    /**
+     * Refresh the battery optimization exempt status (call after returning from system settings).
+     */
+    fun refreshBatteryOptExempt() {
+        _batteryOptExempt.value = isBatteryOptimizationExempt()
     }
 
     // Debug settings
