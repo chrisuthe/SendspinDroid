@@ -259,6 +259,7 @@ class SyncAudioPlayer(
 
         // Logging and diagnostics
         private const val CHUNK_DROP_LOG_INTERVAL = 100  // Log every Nth dropped chunk when time sync not ready
+        private const val DAC_PACING_LOG_INTERVAL_US = 10_000_000L  // Log DAC pacing stats every 10 seconds
 
         // Pre-sync buffering - buffer chunks while waiting for time sync to be ready
         private const val MAX_PENDING_CHUNKS = 500  // ~10 seconds at 48kHz/20ms chunks
@@ -307,6 +308,7 @@ class SyncAudioPlayer(
     // DRAINING state tracking - for seamless reconnection
     private var drainingStartTimeUs: Long = 0            // When we entered DRAINING state
     private var lastBufferWarningTimeUs: Long = 0        // Rate limiting for buffer warnings
+    private var lastDacPacingLogTimeUs: Long = 0         // Rate limiting for DAC pacing diagnostics
     private var stateBeforeDraining: PlaybackState? = null  // State to restore if exitDraining during non-PLAYING
     private var reconnectedAtUs: Long = 0L               // When exitDraining() was called (for stabilization)
 
@@ -826,6 +828,7 @@ class SyncAudioPlayer(
             // Reset DAC timestamp stability tracking
             consecutiveValidTimestamps = 0
             dacTimestampsStable = false
+            lastDacPacingLogTimeUs = 0L
 
             // Reset sample insert/drop correction state
             insertEveryNFrames = 0
@@ -1550,6 +1553,13 @@ class SyncAudioPlayer(
                 val pendingToDacUs = if (audioTrack != null && dacTimestampsStable)
                     getPendingToDacUs(audioTrack!!) else 0L
                 val effectiveLeadUs = chunk.clientPlayTimeMicros - (nowMicros + pendingToDacUs)
+
+                // Rate-limited DAC pacing diagnostics
+                if (dacTimestampsStable && nowMicros - lastDacPacingLogTimeUs > DAC_PACING_LOG_INTERVAL_US) {
+                    lastDacPacingLogTimeUs = nowMicros
+                    Log.d(TAG, "DAC pacing: pending=${pendingToDacUs/1000}ms, " +
+                          "effectiveLead=${effectiveLeadUs/1000}ms, syncErr=${syncErrorUs/1000}ms")
+                }
 
                 // Pending buffer pacing: if the write-to-DAC distance is too large,
                 // pause writing to let the DAC catch up. This prevents the AudioTrack
