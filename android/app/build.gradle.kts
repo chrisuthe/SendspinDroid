@@ -75,7 +75,7 @@ android {
 
         // versionName: User-visible version string
         // Follows semantic versioning (major.minor.patch)
-        versionName = "1.0.50"
+        versionName = "2.0.0"
 
         // TODO: Add testInstrumentationRunner for UI tests
         // testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
