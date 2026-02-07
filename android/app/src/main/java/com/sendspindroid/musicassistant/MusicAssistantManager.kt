@@ -318,24 +318,17 @@ object MusicAssistantManager {
 
         scope.launch {
             try {
-                // For now, we assume the token is valid if it exists
-                // In Phase 2 (MusicAssistantClient), we'll validate by connecting
-                // and making an API call like fetching players
+                // Validate the token against the actual MA server and get real metadata
+                val validation = validateToken(apiUrl, token)
 
-                // TODO: Replace with actual MusicAssistantClient connection
-                // val client = MusicAssistantClient()
-                // client.connect(apiUrl)
-                // client.authWithToken(token)
-                // val serverInfo = client.getServerInfo()
-
-                // For now, create a placeholder server info
                 val serverInfo = MaServerInfo(
                     serverId = serverId,
-                    serverVersion = "unknown", // Will be populated by actual API call
-                    apiUrl = apiUrl
+                    serverVersion = validation.serverVersion,
+                    apiUrl = apiUrl,
+                    maServerId = validation.maServerId
                 )
 
-                Log.i(TAG, "MA API connected successfully")
+                Log.i(TAG, "MA API connected successfully (server ${validation.serverVersion})")
                 _connectionState.value = MaConnectionState.Connected(serverInfo)
 
                 // Auto-select a player for playback commands
@@ -397,11 +390,12 @@ object MusicAssistantManager {
 
             val serverInfo = MaServerInfo(
                 serverId = server.id,
-                serverVersion = "unknown",
-                apiUrl = apiUrl
+                serverVersion = result.serverVersion,
+                apiUrl = apiUrl,
+                maServerId = result.maServerId
             )
 
-            Log.i(TAG, "MA login successful for user: ${result.userName}")
+            Log.i(TAG, "MA login successful for user: ${result.userName} (server ${result.serverVersion})")
             _connectionState.value = MaConnectionState.Connected(serverInfo)
             true
 
@@ -444,17 +438,36 @@ object MusicAssistantManager {
         _connectionState.value = MaConnectionState.Connecting
 
         return try {
-            // TODO: Implement actual token validation via MusicAssistantClient
+            // Validate the token against the actual MA server
+            val validation = validateToken(apiUrl, token)
+
             val serverInfo = MaServerInfo(
                 serverId = server.id,
-                serverVersion = "unknown",
-                apiUrl = apiUrl
+                serverVersion = validation.serverVersion,
+                apiUrl = apiUrl,
+                maServerId = validation.maServerId
             )
 
-            Log.i(TAG, "MA token auth successful")
+            Log.i(TAG, "MA token auth successful (server ${validation.serverVersion})")
             _connectionState.value = MaConnectionState.Connected(serverInfo)
             true
 
+        } catch (e: MusicAssistantAuth.AuthenticationException) {
+            Log.e(TAG, "Token auth failed: invalid/expired token", e)
+            // Token expired or invalid - clear it and request re-login
+            MaSettings.clearTokenForServer(server.id)
+            _connectionState.value = MaConnectionState.Error(
+                message = "Authentication expired. Please log in again.",
+                isAuthError = true
+            )
+            false
+        } catch (e: IOException) {
+            Log.e(TAG, "Token auth network error", e)
+            _connectionState.value = MaConnectionState.Error(
+                message = "Network error: ${e.message}",
+                isAuthError = false
+            )
+            false
         } catch (e: Exception) {
             Log.e(TAG, "Token auth failed", e)
             _connectionState.value = MaConnectionState.Error(
@@ -996,6 +1009,133 @@ object MusicAssistantManager {
         }
 
         return null
+    }
+
+    /**
+     * Result of a successful token validation against the MA server.
+     *
+     * Contains real server metadata extracted from the server_info message
+     * received during the WebSocket handshake.
+     */
+    private data class TokenValidationResult(
+        val serverVersion: String,
+        val maServerId: String
+    )
+
+    /**
+     * Validate a token against the MA server by connecting, receiving server_info,
+     * and authenticating. This is a one-shot WebSocket operation.
+     *
+     * The flow mirrors the first two phases of [sendMaCommand]:
+     * 1. Connect to /ws, receive server_info (captures server_version, server_id)
+     * 2. Send auth command with token, verify success
+     * 3. Close connection
+     *
+     * @param apiUrl The MA WebSocket URL (already includes /ws)
+     * @param token The authentication token to validate
+     * @return [TokenValidationResult] with real server metadata
+     * @throws MusicAssistantAuth.AuthenticationException if token is invalid/expired
+     * @throws IOException on network errors or timeout
+     */
+    private suspend fun validateToken(apiUrl: String, token: String): TokenValidationResult {
+        return withContext(Dispatchers.IO) {
+            val wsUrl = convertToWebSocketUrl(apiUrl)
+            Log.d(TAG, "Validating token against MA server: $wsUrl")
+
+            val result = CompletableDeferred<TokenValidationResult>()
+            var socketRef: WebSocket? = null
+            val authMessageId = UUID.randomUUID().toString()
+
+            val listener = object : WebSocketListener() {
+                private var serverInfoReceived = false
+                private var capturedVersion = "unknown"
+                private var capturedServerId = ""
+
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    Log.d(TAG, "Validation WebSocket connected, waiting for server info...")
+                    socketRef = webSocket
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    try {
+                        val json = JSONObject(text)
+
+                        // First message: server_info (identified by server_id field)
+                        if (!serverInfoReceived && json.has("server_id")) {
+                            serverInfoReceived = true
+                            capturedVersion = json.optString("server_version", "unknown")
+                            capturedServerId = json.optString("server_id", "")
+                            Log.d(TAG, "Server info: version=$capturedVersion, id=$capturedServerId")
+
+                            // Send auth command with token
+                            val authMsg = JSONObject().apply {
+                                put("message_id", authMessageId)
+                                put("command", "auth")
+                                put("args", JSONObject().apply {
+                                    put("token", token)
+                                })
+                            }
+                            webSocket.send(authMsg.toString())
+                            return
+                        }
+
+                        // Auth response (matched by message_id)
+                        if (json.optString("message_id") == authMessageId) {
+                            if (json.has("error_code")) {
+                                val details = json.optString("details", "Authentication failed")
+                                Log.e(TAG, "Token validation failed: $details")
+                                webSocket.close(1000, "Auth failed")
+                                result.completeExceptionally(
+                                    MusicAssistantAuth.AuthenticationException(details)
+                                )
+                                return
+                            }
+
+                            // Auth success - close and return server metadata
+                            Log.d(TAG, "Token validated successfully")
+                            webSocket.close(1000, "Validated")
+                            result.complete(
+                                TokenValidationResult(
+                                    serverVersion = capturedVersion,
+                                    maServerId = capturedServerId
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parsing validation message", e)
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    Log.e(TAG, "Validation WebSocket failure", t)
+                    if (!result.isCompleted) {
+                        result.completeExceptionally(
+                            IOException("Connection failed: ${t.message}", t)
+                        )
+                    }
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!result.isCompleted) {
+                        result.completeExceptionally(
+                            IOException("Connection closed before validation complete")
+                        )
+                    }
+                }
+            }
+
+            val request = Request.Builder().url(wsUrl).build()
+            httpClient.newWebSocket(request, listener)
+
+            try {
+                withTimeout(COMMAND_TIMEOUT_MS) {
+                    result.await()
+                }
+            } catch (e: TimeoutCancellationException) {
+                socketRef?.close(1000, "Timeout")
+                throw IOException("Token validation timed out after ${COMMAND_TIMEOUT_MS / 1000} seconds")
+            }
+        }
     }
 
     /**
