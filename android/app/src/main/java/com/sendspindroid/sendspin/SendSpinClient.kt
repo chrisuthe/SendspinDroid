@@ -73,6 +73,7 @@ class SendSpinClient(
         private const val MAX_RECONNECT_ATTEMPTS = 5
         private const val INITIAL_RECONNECT_DELAY_MS = 500L // 500ms (was 1s)
         private const val MAX_RECONNECT_DELAY_MS = 10000L // 10 seconds (was 30s)
+        private const val HIGH_POWER_RECONNECT_DELAY_MS = 30_000L // 30s steady-state for high power mode
 
         /**
          * Gets the appropriate buffer capacity based on low memory mode setting.
@@ -170,6 +171,11 @@ class SendSpinClient(
     private val reconnecting = AtomicBoolean(false)
     private var reconnectJob: Job? = null  // Pending reconnect coroutine - cancelled on disconnect
 
+    // Network awareness for smart reconnection
+    // When network is unavailable, reconnect attempts are paused (not wasted)
+    private val networkAvailable = AtomicBoolean(true)
+    private val waitingForNetwork = AtomicBoolean(false)
+
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
@@ -220,6 +226,7 @@ class SendSpinClient(
 
         reconnecting.set(false)
         reconnectAttempts.set(0)
+        waitingForNetwork.set(false)
         _connectionState.value = ConnectionState.Connected(serverName)
 
         if (wasReconnecting) {
@@ -380,6 +387,19 @@ class SendSpinClient(
     }
 
     /**
+     * Called by PlaybackService when network availability changes.
+     * When network is lost during reconnection, pauses attempts without wasting them.
+     * When network returns, resumes immediately via onNetworkAvailable().
+     */
+    fun setNetworkAvailable(available: Boolean) {
+        networkAvailable.set(available)
+        if (available && waitingForNetwork.getAndSet(false)) {
+            Log.i(TAG, "Network restored - resuming paused reconnection")
+            onNetworkAvailable()
+        }
+    }
+
+    /**
      * Connect to a SendSpin server on the local network.
      *
      * @param address Server address in "host:port" format
@@ -482,6 +502,7 @@ class SendSpinClient(
         userInitiatedDisconnect.set(false)
         reconnectAttempts.set(0)
         reconnecting.set(false)
+        waitingForNetwork.set(false)
 
         // Clean up any existing transport
         transport?.destroy()
@@ -489,10 +510,17 @@ class SendSpinClient(
     }
 
     /**
+     * Get the WebSocket ping interval based on High Power Mode setting.
+     * High Power Mode uses 15s for faster drop detection, normal uses 30s.
+     */
+    private fun getPingIntervalSeconds(): Long =
+        if (UserSettings.highPowerMode) 15L else 30L
+
+    /**
      * Create and connect a local WebSocket transport.
      */
     private fun createLocalTransport(address: String, path: String) {
-        val wsTransport = WebSocketTransport(address, path)
+        val wsTransport = WebSocketTransport(address, path, pingIntervalSeconds = getPingIntervalSeconds())
         transport = wsTransport
         wsTransport.setListener(TransportEventListener())
         wsTransport.connect()
@@ -512,7 +540,7 @@ class SendSpinClient(
      * Create and connect a proxy WebSocket transport.
      */
     private fun createProxyTransport(url: String) {
-        val proxyTransport = ProxyWebSocketTransport(url)
+        val proxyTransport = ProxyWebSocketTransport(url, pingIntervalSeconds = getPingIntervalSeconds())
         transport = proxyTransport
         proxyTransport.setListener(TransportEventListener())
         proxyTransport.connect()
@@ -541,6 +569,7 @@ class SendSpinClient(
 
         stopTimeSync()
         reconnecting.set(false)
+        waitingForNetwork.set(false)
         sendGoodbye("user_request")
         transport?.close(1000, "User disconnect")
         transport = null
@@ -603,6 +632,9 @@ class SendSpinClient(
 
     /**
      * Attempt reconnection with exponential backoff.
+     *
+     * Smart reconnection: if network is unavailable, pauses without consuming attempts.
+     * High Power Mode: infinite retry with 30s steady-state interval.
      */
     private fun attemptReconnect() {
         val savedServerName = serverName ?: serverAddress ?: remoteId ?: "Unknown"
@@ -632,7 +664,9 @@ class SendSpinClient(
             Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
         }
 
-        if (attempts > MAX_RECONNECT_ATTEMPTS) {
+        // Check attempt limits - high power mode allows infinite retries
+        val maxAttempts = if (UserSettings.highPowerMode) Int.MAX_VALUE else MAX_RECONNECT_ATTEMPTS
+        if (attempts > maxAttempts) {
             Log.w(TAG, "Max reconnection attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
             reconnecting.set(false)
             timeFilter.resetAndDiscard()
@@ -642,10 +676,28 @@ class SendSpinClient(
             return
         }
 
-        val delayMs = (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
-            .coerceAtMost(MAX_RECONNECT_DELAY_MS)
+        // If network is unavailable, pause without wasting an attempt
+        // setNetworkAvailable(true) will resume via onNetworkAvailable()
+        if (!networkAvailable.get()) {
+            Log.i(TAG, "Network unavailable - pausing reconnection (attempt $attempts saved)")
+            reconnectAttempts.decrementAndGet()
+            waitingForNetwork.set(true)
+            reconnecting.set(true)
+            _connectionState.value = ConnectionState.Connecting
+            callback.onReconnecting(attempts.coerceAtLeast(1), savedServerName)
+            return
+        }
 
-        Log.i(TAG, "Attempting reconnection $attempts/$MAX_RECONNECT_ATTEMPTS in ${delayMs}ms")
+        // Exponential backoff for first 5 attempts, then steady 30s in high power mode
+        val delayMs = if (UserSettings.highPowerMode && attempts > MAX_RECONNECT_ATTEMPTS) {
+            HIGH_POWER_RECONNECT_DELAY_MS
+        } else {
+            (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
+                .coerceAtMost(MAX_RECONNECT_DELAY_MS)
+        }
+
+        val attemptsDisplay = if (UserSettings.highPowerMode) "$attempts" else "$attempts/$MAX_RECONNECT_ATTEMPTS"
+        Log.i(TAG, "Attempting reconnection $attemptsDisplay in ${delayMs}ms")
         reconnecting.set(true)
         _connectionState.value = ConnectionState.Connecting
 

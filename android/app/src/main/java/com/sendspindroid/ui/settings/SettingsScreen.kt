@@ -48,6 +48,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
 import com.sendspindroid.ui.theme.SendSpinTheme
@@ -77,6 +80,8 @@ fun SettingsScreen(
     val wifiCodec by viewModel.wifiCodec.collectAsState()
     val cellularCodec by viewModel.cellularCodec.collectAsState()
     val lowMemoryMode by viewModel.lowMemoryMode.collectAsState()
+    val highPowerMode by viewModel.highPowerMode.collectAsState()
+    val batteryOptExempt by viewModel.batteryOptExempt.collectAsState()
     val debugLogging by viewModel.debugLogging.collectAsState()
     val debugSampleCount by viewModel.debugSampleCount.collectAsState()
     val appVersion by viewModel.appVersion.collectAsState()
@@ -182,6 +187,33 @@ fun SettingsScreen(
                     }
                 }
             )
+            SwitchPreference(
+                title = stringResource(R.string.pref_high_power_mode_title),
+                summary = stringResource(R.string.pref_high_power_mode_summary),
+                checked = highPowerMode,
+                onCheckedChange = { viewModel.setHighPowerMode(it) }
+            )
+            if (highPowerMode) {
+                val context = LocalContext.current
+                TextPreference(
+                    title = if (batteryOptExempt) {
+                        stringResource(R.string.pref_battery_opt_exempt)
+                    } else {
+                        stringResource(R.string.pref_battery_opt_not_exempt)
+                    },
+                    summary = "",
+                    enabled = !batteryOptExempt,
+                    onClick = {
+                        val intent = Intent(
+                            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                        // Refresh status when user returns
+                        viewModel.refreshBatteryOptExempt()
+                    }
+                )
+            }
 
             // Debug Category
             PreferenceCategory(title = stringResource(R.string.pref_category_debug))

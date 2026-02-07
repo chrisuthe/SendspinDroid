@@ -58,6 +58,13 @@
          Used by: Keep audio playback running when screen is off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- REQUEST_IGNORE_BATTERY_OPTIMIZATIONS: Request exemption from Doze battery optimization
+         Permission level: Normal (auto-granted)
+         Used by: High Power Mode to prompt user to exempt app from battery restrictions
+         Note: Only prompted when user enables High Power Mode (always-on devices)
+         Google Play policy: Allowed for media playback apps -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- CAMERA: Required for QR code scanning (Remote ID input)
          Permission level: Dangerous (requires runtime permission request)
          Used by: QR scanner to scan Music Assistant Remote ID codes

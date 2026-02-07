@@ -21,6 +21,7 @@ object UserSettings {
     const val KEY_PREFERRED_CODEC = "preferred_codec"
     const val KEY_FULL_SCREEN_MODE = "full_screen_mode"
     const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
+    const val KEY_HIGH_POWER_MODE = "high_power_mode"
     const val KEY_MINI_PLAYER_POSITION = "mini_player_position"
 
     // Network-specific codec preference keys
@@ -143,6 +144,18 @@ object UserSettings {
      */
     val keepScreenOn: Boolean
         get() = prefs?.getBoolean(KEY_KEEP_SCREEN_ON, false) ?: false
+
+    /**
+     * Whether High Power Mode is enabled.
+     * When enabled (for always-on/plugged-in devices):
+     * - WiFi and CPU locks held for entire connection (not just streaming)
+     * - WiFi lock uses low-latency mode (API 29+)
+     * - Infinite reconnection attempts (30s steady-state interval)
+     * - Faster WebSocket ping (15s vs 30s) for quicker drop detection
+     * - Prompts user to exempt app from battery optimization
+     */
+    val highPowerMode: Boolean
+        get() = prefs?.getBoolean(KEY_HIGH_POWER_MODE, false) ?: false
 
     /**
      * Position of the mini player in the navigation content area.
