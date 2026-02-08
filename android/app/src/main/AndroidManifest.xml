@@ -103,6 +103,11 @@
             android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc"/>
 
+        <!-- Android Auto attribution icon (tintable, shown in app info) -->
+        <meta-data
+            android:name="androidx.car.app.TintableAttributionIcon"
+            android:resource="@drawable/ic_auto_attribution"/>
+
         <!--
             TODO for v2: Add application-level configurations:
             - android:usesCleartextTraffic="false" (enforce HTTPS, currently needed for local servers)
