@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Minimal layout for Compose-based app shell.
+  The ComposeView hosts the entire AppShell composable.
+  The FragmentContainerView overlays for detail screens
+  (AlbumDetail, ArtistDetail, PlaylistDetail) that are still Fragment-based.
+  The CoordinatorLayout provides Snackbar anchoring.
+-->
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/coordinatorLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <!-- Main Compose UI (AppShell) -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/composeView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Detail Fragment overlay (AlbumDetail, ArtistDetail, PlaylistDetail) -->
+    <!-- Initially GONE, shown when navigating to a detail screen -->
+    <androidx.fragment.app.FragmentContainerView
+        android:id="@+id/detailFragmentContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>
