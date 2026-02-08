@@ -198,10 +198,11 @@ private fun ConnectedShell(
     val formFactor = LocalFormFactor.current
     val isMaConnected by viewModel.isMaConnected.collectAsState()
 
-    // null = Now Playing is the active screen (no browse tab selected)
+    // Which screen to show. null = Now Playing (default when connected)
     var selectedNavTab by remember { mutableStateOf<NavTab?>(null) }
 
-    val navTabs = remember {
+    // All navigation items: Now Playing + browse tabs (browse tabs only if MA is connected)
+    val browseNavTabs = remember {
         listOf(
             NavTab.HOME to Pair(R.drawable.ic_nav_home, R.string.nav_home),
             NavTab.SEARCH to Pair(R.drawable.ic_nav_search, R.string.nav_search),
@@ -210,25 +211,29 @@ private fun ConnectedShell(
         )
     }
 
-    if (!isMaConnected || selectedNavTab == null) {
-        // Full Now Playing -- no navigation scaffold needed
-        NowPlayingScreen(
-            viewModel = viewModel,
-            onPreviousClick = onPreviousClick,
-            onPlayPauseClick = onPlayPauseClick,
-            onNextClick = onNextClick,
-            onSwitchGroupClick = onSwitchGroupClick,
-            onFavoriteClick = onFavoriteClick,
-            onVolumeChange = onVolumeChange,
-            onQueueClick = onQueueClick,
-            modifier = modifier.fillMaxSize()
-        )
-    } else {
-        // Browsing with NavigationSuiteScaffold
-        NavigationSuiteScaffold(
-            modifier = modifier,
-            navigationSuiteItems = {
-                navTabs.forEach { (tab, iconAndLabel) ->
+    // Always show NavigationSuiteScaffold so user has navigation controls
+    NavigationSuiteScaffold(
+        modifier = modifier,
+        navigationSuiteItems = {
+            // Now Playing tab (always present)
+            item(
+                icon = {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_audio_playing),
+                        contentDescription = stringResource(R.string.now_playing)
+                    )
+                },
+                label = { Text(stringResource(R.string.now_playing)) },
+                selected = selectedNavTab == null,
+                onClick = {
+                    selectedNavTab = null
+                    viewModel.setNavigationContentVisible(false)
+                }
+            )
+
+            // Browse tabs (only when Music Assistant is connected)
+            if (isMaConnected) {
+                browseNavTabs.forEach { (tab, iconAndLabel) ->
                     val (iconRes, labelRes) = iconAndLabel
                     item(
                         icon = {
@@ -240,22 +245,31 @@ private fun ConnectedShell(
                         label = { Text(stringResource(labelRes)) },
                         selected = selectedNavTab == tab,
                         onClick = {
-                            if (selectedNavTab == tab) {
-                                // Tapping already-selected tab returns to Now Playing
-                                selectedNavTab = null
-                                viewModel.setNavigationContentVisible(false)
-                            } else {
-                                selectedNavTab = tab
-                                viewModel.setCurrentNavTab(tab)
-                                viewModel.setNavigationContentVisible(true)
-                            }
+                            selectedNavTab = tab
+                            viewModel.setCurrentNavTab(tab)
+                            viewModel.setNavigationContentVisible(true)
                         }
                     )
                 }
             }
-        ) {
+        }
+    ) {
+        if (selectedNavTab == null) {
+            // Now Playing (full screen within scaffold)
+            NowPlayingScreen(
+                viewModel = viewModel,
+                onPreviousClick = onPreviousClick,
+                onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
+                onSwitchGroupClick = onSwitchGroupClick,
+                onFavoriteClick = onFavoriteClick,
+                onVolumeChange = onVolumeChange,
+                onQueueClick = onQueueClick,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            // Browsing mode: browse content + mini player
             Column(modifier = Modifier.fillMaxSize()) {
-                // Browse content
                 Box(modifier = Modifier.weight(1f)) {
                     BrowseContent(
                         selectedNavTab = selectedNavTab,
