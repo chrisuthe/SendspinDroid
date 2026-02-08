@@ -793,10 +793,17 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // Add detail fragment container on top of Compose overlay
+        // Add detail fragment container on top of Compose overlay.
+        // Must have an opaque background so the Fragment content fully covers the
+        // Compose shell underneath (otherwise Home/browse content bleeds through).
+        val bgColor = android.util.TypedValue().let { tv ->
+            theme.resolveAttribute(android.R.attr.colorBackground, tv, true)
+            tv.data
+        }
         val detailContainer = androidx.fragment.app.FragmentContainerView(this).apply {
             id = R.id.detailFragmentContainer
             visibility = View.GONE
+            setBackgroundColor(bgColor)
         }
         rootFrame.addView(
             detailContainer,
