@@ -1,32 +1,49 @@
 {
   "permissions": {
     "allow": [
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c:*)",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" install -r \"\"Z:/CodeProjects/SpinDroid/android/app/build/outputs/apk/debug/app-debug.apk\"\"')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -c && \"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d -s SendSpinClient:* PlaybackService:* MainActivity:* | grep -i volume | head -50')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c 'timeout 60 \"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat SendSpinClient:D PlaybackService:D MainActivity:D *:S 2>&1 | grep -i -E \"\\(volume|Volume|VOLUME\\)\" || echo \"Timeout - no volume logs captured\"':*)",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash:*)",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -c')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" shell pm list packages | grep sendspindroid')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" -s adb-912530510222-aGFdlw._adb-tls-connect._tcp install -r \"\"Z:/CodeProjects/SpinDroid/android/app/build/outputs/apk/debug/app-debug.apk\"\"')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c \"./gradlew assembleDebug 2>&1 | tail -20\")",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" devices && \"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" install -r \"\"Z:/CodeProjects/SpinDroid/android/app/build/outputs/apk/debug/app-debug.apk\"\"')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c 'timeout 45 \"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -v time SendSpinClient:D PlaybackService:D MainActivity:D *:S 2>&1 | grep -i -E \"\"\\(volume|client/state|server/command\\)\"\" || echo \"\"Timeout reached\"\"')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d | grep -i \"\"sendspinclient\\\\|playbackservice\"\" | tail -30')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d -v brief | grep \"\"14325\"\" | tail -30')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d | tail -100')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -t 100 2>&1 | head -50')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d 2>&1 | wc -l')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d 2>&1 | tail -50')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" devices && \"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" shell \"\"logcat -d | tail -20\"\"')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d 2>&1 | tail -30')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" shell log -t TEST \"\"Logging test message\"\" && sleep 1 && \"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -d 2>&1 | tail -10')",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c '\"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" kill-server && sleep 2 && \"\"/c/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" devices')",
-      "Bash(pip show:*)",
-      "Bash(JAVA_HOME=\"/c/Program Files/Android/Android Studio/jbr\" bash -c \"./gradlew assembleDebug 2>&1 | tail -10\")",
+      "Bash(./gradlew:*)",
+      "Bash(gradlew:*)",
+      "Bash(JAVA_HOME=:*)",
+      "Bash(cd Z:/CodeProjects:*)",
+      "Bash(ls:*)",
       "Bash(dir:*)",
       "Bash(cat:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(adb:*)",
+      "Bash(\"C:/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe\":*)",
+      "Bash($LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe:*)",
+      "Bash(cmd.exe /c \"%LOCALAPPDATA%\\Android\\Sdk\\platform-tools\\adb.exe\":*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cmd /c \"%LOCALAPPDATA%\\\\Android\\\\Sdk\\\\platform-tools\\\\adb.exe devices\")",
+      "Bash(findstr:*)",
+      "Bash(JAVA_HOME=\"C:/Program Files/Android/Android Studio/jbr\" ./gradlew:*)",
+      "WebSearch",
+      "WebFetch(domain:www.sendspin-audio.com)",
+      "Bash(wc:*)",
+      "WebFetch(domain:developers.music-assistant.io)",
+      "WebFetch(domain:www.music-assistant.io)",
+      "Bash(C:/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe shell:*)",
+      "Bash(C:/Users/chris/AppData/Local/Android/Sdk/platform-tools/adb.exe logcat -d)",
+      "Bash(where /r Z:CodeProjects audio.py)",
+      "Bash(JAVA_HOME=\"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\" ./gradlew:*)",
+      "Bash(git log:*)"
     ]
+  },
+  "outputStyle": "Explanatory",
+  "mcpServers": {
+    "mcp-server-firecrawl": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "firecrawl-mcp"
+      ],
+      "env": {
+        "FIRECRAWL_API_KEY": "fc-4e0a68876a5b4189b5433c10e820721a"
+      }
+    }
   }
 }

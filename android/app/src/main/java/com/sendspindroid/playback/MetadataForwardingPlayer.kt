@@ -3,6 +3,7 @@ package com.sendspindroid.playback
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -121,16 +122,28 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
      * Rebuilds the cached MediaMetadata from current values.
      */
     private fun rebuildMetadata() {
+        // Build subtitle for Android Auto's DISPLAY_SUBTITLE (e.g. "Artist - Album")
+        val subtitle = buildString {
+            currentArtist?.let { append(it) }
+            currentAlbum?.let {
+                if (isNotEmpty()) append(" - ")
+                append(it)
+            }
+        }.ifEmpty { null }
+
         cachedMetadata = MediaMetadata.Builder()
             .setTitle(currentTitle)
-            .setDisplayTitle(currentTitle)  // Some systems use displayTitle for notifications
+            .setDisplayTitle(currentTitle)
+            .setSubtitle(subtitle)  // Android Auto uses DISPLAY_SUBTITLE for second line
             .setArtist(currentArtist)
             .setAlbumTitle(currentAlbum)
-            .setAlbumArtist(currentArtist)  // Also set album artist
+            .setAlbumArtist(currentArtist)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
             .apply {
-                // Prefer artwork data over URI (more reliable for notifications)
+                // Set both artworkData (for notifications) and artworkUri (for Android Auto)
                 currentArtworkData?.let { setArtworkData(it, MediaMetadata.PICTURE_TYPE_FRONT_COVER) }
-                    ?: currentArtworkUri?.let { setArtworkUri(it) }
+                currentArtworkUri?.let { setArtworkUri(it) }
             }
             .build()
     }
@@ -164,6 +177,23 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
         } else {
             super.getMediaMetadata()
         }
+    }
+
+    /**
+     * Returns the current media item with our enhanced metadata injected.
+     *
+     * Android Auto's legacy compat bridge reads metadata from the MediaItem
+     * (not getMediaMetadata()), so we must override this to include artwork
+     * and other enhanced fields.
+     */
+    override fun getCurrentMediaItem(): MediaItem? {
+        val baseItem = super.getCurrentMediaItem() ?: return null
+        val metadata = getMediaMetadata()
+        if (metadata == MediaMetadata.EMPTY) return baseItem
+
+        return baseItem.buildUpon()
+            .setMediaMetadata(metadata)
+            .build()
     }
 
     // Track listeners for metadata change notifications
