@@ -69,8 +69,10 @@ import com.sendspindroid.sendspin.SyncAudioPlayerCallback
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.NetworkState
+import com.sendspindroid.network.TransportType
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -432,6 +434,7 @@ class PlaybackService : MediaLibraryService() {
         private const val MEDIA_ID_ROOT = "root"
         private const val MEDIA_ID_DISCOVERED = "discovered_servers"
         private const val MEDIA_ID_SERVER_PREFIX = "server_"
+        private const val MEDIA_ID_SAVED_SERVER_PREFIX = "saved_server_"
 
         // Android Auto content style hint keys
         private const val CONTENT_STYLE_BROWSABLE = "android.media.browse.CONTENT_STYLE_BROWSABLE_HINT"
@@ -1996,6 +1999,48 @@ class PlaybackService : MediaLibraryService() {
                 val mediaId = item.mediaId
 
                 when {
+                    // Saved server (looked up by UUID, auto-selects connection method)
+                    mediaId.startsWith(MEDIA_ID_SAVED_SERVER_PREFIX) -> {
+                        val serverId = mediaId.removePrefix(MEDIA_ID_SAVED_SERVER_PREFIX)
+                        Log.d(TAG, "User selected saved server: $serverId")
+
+                        val server = UnifiedServerRepository.savedServers.value
+                            .find { it.id == serverId }
+                        if (server != null) {
+                            // Use ConnectionSelector to pick the best method
+                            networkEvaluator?.evaluateCurrentNetwork()
+                            val netState = networkEvaluator?.networkState?.value
+                                ?: NetworkState(TransportType.UNKNOWN)
+                            val selected = ConnectionSelector.selectConnection(server, netState)
+
+                            when (selected) {
+                                is ConnectionSelector.SelectedConnection.Local -> {
+                                    setCurrentServer(server.id, ConnectionMode.LOCAL)
+                                    connectToServer(selected.address, selected.path)
+                                }
+                                is ConnectionSelector.SelectedConnection.Remote -> {
+                                    setCurrentServer(server.id, ConnectionMode.REMOTE)
+                                    connectToRemoteServer(selected.remoteId)
+                                }
+                                is ConnectionSelector.SelectedConnection.Proxy -> {
+                                    setCurrentServer(server.id, ConnectionMode.PROXY)
+                                    connectToProxyServer(selected.url, selected.authToken)
+                                }
+                                null -> {
+                                    Log.w(TAG, "No connection method for saved server: ${server.name}")
+                                }
+                            }
+                            UnifiedServerRepository.updateLastConnected(server.id)
+                        } else {
+                            Log.w(TAG, "Saved server not found: $serverId")
+                        }
+
+                        item.buildUpon()
+                            .setUri("sendspin://saved/$serverId")
+                            .build()
+                    }
+
+                    // Discovered server (by address, local connection only)
                     mediaId.startsWith(MEDIA_ID_SERVER_PREFIX) -> {
                         val serverAddress = mediaId.removePrefix(MEDIA_ID_SERVER_PREFIX)
                         Log.d(TAG, "User selected server: $serverAddress")
@@ -2443,9 +2488,18 @@ class PlaybackService : MediaLibraryService() {
         // Trigger mDNS scan so servers populate for Android Auto / external browsers
         ensureBrowseDiscoveryRunning()
 
-        return ServerRepository.discoveredServers.value.map { server ->
-            createPlayableServerItem(server.name, server.address)
+        // Saved servers first, sorted by most recently connected
+        val savedItems = UnifiedServerRepository.savedServers.value
+            .sortedByDescending { it.lastConnectedMs }
+            .map { createSavedServerItem(it) }
+
+        // Discovered servers that aren't already in the saved list
+        val discoveredItems = UnifiedServerRepository.filteredDiscoveredServers.value.mapNotNull { server ->
+            val address = server.local?.address ?: return@mapNotNull null
+            createPlayableServerItem(server.name, address)
         }
+
+        return savedItems + discoveredItems
     }
 
     /**
@@ -2466,6 +2520,7 @@ class PlaybackService : MediaLibraryService() {
                     path = path
                 )
                 ServerRepository.addDiscoveredServer(server)
+                UnifiedServerRepository.addDiscoveredServer(name, address, path)
                 // Notify subscribed browsers that children changed
                 mediaSession?.notifyChildrenChanged(MEDIA_ID_DISCOVERED, 0, null)
             }
@@ -2476,6 +2531,7 @@ class PlaybackService : MediaLibraryService() {
                 val server = ServerRepository.discoveredServers.value.find { it.name == name }
                 server?.let {
                     ServerRepository.removeDiscoveredServer(it.address)
+                    UnifiedServerRepository.removeDiscoveredServer(it.address)
                     mediaSession?.notifyChildrenChanged(MEDIA_ID_DISCOVERED, 0, null)
                 }
             }
@@ -2560,6 +2616,27 @@ class PlaybackService : MediaLibraryService() {
                 MediaMetadata.Builder()
                     .setTitle(name)
                     .setSubtitle(address)
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .build()
+            )
+            .build()
+    }
+
+    private fun createSavedServerItem(server: UnifiedServer): MediaItem {
+        val subtitle = when {
+            server.local != null -> server.local.address
+            server.proxy != null -> "Proxy"
+            server.remote != null -> "Remote Access"
+            else -> ""
+        }
+        return MediaItem.Builder()
+            .setMediaId("$MEDIA_ID_SAVED_SERVER_PREFIX${server.id}")
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(server.name)
+                    .setSubtitle(subtitle)
                     .setIsPlayable(true)
                     .setIsBrowsable(false)
                     .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
@@ -2995,6 +3072,12 @@ class PlaybackService : MediaLibraryService() {
             }
             mediaId == MEDIA_ID_DISCOVERED -> {
                 createBrowsableItem(MEDIA_ID_DISCOVERED, "Connect", "Choose a server")
+            }
+            mediaId.startsWith(MEDIA_ID_SAVED_SERVER_PREFIX) -> {
+                val serverId = mediaId.removePrefix(MEDIA_ID_SAVED_SERVER_PREFIX)
+                UnifiedServerRepository.savedServers.value
+                    .find { it.id == serverId }
+                    ?.let { createSavedServerItem(it) }
             }
             mediaId.startsWith(MEDIA_ID_SERVER_PREFIX) -> {
                 val address = mediaId.removePrefix(MEDIA_ID_SERVER_PREFIX)
