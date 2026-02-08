@@ -78,15 +78,9 @@ import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
 import com.sendspindroid.ui.server.AddServerWizardActivity
-import com.sendspindroid.ui.server.SectionedServerAdapter
-import com.sendspindroid.ui.server.UnifiedServerAdapter
 import com.sendspindroid.ui.server.UnifiedServerConnector
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaConnectionState
-import com.sendspindroid.ui.navigation.HomeFragment
-import com.sendspindroid.ui.navigation.SearchFragment
-import com.sendspindroid.ui.navigation.LibraryFragment
-import com.sendspindroid.ui.navigation.PlaylistsFragment
 import com.sendspindroid.ui.queue.QueueSheetFragment
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
@@ -139,9 +133,7 @@ class MainActivity : AppCompatActivity() {
     // ViewModel for managing UI state (survives configuration changes)
     private val viewModel: MainActivityViewModel by viewModels()
 
-    // Unified server support - sectioned adapter with saved + discovered servers
-    private var sectionedServerAdapter: SectionedServerAdapter? = null
-    private var unifiedServerAdapter: UnifiedServerAdapter? = null
+    // Unified server support - connector for handling server connections
     private var unifiedServerConnector: UnifiedServerConnector? = null
 
     // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
@@ -547,21 +539,7 @@ class MainActivity : AppCompatActivity() {
         // Re-add Compose shell overlay (was destroyed when layout was re-inflated)
         setupComposeShell()
 
-        // Restore navigation state if we were showing navigation content
-        if (isNavigationContentVisible) {
-            // Re-show the navigation content with the current tab
-            val fragment = when (currentNavTab) {
-                R.id.nav_home -> HomeFragment.newInstance()
-                R.id.nav_search -> SearchFragment.newInstance()
-                R.id.nav_library -> LibraryFragment.newInstance()
-                else -> HomeFragment.newInstance()
-            }
-            // Temporarily set to false so showNavigationContent will show it
-            isNavigationContentVisible = false
-            showNavigationContent(fragment)
-            binding.bottomNavigation?.selectedItemId = currentNavTab
-            return
-        }
+        // Navigation state is now managed by Compose (AppShell) -- no Fragment restoration needed
 
         // Restore UI state based on current connection state
         when (val state = connectionState) {
@@ -699,8 +677,7 @@ class MainActivity : AppCompatActivity() {
         // Load previously saved manual servers (legacy)
         loadPersistedServers()
 
-        // Setup sectioned server adapter for the new unified server list
-        setupSectionedServerAdapter()
+        // Server list is now Compose-based (ServerListScreen in AppShell)
 
         // Setup unified server support (connector, observers)
         setupUnifiedServers()
@@ -934,60 +911,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Track whether navigation content is currently shown (vs full player)
+    // Legacy field - navigation is now Compose-based but some callbacks still reference this
     private var isNavigationContentVisible = false
 
-    // Current selected navigation tab
-    private var currentNavTab: Int = R.id.nav_home
+    // Current selected navigation tab (legacy - navigation is now Compose-based)
+    private var currentNavTab: Int = 0
 
-    /**
-     * Sets up the bottom navigation bar with item selection handling.
-     * Handles switching between full player and navigation content views.
-     */
+    // setupBottomNavigation() removed - navigation is now Compose-based (AppShell)
     private fun setupBottomNavigation() {
-        binding.bottomNavigation?.setOnItemSelectedListener { item ->
-            when (item.itemId) {
-                R.id.nav_home -> {
-                    Log.d(TAG, "Bottom nav: Home selected")
-                    currentNavTab = R.id.nav_home
-                    viewModel.setCurrentNavTab(NavTab.HOME)
-                    showNavigationContent(HomeFragment.newInstance())
-                    true
-                }
-                R.id.nav_search -> {
-                    Log.d(TAG, "Bottom nav: Search selected")
-                    currentNavTab = R.id.nav_search
-                    viewModel.setCurrentNavTab(NavTab.SEARCH)
-                    showNavigationContent(SearchFragment.newInstance())
-                    true
-                }
-                R.id.nav_library -> {
-                    Log.d(TAG, "Bottom nav: Library selected")
-                    currentNavTab = R.id.nav_library
-                    viewModel.setCurrentNavTab(NavTab.LIBRARY)
-                    showNavigationContent(LibraryFragment.newInstance())
-                    true
-                }
-                R.id.nav_playlists -> {
-                    Log.d(TAG, "Bottom nav: Playlists selected")
-                    currentNavTab = R.id.nav_playlists
-                    viewModel.setCurrentNavTab(NavTab.PLAYLISTS)
-                    showNavigationContent(PlaylistsFragment.newInstance())
-                    true
-                }
-                else -> false
-            }
-        }
-
-        // Setup Compose mini player
-        setupMiniPlayerComposeView()
-
-        // Initially, no tab should be selected (full player is default view)
-        // We clear the selection by setting checked to false on all menu items
-        binding.bottomNavigation?.menu?.let { menu ->
-            for (i in 0 until menu.size()) {
-                menu.getItem(i).isChecked = false
-            }
-        }
+        // Bottom navigation and mini player are now handled by Compose AppShell
+        // This method is kept as a no-op until all callers are cleaned up
     }
 
     /**
@@ -1129,20 +1062,9 @@ class MainActivity : AppCompatActivity() {
 
     // -- Toolbar title management --
 
-    /**
-     * Updates the toolbar title/subtitle for the current navigation tab.
-     * No back button since tabs are top-level destinations.
-     */
+    // updateToolbarForNavigation() removed - toolbar is now Compose-based (TopAppBar in AppShell)
     private fun updateToolbarForNavigation() {
-        supportActionBar?.title = when (currentNavTab) {
-            R.id.nav_home -> getString(R.string.nav_home)
-            R.id.nav_search -> getString(R.string.nav_search)
-            R.id.nav_library -> getString(R.string.nav_library)
-            R.id.nav_playlists -> getString(R.string.nav_playlists)
-            else -> getString(R.string.app_name)
-        }
-        supportActionBar?.subtitle = null
-        supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        // No-op: toolbar is now managed by Compose AppShell
     }
 
     /**
@@ -1203,59 +1125,7 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    /**
-     * Sets up the sectioned server adapter for the unified server list.
-     * Displays saved servers and discovered servers in separate sections.
-     */
-    private fun setupSectionedServerAdapter() {
-        sectionedServerAdapter = SectionedServerAdapter(object : SectionedServerAdapter.Callback {
-            override fun onServerClick(server: UnifiedServer) {
-                onUnifiedServerSelected(server)
-            }
-
-            override fun onQuickConnect(server: UnifiedServer) {
-                onUnifiedServerQuickConnect(server)
-            }
-
-            override fun onServerLongClick(server: UnifiedServer): Boolean {
-                showUnifiedServerContextMenu(server)
-                return true
-            }
-        })
-
-        binding.serverListRecyclerView?.apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = sectionedServerAdapter
-        }
-
-        // Observe saved servers
-        lifecycleScope.launch {
-            UnifiedServerRepository.savedServers.collectLatest { servers ->
-                sectionedServerAdapter?.updateSavedServers(servers)
-                Log.d(TAG, "Saved servers updated: ${servers.size} servers")
-                updateServerListEmptyState()
-            }
-        }
-
-        // Observe filtered discovered servers (excludes servers that match saved servers)
-        lifecycleScope.launch {
-            UnifiedServerRepository.filteredDiscoveredServers.collectLatest { servers ->
-                sectionedServerAdapter?.updateDiscoveredServers(servers)
-                Log.d(TAG, "Discovered servers updated: ${servers.size} servers (filtered)")
-                updateServerListEmptyState()
-            }
-        }
-
-        // Observe online status of saved servers (discovered on local network)
-        lifecycleScope.launch {
-            UnifiedServerRepository.onlineSavedServerIds.collectLatest { onlineIds ->
-                sectionedServerAdapter?.updateOnlineServers(onlineIds)
-                if (onlineIds.isNotEmpty()) {
-                    Log.d(TAG, "Online saved servers: ${onlineIds.joinToString()}")
-                }
-            }
-        }
-    }
+    // setupSectionedServerAdapter() removed - server list is now Compose-based (ServerListScreen)
 
     /**
      * Updates the empty state visibility for the server list.
@@ -1445,12 +1315,9 @@ class MainActivity : AppCompatActivity() {
 
         // Start discovery automatically (runs in background)
         startAutoDiscovery()
-        sectionedServerAdapter?.setScanning(true)
 
         // Re-apply connected server status if still connected (e.g. coming back via "Switch Server")
         currentConnectedServerId?.let { serverId ->
-            sectionedServerAdapter?.setServerStatus(serverId, SectionedServerAdapter.ServerStatus.CONNECTED)
-            unifiedServerAdapter?.setServerStatus(serverId, UnifiedServerAdapter.ServerStatus.CONNECTED)
         }
 
         // Update toolbar subtitle to show scanning status
@@ -1588,7 +1455,6 @@ class MainActivity : AppCompatActivity() {
         // Stop discovery and pinging while connected (saves battery)
         discoveryManager?.stopDiscovery()
         defaultServerPinger?.stop()
-        sectionedServerAdapter?.setScanning(false)
 
         // Sync volume slider with current device volume
         syncSliderWithDeviceVolume()
@@ -1645,7 +1511,6 @@ class MainActivity : AppCompatActivity() {
                     override fun onDiscoveryStarted() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery started")
-                            sectionedServerAdapter?.setScanning(true)
                             // Update toolbar subtitle only if on server list
                             if (connectionState == AppConnectionState.ServerList) {
                                 supportActionBar?.subtitle = getString(R.string.scanning_ellipsis)
@@ -1656,7 +1521,6 @@ class MainActivity : AppCompatActivity() {
                     override fun onDiscoveryStopped() {
                         runOnUiThread {
                             Log.d(TAG, "Discovery stopped")
-                            sectionedServerAdapter?.setScanning(false)
                             // Clear toolbar subtitle only if on server list
                             if (connectionState == AppConnectionState.ServerList) {
                                 supportActionBar?.subtitle = null
@@ -1667,7 +1531,6 @@ class MainActivity : AppCompatActivity() {
                     override fun onDiscoveryError(error: String) {
                         runOnUiThread {
                             Log.e(TAG, "Discovery error: $error")
-                            sectionedServerAdapter?.setScanning(false)
                             supportActionBar?.subtitle = null
                             // Show error snackbar - server list is still usable with saved servers
                             showErrorSnackbar(
@@ -1702,7 +1565,6 @@ class MainActivity : AppCompatActivity() {
             onAttempt = { serverId, attempt, maxAttempts, connectionType ->
                 runOnUiThread {
                     Log.d(TAG, "Auto-reconnect attempt $attempt/$maxAttempts for server $serverId")
-                    sectionedServerAdapter?.setReconnectProgress(serverId, attempt, maxAttempts, null)
 
                     // Update toolbar subtitle
                     supportActionBar?.subtitle = getString(R.string.reconnecting_toolbar_subtitle)
@@ -1720,14 +1582,12 @@ class MainActivity : AppCompatActivity() {
                     }
                     Log.d(TAG, "Auto-reconnect trying $methodName for server $serverId")
                     val currentProgress = autoReconnectManager?.getCurrentAttempt() ?: 1
-                    sectionedServerAdapter?.setReconnectProgress(serverId, currentProgress, AutoReconnectManager.MAX_ATTEMPTS, methodName)
                 }
             },
             onSuccess = { serverId ->
                 runOnUiThread {
                     Log.i(TAG, "Auto-reconnect succeeded for server $serverId")
                     reconnectingToServer = null
-                    sectionedServerAdapter?.clearReconnectProgress(serverId)
                     supportActionBar?.subtitle = null
                     hideReconnectingIndicator()
                     // Note: Connection success will be handled by handleConnectionStateChange
@@ -1737,7 +1597,6 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     Log.w(TAG, "Auto-reconnect failed for server $serverId: $error")
                     reconnectingToServer = null
-                    sectionedServerAdapter?.clearReconnectProgress(serverId)
                     supportActionBar?.subtitle = null
                     hideReconnectingIndicator()
                     // NOTE: We do NOT set userManuallyDisconnected here - if the server
@@ -1867,10 +1726,8 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Starting auto-discovery")
         try {
             discoveryManager?.startDiscovery()
-            sectionedServerAdapter?.setScanning(true)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start discovery", e)
-            sectionedServerAdapter?.setScanning(false)
             showErrorSnackbar(
                 message = getString(R.string.error_discovery_start),
                 errorType = ErrorType.DISCOVERY,
@@ -2022,7 +1879,6 @@ class MainActivity : AppCompatActivity() {
                 // Cancel any auto-reconnect in progress (we're now connected)
                 autoReconnectManager?.cancelReconnection()
                 reconnectingToServer?.let { server ->
-                    sectionedServerAdapter?.clearReconnectProgress(server.id)
                 }
                 reconnectingToServer = null
 
@@ -2033,8 +1889,6 @@ class MainActivity : AppCompatActivity() {
 
                 // Update server list adapters with connected status
                 currentConnectedServerId?.let { serverId ->
-                    sectionedServerAdapter?.setServerStatus(serverId, SectionedServerAdapter.ServerStatus.CONNECTED)
-                    unifiedServerAdapter?.setServerStatus(serverId, UnifiedServerAdapter.ServerStatus.CONNECTED)
                 }
 
                 showNowPlayingView(serverName)
@@ -2103,20 +1957,15 @@ class MainActivity : AppCompatActivity() {
                         currentConnectedServerId = server.id
 
                         // Update adapter to show reconnecting status
-                        sectionedServerAdapter?.setReconnectProgress(server.id, 1, AutoReconnectManager.MAX_ATTEMPTS, null)
 
                         // Start auto-reconnect manager
                         autoReconnectManager?.startReconnecting(server)
                     } else {
                         Log.w(TAG, "Cannot start auto-reconnect: no server info available")
-                        sectionedServerAdapter?.clearStatuses()
-                        unifiedServerAdapter?.clearStatuses()
                     }
                 } else {
                     // User-initiated or reconnect exhausted - clear statuses
                     reconnectingToServer = null
-                    sectionedServerAdapter?.clearStatuses()
-                    unifiedServerAdapter?.clearStatuses()
 
                     // Announce disconnection for accessibility
                     announceForAccessibility(getString(R.string.accessibility_disconnected))
@@ -2133,7 +1982,6 @@ class MainActivity : AppCompatActivity() {
                 showServerListView()
 
                 // Clear unified server adapter statuses
-                sectionedServerAdapter?.clearStatuses()
 
                 showErrorSnackbar(
                     message = errorMessage,
@@ -2188,7 +2036,6 @@ class MainActivity : AppCompatActivity() {
                             connectionState = AppConnectionState.ServerList
                             viewModel.updateConnectionState(connectionState)
                             showServerListView()
-                            sectionedServerAdapter?.clearStatuses()
                         }
                         // Announce disconnection for accessibility
                         announceForAccessibility(getString(R.string.accessibility_disconnected))
@@ -2306,7 +2153,6 @@ class MainActivity : AppCompatActivity() {
                         Log.d(TAG, "Player disconnected but UI shows connected - resetting to server list")
                         connectionState = AppConnectionState.ServerList
                         showServerListView()
-                        sectionedServerAdapter?.clearStatuses()
                         invalidateOptionsMenu()
                     }
                 }
@@ -2483,32 +2329,7 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Connection method selected: ${ConnectionSelector.getConnectionDescription(selected)}")
         }
 
-        // Setup unified server adapter
-        unifiedServerAdapter = UnifiedServerAdapter(object : UnifiedServerAdapter.Callback {
-            override fun onServerClick(server: UnifiedServer) {
-                onUnifiedServerSelected(server)
-            }
-
-            override fun onQuickConnect(server: UnifiedServer) {
-                onUnifiedServerQuickConnect(server)
-            }
-
-            override fun onServerLongClick(server: UnifiedServer): Boolean {
-                showUnifiedServerContextMenu(server)
-                return true
-            }
-        })
-
-        // Observe unified servers and update the list
-        lifecycleScope.launch {
-            UnifiedServerRepository.allServers.collectLatest { servers ->
-                unifiedServerAdapter?.submitList(servers)
-                Log.d(TAG, "Unified servers updated: ${servers.size} servers")
-            }
-        }
-
-        // For MVP: The Add Server Wizard is accessible via menu (action_add_unified_server)
-        // A FAB can be added to the layout later for quick access
+        // Server list UI is now Compose-based (ServerListScreen in AppShell)
     }
 
     /**
@@ -2555,7 +2376,6 @@ class MainActivity : AppCompatActivity() {
         if (reconnectingId != null && reconnectingId != server.id) {
             Log.i(TAG, "User selected different server - cancelling auto-reconnect for $reconnectingId")
             autoReconnectManager?.cancelReconnection()
-            sectionedServerAdapter?.clearReconnectProgress(reconnectingId)
             reconnectingToServer = null
         } else if (reconnectingId == server.id) {
             // User tapped the server we're reconnecting to - let auto-reconnect continue
@@ -2603,8 +2423,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Update adapter status for both adapters
-        unifiedServerAdapter?.setServerStatus(server.id, UnifiedServerAdapter.ServerStatus.CONNECTING)
-        sectionedServerAdapter?.setServerStatus(server.id, SectionedServerAdapter.ServerStatus.CONNECTING)
 
         // Show which method was selected
         val methodDesc = ConnectionSelector.getConnectionDescription(selected)
@@ -2690,18 +2508,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Updates unified server adapter status when connection state changes.
-     * Called from MediaController listener callbacks.
-     */
-    private fun updateUnifiedServerConnectionStatus(serverId: String?, status: UnifiedServerAdapter.ServerStatus) {
-        serverId?.let { id ->
-            unifiedServerAdapter?.setServerStatus(id, status)
-        }
-        if (status == UnifiedServerAdapter.ServerStatus.DISCONNECTED) {
-            unifiedServerAdapter?.clearStatuses()
-        }
-    }
+    // updateUnifiedServerConnectionStatus() removed - server list is now Compose-based
 
     /**
      * Validates server address format (host:port).
@@ -2874,7 +2681,9 @@ class MainActivity : AppCompatActivity() {
         val fragment = QueueSheetFragment.newInstance()
         fragment.onBrowseLibrary = {
             // Navigate to Library tab when "Browse Library" is tapped from empty queue
-            binding.bottomNavigation?.selectedItemId = R.id.nav_library
+            // Navigation is now Compose-based via ViewModel
+            viewModel.setCurrentNavTab(NavTab.LIBRARY)
+            viewModel.setNavigationContentVisible(true)
         }
         fragment.show(supportFragmentManager, QueueSheetFragment.TAG)
     }
@@ -2949,7 +2758,6 @@ class MainActivity : AppCompatActivity() {
             val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
             controller.sendCustomCommand(command, Bundle.EMPTY)
             transitionToServerList()
-            sectionedServerAdapter?.clearStatuses()
             showInfoSnackbar("Disconnected")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to disconnect", e)
