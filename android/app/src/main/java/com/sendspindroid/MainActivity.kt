@@ -98,6 +98,18 @@ import kotlinx.coroutines.launch
 import com.sendspindroid.ui.main.MainActivityViewModel
 import com.sendspindroid.ui.main.PlaybackState
 import com.sendspindroid.ui.main.ArtworkSource
+import com.sendspindroid.ui.main.ServerListScreen
+import com.sendspindroid.ui.main.components.ServerItemStatus
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import com.sendspindroid.ui.AppShell
+import com.sendspindroid.ui.adaptive.FormFactor
+import com.sendspindroid.ui.adaptive.LocalFormFactor
+import com.sendspindroid.ui.adaptive.isTvDevice
+import com.sendspindroid.ui.theme.SendSpinTheme
 import com.sendspindroid.ui.main.NavTab
 
 /**
@@ -109,9 +121,20 @@ import com.sendspindroid.ui.main.NavTab
  */
 class MainActivity : AppCompatActivity() {
 
-    // ViewBinding provides type-safe access to views (best practice vs findViewById)
+    // ViewBinding provides type-safe access to views (legacy, being phased out)
     private lateinit var binding: ActivityMainBinding
     private lateinit var serverAdapter: ServerAdapter
+
+    // Compose shell overlay -- primary UI, renders on top of XML layout
+    private var composeOverlay: ComposeView? = null
+
+    // Detail fragment container for album/artist/playlist detail screens
+    private var detailFragmentContainer: androidx.fragment.app.FragmentContainerView? = null
+
+    // Server status tracking for Compose server list
+    private val composeServerStatuses = mutableStateMapOf<String, ServerItemStatus>()
+    private val composeReconnectInfo = mutableStateMapOf<String, Pair<Int, Int>>()
+    private val composeIsScanning = mutableStateOf(false)
 
     // ViewModel for managing UI state (survives configuration changes)
     private val viewModel: MainActivityViewModel by viewModels()
@@ -484,6 +507,9 @@ class MainActivity : AppCompatActivity() {
         initializeMediaController()
         setupUI()
 
+        // Add Compose shell overlay (renders on top of XML layout)
+        setupComposeShell()
+
         // Setup back press handling for navigation content
         setupBackPressHandler()
 
@@ -517,6 +543,9 @@ class MainActivity : AppCompatActivity() {
 
         // Re-setup all UI bindings
         setupUI()
+
+        // Re-add Compose shell overlay (was destroyed when layout was re-inflated)
+        setupComposeShell()
 
         // Restore navigation state if we were showing navigation content
         if (isNavigationContentVisible) {
@@ -740,6 +769,135 @@ class MainActivity : AppCompatActivity() {
 
         // Setup bottom navigation (Step 1 - infrastructure only)
         setupBottomNavigation()
+    }
+
+    /**
+     * Sets up the Compose shell overlay that renders on top of the XML layout.
+     *
+     * The ComposeView hosts AppShell which provides:
+     * - Server list (Compose)
+     * - Now Playing screen (Compose)
+     * - Navigation tabs with browse content (Compose)
+     * - Mini player (Compose)
+     * - Toolbar (Compose)
+     *
+     * The XML layout remains underneath for backward compatibility while
+     * the migration is completed. Business logic methods (volume, discovery,
+     * media controller) continue to work and update the ViewModel, which
+     * the Compose UI observes.
+     */
+    @OptIn(androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi::class)
+    private fun setupComposeShell() {
+        val overlay = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        }
+
+        // Add overlay to the coordinator layout on top of everything
+        binding.coordinatorLayout.addView(
+            overlay,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        // Add a detail fragment container on top of the Compose overlay
+        val detailContainer = androidx.fragment.app.FragmentContainerView(this).apply {
+            id = R.id.detailFragmentContainer
+            visibility = View.GONE
+        }
+        binding.coordinatorLayout.addView(
+            detailContainer,
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        detailFragmentContainer = detailContainer
+
+        composeOverlay = overlay
+
+        overlay.setContent {
+            val windowSizeClass = androidx.compose.material3.windowsizeclass.calculateWindowSizeClass(this)
+            val formFactor = com.sendspindroid.ui.adaptive.determineFormFactor(
+                windowSizeClass = windowSizeClass,
+                isTv = isTvDevice
+            )
+
+            SendSpinTheme {
+                CompositionLocalProvider(LocalFormFactor provides formFactor) {
+                    AppShell(
+                        viewModel = viewModel,
+                        serverListContent = {
+                            ServerListScreen(
+                                savedServers = UnifiedServerRepository.savedServers,
+                                discoveredServers = UnifiedServerRepository.filteredDiscoveredServers,
+                                onlineSavedServerIds = UnifiedServerRepository.onlineSavedServerIds,
+                                isScanning = composeIsScanning.value,
+                                serverStatuses = composeServerStatuses,
+                                reconnectInfo = composeReconnectInfo,
+                                onServerClick = { server -> onUnifiedServerSelected(server) },
+                                onServerLongClick = { server -> showUnifiedServerContextMenu(server) },
+                                onQuickConnectClick = { server -> onUnifiedServerQuickConnect(server) },
+                                onAddServerClick = { showAddServerWizard() }
+                            )
+                        },
+                        onPreviousClick = { onPreviousClicked() },
+                        onPlayPauseClick = { onPlayPauseClicked() },
+                        onNextClick = { onNextClicked() },
+                        onSwitchGroupClick = { onSwitchGroupClicked() },
+                        onFavoriteClick = { onFavoriteClicked() },
+                        onVolumeChange = { volume ->
+                            onVolumeChanged(volume)
+                            viewModel.updateVolume(volume)
+                        },
+                        onQueueClick = { showQueueSheet() },
+                        onDisconnectClick = { onDisconnectClicked() },
+                        onAddServerClick = { showAddServerWizard() },
+                        onAlbumClick = { albumId, albumName ->
+                            showDetailFragment(
+                                com.sendspindroid.ui.detail.AlbumDetailFragment.newInstance(albumId, albumName)
+                            )
+                        },
+                        onArtistClick = { artistId, artistName ->
+                            showDetailFragment(
+                                com.sendspindroid.ui.detail.ArtistDetailFragment.newInstance(artistId, artistName)
+                            )
+                        },
+                        onPlaylistDetailClick = { playlistId, playlistName ->
+                            showDetailFragment(
+                                com.sendspindroid.ui.detail.PlaylistDetailFragment.newInstance(playlistId, playlistName)
+                            )
+                        },
+                        onShowSuccess = { message -> showSuccessSnackbar(message) },
+                        onShowError = { message -> showErrorSnackbar(message) },
+                        onShowUndoSnackbar = { message, onUndo, onDismissed ->
+                            showUndoSnackbar(message, onUndo, onDismissed)
+                        }
+                    )
+                }
+            }
+        }
+
+        // Sync scanning state with discovery manager
+        lifecycleScope.launch {
+            // Update scanning state when discovery starts/stops
+            while (true) {
+                composeIsScanning.value = discoveryManager?.isDiscovering() == true
+                delay(1000)
+            }
+        }
+    }
+
+    /**
+     * Shows a detail fragment (album, artist, playlist) overlaid on the Compose shell.
+     */
+    private fun showDetailFragment(fragment: Fragment) {
+        detailFragmentContainer?.visibility = View.VISIBLE
+        supportFragmentManager.beginTransaction()
+            .replace(R.id.detailFragmentContainer, fragment)
+            .addToBackStack("detail")
+            .commit()
     }
 
     // Track whether navigation content is currently shown (vs full player)
@@ -980,6 +1138,19 @@ class MainActivity : AppCompatActivity() {
     private fun setupBackPressHandler() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                // Check if a detail fragment is showing (Compose shell path)
+                if (detailFragmentContainer?.visibility == View.VISIBLE) {
+                    if (supportFragmentManager.backStackEntryCount > 0) {
+                        supportFragmentManager.popBackStack()
+                    }
+                    // Hide detail container if back stack is now empty
+                    if (supportFragmentManager.backStackEntryCount <= 1) {
+                        detailFragmentContainer?.visibility = View.GONE
+                    }
+                    return
+                }
+
+                // Legacy path: XML-based navigation content
                 if (isNavigationContentVisible) {
                     if (supportFragmentManager.backStackEntryCount > 0) {
                         // Pop detail fragment back to tab root (e.g., Album -> Home)
