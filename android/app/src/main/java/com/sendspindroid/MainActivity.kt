@@ -872,6 +872,21 @@ class MainActivity : AppCompatActivity() {
                         onQueueClick = { showQueueSheet() },
                         onDisconnectClick = { onDisconnectClicked() },
                         onAddServerClick = { showAddServerWizard() },
+                        onStatsClick = {
+                            StatsBottomSheet().show(supportFragmentManager, "stats")
+                        },
+                        onSettingsClick = {
+                            startActivity(android.content.Intent(this@MainActivity, SettingsActivity::class.java))
+                        },
+                        onEditServerClick = {
+                            val serverId = currentConnectedServerId
+                            if (serverId != null) {
+                                val server = UnifiedServerRepository.getServer(serverId)
+                                if (server != null) {
+                                    showEditServerWizard(server)
+                                }
+                            }
+                        },
                         onAlbumClick = { albumId, albumName ->
                             showDetailFragment(
                                 com.sendspindroid.ui.detail.AlbumDetailFragment.newInstance(albumId, albumName)
@@ -2889,6 +2904,9 @@ class MainActivity : AppCompatActivity() {
                 if (!isMaConnected && isNavigationContentVisible) {
                     hideNavigationContent()
                 }
+
+                // Update ViewModel for Compose UI
+                viewModel.setMaConnected(isMaConnected)
 
                 Log.d(TAG, "MA connection state changed: $state, MA-dependent UI visible: $isMaConnected")
             }

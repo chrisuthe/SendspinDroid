@@ -11,9 +11,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -98,6 +105,9 @@ fun AppShell(
     onQueueClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onAddServerClick: () -> Unit,
+    onStatsClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onEditServerClick: () -> Unit,
     onAlbumClick: (albumId: String, albumName: String) -> Unit,
     onArtistClick: (artistId: String, artistName: String) -> Unit,
     onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
@@ -130,6 +140,9 @@ fun AppShell(
                 onVolumeChange = onVolumeChange,
                 onQueueClick = onQueueClick,
                 onDisconnectClick = onDisconnectClick,
+                onStatsClick = onStatsClick,
+                onSettingsClick = onSettingsClick,
+                onEditServerClick = onEditServerClick,
                 onAlbumClick = onAlbumClick,
                 onArtistClick = onArtistClick,
                 onPlaylistDetailClick = onPlaylistDetailClick,
@@ -169,13 +182,14 @@ private fun ServerListShell(
 /**
  * Shell for the connected state.
  *
- * Uses NavigationSuiteScaffold to auto-switch between BottomNav / NavigationRail / Drawer
- * based on window size class.
+ * Uses Scaffold (TopAppBar + overflow menu) nested inside NavigationSuiteScaffold
+ * (auto-switches BottomNav / NavigationRail / Drawer based on window size class).
  *
- * State machine:
- * - No MA connection or no tab selected -> full Now Playing screen (no nav UI)
- * - MA connected + tab selected -> NavigationSuiteScaffold with browse content + mini player
+ * Navigation tabs:
+ * - Now Playing (always present, default)
+ * - Home, Search, Library, Playlists (only when MA is connected)
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConnectedShell(
     viewModel: MainActivityViewModel,
@@ -187,6 +201,9 @@ private fun ConnectedShell(
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
     onDisconnectClick: () -> Unit,
+    onStatsClick: () -> Unit,
+    onSettingsClick: () -> Unit,
+    onEditServerClick: () -> Unit,
     onAlbumClick: (albumId: String, albumName: String) -> Unit,
     onArtistClick: (artistId: String, artistName: String) -> Unit,
     onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
@@ -197,9 +214,13 @@ private fun ConnectedShell(
 ) {
     val formFactor = LocalFormFactor.current
     val isMaConnected by viewModel.isMaConnected.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
 
     // Which screen to show. null = Now Playing (default when connected)
     var selectedNavTab by remember { mutableStateOf<NavTab?>(null) }
+
+    // Overflow menu state
+    var showOverflowMenu by remember { mutableStateOf(false) }
 
     // All navigation items: Now Playing + browse tabs (browse tabs only if MA is connected)
     val browseNavTabs = remember {
@@ -209,6 +230,14 @@ private fun ConnectedShell(
             NavTab.LIBRARY to Pair(R.drawable.ic_nav_library, R.string.nav_library),
             NavTab.PLAYLISTS to Pair(R.drawable.ic_nav_playlists, R.string.nav_playlists)
         )
+    }
+
+    // Server name for the toolbar subtitle
+    val serverName = when (val state = connectionState) {
+        is AppConnectionState.Connected -> state.serverName
+        is AppConnectionState.Connecting -> state.serverName
+        is AppConnectionState.Reconnecting -> state.serverName
+        else -> null
     }
 
     // Always show NavigationSuiteScaffold so user has navigation controls
@@ -254,46 +283,132 @@ private fun ConnectedShell(
             }
         }
     ) {
-        if (selectedNavTab == null) {
-            // Now Playing (full screen within scaffold)
-            NowPlayingScreen(
-                viewModel = viewModel,
-                onPreviousClick = onPreviousClick,
-                onPlayPauseClick = onPlayPauseClick,
-                onNextClick = onNextClick,
-                onSwitchGroupClick = onSwitchGroupClick,
-                onFavoriteClick = onFavoriteClick,
-                onVolumeChange = onVolumeChange,
-                onQueueClick = onQueueClick,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            // Browsing mode: browse content + mini player
-            Column(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.weight(1f)) {
-                    BrowseContent(
-                        selectedNavTab = selectedNavTab,
-                        onAlbumClick = onAlbumClick,
-                        onArtistClick = onArtistClick,
-                        onPlaylistDetailClick = onPlaylistDetailClick,
-                        onShowSuccess = onShowSuccess,
-                        onShowError = onShowError,
-                        onShowUndoSnackbar = onShowUndoSnackbar
+        // Scaffold provides TopAppBar with overflow menu
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = if (selectedNavTab == null)
+                                    stringResource(R.string.now_playing)
+                                else
+                                    stringResource(
+                                        when (selectedNavTab) {
+                                            NavTab.HOME -> R.string.nav_home
+                                            NavTab.SEARCH -> R.string.nav_search
+                                            NavTab.LIBRARY -> R.string.nav_library
+                                            NavTab.PLAYLISTS -> R.string.nav_playlists
+                                            else -> R.string.now_playing
+                                        }
+                                    ),
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            if (serverName != null) {
+                                Text(
+                                    text = serverName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        Box {
+                            IconButton(onClick = { showOverflowMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Menu"
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showOverflowMenu,
+                                onDismissRequest = { showOverflowMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_stats)) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onStatsClick()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_edit_server)) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onEditServerClick()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_switch_server)) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onDisconnectClick()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.action_app_settings)) },
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        onSettingsClick()
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
                     )
-                }
+                )
+            }
+        ) { innerPadding ->
+            if (selectedNavTab == null) {
+                // Now Playing (full screen within scaffold, respects top bar padding)
+                NowPlayingScreen(
+                    viewModel = viewModel,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = onQueueClick,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                )
+            } else {
+                // Browsing mode: browse content + mini player
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        BrowseContent(
+                            selectedNavTab = selectedNavTab,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onPlaylistDetailClick = onPlaylistDetailClick,
+                            onShowSuccess = onShowSuccess,
+                            onShowError = onShowError,
+                            onShowUndoSnackbar = onShowUndoSnackbar
+                        )
+                    }
 
-                // Mini player (phone/tablet only -- TV gets no mini player)
-                if (AdaptiveDefaults.showMiniPlayer(formFactor)) {
-                    MiniPlayerBar(
-                        viewModel = viewModel,
-                        onPlayPauseClick = onPlayPauseClick,
-                        onVolumeChange = onVolumeChange,
-                        onReturnToNowPlaying = {
-                            selectedNavTab = null
-                            viewModel.setNavigationContentVisible(false)
-                        },
-                        onDisconnectClick = onDisconnectClick
-                    )
+                    // Mini player (phone/tablet only -- TV gets no mini player)
+                    if (AdaptiveDefaults.showMiniPlayer(formFactor)) {
+                        MiniPlayerBar(
+                            viewModel = viewModel,
+                            onPlayPauseClick = onPlayPauseClick,
+                            onVolumeChange = onVolumeChange,
+                            onReturnToNowPlaying = {
+                                selectedNavTab = null
+                                viewModel.setNavigationContentVisible(false)
+                            },
+                            onDisconnectClick = onDisconnectClick
+                        )
+                    }
                 }
             }
         }
