@@ -218,21 +218,23 @@ private fun ConnectedShell(
     val connectionState by viewModel.connectionState.collectAsState()
 
     // Which screen to show. null = Now Playing, non-null = browse tab.
-    // Defaults to null (Now Playing); switches to HOME when MA connects.
-    var selectedNavTab by remember { mutableStateOf<NavTab?>(null) }
+    // Starts as HOME when MA is connected, null otherwise.
+    var selectedNavTab by remember { mutableStateOf<NavTab?>(if (isMaConnected) NavTab.HOME else null) }
 
-    // Auto-switch to Home tab when MA first connects
-    if (isMaConnected && selectedNavTab == null) {
+    // Track previous MA state to detect transitions (not every recomposition)
+    var wasMaConnected by remember { mutableStateOf(isMaConnected) }
+    if (isMaConnected && !wasMaConnected) {
+        // MA just connected -- switch to Home tab
         selectedNavTab = NavTab.HOME
         viewModel.setCurrentNavTab(NavTab.HOME)
         viewModel.setNavigationContentVisible(true)
     }
-
-    // If MA disconnects while browsing, return to Now Playing
-    if (!isMaConnected && selectedNavTab != null) {
+    if (!isMaConnected && wasMaConnected) {
+        // MA just disconnected -- return to Now Playing
         selectedNavTab = null
         viewModel.setNavigationContentVisible(false)
     }
+    wasMaConnected = isMaConnected
 
     // Overflow menu state
     var showOverflowMenu by remember { mutableStateOf(false) }

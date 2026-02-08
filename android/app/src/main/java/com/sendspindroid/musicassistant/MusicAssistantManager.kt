@@ -2967,16 +2967,24 @@ object MusicAssistantManager {
 
     /**
      * Extract artist name from a queue item JSON.
+     *
+     * The "artist" field may be a string (simple name) or a JSON object/array
+     * (structured reference). We must check the type before using optString,
+     * which would serialize an object to its JSON representation.
      */
     private fun extractQueueItemArtist(item: JSONObject, mediaItem: JSONObject?): String? {
-        // Direct artist field
-        val directArtist = item.optString("artist", "")
-        if (directArtist.isNotEmpty()) return directArtist
+        // Direct artist field (only if it's actually a string, not an object/array)
+        if (item.has("artist") && item.opt("artist") is String) {
+            val directArtist = item.optString("artist", "")
+            if (directArtist.isNotEmpty()) return directArtist
+        }
 
         // From media_item
         if (mediaItem != null) {
-            val mediaArtist = mediaItem.optString("artist", "")
-            if (mediaArtist.isNotEmpty()) return mediaArtist
+            if (mediaItem.has("artist") && mediaItem.opt("artist") is String) {
+                val mediaArtist = mediaItem.optString("artist", "")
+                if (mediaArtist.isNotEmpty()) return mediaArtist
+            }
 
             // From media_item.artists array
             val artists = mediaItem.optJSONArray("artists")
@@ -2995,21 +3003,39 @@ object MusicAssistantManager {
             if (!artistName.isNullOrEmpty()) return artistName
         }
 
+        // artist field might be an object with a name property
+        item.optJSONObject("artist")?.let { artistObj ->
+            val name = artistObj.optString("name", "")
+            if (name.isNotEmpty()) return name
+        }
+        mediaItem?.optJSONObject("artist")?.let { artistObj ->
+            val name = artistObj.optString("name", "")
+            if (name.isNotEmpty()) return name
+        }
+
         return null
     }
 
     /**
      * Extract album name from a queue item JSON.
+     *
+     * The "album" field may be a string (simple name) or a JSON object
+     * (structured reference with item_id, provider, etc.). We must check
+     * the type before using optString, which would serialize an object.
      */
     private fun extractQueueItemAlbum(item: JSONObject, mediaItem: JSONObject?): String? {
-        // Direct album field
-        val directAlbum = item.optString("album", "")
-        if (directAlbum.isNotEmpty()) return directAlbum
+        // Direct album field (only if it's actually a string, not an object)
+        if (item.has("album") && item.opt("album") is String) {
+            val directAlbum = item.optString("album", "")
+            if (directAlbum.isNotEmpty()) return directAlbum
+        }
 
         // From media_item
         if (mediaItem != null) {
-            val mediaAlbum = mediaItem.optString("album", "")
-            if (mediaAlbum.isNotEmpty()) return mediaAlbum
+            if (mediaItem.has("album") && mediaItem.opt("album") is String) {
+                val mediaAlbum = mediaItem.optString("album", "")
+                if (mediaAlbum.isNotEmpty()) return mediaAlbum
+            }
 
             // From media_item.album object
             val albumObj = mediaItem.optJSONObject("album")
