@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android Auto icon: Connect (server rack, no tint - AA applies its own) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,6H4C3.45,6 3,5.55 3,5V3c0,-0.55 0.45,-1 1,-1h16c0.55,0 1,0.45 1,1v2c0,0.55 -0.45,1 -1,1zM7,4.5C7,5.33 6.33,6 5.5,6S4,5.33 4,4.5 4.67,3 5.5,3 7,3.67 7,4.5z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,13H4c-0.55,0 -1,-0.45 -1,-1v-2c0,-0.55 0.45,-1 1,-1h16c0.55,0 1,0.45 1,1v2c0,0.55 -0.45,1 -1,1zM7,11.5c0,0.83 -0.67,1.5 -1.5,1.5S4,12.33 4,11.5 4.67,10 5.5,10 7,10.67 7,11.5z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M20,20H4c-0.55,0 -1,-0.45 -1,-1v-2c0,-0.55 0.45,-1 1,-1h16c0.55,0 1,0.45 1,1v2c0,0.55 -0.45,1 -1,1zM7,18.5c0,0.83 -0.67,1.5 -1.5,1.5S4,19.33 4,18.5 4.67,17 5.5,17 7,17.67 7,18.5z"/>
+</vector>
