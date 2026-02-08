@@ -192,11 +192,7 @@ class SendSpinClient(
     // ========== SendSpinProtocolHandler Implementation ==========
 
     override fun sendTextMessage(text: String) {
-        val t = transport
-        if (t == null) {
-            Log.e(TAG, "Cannot send message - transport is null")
-            return
-        }
+        val t = transport ?: return  // Silently drop if transport is gone (e.g. post-disconnect race)
         val success = t.send(text)
         if (!success) {
             Log.w(TAG, "Failed to send message")

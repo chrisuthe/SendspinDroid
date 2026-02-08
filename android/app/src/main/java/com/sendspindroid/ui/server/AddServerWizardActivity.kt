@@ -10,6 +10,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -89,6 +90,9 @@ class AddServerWizardActivity : FragmentActivity() {
 
         // Initialize discovery manager
         discoveryManager = NsdDiscoveryManager(this, discoveryListener)
+
+        // Let Compose handle IME insets so keyboard doesn't cover text fields
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
         setContent {
             SendSpinTheme {

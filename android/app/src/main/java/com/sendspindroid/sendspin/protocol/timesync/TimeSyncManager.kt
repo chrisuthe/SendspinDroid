@@ -7,6 +7,7 @@ import com.sendspindroid.sendspin.protocol.TimeMeasurement
 import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -160,7 +161,7 @@ class TimeSyncManager(
 
         // Send N packets at configured intervals (adaptive burst count)
         repeat(currentBurstCount) {
-            if (!running) return
+            if (!running || !currentCoroutineContext().isActive) return
             sendClientTime()
             delay(SendSpinProtocol.TimeSync.BURST_DELAY_MS)
         }

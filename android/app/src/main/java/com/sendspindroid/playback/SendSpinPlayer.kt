@@ -731,7 +731,10 @@ class SendSpinPlayer : Player {
                 Player.COMMAND_GET_MEDIA_ITEMS_METADATA,
                 Player.COMMAND_GET_METADATA,
                 Player.COMMAND_GET_AUDIO_ATTRIBUTES,
-                Player.COMMAND_GET_VOLUME
+                Player.COMMAND_GET_VOLUME,
+                // Required for Android Auto's playFromMediaId -> onAddMediaItems routing
+                Player.COMMAND_SET_MEDIA_ITEM,
+                Player.COMMAND_PREPARE
             )
             .build()
     }
