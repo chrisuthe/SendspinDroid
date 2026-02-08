@@ -20,6 +20,7 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
+import android.os.SystemClock
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
@@ -75,7 +76,11 @@ class SendSpinPlayer : Player {
     private var currentError: PlaybackException? = null
 
     // Position and duration tracking (in milliseconds)
-    private var currentPositionMs = 0L
+    // These are anchor values from the server. getCurrentPosition() interpolates
+    // forward from the anchor when playing, so Android Auto/MediaSession gets a
+    // smoothly advancing position without needing discontinuity notifications.
+    private var anchorPositionMs = 0L
+    private var anchorElapsedRealtime = 0L
     private var currentDurationMs = 0L
     private var currentBufferedPositionMs = 0L
 
@@ -147,14 +152,23 @@ class SendSpinPlayer : Player {
     /**
      * Called by PlaybackService when playback state updates from the server.
      *
+     * Only fires a position discontinuity when the position jumps backward
+     * significantly (indicating a track change or seek). For normal periodic
+     * updates, the position is updated silently and Android Auto/MediaSession
+     * will pick it up via getCurrentPosition() polling.
+     *
      * @param syncState The SyncAudioPlayer playback state (or null if not available)
      * @param positionMs Current playback position in milliseconds
      * @param durationMs Total duration in milliseconds
      */
     fun updatePlaybackState(syncState: SyncPlaybackState?, positionMs: Long, durationMs: Long) {
-        currentPositionMs = positionMs
+        val previousInterpolatedMs = currentPosition
+
+        // Update the anchor point for position interpolation
+        anchorPositionMs = positionMs
+        anchorElapsedRealtime = SystemClock.elapsedRealtime()
         currentDurationMs = durationMs
-        currentBufferedPositionMs = positionMs // For live streams, buffered = current
+        currentBufferedPositionMs = positionMs
 
         if (syncState != null) {
             when (syncState) {
@@ -173,8 +187,15 @@ class SendSpinPlayer : Player {
             }
         }
 
-        // Notify listeners of position change
-        notifyPositionDiscontinuity(Player.DISCONTINUITY_REASON_INTERNAL)
+        // Only fire discontinuity when position jumps backward significantly,
+        // indicating a track change. For normal forward progress, let
+        // Android Auto/MediaSession poll getCurrentPosition() on its own schedule.
+        // getCurrentPosition() interpolates forward from the anchor, so the
+        // progress bar advances smoothly without needing discontinuity events.
+        val jumpedBackward = positionMs < previousInterpolatedMs - 2000
+        if (jumpedBackward) {
+            notifyPositionDiscontinuity(Player.DISCONTINUITY_REASON_INTERNAL)
+        }
     }
 
     /**
@@ -186,7 +207,8 @@ class SendSpinPlayer : Player {
     fun updateConnectionState(connected: Boolean, serverName: String? = null) {
         if (!connected) {
             updatePlaybackStateInternal(Player.STATE_IDLE, false)
-            currentPositionMs = 0
+            anchorPositionMs = 0
+            anchorElapsedRealtime = 0
             currentDurationMs = 0
             currentBufferedPositionMs = 0
             currentMediaItem = null
@@ -316,8 +338,8 @@ class SendSpinPlayer : Player {
             /* mediaItem= */ null,
             /* periodUid= */ null,
             /* periodIndex= */ 0,
-            /* positionMs= */ currentPositionMs,
-            /* contentPositionMs= */ currentPositionMs,
+            /* positionMs= */ anchorPositionMs,
+            /* contentPositionMs= */ anchorPositionMs,
             /* adGroupIndex= */ C.INDEX_UNSET,
             /* adIndexInAdGroup= */ C.INDEX_UNSET
         )
@@ -327,8 +349,8 @@ class SendSpinPlayer : Player {
             /* mediaItem= */ null,
             /* periodUid= */ null,
             /* periodIndex= */ 0,
-            /* positionMs= */ currentPositionMs,
-            /* contentPositionMs= */ currentPositionMs,
+            /* positionMs= */ anchorPositionMs,
+            /* contentPositionMs= */ anchorPositionMs,
             /* adGroupIndex= */ C.INDEX_UNSET,
             /* adIndexInAdGroup= */ C.INDEX_UNSET
         )
@@ -513,7 +535,14 @@ class SendSpinPlayer : Player {
     // Player Interface - Position and Duration
     // ========================================================================
 
-    override fun getCurrentPosition(): Long = currentPositionMs
+    override fun getCurrentPosition(): Long {
+        if (!currentlyPlaying || currentDurationMs <= 0) {
+            return anchorPositionMs
+        }
+        // Interpolate forward from the last server position update
+        val elapsed = SystemClock.elapsedRealtime() - anchorElapsedRealtime
+        return minOf(currentDurationMs, anchorPositionMs + elapsed)
+    }
 
     override fun getDuration(): Long = currentDurationMs
 
@@ -537,7 +566,7 @@ class SendSpinPlayer : Player {
 
     override fun isCurrentMediaItemSeekable(): Boolean = false // No seeking in SendSpin
 
-    override fun getContentPosition(): Long = currentPositionMs
+    override fun getContentPosition(): Long = currentPosition
 
     override fun getContentDuration(): Long = currentDurationMs
 
