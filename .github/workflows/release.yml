@@ -74,6 +74,17 @@ jobs:
           echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         fi
 
+    - name: Detect prerelease
+      id: prerelease
+      run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        if echo "$VERSION" | grep -qiE '[-](alpha|beta|rc|preview|dev)'; then
+          echo "IS_PRERELEASE=true" >> $GITHUB_OUTPUT
+        else
+          echo "IS_PRERELEASE=false" >> $GITHUB_OUTPUT
+        fi
+        echo "Detected prerelease=${{ steps.prerelease.outputs.IS_PRERELEASE }} for $VERSION"
+
     - name: Rename build artifacts
       run: |
         VERSION=${{ steps.get_version.outputs.VERSION }}
@@ -90,11 +101,12 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.get_version.outputs.VERSION }}
+        name: ${{ steps.get_version.outputs.VERSION }}
         files: |
           android/app/build/outputs/apk/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
           android/app/build/outputs/bundle/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.aab
         draft: false
-        prerelease: false
+        prerelease: ${{ steps.prerelease.outputs.IS_PRERELEASE == 'true' }}
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
