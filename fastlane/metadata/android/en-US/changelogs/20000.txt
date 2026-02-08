@@ -1,0 +1,9 @@
+Major rewrite from the 1.0.x series:
+- Full Jetpack Compose UI with adaptive navigation for phones, tablets, and Android TV
+- Music Assistant integration: browse artists, albums, playlists, radios, and search
+- Queue management with Play Next, Play Now, and Add to Playlist
+- Android Auto overhaul: flattened browse tree, native queue, voice search, track progress
+- Now playing screen with elapsed/total time and progress bar
+- Remote access via WebRTC with QR code scanning
+- DAC-position-aware sync startup for faster initial lock
+- Redesigned server wizard with proxy and MA port configuration

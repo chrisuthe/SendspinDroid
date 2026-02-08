@@ -112,6 +112,10 @@ Examples: `2.0.0` = 20000, `2.1.3` = 20103, `10.5.22` = 100522
 
 Pre-release suffixes (alpha, beta, rc) do NOT affect the versionCode -- they only appear in versionName. A pre-release shares the same versionCode as its eventual stable release.
 
+## License
+
+MIT License (see `LICENSE` in repo root).
+
 ## Reference Implementation
 
 Python CLI player location: `C:\Users\chris\Downloads\sendspin-cli-main\sendspin-cli-main`
