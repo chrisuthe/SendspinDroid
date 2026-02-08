@@ -140,7 +140,6 @@ class PlaybackService : MediaLibraryService() {
     private var maAlbumsCache: CacheEntry<List<MediaItem>>? = null
     private var maArtistsCache: CacheEntry<List<MediaItem>>? = null
     private var maRadioCache: CacheEntry<List<MediaItem>>? = null
-    private var maRecentCache: CacheEntry<List<MediaItem>>? = null
 
     // MA drill-down caches (keyed by item ID)
     private val maPlaylistTracksCache = mutableMapOf<String, CacheEntry<List<MediaItem>>>()
@@ -149,9 +148,6 @@ class PlaybackService : MediaLibraryService() {
 
     // MA search result cache
     private var maSearchResultsCache: List<MediaItem>? = null
-
-    // MA queue cache (short TTL since queue changes frequently)
-    private var maQueueCache: CacheEntry<List<MediaItem>>? = null
 
     // Generation counter for populatePlayerQueue() to discard stale async results
     private var queuePopulateGeneration = 0L
@@ -162,12 +158,10 @@ class PlaybackService : MediaLibraryService() {
         maAlbumsCache = null
         maArtistsCache = null
         maRadioCache = null
-        maRecentCache = null
         maPlaylistTracksCache.clear()
         maAlbumTracksCache.clear()
         maArtistAlbumsCache.clear()
         maSearchResultsCache = null
-        maQueueCache = null
     }
 
     /** Encodes a URI to Base64 URL-safe string for use in media IDs. */
@@ -448,12 +442,10 @@ class PlaybackService : MediaLibraryService() {
         private const val CONTENT_STYLE_GRID = 2
 
         // Music Assistant browse tree media IDs
-        private const val MEDIA_ID_MA_LIBRARY = "ma_library"
         private const val MEDIA_ID_MA_PLAYLISTS = "ma_playlists"
         private const val MEDIA_ID_MA_ALBUMS = "ma_albums"
         private const val MEDIA_ID_MA_ARTISTS = "ma_artists"
         private const val MEDIA_ID_MA_RADIO = "ma_radio"
-        private const val MEDIA_ID_MA_RECENT = "ma_recent"
 
         // MA item prefixes (for drill-down into children)
         private const val MEDIA_ID_MA_PLAYLIST_PREFIX = "ma_playlist_"
@@ -464,14 +456,12 @@ class PlaybackService : MediaLibraryService() {
         private const val MEDIA_ID_MA_TRACK_PREFIX = "ma_track_"
         private const val MEDIA_ID_MA_RADIO_ITEM_PREFIX = "ma_radio_item_"
 
-        // MA Queue browse tree
-        private const val MEDIA_ID_MA_QUEUE = "ma_queue"
+        // MA Queue item prefix (for native Now Playing queue)
         private const val MEDIA_ID_MA_QUEUE_ITEM_PREFIX = "ma_qi_"
 
         // MA cache TTLs
         private const val MA_LIST_CACHE_TTL_MS = 5 * 60 * 1000L   // 5 minutes
         private const val MA_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes
-        private const val MA_QUEUE_CACHE_TTL_MS = 15 * 1000L       // 15 seconds (queue changes frequently)
     }
 
     /**
@@ -978,11 +968,6 @@ class PlaybackService : MediaLibraryService() {
                     album = album.ifEmpty { null },
                     durationMs = durationMs
                 )
-
-                // Invalidate queue cache so Android Auto refreshes the queue display
-                // (the "now playing" indicator needs to move to the new track)
-                maQueueCache = null
-                mediaSession?.notifyChildrenChanged(MEDIA_ID_MA_QUEUE, 0, null)
 
                 // Populate the player's timeline with queue items for native queue UI
                 populatePlayerQueue()
@@ -1951,8 +1936,6 @@ class PlaybackService : MediaLibraryService() {
             val syncChildren: List<MediaItem>? = when (parentId) {
                 MEDIA_ID_ROOT -> getRootChildren()
                 MEDIA_ID_DISCOVERED -> getDiscoveredServers()
-                // MA Library category folders (sync - just return static subcategories)
-                MEDIA_ID_MA_LIBRARY -> getMaLibraryCategories()
                 else -> null  // Not a sync node, check async path
             }
 
@@ -2396,7 +2379,7 @@ class PlaybackService : MediaLibraryService() {
         val children = mutableListOf<MediaItem>()
         val maAvailable = MusicAssistantManager.connectionState.value.isAvailable
 
-        // Show "Connect" until Library is available (avoids empty root during MA handshake)
+        // Show "Connect" until MA is available (avoids empty root during MA handshake)
         if (!maAvailable) {
             children.add(
                 createBrowsableItem(
@@ -2407,24 +2390,40 @@ class PlaybackService : MediaLibraryService() {
             )
         }
 
-        // Add "Library" folder when Music Assistant is connected
+        // Show library categories directly as root tabs when MA is connected
         if (maAvailable) {
             children.add(
                 createBrowsableItem(
-                    mediaId = MEDIA_ID_MA_LIBRARY,
-                    title = "Library",
-                    subtitle = "Browse your music library"
+                    mediaId = MEDIA_ID_MA_PLAYLISTS,
+                    title = "Playlists",
+                    iconRes = R.drawable.ic_auto_playlists
                 )
             )
-        }
-
-        // Add "Queue" folder when Music Assistant is connected
-        if (maAvailable) {
             children.add(
                 createBrowsableItem(
-                    mediaId = MEDIA_ID_MA_QUEUE,
-                    title = "Queue",
-                    subtitle = "Up next"
+                    mediaId = MEDIA_ID_MA_ALBUMS,
+                    title = "Albums",
+                    extras = Bundle().apply {
+                        putInt(CONTENT_STYLE_PLAYABLE, CONTENT_STYLE_GRID)
+                    },
+                    iconRes = R.drawable.ic_auto_albums
+                )
+            )
+            children.add(
+                createBrowsableItem(
+                    mediaId = MEDIA_ID_MA_ARTISTS,
+                    title = "Artists",
+                    extras = Bundle().apply {
+                        putInt(CONTENT_STYLE_BROWSABLE, CONTENT_STYLE_GRID)
+                    },
+                    iconRes = R.drawable.ic_auto_artists
+                )
+            )
+            children.add(
+                createBrowsableItem(
+                    mediaId = MEDIA_ID_MA_RADIO,
+                    title = "Radio",
+                    iconRes = R.drawable.ic_auto_radio
                 )
             )
         }
@@ -2488,39 +2487,16 @@ class PlaybackService : MediaLibraryService() {
         browseDiscoveryManager?.startDiscovery()
     }
 
-    /** Returns the static subcategory list for the Library folder. */
-    private fun getMaLibraryCategories(): List<MediaItem> {
-        // Albums: children render as grid (artwork tiles)
-        val albumExtras = Bundle().apply {
-            putInt(CONTENT_STYLE_PLAYABLE, CONTENT_STYLE_GRID)
-        }
-        // Artists: children render as grid (artwork tiles)
-        val artistExtras = Bundle().apply {
-            putInt(CONTENT_STYLE_BROWSABLE, CONTENT_STYLE_GRID)
-        }
-        return listOf(
-            createBrowsableItem(MEDIA_ID_MA_PLAYLISTS, "Playlists"),
-            createBrowsableItem(MEDIA_ID_MA_ALBUMS, "Albums",
-                extras = albumExtras),
-            createBrowsableItem(MEDIA_ID_MA_ARTISTS, "Artists",
-                extras = artistExtras),
-            createBrowsableItem(MEDIA_ID_MA_RADIO, "Radio Stations"),
-            createBrowsableItem(MEDIA_ID_MA_RECENT, "Recently Played")
-        )
-    }
-
     /**
      * Async routing for MA browse tree nodes.
      * Called from onGetChildren for any parentId not handled by the sync path.
      */
     private suspend fun getMaChildren(parentId: String): List<MediaItem> {
         return when (parentId) {
-            MEDIA_ID_MA_QUEUE -> getMaQueueChildren()
             MEDIA_ID_MA_PLAYLISTS -> getMaPlaylists()
             MEDIA_ID_MA_ALBUMS -> getMaAlbums()
             MEDIA_ID_MA_ARTISTS -> getMaArtists()
             MEDIA_ID_MA_RADIO -> getMaRadioStations()
-            MEDIA_ID_MA_RECENT -> getMaRecentlyPlayed()
             else -> when {
                 parentId.startsWith(MEDIA_ID_MA_PLAYLIST_PREFIX) -> {
                     val playlistId = parentId.removePrefix(MEDIA_ID_MA_PLAYLIST_PREFIX)
@@ -2755,15 +2731,6 @@ class PlaybackService : MediaLibraryService() {
         return items
     }
 
-    private suspend fun getMaRecentlyPlayed(): List<MediaItem> {
-        maRecentCache?.takeUnless { it.expired(MA_LIST_CACHE_TTL_MS) }?.let { return it.data }
-
-        val result = MusicAssistantManager.getRecentlyPlayed(limit = 25)
-        val items = result.getOrNull()?.map { createMaTrackItem(it) } ?: emptyList()
-        maRecentCache = CacheEntry(items)
-        return items
-    }
-
     // ========================================================================
     // Music Assistant Drill-Down Methods (suspend)
     // ========================================================================
@@ -2798,42 +2765,6 @@ class PlaybackService : MediaLibraryService() {
         val result = MusicAssistantManager.getArtistDetails(artistId)
         val items = result.getOrNull()?.albums?.map { createMaAlbumItem(it) } ?: emptyList()
         maArtistAlbumsCache[artistId] = CacheEntry(items)
-        return items
-    }
-
-    // ========================================================================
-    // Music Assistant Queue (for Android Auto browse tree)
-    // ========================================================================
-
-    /**
-     * Fetches queue items from Music Assistant and converts to browse tree MediaItems.
-     * Uses a short cache TTL since the queue changes frequently.
-     */
-    private suspend fun getMaQueueChildren(): List<MediaItem> {
-        // Check cache first
-        maQueueCache?.let { cache ->
-            if (!cache.expired(MA_QUEUE_CACHE_TTL_MS)) {
-                Log.d(TAG, "MA Queue: returning cached ${cache.data.size} items")
-                return cache.data
-            }
-        }
-
-        val result = MusicAssistantManager.getQueueItems()
-        val queueState = result.getOrNull() ?: run {
-            Log.w(TAG, "MA Queue: failed to fetch queue items")
-            return emptyList()
-        }
-
-        val items = mutableListOf<MediaItem>()
-        val currentIndex = queueState.currentIndex
-
-        for ((index, queueItem) in queueState.items.withIndex()) {
-            val isCurrent = index == currentIndex || queueItem.isCurrentItem
-            items.add(createMaQueueMediaItem(queueItem, isCurrent))
-        }
-
-        Log.d(TAG, "MA Queue: fetched ${items.size} items, current index: $currentIndex")
-        maQueueCache = CacheEntry(items)
         return items
     }
 
@@ -3062,19 +2993,18 @@ class PlaybackService : MediaLibraryService() {
                 val server = ServerRepository.getServer(address)
                 server?.let { createPlayableServerItem(it.name, it.address) }
             }
-            // MA category folders
-            mediaId == MEDIA_ID_MA_LIBRARY -> {
-                createBrowsableItem(MEDIA_ID_MA_LIBRARY, "Library", "Browse your music library")
+            // MA category folders (root-level tabs)
+            mediaId == MEDIA_ID_MA_PLAYLISTS -> {
+                createBrowsableItem(MEDIA_ID_MA_PLAYLISTS, "Playlists")
             }
-            mediaId == MEDIA_ID_MA_QUEUE -> {
-                createBrowsableItem(MEDIA_ID_MA_QUEUE, "Queue", "Up next")
+            mediaId == MEDIA_ID_MA_ALBUMS -> {
+                createBrowsableItem(MEDIA_ID_MA_ALBUMS, "Albums")
             }
-            mediaId == MEDIA_ID_MA_PLAYLISTS ||
-            mediaId == MEDIA_ID_MA_ALBUMS ||
-            mediaId == MEDIA_ID_MA_ARTISTS ||
-            mediaId == MEDIA_ID_MA_RADIO ||
-            mediaId == MEDIA_ID_MA_RECENT -> {
-                getMaLibraryCategories().find { it.mediaId == mediaId }
+            mediaId == MEDIA_ID_MA_ARTISTS -> {
+                createBrowsableItem(MEDIA_ID_MA_ARTISTS, "Artists")
+            }
+            mediaId == MEDIA_ID_MA_RADIO -> {
+                createBrowsableItem(MEDIA_ID_MA_RADIO, "Radio")
             }
             // MA items - search through caches
             mediaId.startsWith("ma_") -> {
@@ -3095,8 +3025,6 @@ class PlaybackService : MediaLibraryService() {
             maAlbumsCache?.data,
             maArtistsCache?.data,
             maRadioCache?.data,
-            maRecentCache?.data,
-            maQueueCache?.data,
             maSearchResultsCache
         )
         for (cache in allCaches) {
