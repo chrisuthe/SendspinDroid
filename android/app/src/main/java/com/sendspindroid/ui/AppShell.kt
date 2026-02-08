@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -216,13 +217,26 @@ private fun ConnectedShell(
     val isMaConnected by viewModel.isMaConnected.collectAsState()
     val connectionState by viewModel.connectionState.collectAsState()
 
-    // Which screen to show. null = Now Playing (default when connected)
+    // Which screen to show. null = Now Playing, non-null = browse tab.
+    // Defaults to null (Now Playing); switches to HOME when MA connects.
     var selectedNavTab by remember { mutableStateOf<NavTab?>(null) }
+
+    // Auto-switch to Home tab when MA first connects
+    if (isMaConnected && selectedNavTab == null) {
+        selectedNavTab = NavTab.HOME
+        viewModel.setCurrentNavTab(NavTab.HOME)
+        viewModel.setNavigationContentVisible(true)
+    }
+
+    // If MA disconnects while browsing, return to Now Playing
+    if (!isMaConnected && selectedNavTab != null) {
+        selectedNavTab = null
+        viewModel.setNavigationContentVisible(false)
+    }
 
     // Overflow menu state
     var showOverflowMenu by remember { mutableStateOf(false) }
 
-    // All navigation items: Now Playing + browse tabs (browse tabs only if MA is connected)
     val browseNavTabs = remember {
         listOf(
             NavTab.HOME to Pair(R.drawable.ic_nav_home, R.string.nav_home),
@@ -240,28 +254,147 @@ private fun ConnectedShell(
         else -> null
     }
 
-    // Always show NavigationSuiteScaffold so user has navigation controls
-    NavigationSuiteScaffold(
-        modifier = modifier,
-        navigationSuiteItems = {
-            // Now Playing tab (always present)
-            item(
-                icon = {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_audio_playing),
-                        contentDescription = stringResource(R.string.now_playing)
-                    )
-                },
-                label = { Text(stringResource(R.string.now_playing)) },
-                selected = selectedNavTab == null,
-                onClick = {
-                    selectedNavTab = null
-                    viewModel.setNavigationContentVisible(false)
-                }
-            )
+    // Title for the top bar
+    val topBarTitle = when (selectedNavTab) {
+        NavTab.HOME -> stringResource(R.string.nav_home)
+        NavTab.SEARCH -> stringResource(R.string.nav_search)
+        NavTab.LIBRARY -> stringResource(R.string.nav_library)
+        NavTab.PLAYLISTS -> stringResource(R.string.nav_playlists)
+        null -> stringResource(R.string.now_playing)
+    }
 
-            // Browse tabs (only when Music Assistant is connected)
-            if (isMaConnected) {
+    // Shared top bar composable
+    val topBar: @Composable () -> Unit = {
+        TopAppBar(
+            title = {
+                Column {
+                    Text(
+                        text = topBarTitle,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                    if (serverName != null) {
+                        Text(
+                            text = serverName,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            actions = {
+                Box {
+                    IconButton(onClick = { showOverflowMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "Menu"
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showOverflowMenu,
+                        onDismissRequest = { showOverflowMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_stats)) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onStatsClick()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_edit_server)) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onEditServerClick()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_switch_server)) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onDisconnectClick()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_app_settings)) },
+                            onClick = {
+                                showOverflowMenu = false
+                                onSettingsClick()
+                            }
+                        )
+                    }
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+            )
+        )
+    }
+
+    // Content composable shared between both layouts
+    val contentArea: @Composable (PaddingValues) -> Unit = { innerPadding ->
+        if (selectedNavTab == null) {
+            // Now Playing (reached via mini player tap)
+            NowPlayingScreen(
+                viewModel = viewModel,
+                onPreviousClick = onPreviousClick,
+                onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
+                onSwitchGroupClick = onSwitchGroupClick,
+                onFavoriteClick = onFavoriteClick,
+                onVolumeChange = onVolumeChange,
+                onQueueClick = onQueueClick,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            )
+        } else {
+            // Browsing mode: browse content + mini player
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    BrowseContent(
+                        selectedNavTab = selectedNavTab,
+                        onAlbumClick = onAlbumClick,
+                        onArtistClick = onArtistClick,
+                        onPlaylistDetailClick = onPlaylistDetailClick,
+                        onShowSuccess = onShowSuccess,
+                        onShowError = onShowError,
+                        onShowUndoSnackbar = onShowUndoSnackbar
+                    )
+                }
+
+                // Mini player (phone/tablet only -- TV gets no mini player)
+                if (AdaptiveDefaults.showMiniPlayer(formFactor)) {
+                    MiniPlayerBar(
+                        viewModel = viewModel,
+                        onPlayPauseClick = onPlayPauseClick,
+                        onVolumeChange = onVolumeChange,
+                        onReturnToNowPlaying = {
+                            selectedNavTab = null
+                            viewModel.setNavigationContentVisible(false)
+                        },
+                        onDisconnectClick = onDisconnectClick
+                    )
+                }
+            }
+        }
+    }
+
+    if (!isMaConnected) {
+        // No MA -> just Scaffold with top bar, no bottom nav
+        Scaffold(
+            modifier = modifier,
+            topBar = topBar,
+            content = contentArea
+        )
+    } else {
+        // MA connected -> NavigationSuiteScaffold with 4 browse tabs
+        NavigationSuiteScaffold(
+            modifier = modifier,
+            navigationSuiteItems = {
                 browseNavTabs.forEach { (tab, iconAndLabel) ->
                     val (iconRes, labelRes) = iconAndLabel
                     item(
@@ -281,136 +414,11 @@ private fun ConnectedShell(
                     )
                 }
             }
-        }
-    ) {
-        // Scaffold provides TopAppBar with overflow menu
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Column {
-                            Text(
-                                text = if (selectedNavTab == null)
-                                    stringResource(R.string.now_playing)
-                                else
-                                    stringResource(
-                                        when (selectedNavTab) {
-                                            NavTab.HOME -> R.string.nav_home
-                                            NavTab.SEARCH -> R.string.nav_search
-                                            NavTab.LIBRARY -> R.string.nav_library
-                                            NavTab.PLAYLISTS -> R.string.nav_playlists
-                                            else -> R.string.now_playing
-                                        }
-                                    ),
-                                style = MaterialTheme.typography.titleLarge
-                            )
-                            if (serverName != null) {
-                                Text(
-                                    text = serverName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    },
-                    actions = {
-                        Box {
-                            IconButton(onClick = { showOverflowMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreVert,
-                                    contentDescription = "Menu"
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showOverflowMenu,
-                                onDismissRequest = { showOverflowMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.action_stats)) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        onStatsClick()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.action_edit_server)) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        onEditServerClick()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.action_switch_server)) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        onDisconnectClick()
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.action_app_settings)) },
-                                    onClick = {
-                                        showOverflowMenu = false
-                                        onSettingsClick()
-                                    }
-                                )
-                            }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
-                    )
-                )
-            }
-        ) { innerPadding ->
-            if (selectedNavTab == null) {
-                // Now Playing (full screen within scaffold, respects top bar padding)
-                NowPlayingScreen(
-                    viewModel = viewModel,
-                    onPreviousClick = onPreviousClick,
-                    onPlayPauseClick = onPlayPauseClick,
-                    onNextClick = onNextClick,
-                    onSwitchGroupClick = onSwitchGroupClick,
-                    onFavoriteClick = onFavoriteClick,
-                    onVolumeChange = onVolumeChange,
-                    onQueueClick = onQueueClick,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                )
-            } else {
-                // Browsing mode: browse content + mini player
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        BrowseContent(
-                            selectedNavTab = selectedNavTab,
-                            onAlbumClick = onAlbumClick,
-                            onArtistClick = onArtistClick,
-                            onPlaylistDetailClick = onPlaylistDetailClick,
-                            onShowSuccess = onShowSuccess,
-                            onShowError = onShowError,
-                            onShowUndoSnackbar = onShowUndoSnackbar
-                        )
-                    }
-
-                    // Mini player (phone/tablet only -- TV gets no mini player)
-                    if (AdaptiveDefaults.showMiniPlayer(formFactor)) {
-                        MiniPlayerBar(
-                            viewModel = viewModel,
-                            onPlayPauseClick = onPlayPauseClick,
-                            onVolumeChange = onVolumeChange,
-                            onReturnToNowPlaying = {
-                                selectedNavTab = null
-                                viewModel.setNavigationContentVisible(false)
-                            },
-                            onDisconnectClick = onDisconnectClick
-                        )
-                    }
-                }
-            }
+        ) {
+            Scaffold(
+                topBar = topBar,
+                content = contentArea
+            )
         }
     }
 }
