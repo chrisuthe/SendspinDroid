@@ -429,10 +429,29 @@ private fun ConnectedShell(
             content = contentArea
         )
     } else {
-        // MA connected -> NavigationSuiteScaffold with 4 browse tabs
+        // MA connected -> NavigationSuiteScaffold with browse tabs + Now Playing
         NavigationSuiteScaffold(
             modifier = modifier,
             navigationSuiteItems = {
+                // Now Playing tab (replaces mini player on TV; not needed on phone/tablet
+                // since the mini player handles returning to the now playing screen)
+                if (!AdaptiveDefaults.showMiniPlayer(formFactor)) {
+                    item(
+                        icon = {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_nav_now_playing),
+                                contentDescription = stringResource(R.string.nav_now_playing)
+                            )
+                        },
+                        label = { Text(stringResource(R.string.nav_now_playing)) },
+                        selected = selectedNavTab == null && currentDetail == null,
+                        onClick = {
+                            viewModel.clearDetailNavigation()
+                            selectedNavTab = null
+                            viewModel.setNavigationContentVisible(false)
+                        }
+                    )
+                }
                 browseNavTabs.forEach { (tab, iconAndLabel) ->
                     val (iconRes, labelRes) = iconAndLabel
                     item(
