@@ -40,7 +40,10 @@ import com.sendspindroid.ui.main.components.ConnectionProgress
 import com.sendspindroid.ui.main.components.PlaybackControls
 import com.sendspindroid.ui.main.components.QueueButton
 import com.sendspindroid.ui.main.components.ReconnectingBanner
+import com.sendspindroid.ui.main.components.TrackProgressBar
 import com.sendspindroid.ui.main.components.VolumeSlider
+import com.sendspindroid.ui.preview.AllDevicePreviews
+import com.sendspindroid.ui.preview.TabletPreviews
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -71,6 +74,8 @@ fun NowPlayingScreen(
     val reconnectingState by viewModel.reconnectingState.collectAsState()
     val isMaConnected by viewModel.isMaConnected.collectAsState()
     val playerColors by viewModel.playerColors.collectAsState()
+    val positionMs by viewModel.positionMs.collectAsState()
+    val durationMs by viewModel.durationMs.collectAsState()
 
     val isBuffering = playbackState == PlaybackState.BUFFERING
     val controlsEnabled = playbackState == PlaybackState.READY || playbackState == PlaybackState.BUFFERING
@@ -111,6 +116,8 @@ fun NowPlayingScreen(
                 volume = volume,
                 accentColor = accentColor,
                 isMaConnected = isMaConnected,
+                positionMs = positionMs,
+                durationMs = durationMs,
                 onPreviousClick = onPreviousClick,
                 onPlayPauseClick = onPlayPauseClick,
                 onNextClick = onNextClick,
@@ -130,6 +137,8 @@ fun NowPlayingScreen(
                 volume = volume,
                 accentColor = accentColor,
                 isMaConnected = isMaConnected,
+                positionMs = positionMs,
+                durationMs = durationMs,
                 onPreviousClick = onPreviousClick,
                 onPlayPauseClick = onPlayPauseClick,
                 onNextClick = onNextClick,
@@ -166,6 +175,8 @@ private fun NowPlayingPortrait(
     volume: Float,
     accentColor: Color?,
     isMaConnected: Boolean,
+    positionMs: Long,
+    durationMs: Long,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -238,7 +249,17 @@ private fun NowPlayingPortrait(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Track Progress
+        TrackProgressBar(
+            positionMs = positionMs,
+            durationMs = durationMs,
+            isPlaying = isPlaying,
+            accentColor = accentColor
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Playback Controls
         PlaybackControls(
@@ -290,6 +311,8 @@ private fun NowPlayingLandscape(
     volume: Float,
     accentColor: Color?,
     isMaConnected: Boolean,
+    positionMs: Long,
+    durationMs: Long,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -366,7 +389,17 @@ private fun NowPlayingLandscape(
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Track Progress
+            TrackProgressBar(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                isPlaying = isPlaying,
+                accentColor = accentColor
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Playback Controls (horizontal layout in landscape)
             PlaybackControls(
@@ -438,6 +471,8 @@ private fun NowPlayingPortraitPreview() {
             volume = 0.75f,
             accentColor = null,
             isMaConnected = true,
+            positionMs = 45000,
+            durationMs = 354000,
             onPreviousClick = {},
             onPlayPauseClick = {},
             onNextClick = {},
@@ -467,6 +502,8 @@ private fun NowPlayingLandscapePreview() {
             volume = 0.5f,
             accentColor = null,
             isMaConnected = false,
+            positionMs = 120000,
+            durationMs = 482000,
             onPreviousClick = {},
             onPlayPauseClick = {},
             onNextClick = {},
@@ -492,6 +529,70 @@ private fun NowPlayingBufferingPreview() {
             volume = 0.75f,
             accentColor = null,
             isMaConnected = false,
+            positionMs = 0,
+            durationMs = 0,
+            onPreviousClick = {},
+            onPlayPauseClick = {},
+            onNextClick = {},
+            onSwitchGroupClick = {},
+            onFavoriteClick = {},
+            onVolumeChange = {},
+            onQueueClick = {}
+        )
+    }
+}
+
+// -- Multi-Device Previews --
+
+private val previewMetadata = TrackMetadata(
+    title = "Bohemian Rhapsody",
+    artist = "Queen",
+    album = "A Night at the Opera"
+)
+
+@AllDevicePreviews
+@Composable
+private fun NowPlayingAllDevicesPortraitPreview() {
+    SendSpinTheme {
+        NowPlayingPortrait(
+            metadata = previewMetadata,
+            groupName = "Living Room",
+            artworkSource = null,
+            isBuffering = false,
+            isPlaying = true,
+            controlsEnabled = true,
+            volume = 0.75f,
+            accentColor = null,
+            isMaConnected = true,
+            positionMs = 45000,
+            durationMs = 354000,
+            onPreviousClick = {},
+            onPlayPauseClick = {},
+            onNextClick = {},
+            onSwitchGroupClick = {},
+            onFavoriteClick = {},
+            onVolumeChange = {},
+            onQueueClick = {}
+        )
+    }
+}
+
+@AllDevicePreviews
+@Composable
+private fun NowPlayingAllDevicesLandscapePreview() {
+    SendSpinTheme {
+        NowPlayingLandscape(
+            metadata = previewMetadata,
+            groupName = "Living Room",
+            artworkSource = null,
+            isBuffering = false,
+            isPlaying = true,
+            controlsEnabled = true,
+            volume = 0.75f,
+            accentColor = null,
+            isMaConnected = true,
+            positionMs = 45000,
+            durationMs = 354000,
             onPreviousClick = {},
             onPlayPauseClick = {},
             onNextClick = {},

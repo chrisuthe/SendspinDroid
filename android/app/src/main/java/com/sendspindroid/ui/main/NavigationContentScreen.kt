@@ -37,6 +37,8 @@ fun NavigationContentScreen(
     val artworkSource by viewModel.artworkSource.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val volume by viewModel.volume.collectAsState()
+    val positionMs by viewModel.positionMs.collectAsState()
+    val durationMs by viewModel.durationMs.collectAsState()
 
     NavigationContentScreen(
         metadata = metadata,
@@ -47,6 +49,8 @@ fun NavigationContentScreen(
         onStopClick = onStopClick,
         onPlayPauseClick = onPlayPauseClick,
         onVolumeChange = { viewModel.updateVolume(it) },
+        positionMs = positionMs,
+        durationMs = durationMs,
         modifier = modifier,
         content = content
     )
@@ -65,6 +69,8 @@ fun NavigationContentScreen(
     onStopClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    positionMs: Long = 0,
+    durationMs: Long = 0,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = {}
 ) {
@@ -81,6 +87,8 @@ fun NavigationContentScreen(
             onStopClick = onStopClick,
             onPlayPauseClick = onPlayPauseClick,
             onVolumeChange = onVolumeChange,
+            positionMs = positionMs,
+            durationMs = durationMs,
             modifier = Modifier.fillMaxWidth()
         )
 

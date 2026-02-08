@@ -26,6 +26,7 @@ import com.sendspindroid.ui.main.components.ServerItemStatus
 import com.sendspindroid.ui.main.components.ServerListEmptyState
 import com.sendspindroid.ui.main.components.ServerListItem
 import com.sendspindroid.ui.main.components.ServerSectionHeader
+import com.sendspindroid.ui.preview.AllDevicePreviews
 import com.sendspindroid.ui.theme.SendSpinTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -326,6 +327,55 @@ private fun ServerListScreenConnectingPreview() {
             onlineSavedServerIds = setOf("1"),
             isScanning = false,
             serverStatuses = mapOf("1" to ServerItemStatus.CONNECTING),
+            reconnectInfo = emptyMap(),
+            onServerClick = {},
+            onServerLongClick = {},
+            onQuickConnectClick = {},
+            onAddServerClick = {}
+        )
+    }
+}
+
+// -- Multi-Device Previews --
+
+@AllDevicePreviews
+@Composable
+private fun ServerListScreenAllDevicesPreview() {
+    SendSpinTheme {
+        ServerListScreen(
+            savedServers = listOf(
+                UnifiedServer(
+                    id = "1",
+                    name = "Living Room",
+                    lastConnectedMs = System.currentTimeMillis() - 2 * 60 * 60 * 1000,
+                    local = LocalConnection("192.168.1.100:8927"),
+                    remote = RemoteConnection("ABCDE12345FGHIJ67890KLMNO1"),
+                    isDefaultServer = true
+                ),
+                UnifiedServer(
+                    id = "2",
+                    name = "Bedroom",
+                    lastConnectedMs = System.currentTimeMillis() - 24 * 60 * 60 * 1000,
+                    local = LocalConnection("192.168.1.101:8927")
+                ),
+                UnifiedServer(
+                    id = "4",
+                    name = "Office",
+                    lastConnectedMs = System.currentTimeMillis() - 7 * 24 * 60 * 60 * 1000,
+                    remote = RemoteConnection("XYZAB12345CDEFG67890HIJKL1")
+                )
+            ),
+            discoveredServers = listOf(
+                UnifiedServer(
+                    id = "3",
+                    name = "Kitchen Speaker",
+                    local = LocalConnection("192.168.1.102:8927"),
+                    isDiscovered = true
+                )
+            ),
+            onlineSavedServerIds = setOf("1"),
+            isScanning = true,
+            serverStatuses = emptyMap(),
             reconnectInfo = emptyMap(),
             onServerClick = {},
             onServerLongClick = {},

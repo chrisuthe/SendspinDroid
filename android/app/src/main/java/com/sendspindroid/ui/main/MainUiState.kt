@@ -64,6 +64,27 @@ sealed class ServerStatus {
 }
 
 /**
+ * Detail screen navigation destination.
+ *
+ * Used as a back stack to support nested navigation (e.g. Artist -> Album -> back).
+ */
+sealed class DetailDestination {
+    abstract val title: String
+
+    data class Album(val albumId: String, val albumName: String) : DetailDestination() {
+        override val title: String get() = albumName
+    }
+
+    data class Artist(val artistId: String, val artistName: String) : DetailDestination() {
+        override val title: String get() = artistName
+    }
+
+    data class Playlist(val playlistId: String, val playlistName: String) : DetailDestination() {
+        override val title: String get() = playlistName
+    }
+}
+
+/**
  * Player colors extracted from album artwork.
  */
 data class PlayerColors(

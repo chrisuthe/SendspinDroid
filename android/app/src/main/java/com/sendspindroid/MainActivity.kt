@@ -122,9 +122,6 @@ class MainActivity : AppCompatActivity() {
     // Compose shell overlay -- primary UI, renders on top of XML layout
     private var composeOverlay: ComposeView? = null
 
-    // Detail fragment container for album/artist/playlist detail screens
-    private var detailFragmentContainer: androidx.fragment.app.FragmentContainerView? = null
-
     // Server status tracking for Compose server list
     private val composeServerStatuses = mutableStateMapOf<String, ServerItemStatus>()
     private val composeReconnectInfo = mutableStateMapOf<String, Pair<Int, Int>>()
@@ -793,27 +790,6 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // Add detail fragment container on top of Compose overlay.
-        // Must have an opaque background so the Fragment content fully covers the
-        // Compose shell underneath (otherwise Home/browse content bleeds through).
-        val bgColor = android.util.TypedValue().let { tv ->
-            theme.resolveAttribute(android.R.attr.colorBackground, tv, true)
-            tv.data
-        }
-        val detailContainer = androidx.fragment.app.FragmentContainerView(this).apply {
-            id = R.id.detailFragmentContainer
-            visibility = View.GONE
-            setBackgroundColor(bgColor)
-        }
-        rootFrame.addView(
-            detailContainer,
-            ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
-        detailFragmentContainer = detailContainer
-
         // Add the new FrameLayout as the content view
         contentParent?.addView(rootFrame)
 
@@ -871,21 +847,6 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                         },
-                        onAlbumClick = { albumId, albumName ->
-                            showDetailFragment(
-                                com.sendspindroid.ui.detail.AlbumDetailFragment.newInstance(albumId, albumName)
-                            )
-                        },
-                        onArtistClick = { artistId, artistName ->
-                            showDetailFragment(
-                                com.sendspindroid.ui.detail.ArtistDetailFragment.newInstance(artistId, artistName)
-                            )
-                        },
-                        onPlaylistDetailClick = { playlistId, playlistName ->
-                            showDetailFragment(
-                                com.sendspindroid.ui.detail.PlaylistDetailFragment.newInstance(playlistId, playlistName)
-                            )
-                        },
                         onShowSuccess = { message -> showSuccessSnackbar(message) },
                         onShowError = { message -> showErrorSnackbar(message) },
                         onShowUndoSnackbar = { message, onUndo, onDismissed ->
@@ -906,16 +867,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Shows a detail fragment (album, artist, playlist) overlaid on the Compose shell.
-     */
-    private fun showDetailFragment(fragment: Fragment) {
-        detailFragmentContainer?.visibility = View.VISIBLE
-        supportFragmentManager.beginTransaction()
-            .replace(R.id.detailFragmentContainer, fragment)
-            .addToBackStack("detail")
-            .commit()
-    }
+
 
     // Track whether navigation content is currently shown (vs full player)
     // Legacy field - navigation is now Compose-based but some callbacks still reference this
@@ -1075,16 +1027,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Updates the toolbar for a detail screen (album, artist, etc).
-     * Shows a back arrow and the detail title.
-     */
-    fun updateToolbarForDetail(title: String) {
-        supportActionBar?.title = title
-        supportActionBar?.subtitle = null
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-    }
-
-    /**
      * Restores the toolbar for the now playing screen.
      */
     private fun updateToolbarForNowPlaying() {
@@ -1100,15 +1042,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupBackPressHandler() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // Check if a detail fragment is showing (Compose shell path)
-                if (detailFragmentContainer?.visibility == View.VISIBLE) {
-                    if (supportFragmentManager.backStackEntryCount > 0) {
-                        supportFragmentManager.popBackStack()
-                    }
-                    // Hide detail container if back stack is now empty
-                    if (supportFragmentManager.backStackEntryCount <= 1) {
-                        detailFragmentContainer?.visibility = View.GONE
-                    }
+                // Check if a Compose detail screen is showing
+                if (viewModel.navigateDetailBack()) {
                     return
                 }
 
@@ -1823,6 +1758,16 @@ class MainActivity : AppCompatActivity() {
                     if (artworkUrl.isNotEmpty()) {
                         loadArtworkFromUrl(artworkUrl)
                     }
+                }
+
+                // Handle track progress updates
+                val durationMs = extras.getLong(PlaybackService.EXTRA_DURATION_MS, -1)
+                val positionMs = extras.getLong(PlaybackService.EXTRA_POSITION_MS, -1)
+                if (durationMs >= 0 || positionMs >= 0) {
+                    viewModel.updateTrackProgress(
+                        positionMs = if (positionMs >= 0) positionMs else 0,
+                        durationMs = if (durationMs >= 0) durationMs else 0
+                    )
                 }
 
                 // Handle volume updates from server
@@ -3413,10 +3358,12 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             android.R.id.home -> {
-                // Toolbar back button -- pop detail fragment back to tab root
-                if (supportFragmentManager.backStackEntryCount > 0) {
-                    supportFragmentManager.popBackStack()
-                    updateToolbarForNavigation()
+                // Toolbar back button -- pop Compose detail or legacy fragment
+                if (!viewModel.navigateDetailBack()) {
+                    if (supportFragmentManager.backStackEntryCount > 0) {
+                        supportFragmentManager.popBackStack()
+                        updateToolbarForNavigation()
+                    }
                 }
                 true
             }

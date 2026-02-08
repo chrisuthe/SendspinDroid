@@ -59,6 +59,13 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _groupName = MutableStateFlow("")
     val groupName: StateFlow<String> = _groupName.asStateFlow()
 
+    // Track progress (position and duration in milliseconds)
+    private val _positionMs = MutableStateFlow(0L)
+    val positionMs: StateFlow<Long> = _positionMs.asStateFlow()
+
+    private val _durationMs = MutableStateFlow(0L)
+    val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
+
     // ========================================================================
     // Artwork State
     // ========================================================================
@@ -85,6 +92,19 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
 
     private val _currentNavTab = MutableStateFlow(NavTab.HOME)
     val currentNavTab: StateFlow<NavTab> = _currentNavTab.asStateFlow()
+
+    // Detail navigation back stack (supports nested navigation e.g. Artist -> Album)
+    private val _detailBackStack = MutableStateFlow<List<DetailDestination>>(emptyList())
+    val detailBackStack: StateFlow<List<DetailDestination>> = _detailBackStack.asStateFlow()
+
+    /** The currently visible detail destination, or null if browsing. */
+    val currentDetail: StateFlow<DetailDestination?> = MutableStateFlow<DetailDestination?>(null).also { flow ->
+        viewModelScope.launch {
+            _detailBackStack.collect { stack ->
+                flow.value = stack.lastOrNull()
+            }
+        }
+    }.asStateFlow()
 
     // ========================================================================
     // Reconnection State
@@ -148,6 +168,11 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _groupName.value = name
     }
 
+    fun updateTrackProgress(positionMs: Long, durationMs: Long) {
+        _positionMs.value = positionMs
+        _durationMs.value = durationMs
+    }
+
     // ========================================================================
     // Artwork Updates
     // ========================================================================
@@ -183,6 +208,29 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
 
     fun setCurrentNavTab(tab: NavTab) {
         _currentNavTab.value = tab
+    }
+
+    /** Push a detail destination onto the navigation stack. */
+    fun navigateToDetail(destination: DetailDestination) {
+        Log.d(TAG, "Navigate to detail: $destination")
+        _detailBackStack.value = _detailBackStack.value + destination
+    }
+
+    /**
+     * Pop the top detail destination off the stack.
+     * @return true if a destination was popped, false if the stack was already empty.
+     */
+    fun navigateDetailBack(): Boolean {
+        val current = _detailBackStack.value
+        if (current.isEmpty()) return false
+        Log.d(TAG, "Navigate detail back (stack depth: ${current.size})")
+        _detailBackStack.value = current.dropLast(1)
+        return true
+    }
+
+    /** Clear the entire detail navigation stack (e.g. on disconnect). */
+    fun clearDetailNavigation() {
+        _detailBackStack.value = emptyList()
     }
 
     // ========================================================================
@@ -223,6 +271,8 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _groupName.value = ""
         _artworkSource.value = null
         _playerColors.value = null
+        _positionMs.value = 0
+        _durationMs.value = 0
         _isBuffering.value = false
         _isMaConnected.value = false
     }

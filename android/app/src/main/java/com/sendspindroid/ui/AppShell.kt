@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -50,6 +51,11 @@ import com.sendspindroid.ui.adaptive.AdaptiveDefaults
 import com.sendspindroid.ui.adaptive.LocalFormFactor
 import com.sendspindroid.ui.detail.components.BulkAddState
 import com.sendspindroid.ui.detail.components.PlaylistPickerDialog
+import com.sendspindroid.ui.detail.AlbumDetailScreen
+import com.sendspindroid.ui.detail.ArtistDetailScreen
+import com.sendspindroid.ui.detail.PlaylistDetailScreen
+import com.sendspindroid.ui.detail.PlaylistDetailViewModel
+import com.sendspindroid.ui.main.DetailDestination
 import com.sendspindroid.ui.main.MainActivityViewModel
 import com.sendspindroid.ui.main.NavTab
 import com.sendspindroid.ui.main.NowPlayingScreen
@@ -86,9 +92,6 @@ private const val TAG = "AppShell"
  * @param onQueueClick Open queue view
  * @param onDisconnectClick Disconnect from server
  * @param onAddServerClick FAB: launch add server wizard
- * @param onAlbumClick Navigate to album detail
- * @param onArtistClick Navigate to artist detail
- * @param onPlaylistDetailClick Navigate to playlist detail
  * @param onShowSuccess Show success snackbar message
  * @param onShowError Show error snackbar message
  * @param onShowUndoSnackbar Show undo snackbar (for playlist deletion)
@@ -109,9 +112,6 @@ fun AppShell(
     onStatsClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onEditServerClick: () -> Unit,
-    onAlbumClick: (albumId: String, albumName: String) -> Unit,
-    onArtistClick: (artistId: String, artistName: String) -> Unit,
-    onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit,
@@ -144,9 +144,6 @@ fun AppShell(
                 onStatsClick = onStatsClick,
                 onSettingsClick = onSettingsClick,
                 onEditServerClick = onEditServerClick,
-                onAlbumClick = onAlbumClick,
-                onArtistClick = onArtistClick,
-                onPlaylistDetailClick = onPlaylistDetailClick,
                 onShowSuccess = onShowSuccess,
                 onShowError = onShowError,
                 onShowUndoSnackbar = onShowUndoSnackbar,
@@ -205,9 +202,6 @@ private fun ConnectedShell(
     onStatsClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onEditServerClick: () -> Unit,
-    onAlbumClick: (albumId: String, albumName: String) -> Unit,
-    onArtistClick: (artistId: String, artistName: String) -> Unit,
-    onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit,
@@ -239,6 +233,9 @@ private fun ConnectedShell(
     // Overflow menu state
     var showOverflowMenu by remember { mutableStateOf(false) }
 
+    // Detail navigation state
+    val currentDetail by viewModel.currentDetail.collectAsState()
+
     val browseNavTabs = remember {
         listOf(
             NavTab.HOME to Pair(R.drawable.ic_nav_home, R.string.nav_home),
@@ -246,6 +243,17 @@ private fun ConnectedShell(
             NavTab.LIBRARY to Pair(R.drawable.ic_nav_library, R.string.nav_library),
             NavTab.PLAYLISTS to Pair(R.drawable.ic_nav_playlists, R.string.nav_playlists)
         )
+    }
+
+    // Detail navigation callbacks (push onto ViewModel back stack)
+    val onAlbumClick: (String, String) -> Unit = { albumId, albumName ->
+        viewModel.navigateToDetail(DetailDestination.Album(albumId, albumName))
+    }
+    val onArtistClick: (String, String) -> Unit = { artistId, artistName ->
+        viewModel.navigateToDetail(DetailDestination.Artist(artistId, artistName))
+    }
+    val onPlaylistDetailClick: (String, String) -> Unit = { playlistId, playlistName ->
+        viewModel.navigateToDetail(DetailDestination.Playlist(playlistId, playlistName))
     }
 
     // Server name for the toolbar subtitle
@@ -256,25 +264,39 @@ private fun ConnectedShell(
         else -> null
     }
 
-    // Title for the top bar
-    val topBarTitle = when (selectedNavTab) {
-        NavTab.HOME -> stringResource(R.string.nav_home)
-        NavTab.SEARCH -> stringResource(R.string.nav_search)
-        NavTab.LIBRARY -> stringResource(R.string.nav_library)
-        NavTab.PLAYLISTS -> stringResource(R.string.nav_playlists)
-        null -> stringResource(R.string.now_playing)
+    // Title for the top bar -- detail title takes priority
+    val topBarTitle = if (currentDetail != null) {
+        currentDetail!!.title
+    } else {
+        when (selectedNavTab) {
+            NavTab.HOME -> stringResource(R.string.nav_home)
+            NavTab.SEARCH -> stringResource(R.string.nav_search)
+            NavTab.LIBRARY -> stringResource(R.string.nav_library)
+            NavTab.PLAYLISTS -> stringResource(R.string.nav_playlists)
+            null -> stringResource(R.string.now_playing)
+        }
     }
 
     // Shared top bar composable
     val topBar: @Composable () -> Unit = {
         TopAppBar(
+            navigationIcon = {
+                if (currentDetail != null) {
+                    IconButton(onClick = { viewModel.navigateDetailBack() }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            },
             title = {
                 Column {
                     Text(
                         text = topBarTitle,
                         style = MaterialTheme.typography.titleLarge
                     )
-                    if (serverName != null) {
+                    if (currentDetail == null && serverName != null) {
                         Text(
                             text = serverName,
                             style = MaterialTheme.typography.bodySmall,
@@ -284,45 +306,47 @@ private fun ConnectedShell(
                 }
             },
             actions = {
-                Box {
-                    IconButton(onClick = { showOverflowMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Menu"
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = showOverflowMenu,
-                        onDismissRequest = { showOverflowMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_stats)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onStatsClick()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_edit_server)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onEditServerClick()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_switch_server)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onDisconnectClick()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.action_app_settings)) },
-                            onClick = {
-                                showOverflowMenu = false
-                                onSettingsClick()
-                            }
-                        )
+                if (currentDetail == null) {
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Menu"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showOverflowMenu,
+                            onDismissRequest = { showOverflowMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_stats)) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onStatsClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_edit_server)) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onEditServerClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_switch_server)) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onDisconnectClick()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_app_settings)) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onSettingsClick()
+                                }
+                            )
+                        }
                     }
                 }
             },
@@ -334,7 +358,7 @@ private fun ConnectedShell(
 
     // Content composable shared between both layouts
     val contentArea: @Composable (PaddingValues) -> Unit = { innerPadding ->
-        if (selectedNavTab == null) {
+        if (selectedNavTab == null && currentDetail == null) {
             // Now Playing (reached via mini player tap)
             NowPlayingScreen(
                 viewModel = viewModel,
@@ -350,22 +374,33 @@ private fun ConnectedShell(
                     .padding(innerPadding)
             )
         } else {
-            // Browsing mode: browse content + mini player
+            // Browsing mode (with optional detail overlay): content + mini player
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    BrowseContent(
-                        selectedNavTab = selectedNavTab,
-                        onAlbumClick = onAlbumClick,
-                        onArtistClick = onArtistClick,
-                        onPlaylistDetailClick = onPlaylistDetailClick,
-                        onShowSuccess = onShowSuccess,
-                        onShowError = onShowError,
-                        onShowUndoSnackbar = onShowUndoSnackbar
-                    )
+                    if (currentDetail != null) {
+                        DetailContent(
+                            detail = currentDetail!!,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onShowSuccess = onShowSuccess,
+                            onShowError = onShowError,
+                            onShowUndoSnackbar = onShowUndoSnackbar
+                        )
+                    } else {
+                        BrowseContent(
+                            selectedNavTab = selectedNavTab,
+                            onAlbumClick = onAlbumClick,
+                            onArtistClick = onArtistClick,
+                            onPlaylistDetailClick = onPlaylistDetailClick,
+                            onShowSuccess = onShowSuccess,
+                            onShowError = onShowError,
+                            onShowUndoSnackbar = onShowUndoSnackbar
+                        )
+                    }
                 }
 
                 // Mini player (phone/tablet only -- TV gets no mini player)
@@ -375,6 +410,7 @@ private fun ConnectedShell(
                         onPlayPauseClick = onPlayPauseClick,
                         onVolumeChange = onVolumeChange,
                         onReturnToNowPlaying = {
+                            viewModel.clearDetailNavigation()
                             selectedNavTab = null
                             viewModel.setNavigationContentVisible(false)
                         },
@@ -409,6 +445,7 @@ private fun ConnectedShell(
                         label = { Text(stringResource(labelRes)) },
                         selected = selectedNavTab == tab,
                         onClick = {
+                            viewModel.clearDetailNavigation()
                             selectedNavTab = tab
                             viewModel.setCurrentNavTab(tab)
                             viewModel.setNavigationContentVisible(true)
@@ -694,6 +731,184 @@ private fun BrowseContent(
 }
 
 /**
+ * Detail content for album, artist, and playlist screens.
+ *
+ * Renders the Compose detail screen directly inside AppShell's content area,
+ * so it sits between the top bar and bottom nav/mini player.
+ * Handles playlist picker dialogs and all navigation callbacks.
+ */
+@Composable
+private fun DetailContent(
+    detail: DetailDestination,
+    onAlbumClick: (albumId: String, albumName: String) -> Unit,
+    onArtistClick: (artistId: String, artistName: String) -> Unit,
+    onShowSuccess: (String) -> Unit,
+    onShowError: (String) -> Unit,
+    onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+
+    // Shared playlist picker state for detail screens
+    var trackForPlaylist by remember { mutableStateOf<MaTrack?>(null) }
+    var bulkAddTarget by remember { mutableStateOf<Any?>(null) } // albumId:String or MaAlbum or "artist"
+    var bulkAddState by remember { mutableStateOf<BulkAddState?>(null) }
+    var selectedPlaylist by remember { mutableStateOf<MaPlaylist?>(null) }
+
+    when (detail) {
+        is DetailDestination.Album -> {
+            AlbumDetailScreen(
+                albumId = detail.albumId,
+                onArtistClick = { artistName ->
+                    // TODO: Look up artistId by name; for now show toast
+                    Log.d(TAG, "Artist click from album detail: $artistName")
+                },
+                onAddToPlaylist = { track ->
+                    trackForPlaylist = track
+                },
+                onAddAlbumToPlaylist = {
+                    bulkAddTarget = detail.albumId
+                    bulkAddState = null
+                    selectedPlaylist = null
+                }
+            )
+        }
+
+        is DetailDestination.Artist -> {
+            ArtistDetailScreen(
+                artistId = detail.artistId,
+                onAlbumClick = { album ->
+                    onAlbumClick(album.albumId, album.name)
+                },
+                onAddToPlaylist = { track ->
+                    trackForPlaylist = track
+                },
+                onAddArtistToPlaylist = {
+                    bulkAddTarget = "artist"
+                    bulkAddState = null
+                    selectedPlaylist = null
+                },
+                onAddAlbumToPlaylist = { album ->
+                    bulkAddTarget = album
+                    bulkAddState = null
+                    selectedPlaylist = null
+                }
+            )
+        }
+
+        is DetailDestination.Playlist -> {
+            val playlistViewModel: PlaylistDetailViewModel = viewModel()
+            PlaylistDetailScreen(
+                playlistId = detail.playlistId,
+                onRemoveTrack = { position, trackName ->
+                    val action = playlistViewModel.removeTrack(position)
+                    if (action != null) {
+                        onShowUndoSnackbar(
+                            "Track removed",
+                            { action.undoRemove() },
+                            { action.executeRemove() }
+                        )
+                    }
+                },
+                viewModel = playlistViewModel
+            )
+        }
+    }
+
+    // Single track add dialog
+    trackForPlaylist?.let { track ->
+        PlaylistPickerDialog(
+            onDismiss = { trackForPlaylist = null },
+            onPlaylistSelected = { playlist ->
+                trackForPlaylist = null
+                scope.launch {
+                    addTrackToPlaylist(track, playlist, onShowSuccess, onShowError)
+                }
+            }
+        )
+    }
+
+    // Bulk add dialog (album or artist)
+    if (bulkAddTarget != null) {
+        PlaylistPickerDialog(
+            onDismiss = {
+                bulkAddTarget = null
+                bulkAddState = null
+                selectedPlaylist = null
+            },
+            onPlaylistSelected = { playlist ->
+                selectedPlaylist = playlist
+                scope.launch {
+                    when (val target = bulkAddTarget) {
+                        is String -> {
+                            if (target == "artist" && detail is DetailDestination.Artist) {
+                                bulkAddArtist(
+                                    detail.artistId,
+                                    detail.artistName,
+                                    playlist,
+                                    onShowSuccess
+                                ) { bulkAddState = it }
+                            } else {
+                                // target is albumId string (from album detail)
+                                val albumName = if (detail is DetailDestination.Album) detail.albumName else ""
+                                bulkAddAlbum(
+                                    target,
+                                    albumName,
+                                    playlist,
+                                    onShowSuccess
+                                ) { bulkAddState = it }
+                            }
+                        }
+                        is MaAlbum -> {
+                            bulkAddAlbum(
+                                target.albumId,
+                                target.name,
+                                playlist,
+                                onShowSuccess
+                            ) { bulkAddState = it }
+                        }
+                    }
+                }
+            },
+            operationState = bulkAddState,
+            onRetry = {
+                selectedPlaylist?.let { playlist ->
+                    scope.launch {
+                        when (val target = bulkAddTarget) {
+                            is String -> {
+                                if (target == "artist" && detail is DetailDestination.Artist) {
+                                    bulkAddArtist(
+                                        detail.artistId,
+                                        detail.artistName,
+                                        playlist,
+                                        onShowSuccess
+                                    ) { bulkAddState = it }
+                                } else {
+                                    val albumName = if (detail is DetailDestination.Album) detail.albumName else ""
+                                    bulkAddAlbum(
+                                        target,
+                                        albumName,
+                                        playlist,
+                                        onShowSuccess
+                                    ) { bulkAddState = it }
+                                }
+                            }
+                            is MaAlbum -> {
+                                bulkAddAlbum(
+                                    target.albumId,
+                                    target.name,
+                                    playlist,
+                                    onShowSuccess
+                                ) { bulkAddState = it }
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+}
+
+/**
  * Add a single track to a playlist.
  */
 private suspend fun addTrackToPlaylist(
@@ -819,6 +1034,8 @@ private fun MiniPlayerBar(
     val artworkSource by viewModel.artworkSource.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val volume by viewModel.volume.collectAsState()
+    val positionMs by viewModel.positionMs.collectAsState()
+    val durationMs by viewModel.durationMs.collectAsState()
 
     AnimatedVisibility(
         visible = !metadata.isEmpty,
@@ -840,6 +1057,8 @@ private fun MiniPlayerBar(
             },
             onPlayPauseClick = onPlayPauseClick,
             onVolumeChange = onVolumeChange,
+            positionMs = positionMs,
+            durationMs = durationMs,
             modifier = Modifier.fillMaxWidth()
         )
     }

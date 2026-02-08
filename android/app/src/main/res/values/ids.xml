@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- ID for the detail fragment container added dynamically in MainActivity -->
-    <item name="detailFragmentContainer" type="id" />
+    <!-- Reserved for future use -->
 </resources>

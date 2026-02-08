@@ -529,11 +529,13 @@ class SendSpinPlayer : Player {
 
     override fun getTotalBufferedDuration(): Long = currentBufferedPositionMs
 
-    override fun isCurrentMediaItemDynamic(): Boolean = true // Live stream
+    // When we have a known duration, report as a normal track so Android Auto
+    // shows a progress bar. Only report as live/dynamic when duration is unknown.
+    override fun isCurrentMediaItemDynamic(): Boolean = currentDurationMs <= 0
 
-    override fun isCurrentMediaItemLive(): Boolean = true // Live stream
+    override fun isCurrentMediaItemLive(): Boolean = currentDurationMs <= 0
 
-    override fun isCurrentMediaItemSeekable(): Boolean = false // No seeking in live stream
+    override fun isCurrentMediaItemSeekable(): Boolean = false // No seeking in SendSpin
 
     override fun getContentPosition(): Long = currentPositionMs
 
@@ -944,6 +946,7 @@ private class SingleItemTimeline(
     override fun getWindowCount(): Int = 1
 
     override fun getWindow(windowIndex: Int, window: Window, defaultPositionProjectionUs: Long): Window {
+        val hasDuration = durationMs > 0
         window.set(
             /* uid= */ 0,
             /* mediaItem= */ mediaItem,
@@ -952,10 +955,10 @@ private class SingleItemTimeline(
             /* windowStartTimeMs= */ C.TIME_UNSET,
             /* elapsedRealtimeEpochOffsetMs= */ C.TIME_UNSET,
             /* isSeekable= */ false,
-            /* isDynamic= */ true,
+            /* isDynamic= */ !hasDuration,
             /* liveConfiguration= */ null,
             /* defaultPositionUs= */ 0,
-            /* durationUs= */ if (durationMs > 0) durationMs * 1000 else C.TIME_UNSET,
+            /* durationUs= */ if (hasDuration) durationMs * 1000 else C.TIME_UNSET,
             /* firstPeriodIndex= */ 0,
             /* lastPeriodIndex= */ 0,
             /* positionInFirstPeriodUs= */ 0

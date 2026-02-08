@@ -969,6 +969,14 @@ class PlaybackService : MediaLibraryService() {
                     durationMs = durationMs
                 )
 
+                // Update the player's position so MediaSession reports it
+                // to Android Auto, Bluetooth (AVRCP), and lock screen
+                sendSpinPlayer?.updatePlaybackState(
+                    syncState = null,
+                    positionMs = positionMs,
+                    durationMs = durationMs
+                )
+
                 // Populate the player's timeline with queue items for native queue UI
                 populatePlayerQueue()
 

@@ -11,10 +11,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +43,7 @@ import coil.request.ImageRequest
 import com.sendspindroid.R
 import com.sendspindroid.ui.main.ArtworkSource
 import com.sendspindroid.ui.main.TrackMetadata
+import com.sendspindroid.ui.preview.AllDevicePreviews
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -59,6 +62,8 @@ fun MiniPlayer(
     onStopClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
+    positionMs: Long = 0,
+    durationMs: Long = 0,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -67,6 +72,7 @@ fun MiniPlayer(
             .height(88.dp),
         color = MaterialTheme.colorScheme.surfaceVariant
     ) {
+        Box {
         Row(
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -255,6 +261,20 @@ fun MiniPlayer(
                 }
             }
         }
+
+        // Thin progress bar at bottom edge
+        if (durationMs > 0) {
+            LinearProgressIndicator(
+                progress = { (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .align(Alignment.BottomCenter),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            )
+        }
+        } // Box
     }
 }
 
@@ -288,6 +308,29 @@ private fun MiniPlayerNotPlayingPreview() {
             artworkSource = null,
             isPlaying = false,
             volume = 0.5f,
+            onCardClick = {},
+            onStopClick = {},
+            onPlayPauseClick = {},
+            onVolumeChange = {}
+        )
+    }
+}
+
+// -- Multi-Device Previews --
+
+@AllDevicePreviews
+@Composable
+private fun MiniPlayerAllDevicesPreview() {
+    SendSpinTheme {
+        MiniPlayer(
+            metadata = TrackMetadata(
+                title = "Bohemian Rhapsody",
+                artist = "Queen",
+                album = "A Night at the Opera"
+            ),
+            artworkSource = null,
+            isPlaying = true,
+            volume = 0.75f,
             onCardClick = {},
             onStopClick = {},
             onPlayPauseClick = {},
