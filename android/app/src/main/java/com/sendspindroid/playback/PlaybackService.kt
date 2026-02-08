@@ -431,6 +431,11 @@ class PlaybackService : MediaLibraryService() {
         const val STATE_ERROR = "error"
 
         // Android Auto browse tree media IDs
+        // Max artwork bitmap dimension (px) for MediaMetadata.
+        // Framework enforces 320dp; at tvdpi (~1.33x) that's ~426px.
+        // 480px covers xhdpi (2x) and looks sharp on TV.
+        private const val MAX_ARTWORK_SIZE = 480
+
         private const val MEDIA_ID_ROOT = "root"
         private const val MEDIA_ID_DISCOVERED = "discovered_servers"
         private const val MEDIA_ID_SERVER_PREFIX = "server_"
@@ -983,16 +988,15 @@ class PlaybackService : MediaLibraryService() {
                 // Populate the player's timeline with queue items for native queue UI
                 populatePlayerQueue()
 
+                // Clear stale artwork immediately on any metadata update.
+                // New artwork will arrive via onArtwork (binary) or fetchArtwork (URL).
+                // Without this, the previous track's artwork bleeds into the new track.
+                currentArtwork = null
+
                 // Handle artwork URL changes
-                // Note: Artwork can also arrive via binary stream (onArtwork callback),
-                // so we only clear artwork URL tracking, not the actual artwork.
-                // The binary artwork path will update artwork separately.
                 if (artworkUrl.isEmpty()) {
-                    // Track has no artwork URL - clear the URL tracker
-                    // but don't clear currentArtwork (binary artwork might arrive)
                     lastArtworkUrl = null
                 } else if (artworkUrl != lastArtworkUrl) {
-                    // New artwork URL - fetch it
                     lastArtworkUrl = artworkUrl
                     fetchArtwork(artworkUrl)
                 }
@@ -1012,8 +1016,9 @@ class PlaybackService : MediaLibraryService() {
                 try {
                     val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
                     if (bitmap != null) {
-                        currentArtwork = bitmap
-                        updateMediaSessionArtwork(bitmap)
+                        val scaled = scaleArtwork(bitmap)
+                        currentArtwork = scaled
+                        updateMediaSessionArtwork(scaled)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to decode artwork", e)
@@ -1229,9 +1234,10 @@ class PlaybackService : MediaLibraryService() {
                 val result = loader.execute(request)
                 if (result is SuccessResult) {
                     val bitmap = result.drawable.toBitmap()
+                    val scaled = scaleArtwork(bitmap)
                     mainHandler.post {
-                        currentArtwork = bitmap
-                        updateMediaSessionArtwork(bitmap)
+                        currentArtwork = scaled
+                        updateMediaSessionArtwork(scaled)
                     }
                 }
             } catch (e: Exception) {
@@ -1244,15 +1250,35 @@ class PlaybackService : MediaLibraryService() {
         return url.startsWith("http://") || url.startsWith("https://")
     }
 
+    /**
+     * Pre-scales artwork bitmaps to fit within the MediaMetadata max size.
+     *
+     * The Android framework enforces a max of 320dp for MediaMetadata bitmaps
+     * (config_mediaMetadataBitmapMaxSize). Oversized bitmaps get silently
+     * downscaled and trigger StrictMode violations on Android 16+.
+     * Pre-scaling avoids this overhead and keeps memory usage predictable.
+     */
+    private fun scaleArtwork(bitmap: Bitmap, maxSize: Int = MAX_ARTWORK_SIZE): Bitmap {
+        val width = bitmap.width
+        val height = bitmap.height
+        if (width <= maxSize && height <= maxSize) return bitmap
+
+        val scale = maxSize.toFloat() / maxOf(width, height)
+        val newWidth = (width * scale).toInt()
+        val newHeight = (height * scale).toInt()
+        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+    }
+
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun updateMediaSessionArtwork(bitmap: Bitmap) {
         val state = _playbackState.value
+        val scaled = scaleArtwork(bitmap)
 
         forwardingPlayer?.updateMetadata(
             title = state.title,
             artist = state.artist,
             album = state.album,
-            artwork = bitmap,
+            artwork = scaled,
             artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
         )
 
@@ -1275,7 +1301,8 @@ class PlaybackService : MediaLibraryService() {
             artist = state.artist,
             album = state.album,
             artwork = currentArtwork,
-            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
+            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) },
+            clearArtwork = currentArtwork == null
         )
 
         broadcastMetadataToControllers(
