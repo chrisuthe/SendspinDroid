@@ -465,16 +465,12 @@
             android:layout_height="wrap_content"
             android:visibility="gone" />
 
-        <!-- Element 5: Bottom Navigation (shown when connected to MA) -->
+        <!-- Bottom Navigation removed - now Compose-based (NavigationSuiteScaffold in AppShell) -->
         <com.google.android.material.bottomnavigation.BottomNavigationView
             android:id="@+id/bottomNavigation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:visibility="gone"
-            app:menu="@menu/bottom_nav_menu"
-            app:labelVisibilityMode="labeled"
-            app:itemIconTint="@color/bottom_nav_colors"
-            app:itemTextColor="@color/bottom_nav_colors"
             style="@style/Widget.Material3.BottomNavigationView" />
 
     </LinearLayout>
