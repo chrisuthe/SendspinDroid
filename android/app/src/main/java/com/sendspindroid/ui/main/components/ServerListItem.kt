@@ -39,6 +39,7 @@ import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
+import com.sendspindroid.ui.adaptive.tvFocusable
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -72,6 +73,7 @@ fun ServerListItem(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
+            .tvFocusable()
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
