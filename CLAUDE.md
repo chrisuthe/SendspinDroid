@@ -88,14 +88,29 @@ zte-logging.bat status  # Show log buffer sizes
 
 - **No emojis**: Do not use emojis in code, logs, or UI strings unless explicitly approved by the user.
 - Use ASCII alternatives: `us` instead of `μs`, `->` instead of `→`, `+/-` instead of `±`
+- **No self-citation**: Never cite yourself (e.g., "Co-Authored-By: Claude") in commits, comments, or release notes.
 
 ## Release Process
 
-**IMPORTANT**: Before creating a new version tag (e.g., `v1.0.25`):
+**IMPORTANT**: Before creating a new version tag (e.g., `v2.1.3`):
 1. Update `versionCode` and `versionName` in `app/build.gradle.kts`
 2. Build and test
 3. Commit the version bump
 4. Then create and push the tag
+
+### versionCode Scheme
+
+Encoded semantic version: `MAJOR * 10000 + MINOR * 100 + PATCH`
+
+| Segment | Digits | Range |
+|---------|--------|-------|
+| MAJOR   | 4      | 0-9999 |
+| MINOR   | 2      | 0-99   |
+| PATCH   | 2      | 0-99   |
+
+Examples: `2.0.0` = 20000, `2.1.3` = 20103, `10.5.22` = 100522
+
+Pre-release suffixes (alpha, beta, rc) do NOT affect the versionCode -- they only appear in versionName. A pre-release shares the same versionCode as its eventual stable release.
 
 ## Reference Implementation
 

@@ -69,13 +69,15 @@ android {
         // targetSdk 36 = Android 16
         targetSdk = 36
 
-        // versionCode: Integer version for Google Play (auto-increment for each release)
-        // Users never see this, but must increase with each update
-        versionCode = 53
+        // versionCode: Encoded semantic version for Google Play.
+        // Formula: MAJOR * 10000 + MINOR * 100 + PATCH
+        // Ranges: MAJOR 0-9999, MINOR 0-99, PATCH 0-99
+        // Example: 2.0.0 = 20000, 2.1.3 = 20103, 10.5.22 = 100522
+        versionCode = 20000
 
         // versionName: User-visible version string
         // Follows semantic versioning (major.minor.patch[-prerelease])
-        versionName = "2.0.0-alpha1"
+        versionName = "2.0.0-alpha2"
 
         // TODO: Add testInstrumentationRunner for UI tests
         // testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
