@@ -792,8 +792,23 @@ class MainActivity : AppCompatActivity() {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
         }
 
-        // Add overlay to the coordinator layout on top of everything
-        binding.coordinatorLayout.addView(
+        // Replace the old XML layout entirely with a FrameLayout containing Compose
+        val contentParent = binding.coordinatorLayout.parent as? ViewGroup
+        Log.d(TAG, "Compose shell: replacing content view (parent=${contentParent?.javaClass?.simpleName})")
+
+        // Remove the old CoordinatorLayout from the content view
+        contentParent?.removeView(binding.coordinatorLayout)
+
+        // Create a FrameLayout wrapper for Compose + detail fragments
+        val rootFrame = android.widget.FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        // Add Compose as first child (fills screen)
+        rootFrame.addView(
             overlay,
             ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -801,12 +816,12 @@ class MainActivity : AppCompatActivity() {
             )
         )
 
-        // Add a detail fragment container on top of the Compose overlay
+        // Add detail fragment container on top of Compose overlay
         val detailContainer = androidx.fragment.app.FragmentContainerView(this).apply {
             id = R.id.detailFragmentContainer
             visibility = View.GONE
         }
-        binding.coordinatorLayout.addView(
+        rootFrame.addView(
             detailContainer,
             ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -814,6 +829,9 @@ class MainActivity : AppCompatActivity() {
             )
         )
         detailFragmentContainer = detailContainer
+
+        // Add the new FrameLayout as the content view
+        contentParent?.addView(rootFrame)
 
         composeOverlay = overlay
 
@@ -2501,6 +2519,7 @@ class MainActivity : AppCompatActivity() {
      * Handles tap on a unified server - connects using auto-selection.
      */
     private fun onUnifiedServerSelected(server: UnifiedServer) {
+        Log.d(TAG, "Server selected from Compose UI: ${server.name} (id=${server.id})")
         val controller = mediaController
         if (controller == null) {
             showErrorSnackbar(
