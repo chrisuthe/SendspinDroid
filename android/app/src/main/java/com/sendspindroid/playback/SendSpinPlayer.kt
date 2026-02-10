@@ -739,7 +739,10 @@ class SendSpinPlayer : Player {
     // Player Interface - Audio
     // ========================================================================
 
-    override fun getAudioAttributes(): AudioAttributes = AudioAttributes.DEFAULT
+    override fun getAudioAttributes(): AudioAttributes = AudioAttributes.Builder()
+        .setUsage(C.USAGE_MEDIA)
+        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+        .build()
 
     override fun setAudioAttributes(audioAttributes: AudioAttributes, handleAudioFocus: Boolean) {
         // No-op - audio attributes are handled by SyncAudioPlayer
