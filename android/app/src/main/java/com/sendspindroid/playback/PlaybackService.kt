@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.database.ContentObserver
+import android.media.AudioAttributes as AndroidAudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.provider.Settings
 import android.graphics.Bitmap
@@ -330,6 +332,10 @@ class PlaybackService : MediaLibraryService() {
     private var volumeObserver: ContentObserver? = null
     private var volumeObserverRegistered: Boolean = false  // Track registration state to prevent leaks
     private var lastKnownVolume: Int = -1  // Track to detect external volume changes
+
+    // Audio focus management - required for Android Auto to hand over audio output
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus: Boolean = false
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
@@ -1603,6 +1609,9 @@ class PlaybackService : MediaLibraryService() {
      */
     @Suppress("DEPRECATION")
     private fun acquirePlaybackLocks() {
+        // Request audio focus first - required for Android Auto to route audio to us
+        requestAudioFocus()
+
         // CPU wake lock with 30-minute timeout for battery safety
         // Refreshed periodically during active playback
         if (wakeLock == null) {
@@ -1783,6 +1792,9 @@ class PlaybackService : MediaLibraryService() {
      * while not draining battery with CPU/WiFi locks during idle periods.
      */
     private fun releasePlaybackLocks() {
+        // Abandon audio focus - tells the system we're done producing audio
+        abandonAudioFocus()
+
         // Stop the periodic wake lock refresh first
         wakeLockHandler.removeCallbacks(wakeLockRefreshRunnable)
 
@@ -1793,6 +1805,86 @@ class PlaybackService : MediaLibraryService() {
         if (wifiLock?.isHeld == true) {
             wifiLock?.release()
             Log.d(TAG, "WiFi lock released")
+        }
+    }
+
+    /**
+     * Requests audio focus for music playback.
+     *
+     * This is required for Android Auto (and car Bluetooth) to hand over the audio
+     * output channel from whatever is currently playing (FM radio, other apps, etc.).
+     * Without this call, the car infotainment system doesn't know our app wants to
+     * produce audio and won't route output to us.
+     */
+    private fun requestAudioFocus() {
+        if (hasAudioFocus) return
+
+        val am = audioManager ?: return
+
+        if (audioFocusRequest == null) {
+            val audioAttributes = AndroidAudioAttributes.Builder()
+                .setUsage(AndroidAudioAttributes.USAGE_MEDIA)
+                .setContentType(AndroidAudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+
+            audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(audioAttributes)
+                .setWillPauseWhenDucked(false)
+                .setOnAudioFocusChangeListener { focusChange ->
+                    mainHandler.post {
+                        handleAudioFocusChange(focusChange)
+                    }
+                }
+                .build()
+        }
+
+        val result = am.requestAudioFocus(audioFocusRequest!!)
+        hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        Log.d(TAG, "Audio focus requested: ${if (hasAudioFocus) "granted" else "denied"}")
+    }
+
+    /**
+     * Abandons audio focus when playback stops.
+     */
+    private fun abandonAudioFocus() {
+        if (!hasAudioFocus) return
+
+        audioFocusRequest?.let { request ->
+            audioManager?.abandonAudioFocusRequest(request)
+            Log.d(TAG, "Audio focus abandoned")
+        }
+        hasAudioFocus = false
+    }
+
+    /**
+     * Handles audio focus changes from the system.
+     *
+     * On Android Auto, focus loss typically means another app (navigation, phone call)
+     * needs audio. We pause/duck accordingly and resume when focus returns.
+     */
+    private fun handleAudioFocusChange(focusChange: Int) {
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                Log.d(TAG, "Audio focus gained")
+                // Focus returned - resume if we were playing before losing focus
+                syncAudioPlayer?.resume()
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                Log.d(TAG, "Audio focus lost permanently")
+                // Another app took focus permanently - pause playback
+                hasAudioFocus = false
+                syncAudioPlayer?.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                Log.d(TAG, "Audio focus lost transiently")
+                // Temporary loss (phone call, navigation announcement) - pause
+                syncAudioPlayer?.pause()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                Log.d(TAG, "Audio focus lost transiently (can duck)")
+                // Could duck volume here, but for synced playback just let it play
+                // since ducking would desync volume with other clients
+            }
         }
     }
 
