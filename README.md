@@ -114,4 +114,20 @@ SendSpin Player speaks the [SendSpin Protocol](https://www.sendspin-audio.com/) 
 
 ## License
 
-MIT
+MIT -- see [LICENSE](LICENSE) for the full text.
+
+## Third-Party Acknowledgments
+
+SendSpin Player uses the following open-source libraries:
+
+| Library | License | Copyright |
+|---------|---------|-----------|
+| [AndroidX](https://developer.android.com/jetpack/androidx) (Core, AppCompat, Lifecycle, Media3, Compose, CameraX, Palette, Preference, Fragment, ViewPager2, SwipeRefreshLayout, ConstraintLayout) | Apache 2.0 | The Android Open Source Project |
+| [Material Components for Android](https://github.com/material-components/material-components-android) | Apache 2.0 | The Android Open Source Project |
+| [Kotlin & Kotlinx Coroutines](https://github.com/Kotlin/kotlinx.coroutines) | Apache 2.0 | JetBrains s.r.o. and contributors |
+| [OkHttp](https://github.com/square/okhttp) | Apache 2.0 | Square, Inc. |
+| [Coil](https://github.com/coil-kt/coil) | Apache 2.0 | Coil Contributors |
+| [Stream WebRTC Android](https://github.com/nicobatty/webrtc-android) | Apache 2.0 | Stream.io Inc. |
+| [Java-WebSocket](https://github.com/TooTallNate/Java-WebSocket) | MIT | Nathan Rajlich |
+
+This project also uses [Google ML Kit Barcode Scanning](https://developers.google.com/ml-kit/vision/barcode-scanning), which is governed by the [Google APIs Terms of Service](https://developers.google.com/terms).

@@ -645,9 +645,7 @@ private fun CodecSelectionDialog(
 ) {
     val codecs = listOf(
         "opus" to "Opus",
-        "flac" to "FLAC",
-        "aac" to "AAC",
-        "mp3" to "MP3"
+        "flac" to "FLAC"
     )
 
     AlertDialog(
@@ -690,8 +688,6 @@ private fun getCodecDisplayName(codec: String): String {
     return when (codec.lowercase()) {
         "opus" -> "Opus"
         "flac" -> "FLAC"
-        "aac" -> "AAC"
-        "mp3" -> "MP3"
         else -> codec
     }
 }

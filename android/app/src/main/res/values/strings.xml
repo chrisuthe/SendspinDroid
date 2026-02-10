@@ -204,7 +204,7 @@
     <string name="pref_low_memory_restart_now">Restart Now</string>
     <string name="pref_low_memory_restart_later">Later</string>
     <string name="pref_high_power_mode_title">High Power Mode</string>
-    <string name="pref_high_power_mode_summary">For always-on devices. Keeps WiFi and CPU active while connected to prevent disconnections. Uses more power.</string>
+    <string name="pref_high_power_mode_summary">For always-on devices. Keeps WiFi, CPU, and screen active while connected to prevent disconnections. Uses more power.</string>
     <string name="pref_battery_opt_exempt">Battery optimization is disabled for SendSpin (recommended)</string>
     <string name="pref_battery_opt_not_exempt">Battery optimization is active -- tap to disable for better reliability</string>
 
