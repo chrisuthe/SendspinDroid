@@ -1149,6 +1149,14 @@ class SyncAudioPlayer(
         // Positive = head chunk is AHEAD of desired (normal buffer), Negative = head chunk BEHIND (stale)
         val startErrUs = headChunk.serverTimeMicros - desiredHeadServerUs
 
+        if (startErrUs > START_ALIGN_TOL_US) {
+            // Queue head is too far ahead of where the DAC needs it -- wait for
+            // the DAC to catch up by playing through existing silence. Without
+            // this gate, starting with startErr=200ms bakes in a permanent offset.
+            Log.d(TAG, "DAC-aware start: waiting for alignment, startErr=${startErrUs/1000}ms > ${START_ALIGN_TOL_US/1000}ms")
+            return true
+        }
+
         if (startErrUs < -START_ALIGN_TOL_US) {
             // Head chunk is behind the DAC -- drop stale chunks until aligned
             var droppedFrames = 0
@@ -1472,8 +1480,12 @@ class SyncAudioPlayer(
                         val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
                         if (bufferedMs < MIN_BUFFER_BEFORE_START_MS) {
                             // Pre-calibrate DAC timing while waiting for buffer to fill
-                            // This establishes timing calibration BEFORE real audio arrives
-                            preCalibrateDacTiming()
+                            // This establishes timing calibration BEFORE real audio arrives.
+                            // Once stable, stop writing silence -- further writes just inflate
+                            // totalFramesWritten and increase the DAC-to-first-chunk gap.
+                            if (!dacTimestampsStable) {
+                                preCalibrateDacTiming()
+                            }
                             delay(STATE_POLL_DELAY_MS)
                             continue
                         }
@@ -1481,7 +1493,10 @@ class SyncAudioPlayer(
                         // Handle start gating logic
                         if (handleStartGating()) {
                             // Still waiting for scheduled start - continue pre-calibration
-                            preCalibrateDacTiming()
+                            // only if timestamps aren't stable yet
+                            if (!dacTimestampsStable) {
+                                preCalibrateDacTiming()
+                            }
                             delay(STATE_POLL_DELAY_MS)  // Still waiting for scheduled start
                             continue
                         }
@@ -2177,41 +2192,44 @@ class SyncAudioPlayer(
             }
 
             // ================================================================
-            // SYNC ERROR: DAC playback position vs expected position
+            // SYNC ERROR: Cursor-based measurement (matching Python CLI)
             // ================================================================
-            // Measures clock drift between DAC hardware clock and server clock.
+            // Ground-truth cursor: serverTimelineCursor tracks the server time
+            // of audio written to the AudioTrack. Subtract pending frames to get
+            // the server time at the DAC output point ("where the DAC SHOULD be").
             //
-            // actualPlaybackServerTimeUs = where the DAC IS playing (server time,
-            //   derived from baseline + DAC frame count -- advances at DAC clock rate)
-            // expectedPlaybackServerTimeUs = where the DAC SHOULD be playing
-            //   (server time, fresh Kalman conversion -- advances at server clock rate)
+            // Kalman DAC position: convert the hardware DAC timestamp to server
+            // time via Kalman ("where the DAC IS in server time").
             //
-            // At calibration these are identical (baseline set from Kalman).
-            // Over time they diverge by the DAC-vs-server clock drift, which is
-            // exactly what insert/drop corrections need to fix.
-            //
-            // This avoids the serverTimelineCursor entirely, sidestepping the
-            // Android push-model problem where the write cursor is ~300ms ahead
-            // of the DAC output point.
+            // The old baseline approach had both sides Kalman-derived, causing
+            // real offsets to cancel. This cursor approach uses one ground-truth
+            // side, so actual offsets are visible to the correction loop.
 
-            // Step 1: Where the DAC IS playing (server time via baseline + frames)
-            val framesPlayedSinceBaseline = (framePosition - baselineFramePosition).coerceAtLeast(0)
-            val elapsedServerUs = (framesPlayedSinceBaseline * 1_000_000L) / sampleRate
-            val actualPlaybackServerTimeUs = baselineServerTimeUs + elapsedServerUs
+            val pendingFrames = (totalFramesWritten - framePosition).coerceAtLeast(0)
+            val pendingUs = (pendingFrames * 1_000_000L) / sampleRate
+            val cursorAtDacUs = serverTimelineCursor - pendingUs
+            if (serverTimelineCursor == 0L || cursorAtDacUs <= 0) return
 
-            // Step 2: Where the DAC SHOULD be playing (fresh Kalman at DAC time)
+            // Kalman-derived DAC position: where the DAC IS in server time
             val loopAtDac = estimateLoopTimeForDacTime(dacTimeMicros)
-            if (loopAtDac <= 0) return  // Need calibration data
-            val expectedPlaybackServerTimeUs = computeServerTime(loopAtDac)
+            if (loopAtDac <= 0) return
+            val dacPlaybackServerTimeUs = computeServerTime(loopAtDac)
 
-            // Step 3: Sync error = actual - expected
-            // Positive = DAC is ahead of expected (playing fast) -> DROP samples
-            // Negative = DAC is behind expected (playing slow) -> INSERT samples
-            val rawSyncError = actualPlaybackServerTimeUs - expectedPlaybackServerTimeUs
+            // Sync error = actual - expected (matching Python CLI sign convention)
+            // Positive = DAC ahead (fast) -> DROP, Negative = DAC behind (slow) -> INSERT
+            val rawSyncError = dacPlaybackServerTimeUs - cursorAtDacUs
             syncErrorUs = rawSyncError
 
             // Apply 2D Kalman filter smoothing for display stability
             syncErrorFilter.update(rawSyncError, loopTimeUs)
+
+            // Periodic log to confirm cursor-based measurement is working
+            if (chunksPlayed % 100 == 0L) {
+                Log.d(TAG, "Sync: err=${rawSyncError / 1000}ms, " +
+                    "pending=${pendingUs / 1000}ms, " +
+                    "cursor=${serverTimelineCursor}us, " +
+                    "dacServer=${dacPlaybackServerTimeUs}us")
+            }
 
         } catch (e: Exception) {
             Log.w(TAG, "Failed to update sync error", e)
