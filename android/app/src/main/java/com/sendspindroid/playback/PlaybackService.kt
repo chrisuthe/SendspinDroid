@@ -994,11 +994,6 @@ class PlaybackService : MediaLibraryService() {
                 // Populate the player's timeline with queue items for native queue UI
                 populatePlayerQueue()
 
-                // Clear stale artwork immediately on any metadata update.
-                // New artwork will arrive via onArtwork (binary) or fetchArtwork (URL).
-                // Without this, the previous track's artwork bleeds into the new track.
-                currentArtwork = null
-
                 // Handle artwork URL changes
                 if (artworkUrl.isEmpty()) {
                     lastArtworkUrl = null
@@ -1007,6 +1002,11 @@ class PlaybackService : MediaLibraryService() {
                     fetchArtwork(artworkUrl)
                 }
 
+                // Keep existing artwork as a bridge until new artwork arrives.
+                // Clearing eagerly causes a race: MediaSession gets updated with no
+                // artwork, Android Auto caches that state (grey box), then the binary
+                // artwork arrives too late. The old artwork will be replaced as soon
+                // as onArtwork() or fetchArtwork() delivers the new one.
                 updateMediaMetadata(title, artist, album)
             }
         }
@@ -1307,8 +1307,7 @@ class PlaybackService : MediaLibraryService() {
             artist = state.artist,
             album = state.album,
             artwork = currentArtwork,
-            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) },
-            clearArtwork = currentArtwork == null
+            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
         )
 
         broadcastMetadataToControllers(
