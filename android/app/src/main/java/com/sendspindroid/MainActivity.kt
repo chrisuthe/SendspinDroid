@@ -1975,9 +1975,11 @@ class MainActivity : AppCompatActivity() {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             runOnUiThread {
                 Log.d(TAG, "isPlaying changed: $isPlaying")
-                // Sync state to ViewModel for Compose UI
-                val vmPlaybackState = if (isPlaying) PlaybackState.READY else PlaybackState.IDLE
-                viewModel.updatePlaybackState(isPlaying, vmPlaybackState)
+                // Sync isPlaying to ViewModel for Compose UI.
+                // Keep the current playback state -- only onPlaybackStateChanged
+                // should transition between IDLE/BUFFERING/READY/ENDED.
+                // Previously this set IDLE on pause, which disabled all controls.
+                viewModel.updatePlaybackState(isPlaying, viewModel.playbackState.value)
 
                 if (isPlaying) {
                     updatePlaybackState("playing")
