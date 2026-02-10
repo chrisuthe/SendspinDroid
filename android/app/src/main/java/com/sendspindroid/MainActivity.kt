@@ -658,7 +658,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateKeepScreenOn(isPlaying: Boolean) {
-        if (UserSettings.keepScreenOn && isPlaying) {
+        val isConnected = connectionState is AppConnectionState.Connected ||
+                          connectionState is AppConnectionState.Reconnecting
+        val keepOn = (UserSettings.keepScreenOn && isPlaying) ||
+                     (UserSettings.highPowerMode && isConnected)
+        if (keepOn) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -1838,6 +1842,7 @@ class MainActivity : AppCompatActivity() {
                 // Sync state to ViewModel for Compose UI
                 viewModel.updateConnectionState(connectionState)
                 viewModel.clearReconnectingState()
+                updateKeepScreenOn(mediaController?.isPlaying == true)
 
                 // Update server list adapters with connected status
                 currentConnectedServerId?.let { serverId ->
@@ -1889,6 +1894,7 @@ class MainActivity : AppCompatActivity() {
                 // Sync state to ViewModel for Compose UI
                 viewModel.updateConnectionState(connectionState)
                 viewModel.resetPlaybackState()
+                updateKeepScreenOn(false)
                 showServerListView()
                 enablePlaybackControls(false)
                 invalidateOptionsMenu() // Hide "Switch Server" menu option

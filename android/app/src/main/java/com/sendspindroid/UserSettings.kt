@@ -150,6 +150,7 @@ object UserSettings {
      * When enabled (for always-on/plugged-in devices):
      * - WiFi and CPU locks held for entire connection (not just streaming)
      * - WiFi lock uses low-latency mode (API 29+)
+     * - Screen kept on while connected
      * - Infinite reconnection attempts (30s steady-state interval)
      * - Faster WebSocket ping (15s vs 30s) for quicker drop detection
      * - Prompts user to exempt app from battery optimization
