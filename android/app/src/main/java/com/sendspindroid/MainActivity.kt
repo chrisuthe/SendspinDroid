@@ -1713,7 +1713,16 @@ class MainActivity : AppCompatActivity() {
                     // Add player listener for state updates
                     mediaController?.addListener(PlayerStateListener())
 
-                    // Sync UI with current player state
+                    // Read current session extras from an already-running service.
+                    // onExtrasChanged only fires on future changes, so we must
+                    // read the initial extras explicitly to restore connection
+                    // state, metadata, and server name on Activity reconnection.
+                    val extras = mediaController?.sessionExtras
+                    if (extras != null && !extras.isEmpty) {
+                        runOnUiThread { processSessionExtras(extras) }
+                    }
+
+                    // Fallback: infer state from player if no extras were available
                     syncUIWithPlayerState()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to connect MediaController", e)
@@ -1741,56 +1750,66 @@ class MainActivity : AppCompatActivity() {
          * - Metadata updates (since we can't use MediaItem metadata with custom protocol)
          */
         override fun onExtrasChanged(controller: MediaController, extras: Bundle) {
-            runOnUiThread {
-                // Handle connection state changes
-                val connectionStateStr = extras.getString(PlaybackService.EXTRA_CONNECTION_STATE)
-                if (connectionStateStr != null) {
-                    handleConnectionStateChange(connectionStateStr, extras)
-                }
+            runOnUiThread { processSessionExtras(extras) }
+        }
+    }
 
-                // Handle metadata updates
-                val title = extras.getString(PlaybackService.EXTRA_TITLE, "")
-                val artist = extras.getString(PlaybackService.EXTRA_ARTIST, "")
-                val album = extras.getString(PlaybackService.EXTRA_ALBUM, "")
-                val artworkUrl = extras.getString(PlaybackService.EXTRA_ARTWORK_URL, "")
+    /**
+     * Processes session extras from PlaybackService, handling connection state,
+     * metadata, progress, volume, and group updates.
+     *
+     * Called both from onExtrasChanged (incremental updates) and from
+     * initializeMediaController (initial state restore on Activity reconnection).
+     * Must be called on the main thread.
+     */
+    private fun processSessionExtras(extras: Bundle) {
+        // Handle connection state changes
+        val connectionStateStr = extras.getString(PlaybackService.EXTRA_CONNECTION_STATE)
+        if (connectionStateStr != null) {
+            handleConnectionStateChange(connectionStateStr, extras)
+        }
 
-                if (title.isNotEmpty() || artist.isNotEmpty() || album.isNotEmpty()) {
-                    Log.d(TAG, "Metadata changed: $title / $artist (artwork: $artworkUrl)")
-                    updateMetadata(title, artist, album)
+        // Handle metadata updates
+        val title = extras.getString(PlaybackService.EXTRA_TITLE, "")
+        val artist = extras.getString(PlaybackService.EXTRA_ARTIST, "")
+        val album = extras.getString(PlaybackService.EXTRA_ALBUM, "")
+        val artworkUrl = extras.getString(PlaybackService.EXTRA_ARTWORK_URL, "")
 
-                    // Load artwork from URL if available
-                    if (artworkUrl.isNotEmpty()) {
-                        loadArtworkFromUrl(artworkUrl)
-                    }
-                }
+        if (title.isNotEmpty() || artist.isNotEmpty() || album.isNotEmpty()) {
+            Log.d(TAG, "Metadata changed: $title / $artist (artwork: $artworkUrl)")
+            updateMetadata(title, artist, album)
 
-                // Handle track progress updates
-                val durationMs = extras.getLong(PlaybackService.EXTRA_DURATION_MS, -1)
-                val positionMs = extras.getLong(PlaybackService.EXTRA_POSITION_MS, -1)
-                if (durationMs >= 0 || positionMs >= 0) {
-                    viewModel.updateTrackProgress(
-                        positionMs = if (positionMs >= 0) positionMs else 0,
-                        durationMs = if (durationMs >= 0) durationMs else 0
-                    )
-                }
-
-                // Handle volume updates from server
-                val volume = extras.getInt(PlaybackService.EXTRA_VOLUME, -1)
-                if (volume in 0..100) {
-                    Log.d(TAG, "Server volume update received: $volume%")
-                    binding.volumeSlider.value = volume.toFloat()
-                    // Sync state to ViewModel for Compose UI
-                    viewModel.updateVolume(volume / 100f)
-                    updateVolumeAccessibility(volume)
-                }
-
-                // Handle group name updates
-                val groupName = extras.getString(PlaybackService.EXTRA_GROUP_NAME)
-                if (groupName != null) {
-                    Log.d(TAG, "Group name update received: $groupName")
-                    updateGroupName(groupName)
-                }
+            // Load artwork from URL if available
+            if (artworkUrl.isNotEmpty()) {
+                loadArtworkFromUrl(artworkUrl)
             }
+        }
+
+        // Handle track progress updates
+        val durationMs = extras.getLong(PlaybackService.EXTRA_DURATION_MS, -1)
+        val positionMs = extras.getLong(PlaybackService.EXTRA_POSITION_MS, -1)
+        if (durationMs >= 0 || positionMs >= 0) {
+            viewModel.updateTrackProgress(
+                positionMs = if (positionMs >= 0) positionMs else 0,
+                durationMs = if (durationMs >= 0) durationMs else 0
+            )
+        }
+
+        // Handle volume updates from server
+        val volume = extras.getInt(PlaybackService.EXTRA_VOLUME, -1)
+        if (volume in 0..100) {
+            Log.d(TAG, "Server volume update received: $volume%")
+            binding.volumeSlider.value = volume.toFloat()
+            // Sync state to ViewModel for Compose UI
+            viewModel.updateVolume(volume / 100f)
+            updateVolumeAccessibility(volume)
+        }
+
+        // Handle group name updates
+        val groupName = extras.getString(PlaybackService.EXTRA_GROUP_NAME)
+        if (groupName != null) {
+            Log.d(TAG, "Group name update received: $groupName")
+            updateGroupName(groupName)
         }
     }
 
@@ -2089,6 +2108,7 @@ class MainActivity : AppCompatActivity() {
                         // Get server name from toolbar subtitle or use default
                         val serverName = supportActionBar?.subtitle?.toString() ?: "Connected"
                         connectionState = AppConnectionState.Connected(serverName, "")
+                        viewModel.updateConnectionState(connectionState)
                         showNowPlayingView(serverName)
                         invalidateOptionsMenu()
                     }
@@ -2110,6 +2130,7 @@ class MainActivity : AppCompatActivity() {
                         connectionState is AppConnectionState.Connecting) {
                         Log.d(TAG, "Player disconnected but UI shows connected - resetting to server list")
                         connectionState = AppConnectionState.ServerList
+                        viewModel.updateConnectionState(connectionState)
                         showServerListView()
                         invalidateOptionsMenu()
                     }
