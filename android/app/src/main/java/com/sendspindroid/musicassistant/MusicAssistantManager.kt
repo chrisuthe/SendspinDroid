@@ -705,7 +705,7 @@ object MusicAssistantManager {
 
                 sendMaCommand(
                     apiUrl, token, "player_queues/play_index",
-                    mapOf("queue_id" to playerId, "queue_item_id" to queueItemId)
+                    mapOf("queue_id" to playerId, "index" to queueItemId)
                 )
 
                 Log.i(TAG, "Jumped to queue item: $queueItemId")
