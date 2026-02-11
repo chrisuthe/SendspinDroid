@@ -119,7 +119,7 @@ abstract class SendSpinProtocolHandler(
     /**
      * Called when audio chunk is received.
      */
-    protected abstract fun onAudioChunk(timestampMicros: Long, payload: ByteArray)
+    protected abstract fun onAudioChunk(timestampMicros: Long, audioData: ByteArray)
 
     /**
      * Called when artwork is received.
