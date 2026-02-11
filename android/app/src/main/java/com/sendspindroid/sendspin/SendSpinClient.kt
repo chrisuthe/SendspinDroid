@@ -114,7 +114,7 @@ class SendSpinClient(
         fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?)
         fun onStreamClear()
         fun onStreamEnd()
-        fun onAudioChunk(serverTimeMicros: Long, pcmData: ByteArray)
+        fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray)
         fun onVolumeChanged(volume: Int)
         fun onMutedChanged(muted: Boolean)
         fun onSyncOffsetApplied(offsetMs: Double, source: String)
@@ -280,8 +280,8 @@ class SendSpinClient(
         callback.onStreamEnd()
     }
 
-    override fun onAudioChunk(timestampMicros: Long, payload: ByteArray) {
-        callback.onAudioChunk(timestampMicros, payload)
+    override fun onAudioChunk(timestampMicros: Long, audioData: ByteArray) {
+        callback.onAudioChunk(timestampMicros, audioData)
     }
 
     override fun onArtwork(channel: Int, payload: ByteArray) {

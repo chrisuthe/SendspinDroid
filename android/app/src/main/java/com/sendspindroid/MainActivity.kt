@@ -250,6 +250,7 @@ class MainActivity : AppCompatActivity() {
      *
      * @param message The message to announce
      */
+    @Suppress("DEPRECATION") // View.announceForAccessibility deprecated in API 36, no direct replacement yet
     private fun announceForAccessibility(message: String) {
         val accessibilityManager = getSystemService(ACCESSIBILITY_SERVICE) as? AccessibilityManager
         if (accessibilityManager?.isEnabled == true) {
@@ -265,7 +266,7 @@ class MainActivity : AppCompatActivity() {
         val savedCount = UnifiedServerRepository.savedServers.value.size
         val discoveredCount = UnifiedServerRepository.filteredDiscoveredServers.value.size
         val totalCount = savedCount + discoveredCount
-        binding.serverListRecyclerView?.contentDescription =
+        binding.serverListRecyclerView.contentDescription =
             getString(R.string.accessibility_server_list, totalCount)
     }
 
@@ -549,14 +550,13 @@ class MainActivity : AppCompatActivity() {
                 enablePlaybackControls(true)
                 // Re-apply any cached metadata/artwork from media controller
                 mediaController?.let { controller ->
-                    controller.mediaMetadata?.let { metadata ->
-                        updateMetadata(
-                            metadata.title?.toString() ?: "",
-                            metadata.artist?.toString() ?: "",
-                            metadata.albumTitle?.toString() ?: ""
-                        )
-                        updateAlbumArt(metadata)
-                    }
+                    val metadata = controller.mediaMetadata
+                    updateMetadata(
+                        metadata.title?.toString() ?: "",
+                        metadata.artist?.toString() ?: "",
+                        metadata.albumTitle?.toString() ?: ""
+                    )
+                    updateAlbumArt(metadata)
                     // Restore play/pause button state
                     updatePlayPauseButton(controller.isPlaying)
                 }
@@ -622,7 +622,7 @@ class MainActivity : AppCompatActivity() {
      * overlap with status bar, navigation bar, or display cutouts.
      */
     private fun setupWindowInsets() {
-        val contentArea = binding.contentArea ?: return
+        val contentArea = binding.contentArea
 
         ViewCompat.setOnApplyWindowInsetsListener(contentArea) { view, windowInsets ->
             val insets = windowInsets.getInsets(
@@ -684,7 +684,7 @@ class MainActivity : AppCompatActivity() {
         setupUnifiedServers()
 
         // FAB for adding servers
-        binding.addServerFab?.setOnClickListener {
+        binding.addServerFab.setOnClickListener {
             showAddServerWizard()
         }
 
@@ -706,12 +706,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Favorite button - Only visible when connected to MA server
-        binding.favoriteButton?.setOnClickListener {
+        binding.favoriteButton.setOnClickListener {
             onFavoriteClicked()
         }
 
         // Queue button - Only visible when connected to MA server
-        binding.queueButton?.setOnClickListener {
+        binding.queueButton.setOnClickListener {
             showQueueSheet()
         }
 
@@ -892,7 +892,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun setupMiniPlayerComposeView() {
         listOf(binding.miniPlayerTop, binding.miniPlayerBottom).forEach { miniPlayer ->
-            miniPlayer?.apply {
+            miniPlayer.apply {
                 viewModel = this@MainActivity.viewModel
 
                 onCardClick = {
@@ -928,9 +928,9 @@ class MainActivity : AppCompatActivity() {
         if (!isNavigationContentVisible) return  // Only matters when nav content is showing
 
         val position = UserSettings.miniPlayerPosition
-        binding.miniPlayerTop?.visibility =
+        binding.miniPlayerTop.visibility =
             if (position == UserSettings.MiniPlayerPosition.TOP) View.VISIBLE else View.GONE
-        binding.miniPlayerBottom?.visibility =
+        binding.miniPlayerBottom.visibility =
             if (position == UserSettings.MiniPlayerPosition.BOTTOM) View.VISIBLE else View.GONE
     }
 
@@ -947,15 +947,15 @@ class MainActivity : AppCompatActivity() {
 
             // Content visibility: show nav fragment, hide others
             binding.nowPlayingView.visibility = View.GONE
-            binding.serverListView?.visibility = View.GONE
-            binding.navFragmentContainer?.visibility = View.VISIBLE
-            binding.addServerFab?.visibility = View.GONE
+            binding.serverListView.visibility = View.GONE
+            binding.navFragmentContainer.visibility = View.VISIBLE
+            binding.addServerFab.visibility = View.GONE
 
             // Show mini player in correct position
             val position = UserSettings.miniPlayerPosition
-            binding.miniPlayerTop?.visibility =
+            binding.miniPlayerTop.visibility =
                 if (position == UserSettings.MiniPlayerPosition.TOP) View.VISIBLE else View.GONE
-            binding.miniPlayerBottom?.visibility =
+            binding.miniPlayerBottom.visibility =
                 if (position == UserSettings.MiniPlayerPosition.BOTTOM) View.VISIBLE else View.GONE
 
             // Clear the big player background (blurred art + tint) when navigating away
@@ -983,9 +983,9 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Hiding navigation content, returning to full player")
 
             // Hide nav content and both mini players
-            binding.navFragmentContainer?.visibility = View.GONE
-            binding.miniPlayerTop?.visibility = View.GONE
-            binding.miniPlayerBottom?.visibility = View.GONE
+            binding.navFragmentContainer.visibility = View.GONE
+            binding.miniPlayerTop.visibility = View.GONE
+            binding.miniPlayerBottom.visibility = View.GONE
 
             // Clear any fragment back stack (detail screens)
             for (i in 0 until supportFragmentManager.backStackEntryCount) {
@@ -995,8 +995,8 @@ class MainActivity : AppCompatActivity() {
             // Restore the appropriate view based on connection state
             when (connectionState) {
                 is AppConnectionState.ServerList -> {
-                    binding.serverListView?.visibility = View.VISIBLE
-                    binding.addServerFab?.visibility = View.VISIBLE
+                    binding.serverListView.visibility = View.VISIBLE
+                    binding.addServerFab.visibility = View.VISIBLE
                 }
                 is AppConnectionState.Connected,
                 is AppConnectionState.Connecting,
@@ -1009,13 +1009,13 @@ class MainActivity : AppCompatActivity() {
                     updateToolbarForNowPlaying()
                 }
                 is AppConnectionState.Error -> {
-                    binding.serverListView?.visibility = View.VISIBLE
-                    binding.addServerFab?.visibility = View.VISIBLE
+                    binding.serverListView.visibility = View.VISIBLE
+                    binding.addServerFab.visibility = View.VISIBLE
                 }
             }
 
             // Clear bottom nav selection
-            binding.bottomNavigation?.menu?.let { menu ->
+            binding.bottomNavigation.menu.let { menu ->
                 for (i in 0 until menu.size()) {
                     menu.getItem(i).isChecked = false
                 }
@@ -1082,11 +1082,11 @@ class MainActivity : AppCompatActivity() {
         val hasFilteredDiscovered = UnifiedServerRepository.filteredDiscoveredServers.value.isNotEmpty()
 
         if (!hasSaved && !hasFilteredDiscovered) {
-            binding.emptyServerListView?.visibility = View.VISIBLE
-            binding.serverListRecyclerView?.visibility = View.GONE
+            binding.emptyServerListView.visibility = View.VISIBLE
+            binding.serverListRecyclerView.visibility = View.GONE
         } else {
-            binding.emptyServerListView?.visibility = View.GONE
-            binding.serverListRecyclerView?.visibility = View.VISIBLE
+            binding.emptyServerListView.visibility = View.GONE
+            binding.serverListRecyclerView.visibility = View.VISIBLE
         }
     }
 
@@ -1242,19 +1242,19 @@ class MainActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(false)
 
         // Content visibility
-        if (binding.serverListView?.visibility != View.VISIBLE) {
-            binding.serverListView?.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
+        if (binding.serverListView.visibility != View.VISIBLE) {
+            binding.serverListView.startAnimation(AnimationUtils.loadAnimation(this, R.anim.fade_in))
         }
-        binding.serverListView?.visibility = View.VISIBLE
+        binding.serverListView.visibility = View.VISIBLE
         binding.nowPlayingView.visibility = View.GONE
-        binding.navFragmentContainer?.visibility = View.GONE
+        binding.navFragmentContainer.visibility = View.GONE
 
         // No mini player on server list
-        binding.miniPlayerTop?.visibility = View.GONE
-        binding.miniPlayerBottom?.visibility = View.GONE
+        binding.miniPlayerTop.visibility = View.GONE
+        binding.miniPlayerBottom.visibility = View.GONE
 
         // Show FAB for adding servers
-        binding.addServerFab?.visibility = View.VISIBLE
+        binding.addServerFab.visibility = View.VISIBLE
 
         // Update empty state
         updateServerListEmptyState()
@@ -1384,16 +1384,16 @@ class MainActivity : AppCompatActivity() {
         updateToolbarForNowPlaying()
 
         // Content visibility
-        binding.serverListView?.visibility = View.GONE
+        binding.serverListView.visibility = View.GONE
         binding.nowPlayingView.visibility = View.VISIBLE
-        binding.navFragmentContainer?.visibility = View.GONE
+        binding.navFragmentContainer.visibility = View.GONE
 
         // No mini player on full player view
-        binding.miniPlayerTop?.visibility = View.GONE
-        binding.miniPlayerBottom?.visibility = View.GONE
+        binding.miniPlayerTop.visibility = View.GONE
+        binding.miniPlayerBottom.visibility = View.GONE
 
         // Hide FAB when in now playing view
-        binding.addServerFab?.visibility = View.GONE
+        binding.addServerFab.visibility = View.GONE
 
         binding.nowPlayingContent.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.GONE
@@ -2681,14 +2681,14 @@ class MainActivity : AppCompatActivity() {
                 val isMaConnected = state is MaConnectionState.Connected
 
                 // Favorite button visibility
-                binding.favoriteButton?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
+                binding.favoriteButton.visibility = if (isMaConnected) View.VISIBLE else View.GONE
 
                 // Queue button visibility
-                binding.queueButton?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
+                binding.queueButton.visibility = if (isMaConnected) View.VISIBLE else View.GONE
 
                 // Bottom navigation visibility - only show when MA is connected
                 // LinearLayout stack handles spacing automatically, no margin hacks needed
-                binding.bottomNavigation?.visibility = if (isMaConnected) View.VISIBLE else View.GONE
+                binding.bottomNavigation.visibility = if (isMaConnected) View.VISIBLE else View.GONE
 
                 // If MA disconnects while showing navigation content, return to full player
                 if (!isMaConnected && isNavigationContentVisible) {
@@ -3285,14 +3285,14 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showConnectionLoading(serverName: String) {
         // Switch to now playing view but show connection progress
-        binding.serverListView?.visibility = View.GONE
+        binding.serverListView.visibility = View.GONE
         binding.nowPlayingView.visibility = View.VISIBLE
         binding.connectionProgressContainer.visibility = View.VISIBLE
         binding.nowPlayingContent.visibility = View.GONE
         binding.connectionStatusText.text = getString(R.string.connecting_to_server, serverName)
 
         // Hide FAB while connecting
-        binding.addServerFab?.visibility = View.GONE
+        binding.addServerFab.visibility = View.GONE
 
         // Announce connecting state for accessibility
         announceForAccessibility(getString(R.string.accessibility_connecting))
