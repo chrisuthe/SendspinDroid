@@ -2655,6 +2655,15 @@ class MainActivity : AppCompatActivity() {
     private fun showQueueSheet() {
         Log.d(TAG, "Queue button clicked - showing queue sheet")
 
+        // On tablets (sw >= 600dp) when Now Playing is shown (not browsing),
+        // the queue is already visible inline -- skip the bottom sheet
+        val isTablet = resources.configuration.smallestScreenWidthDp >= 600
+        val isOnNowPlaying = !viewModel.isNavigationContentVisible.value
+        if (isTablet && isOnNowPlaying) {
+            Log.d(TAG, "Queue already visible inline on tablet Now Playing -- skipping sheet")
+            return
+        }
+
         // Avoid showing multiple instances
         val existing = supportFragmentManager.findFragmentByTag(QueueSheetFragment.TAG)
         if (existing != null) return

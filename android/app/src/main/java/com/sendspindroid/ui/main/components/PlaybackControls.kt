@@ -35,6 +35,7 @@ fun PlaybackControls(
     onNextClick: () -> Unit,
     modifier: Modifier = Modifier,
     showSecondaryRow: Boolean = true,
+    compactLayout: Boolean = false,
     isSwitchGroupEnabled: Boolean = false,
     onSwitchGroupClick: () -> Unit = {},
     showFavorite: Boolean = false,
@@ -50,6 +51,22 @@ fun PlaybackControls(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Switch Group (inline when compact)
+            if (compactLayout) {
+                FilledTonalIconButton(
+                    onClick = onSwitchGroupClick,
+                    enabled = isSwitchGroupEnabled,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_swap_horiz),
+                        contentDescription = stringResource(R.string.accessibility_switch_group_button),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
             // Previous Button
             FilledTonalIconButton(
                 onClick = onPreviousClick,
@@ -101,10 +118,32 @@ fun PlaybackControls(
                     modifier = Modifier.size(28.dp)
                 )
             }
+
+            // Favorite (inline when compact)
+            if (compactLayout && showFavorite) {
+                Spacer(modifier = Modifier.width(8.dp))
+                FilledTonalIconButton(
+                    onClick = onFavoriteClick,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(
+                            if (isFavorite) R.drawable.ic_favorite
+                            else R.drawable.ic_favorite_border
+                        ),
+                        contentDescription = stringResource(R.string.accessibility_favorite_track),
+                        modifier = Modifier.size(20.dp),
+                        tint = if (isFavorite)
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
 
-        // Secondary Row
-        if (showSecondaryRow) {
+        // Secondary Row (only when not compact and enabled)
+        if (showSecondaryRow && !compactLayout) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(

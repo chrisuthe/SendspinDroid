@@ -68,6 +68,7 @@ import com.sendspindroid.ui.navigation.playlists.PlaylistsScreen
 import com.sendspindroid.ui.navigation.playlists.PlaylistsViewModel
 import com.sendspindroid.ui.navigation.search.SearchScreen
 import com.sendspindroid.ui.navigation.search.SearchViewModel
+import com.sendspindroid.ui.queue.QueueViewModel
 import kotlinx.coroutines.launch
 
 private const val TAG = "AppShell"
@@ -356,6 +357,15 @@ private fun ConnectedShell(
         )
     }
 
+    // QueueViewModel for tablet inline queue panel
+    val queueViewModel: QueueViewModel? = if (
+        AdaptiveDefaults.showInlineQueuePanel(formFactor) && isMaConnected
+    ) {
+        viewModel()
+    } else {
+        null
+    }
+
     // Content composable shared between both layouts
     val contentArea: @Composable (PaddingValues) -> Unit = { innerPadding ->
         if (selectedNavTab == null && currentDetail == null) {
@@ -369,6 +379,13 @@ private fun ConnectedShell(
                 onFavoriteClick = onFavoriteClick,
                 onVolumeChange = onVolumeChange,
                 onQueueClick = onQueueClick,
+                queueViewModel = queueViewModel,
+                onBrowseLibrary = {
+                    viewModel.clearDetailNavigation()
+                    selectedNavTab = NavTab.LIBRARY
+                    viewModel.setCurrentNavTab(NavTab.LIBRARY)
+                    viewModel.setNavigationContentVisible(true)
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
