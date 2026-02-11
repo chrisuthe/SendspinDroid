@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sendspindroid.R
 import com.sendspindroid.model.AppConnectionState
+import com.sendspindroid.ui.adaptive.AdaptiveDefaults
+import com.sendspindroid.ui.adaptive.LocalFormFactor
 import com.sendspindroid.ui.main.components.AlbumArtCard
 import com.sendspindroid.ui.main.components.ConnectionProgress
 import com.sendspindroid.ui.main.components.PlaybackControls
@@ -44,13 +46,17 @@ import com.sendspindroid.ui.main.components.TrackProgressBar
 import com.sendspindroid.ui.main.components.VolumeSlider
 import com.sendspindroid.ui.preview.AllDevicePreviews
 import com.sendspindroid.ui.preview.TabletPreviews
+import com.sendspindroid.ui.queue.QueueSheetContent
+import com.sendspindroid.ui.queue.QueueViewModel
 import com.sendspindroid.ui.theme.SendSpinTheme
+import androidx.compose.material3.VerticalDivider
 
 /**
  * Now Playing screen showing album art, track info, and playback controls.
- * Adapts layout based on orientation:
- * - Portrait: Album art at top, controls below
- * - Landscape: Album art on left, controls on right
+ * Adapts layout based on form factor and orientation:
+ * - Phone portrait: Album art at top, controls below
+ * - Phone landscape: Album art on left, controls on right
+ * - Tablet: Now Playing controls on left, inline queue panel on right
  */
 @Composable
 fun NowPlayingScreen(
@@ -62,6 +68,8 @@ fun NowPlayingScreen(
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
+    queueViewModel: QueueViewModel? = null,
+    onBrowseLibrary: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
@@ -100,53 +108,84 @@ fun NowPlayingScreen(
     // Determine accent color from player colors
     val accentColor = playerColors?.let { Color(it.accentColor) }
 
-    // Check orientation
+    // Check orientation and form factor
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val formFactor = LocalFormFactor.current
+    // Resolve inline queue: non-null only when tablet + MA connected + ViewModel available
+    val inlineQueueViewModel = if (
+        AdaptiveDefaults.showInlineQueuePanel(formFactor) && isMaConnected
+    ) queueViewModel else null
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (isLandscape) {
-            NowPlayingLandscape(
-                metadata = metadata,
-                groupName = groupName,
-                artworkSource = artworkSource,
-                isBuffering = isBuffering,
-                isPlaying = isPlaying,
-                controlsEnabled = controlsEnabled,
-                volume = volume,
-                accentColor = accentColor,
-                isMaConnected = isMaConnected,
-                positionMs = positionMs,
-                durationMs = durationMs,
-                onPreviousClick = onPreviousClick,
-                onPlayPauseClick = onPlayPauseClick,
-                onNextClick = onNextClick,
-                onSwitchGroupClick = onSwitchGroupClick,
-                onFavoriteClick = onFavoriteClick,
-                onVolumeChange = onVolumeChange,
-                onQueueClick = onQueueClick
-            )
-        } else {
-            NowPlayingPortrait(
-                metadata = metadata,
-                groupName = groupName,
-                artworkSource = artworkSource,
-                isBuffering = isBuffering,
-                isPlaying = isPlaying,
-                controlsEnabled = controlsEnabled,
-                volume = volume,
-                accentColor = accentColor,
-                isMaConnected = isMaConnected,
-                positionMs = positionMs,
-                durationMs = durationMs,
-                onPreviousClick = onPreviousClick,
-                onPlayPauseClick = onPlayPauseClick,
-                onNextClick = onNextClick,
-                onSwitchGroupClick = onSwitchGroupClick,
-                onFavoriteClick = onFavoriteClick,
-                onVolumeChange = onVolumeChange,
-                onQueueClick = onQueueClick
-            )
+        when {
+            inlineQueueViewModel != null -> {
+                NowPlayingWithQueuePanel(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    volume = volume,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    queueViewModel = inlineQueueViewModel,
+                    onBrowseLibrary = onBrowseLibrary
+                )
+            }
+            isLandscape -> {
+                NowPlayingLandscape(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    volume = volume,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = onQueueClick
+                )
+            }
+            else -> {
+                NowPlayingPortrait(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    volume = volume,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = onQueueClick
+                )
+            }
         }
 
         // Reconnecting banner overlay at top
@@ -184,6 +223,9 @@ private fun NowPlayingPortrait(
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
+    showQueueButton: Boolean = true,
+    albumArtFraction: Float = 0.7f,
+    compactControls: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -198,7 +240,7 @@ private fun NowPlayingPortrait(
         AlbumArtCard(
             artworkSource = artworkSource,
             isBuffering = isBuffering,
-            modifier = Modifier.fillMaxWidth(0.7f)
+            modifier = Modifier.fillMaxWidth(albumArtFraction)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -269,6 +311,7 @@ private fun NowPlayingPortrait(
             onPlayPauseClick = onPlayPauseClick,
             onNextClick = onNextClick,
             showSecondaryRow = true,
+            compactLayout = compactControls,
             isSwitchGroupEnabled = controlsEnabled,
             onSwitchGroupClick = onSwitchGroupClick,
             showFavorite = isMaConnected,
@@ -288,8 +331,8 @@ private fun NowPlayingPortrait(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Queue button
-        if (isMaConnected) {
+        // Queue button (hidden when inline queue panel is visible on tablets)
+        if (isMaConnected && showQueueButton) {
             QueueButton(onClick = onQueueClick)
         }
 
@@ -320,6 +363,7 @@ private fun NowPlayingLandscape(
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
+    showQueueButton: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -426,11 +470,97 @@ private fun NowPlayingLandscape(
                 accentColor = accentColor
             )
 
-            // Queue button
-            if (isMaConnected) {
+            // Queue button (hidden when inline queue panel is visible on tablets)
+            if (isMaConnected && showQueueButton) {
                 Spacer(modifier = Modifier.height(8.dp))
                 QueueButton(onClick = onQueueClick)
             }
+        }
+    }
+}
+
+/**
+ * Tablet layout: Now Playing controls on left, inline queue panel on right.
+ * Uses portrait-style layout for the controls column regardless of device orientation,
+ * since the column is narrow enough that a vertical stack works best.
+ */
+@Composable
+private fun NowPlayingWithQueuePanel(
+    metadata: TrackMetadata,
+    groupName: String,
+    artworkSource: ArtworkSource?,
+    isBuffering: Boolean,
+    isPlaying: Boolean,
+    controlsEnabled: Boolean,
+    volume: Float,
+    accentColor: Color?,
+    isMaConnected: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    onPreviousClick: () -> Unit,
+    onPlayPauseClick: () -> Unit,
+    onNextClick: () -> Unit,
+    onSwitchGroupClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    onVolumeChange: (Float) -> Unit,
+    queueViewModel: QueueViewModel,
+    onBrowseLibrary: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val formFactor = LocalFormFactor.current
+    val controlsWeight = AdaptiveDefaults.nowPlayingControlsWeight(formFactor)
+    val queueWeight = AdaptiveDefaults.inlineQueueWeight(formFactor)
+
+    Row(modifier = modifier.fillMaxSize()) {
+        // Left column: Now Playing controls
+        Box(
+            modifier = Modifier
+                .weight(controlsWeight)
+                .fillMaxHeight()
+        ) {
+            NowPlayingPortrait(
+                metadata = metadata,
+                groupName = groupName,
+                artworkSource = artworkSource,
+                isBuffering = isBuffering,
+                isPlaying = isPlaying,
+                controlsEnabled = controlsEnabled,
+                volume = volume,
+                accentColor = accentColor,
+                isMaConnected = isMaConnected,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                onPreviousClick = onPreviousClick,
+                onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
+                onSwitchGroupClick = onSwitchGroupClick,
+                onFavoriteClick = onFavoriteClick,
+                onVolumeChange = onVolumeChange,
+                onQueueClick = {},
+                showQueueButton = false,
+                albumArtFraction = 0.5f,
+                compactControls = true
+            )
+        }
+
+        // Vertical divider
+        VerticalDivider(
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(vertical = 16.dp),
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+
+        // Right column: Inline Queue
+        Box(
+            modifier = Modifier
+                .weight(queueWeight)
+                .fillMaxHeight()
+        ) {
+            QueueSheetContent(
+                viewModel = queueViewModel,
+                onBrowseLibrary = onBrowseLibrary
+            )
         }
     }
 }

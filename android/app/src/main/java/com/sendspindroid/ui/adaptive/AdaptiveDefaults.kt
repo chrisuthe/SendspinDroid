@@ -128,4 +128,24 @@ object AdaptiveDefaults {
     /** Whether to show the mini player (TV doesn't need it) */
     fun showMiniPlayer(formFactor: FormFactor): Boolean =
         formFactor != FormFactor.TV
+
+    // -- Inline Queue Panel (Tablet) --
+
+    /** Whether Now Playing should show an inline queue panel alongside controls */
+    fun showInlineQueuePanel(formFactor: FormFactor): Boolean =
+        formFactor == FormFactor.TABLET_7 || formFactor == FormFactor.TABLET_10
+
+    /** Weight of the Now Playing controls column when inline queue is shown */
+    fun nowPlayingControlsWeight(formFactor: FormFactor): Float = when (formFactor) {
+        FormFactor.TABLET_7 -> 0.55f
+        FormFactor.TABLET_10 -> 0.50f
+        else -> 1.0f
+    }
+
+    /** Weight of the inline queue panel column */
+    fun inlineQueueWeight(formFactor: FormFactor): Float = when (formFactor) {
+        FormFactor.TABLET_7 -> 0.45f
+        FormFactor.TABLET_10 -> 0.50f
+        else -> 0.0f
+    }
 }
