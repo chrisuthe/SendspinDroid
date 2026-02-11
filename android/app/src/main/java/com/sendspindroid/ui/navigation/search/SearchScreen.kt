@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +41,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
+import com.sendspindroid.musicassistant.MaAlbum
+import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
@@ -66,6 +68,8 @@ private const val TAG = "SearchScreen"
 fun SearchScreen(
     viewModel: SearchViewModel,
     onItemClick: (MaLibraryItem) -> Unit,
+    onAlbumClick: (MaAlbum) -> Unit = {},
+    onArtistClick: (MaArtist) -> Unit = {},
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},
     onPlayNext: (MaLibraryItem) -> Unit = {}
@@ -78,7 +82,11 @@ fun SearchScreen(
         onFilterToggle = { type, enabled -> viewModel.setFilter(type, enabled) },
         onItemClick = { item ->
             Log.d(TAG, "Item clicked: ${item.name} (${item.mediaType})")
-            onItemClick(item)
+            when (item) {
+                is MaAlbum -> onAlbumClick(item)
+                is MaArtist -> onArtistClick(item)
+                else -> onItemClick(item)
+            }
         },
         onAddToPlaylist = onAddToPlaylist,
         onAddToQueue = onAddToQueue,
@@ -104,7 +112,7 @@ private fun SearchScreenContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
+
         ) {
             // Search Input
             SearchBar(
@@ -242,7 +250,6 @@ private fun SearchResultsList(
 ) {
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 80.dp)
     ) {
         // Artists section
         if (results.artists.isNotEmpty()) {
