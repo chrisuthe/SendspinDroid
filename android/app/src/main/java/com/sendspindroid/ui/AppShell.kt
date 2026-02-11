@@ -632,6 +632,12 @@ private fun BrowseContent(
             SearchScreen(
                 viewModel = searchViewModel,
                 onItemClick = playItem,
+                onAlbumClick = { album ->
+                    onAlbumClick(album.albumId, album.name)
+                },
+                onArtistClick = { artist ->
+                    onArtistClick(artist.artistId, artist.name)
+                },
                 onAddToPlaylist = addToPlaylist,
                 onAddToQueue = addToQueue,
                 onPlayNext = playNext
