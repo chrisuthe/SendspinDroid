@@ -2,9 +2,14 @@ package com.sendspindroid.ui.main.components
 
 import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,9 +20,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sendspindroid.ui.theme.SendSpinTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -77,9 +84,80 @@ fun TrackProgressBar(
 }
 
 /**
+ * TV variant with visual LinearProgressIndicator + timestamps below.
+ * Provides at-a-glance progress for the 10-foot viewing experience.
+ */
+@Composable
+fun TvTrackProgressBar(
+    positionMs: Long,
+    durationMs: Long,
+    isPlaying: Boolean,
+    accentColor: Color?,
+    modifier: Modifier = Modifier
+) {
+    if (durationMs <= 0) return
+
+    // Same interpolation logic as TrackProgressBar
+    var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
+    var anchorTime by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var displayPositionMs by remember { mutableLongStateOf(positionMs) }
+
+    LaunchedEffect(positionMs) {
+        anchorPositionMs = positionMs
+        anchorTime = SystemClock.elapsedRealtime()
+        displayPositionMs = positionMs
+    }
+
+    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
+        if (!isPlaying) {
+            displayPositionMs = anchorPositionMs
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            delay(250)
+            val elapsed = SystemClock.elapsedRealtime() - anchorTime
+            displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
+        }
+    }
+
+    val progress = (displayPositionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    val trackColor = accentColor ?: MaterialTheme.colorScheme.primary
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp)),
+            color = trackColor,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = formatTime(displayPositionMs),
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = formatTime(durationMs),
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/**
  * Formats milliseconds as M:SS or H:MM:SS.
  */
-private fun formatTime(ms: Long): String {
+internal fun formatTime(ms: Long): String {
     if (ms < 0) return "0:00"
     val totalSeconds = ms / 1000
     val hours = totalSeconds / 3600

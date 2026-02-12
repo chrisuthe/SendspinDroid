@@ -2,23 +2,30 @@ package com.sendspindroid.ui
 
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -33,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -68,6 +77,11 @@ import com.sendspindroid.ui.navigation.playlists.PlaylistsScreen
 import com.sendspindroid.ui.navigation.playlists.PlaylistsViewModel
 import com.sendspindroid.ui.navigation.search.SearchScreen
 import com.sendspindroid.ui.navigation.search.SearchViewModel
+import com.sendspindroid.ui.adaptive.FormFactor
+import com.sendspindroid.ui.adaptive.tvFocusable
+import com.sendspindroid.ui.player.PlayerBottomSheet
+import com.sendspindroid.ui.player.PlayerViewModel
+import com.sendspindroid.ui.queue.QueueSheetContent
 import com.sendspindroid.ui.queue.QueueViewModel
 import kotlinx.coroutines.launch
 
@@ -234,6 +248,13 @@ private fun ConnectedShell(
     // Overflow menu state
     var showOverflowMenu by remember { mutableStateOf(false) }
 
+    // Browse queue sidebar visibility (tablet/TV)
+    var browseQueueVisible by rememberSaveable { mutableStateOf(false) }
+
+    // Player / Speaker Group bottom sheet state
+    var showPlayerSheet by remember { mutableStateOf(false) }
+    val playerViewModel: PlayerViewModel? = if (isMaConnected) viewModel() else null
+
     // Detail navigation state
     val currentDetail by viewModel.currentDetail.collectAsState()
 
@@ -307,6 +328,30 @@ private fun ConnectedShell(
                 }
             },
             actions = {
+                // Queue toggle button (tablet/TV, only when browsing)
+                val isBrowsing = selectedNavTab != null || currentDetail != null
+                if (isBrowsing && AdaptiveDefaults.showBrowseQueueSidebar(formFactor)) {
+                    val queueModifier = if (formFactor == FormFactor.TV) {
+                        Modifier.tvFocusable()
+                    } else {
+                        Modifier
+                    }
+                    IconButton(
+                        onClick = { browseQueueVisible = !browseQueueVisible },
+                        modifier = queueModifier
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_queue_music),
+                            contentDescription = stringResource(R.string.queue_view),
+                            tint = if (browseQueueVisible) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
+
                 if (currentDetail == null) {
                     Box {
                         IconButton(onClick = { showOverflowMenu = true }) {
@@ -357,9 +402,11 @@ private fun ConnectedShell(
         )
     }
 
-    // QueueViewModel for tablet inline queue panel
+    // QueueViewModel for tablet inline queue panel, TV queue sidebar, and browse queue sidebar
     val queueViewModel: QueueViewModel? = if (
-        AdaptiveDefaults.showInlineQueuePanel(formFactor) && isMaConnected
+        (AdaptiveDefaults.showInlineQueuePanel(formFactor) ||
+         AdaptiveDefaults.hasTvQueueSidebar(formFactor) ||
+         AdaptiveDefaults.showBrowseQueueSidebar(formFactor)) && isMaConnected
     ) {
         viewModel()
     } else {
@@ -380,6 +427,8 @@ private fun ConnectedShell(
                 onVolumeChange = onVolumeChange,
                 onQueueClick = onQueueClick,
                 queueViewModel = queueViewModel,
+                showPlayerButton = isMaConnected,
+                onPlayerClick = { showPlayerSheet = true },
                 onBrowseLibrary = {
                     viewModel.clearDetailNavigation()
                     selectedNavTab = NavTab.LIBRARY
@@ -391,32 +440,62 @@ private fun ConnectedShell(
                     .padding(innerPadding)
             )
         } else {
-            // Browsing mode (with optional detail overlay): content + mini player
+            // Browsing mode (with optional detail overlay): content + queue sidebar + mini player
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    if (currentDetail != null) {
-                        DetailContent(
-                            detail = currentDetail!!,
-                            onAlbumClick = onAlbumClick,
-                            onArtistClick = onArtistClick,
-                            onShowSuccess = onShowSuccess,
-                            onShowError = onShowError,
-                            onShowUndoSnackbar = onShowUndoSnackbar
-                        )
-                    } else {
-                        BrowseContent(
-                            selectedNavTab = selectedNavTab,
-                            onAlbumClick = onAlbumClick,
-                            onArtistClick = onArtistClick,
-                            onPlaylistDetailClick = onPlaylistDetailClick,
-                            onShowSuccess = onShowSuccess,
-                            onShowError = onShowError,
-                            onShowUndoSnackbar = onShowUndoSnackbar
-                        )
+                Row(modifier = Modifier.weight(1f)) {
+                    // Main browse/detail content
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (currentDetail != null) {
+                            DetailContent(
+                                detail = currentDetail!!,
+                                onAlbumClick = onAlbumClick,
+                                onArtistClick = onArtistClick,
+                                onShowSuccess = onShowSuccess,
+                                onShowError = onShowError,
+                                onShowUndoSnackbar = onShowUndoSnackbar
+                            )
+                        } else {
+                            BrowseContent(
+                                selectedNavTab = selectedNavTab,
+                                onAlbumClick = onAlbumClick,
+                                onArtistClick = onArtistClick,
+                                onPlaylistDetailClick = onPlaylistDetailClick,
+                                onShowSuccess = onShowSuccess,
+                                onShowError = onShowError,
+                                onShowUndoSnackbar = onShowUndoSnackbar
+                            )
+                        }
+                    }
+
+                    // Queue sidebar (tablet/TV, toggleable)
+                    if (AdaptiveDefaults.showBrowseQueueSidebar(formFactor) && queueViewModel != null) {
+                        AnimatedVisibility(
+                            visible = browseQueueVisible,
+                            enter = slideInHorizontally { it },
+                            exit = slideOutHorizontally { it }
+                        ) {
+                            Row(modifier = Modifier.fillMaxHeight()) {
+                                VerticalDivider()
+                                Box(
+                                    modifier = Modifier
+                                        .width(AdaptiveDefaults.browseQueueSidebarWidth(formFactor))
+                                        .fillMaxHeight()
+                                ) {
+                                    QueueSheetContent(
+                                        viewModel = queueViewModel,
+                                        onBrowseLibrary = {
+                                            // Already on a browse screen — close the sidebar
+                                            browseQueueVisible = false
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -428,12 +507,18 @@ private fun ConnectedShell(
                         onVolumeChange = onVolumeChange,
                         onReturnToNowPlaying = {
                             viewModel.clearDetailNavigation()
+                            browseQueueVisible = false
                             selectedNavTab = null
                             viewModel.setNavigationContentVisible(false)
                         },
                         onDisconnectClick = onDisconnectClick
                     )
                 }
+            }
+
+            // Close queue sidebar on Back press (TV)
+            if (browseQueueVisible && formFactor == FormFactor.TV) {
+                BackHandler { browseQueueVisible = false }
             }
         }
     }
@@ -464,6 +549,7 @@ private fun ConnectedShell(
                         selected = selectedNavTab == null && currentDetail == null,
                         onClick = {
                             viewModel.clearDetailNavigation()
+                            browseQueueVisible = false
                             selectedNavTab = null
                             viewModel.setNavigationContentVisible(false)
                         }
@@ -495,6 +581,14 @@ private fun ConnectedShell(
                 content = contentArea
             )
         }
+    }
+
+    // Player / Speaker Group bottom sheet
+    if (showPlayerSheet && playerViewModel != null) {
+        PlayerBottomSheet(
+            viewModel = playerViewModel,
+            onDismiss = { showPlayerSheet = false }
+        )
     }
 }
 

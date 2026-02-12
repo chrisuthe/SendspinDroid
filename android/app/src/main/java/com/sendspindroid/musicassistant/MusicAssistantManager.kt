@@ -8,6 +8,10 @@ import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
+import com.sendspindroid.musicassistant.model.MaPlaybackState
+import com.sendspindroid.musicassistant.model.MaPlayer
+import com.sendspindroid.musicassistant.model.MaPlayerFeature
+import com.sendspindroid.musicassistant.model.MaPlayerType
 import com.sendspindroid.musicassistant.model.MaServerInfo
 import com.sendspindroid.sendspin.MusicAssistantAuth
 import kotlinx.coroutines.CompletableDeferred
@@ -913,6 +917,220 @@ object MusicAssistantManager {
         val server = currentServer ?: return
         Log.i(TAG, "Selected player cleared")
         MaSettings.clearSelectedPlayerForServer(server.id)
+    }
+
+    // ======== Player Management (Group / Multi-Room) ========
+
+    /**
+     * Fetch all players from Music Assistant.
+     *
+     * Returns the full, unfiltered list of players. The caller is responsible
+     * for filtering by [MaPlayer.available], [MaPlayer.enabled], etc.
+     *
+     * @return Result with the list of all players, or failure on error
+     */
+    suspend fun getAllPlayers(): Result<List<MaPlayer>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val response = sendMaCommand(apiUrl, token, "players/all", emptyMap())
+                val players = parsePlayers(response)
+                Log.i(TAG, "Fetched ${players.size} players")
+                Result.success(players)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch players", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Add or remove players from a group.
+     *
+     * Uses the `players/cmd/set_members` MA API command to modify
+     * the group membership of the target player.
+     *
+     * @param targetPlayerId The group leader (target player) whose group is being modified
+     * @param playerIdsToAdd List of player IDs to add to the group (can be empty)
+     * @param playerIdsToRemove List of player IDs to remove from the group (can be empty)
+     * @return Result.success on success, or failure on error
+     */
+    suspend fun setGroupMembers(
+        targetPlayerId: String,
+        playerIdsToAdd: List<String>,
+        playerIdsToRemove: List<String>
+    ): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val args = mutableMapOf<String, Any>(
+                    "target_player" to targetPlayerId
+                )
+                if (playerIdsToAdd.isNotEmpty()) {
+                    args["player_ids_to_add"] = playerIdsToAdd
+                }
+                if (playerIdsToRemove.isNotEmpty()) {
+                    args["player_ids_to_remove"] = playerIdsToRemove
+                }
+
+                sendMaCommand(apiUrl, token, "players/cmd/set_members", args)
+                Log.i(TAG, "Group members updated for $targetPlayerId: +${playerIdsToAdd.size} -${playerIdsToRemove.size}")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set group members", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
+     * Remove a player from all groups.
+     *
+     * @param playerId The player to ungroup
+     * @return Result.success on success, or failure on error
+     */
+    suspend fun ungroupPlayer(playerId: String): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                sendMaCommand(apiUrl, token, "players/cmd/ungroup", mapOf("player_id" to playerId))
+                Log.i(TAG, "Player ungrouped: $playerId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to ungroup player", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    // ======== Player JSON Parsing ========
+
+    /**
+     * Parse the players/all response into a list of [MaPlayer] objects.
+     */
+    private fun parsePlayers(response: JSONObject): List<MaPlayer> {
+        val playersArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("players")
+            ?: return emptyList()
+
+        return (0 until playersArray.length()).mapNotNull { i ->
+            playersArray.optJSONObject(i)?.let { parsePlayer(it) }
+        }
+    }
+
+    /**
+     * Parse a single player JSON object into an [MaPlayer].
+     */
+    private fun parsePlayer(json: JSONObject): MaPlayer {
+        val playerId = json.optString("player_id", "")
+            .ifEmpty { json.optString("id", "") }
+
+        // Parse group_members array
+        val groupMembersArray = json.optJSONArray("group_members")
+        val groupMembers = if (groupMembersArray != null) {
+            (0 until groupMembersArray.length()).mapNotNull { i ->
+                groupMembersArray.optString(i).takeIf { it.isNotEmpty() }
+            }
+        } else {
+            emptyList()
+        }
+
+        // Parse can_group_with array
+        val canGroupWithArray = json.optJSONArray("can_group_with")
+        val canGroupWith = if (canGroupWithArray != null) {
+            (0 until canGroupWithArray.length()).mapNotNull { i ->
+                canGroupWithArray.optString(i).takeIf { it.isNotEmpty() }
+            }
+        } else {
+            emptyList()
+        }
+
+        // Parse supported_features array
+        val featuresArray = json.optJSONArray("supported_features")
+        val features = if (featuresArray != null) {
+            (0 until featuresArray.length()).mapNotNull { i ->
+                val featureValue = featuresArray.optString(i, "")
+                if (featureValue.isNotEmpty()) parsePlayerFeature(featureValue) else null
+            }.toSet()
+        } else {
+            emptySet()
+        }
+
+        return MaPlayer(
+            playerId = playerId,
+            name = json.optString("display_name", "")
+                .ifEmpty { json.optString("name", "Unknown Player") },
+            type = parsePlayerType(json.optString("type", "unknown")),
+            provider = json.optString("provider", ""),
+            available = json.optBoolean("available", false),
+            powered = if (json.has("powered")) json.optBoolean("powered") else null,
+            playbackState = parsePlaybackState(
+                json.optString("state", "")
+                    .ifEmpty { json.optString("playback_state", "unknown") }
+            ),
+            volumeLevel = if (json.has("volume_level")) json.optInt("volume_level", 0) else null,
+            volumeMuted = if (json.has("volume_muted")) json.optBoolean("volume_muted") else null,
+            groupMembers = groupMembers,
+            canGroupWith = canGroupWith,
+            syncedTo = json.optString("synced_to", "").takeIf { it.isNotEmpty() },
+            activeGroup = json.optString("active_group", "").takeIf { it.isNotEmpty() },
+            supportedFeatures = features,
+            icon = json.optString("icon", "mdi-speaker"),
+            enabled = json.optBoolean("enabled", true),
+            hideInUi = json.optBoolean("hide_in_ui", false)
+        )
+    }
+
+    /**
+     * Parse a player type string from the MA API.
+     */
+    private fun parsePlayerType(value: String): MaPlayerType = when (value.lowercase()) {
+        "player" -> MaPlayerType.PLAYER
+        "stereo_pair" -> MaPlayerType.STEREO_PAIR
+        "group" -> MaPlayerType.GROUP
+        "protocol" -> MaPlayerType.PROTOCOL
+        else -> MaPlayerType.UNKNOWN
+    }
+
+    /**
+     * Parse a playback state string from the MA API.
+     */
+    private fun parsePlaybackState(value: String): MaPlaybackState = when (value.lowercase()) {
+        "idle" -> MaPlaybackState.IDLE
+        "paused" -> MaPlaybackState.PAUSED
+        "playing" -> MaPlaybackState.PLAYING
+        else -> MaPlaybackState.UNKNOWN
+    }
+
+    /**
+     * Parse a player feature string from the MA API.
+     */
+    private fun parsePlayerFeature(value: String): MaPlayerFeature = when (value.lowercase()) {
+        "power" -> MaPlayerFeature.POWER
+        "volume_set" -> MaPlayerFeature.VOLUME_SET
+        "volume_mute" -> MaPlayerFeature.VOLUME_MUTE
+        "pause" -> MaPlayerFeature.PAUSE
+        "set_members" -> MaPlayerFeature.SET_MEMBERS
+        "seek" -> MaPlayerFeature.SEEK
+        "next_previous" -> MaPlayerFeature.NEXT_PREVIOUS
+        "play_announcement" -> MaPlayerFeature.PLAY_ANNOUNCEMENT
+        "enqueue" -> MaPlayerFeature.ENQUEUE
+        "select_source" -> MaPlayerFeature.SELECT_SOURCE
+        "gapless_playback" -> MaPlayerFeature.GAPLESS_PLAYBACK
+        "play_media" -> MaPlayerFeature.PLAY_MEDIA
+        else -> MaPlayerFeature.UNKNOWN
     }
 
     /**

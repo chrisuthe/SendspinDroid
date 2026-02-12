@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -35,11 +36,12 @@ fun AlbumArtCard(
     artworkSource: ArtworkSource?,
     isBuffering: Boolean,
     modifier: Modifier = Modifier,
+    maxWidth: Dp = 320.dp,
     contentDescription: String = stringResource(R.string.album_art)
 ) {
     Card(
         modifier = modifier
-            .widthIn(max = 320.dp)
+            .widthIn(max = maxWidth)
             .aspectRatio(1f),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)

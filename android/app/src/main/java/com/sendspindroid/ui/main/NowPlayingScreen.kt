@@ -1,6 +1,10 @@
 package com.sendspindroid.ui.main
 
 import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,17 +16,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -36,20 +50,24 @@ import androidx.compose.ui.unit.sp
 import com.sendspindroid.R
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.ui.adaptive.AdaptiveDefaults
+import com.sendspindroid.ui.adaptive.FormFactor
 import com.sendspindroid.ui.adaptive.LocalFormFactor
+import com.sendspindroid.ui.adaptive.TvInitialFocus
+import com.sendspindroid.ui.adaptive.overscanSafe
+import com.sendspindroid.ui.adaptive.tvFocusable
 import com.sendspindroid.ui.main.components.AlbumArtCard
 import com.sendspindroid.ui.main.components.ConnectionProgress
 import com.sendspindroid.ui.main.components.PlaybackControls
 import com.sendspindroid.ui.main.components.QueueButton
 import com.sendspindroid.ui.main.components.ReconnectingBanner
 import com.sendspindroid.ui.main.components.TrackProgressBar
+import com.sendspindroid.ui.main.components.TvTrackProgressBar
 import com.sendspindroid.ui.main.components.VolumeSlider
 import com.sendspindroid.ui.preview.AllDevicePreviews
 import com.sendspindroid.ui.preview.TabletPreviews
 import com.sendspindroid.ui.queue.QueueSheetContent
 import com.sendspindroid.ui.queue.QueueViewModel
 import com.sendspindroid.ui.theme.SendSpinTheme
-import androidx.compose.material3.VerticalDivider
 
 /**
  * Now Playing screen showing album art, track info, and playback controls.
@@ -70,6 +88,8 @@ fun NowPlayingScreen(
     onQueueClick: () -> Unit,
     queueViewModel: QueueViewModel? = null,
     onBrowseLibrary: () -> Unit = {},
+    showPlayerButton: Boolean = false,
+    onPlayerClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
@@ -119,6 +139,57 @@ fun NowPlayingScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         when {
+            // TV with MA connected: cinematic layout with toggleable queue sidebar
+            formFactor == FormFactor.TV && isMaConnected -> {
+                NowPlayingTv(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    queueViewModel = queueViewModel,
+                    onBrowseLibrary = onBrowseLibrary,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
+                )
+            }
+            // TV without MA: landscape layout, no queue
+            formFactor == FormFactor.TV -> {
+                NowPlayingLandscape(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    volume = volume,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = onQueueClick,
+                    showQueueButton = false,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
+                )
+            }
+            // Tablet: inline queue panel always visible
             inlineQueueViewModel != null -> {
                 NowPlayingWithQueuePanel(
                     metadata = metadata,
@@ -139,7 +210,9 @@ fun NowPlayingScreen(
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
                     queueViewModel = inlineQueueViewModel,
-                    onBrowseLibrary = onBrowseLibrary
+                    onBrowseLibrary = onBrowseLibrary,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
                 )
             }
             isLandscape -> {
@@ -161,7 +234,9 @@ fun NowPlayingScreen(
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onQueueClick = onQueueClick
+                    onQueueClick = onQueueClick,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
                 )
             }
             else -> {
@@ -183,7 +258,9 @@ fun NowPlayingScreen(
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onQueueClick = onQueueClick
+                    onQueueClick = onQueueClick,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
                 )
             }
         }
@@ -226,6 +303,8 @@ private fun NowPlayingPortrait(
     showQueueButton: Boolean = true,
     albumArtFraction: Float = 0.7f,
     compactControls: Boolean = false,
+    showPlayerButton: Boolean = false,
+    onPlayerClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -316,7 +395,9 @@ private fun NowPlayingPortrait(
             onSwitchGroupClick = onSwitchGroupClick,
             showFavorite = isMaConnected,
             isFavorite = false, // TODO: Track favorite state
-            onFavoriteClick = onFavoriteClick
+            onFavoriteClick = onFavoriteClick,
+            showPlayerButton = showPlayerButton,
+            onPlayerClick = onPlayerClick
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -364,6 +445,8 @@ private fun NowPlayingLandscape(
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
     showQueueButton: Boolean = true,
+    showPlayerButton: Boolean = false,
+    onPlayerClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -457,7 +540,9 @@ private fun NowPlayingLandscape(
                 onSwitchGroupClick = onSwitchGroupClick,
                 showFavorite = isMaConnected,
                 isFavorite = false,
-                onFavoriteClick = onFavoriteClick
+                onFavoriteClick = onFavoriteClick,
+                showPlayerButton = showPlayerButton,
+                onPlayerClick = onPlayerClick
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -505,6 +590,8 @@ private fun NowPlayingWithQueuePanel(
     onVolumeChange: (Float) -> Unit,
     queueViewModel: QueueViewModel,
     onBrowseLibrary: () -> Unit,
+    showPlayerButton: Boolean = false,
+    onPlayerClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val formFactor = LocalFormFactor.current
@@ -539,7 +626,9 @@ private fun NowPlayingWithQueuePanel(
                 onQueueClick = {},
                 showQueueButton = false,
                 albumArtFraction = 0.5f,
-                compactControls = true
+                compactControls = true,
+                showPlayerButton = showPlayerButton,
+                onPlayerClick = onPlayerClick
             )
         }
 
@@ -561,6 +650,270 @@ private fun NowPlayingWithQueuePanel(
                 viewModel = queueViewModel,
                 onBrowseLibrary = onBrowseLibrary
             )
+        }
+    }
+}
+
+/**
+ * TV cinematic layout: Large album art left, metadata + controls right.
+ * Toggleable queue sidebar slides in from the right.
+ * No volume slider (TV remote handles volume). Visual progress bar.
+ * D-pad focus management with focus rings on all interactive elements.
+ */
+@Composable
+private fun NowPlayingTv(
+    metadata: TrackMetadata,
+    groupName: String,
+    artworkSource: ArtworkSource?,
+    isBuffering: Boolean,
+    isPlaying: Boolean,
+    controlsEnabled: Boolean,
+    accentColor: Color?,
+    isMaConnected: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    onPreviousClick: () -> Unit,
+    onPlayPauseClick: () -> Unit,
+    onNextClick: () -> Unit,
+    onSwitchGroupClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    queueViewModel: QueueViewModel?,
+    onBrowseLibrary: () -> Unit,
+    showPlayerButton: Boolean = false,
+    onPlayerClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val formFactor = LocalFormFactor.current
+    var queueVisible by rememberSaveable { mutableStateOf(false) }
+    val playFocusRequester = remember { FocusRequester() }
+    val queueToggleFocusRequester = remember { FocusRequester() }
+
+    // Auto-focus Play button on first composition
+    TvInitialFocus(playFocusRequester)
+
+    // Back handler to close queue sidebar
+    BackHandler(enabled = queueVisible) {
+        queueVisible = false
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxSize()
+            .overscanSafe(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Main content area
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Left: Album Art
+            AlbumArtCard(
+                artworkSource = artworkSource,
+                isBuffering = isBuffering,
+                maxWidth = AdaptiveDefaults.albumArtMaxSize(formFactor),
+                modifier = Modifier.fillMaxHeight()
+            )
+
+            Spacer(modifier = Modifier.width(32.dp))
+
+            // Right: Metadata + Controls
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Track Title
+                Text(
+                    text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
+                    fontSize = AdaptiveDefaults.titleTextSize(formFactor),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    letterSpacing = (-0.02).sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Artist / Album
+                val metadataText = buildMetadataString(metadata.artist, metadata.album)
+                if (metadataText.isNotEmpty()) {
+                    Text(
+                        text = metadataText,
+                        fontSize = AdaptiveDefaults.bodyTextSize(formFactor),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                // Group Name
+                if (groupName.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.group_label, groupName),
+                        fontSize = AdaptiveDefaults.captionTextSize(formFactor),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // TV Progress Bar (visual bar + timestamps)
+                TvTrackProgressBar(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    isPlaying = isPlaying,
+                    accentColor = accentColor
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Transport Controls (TV-sized)
+                PlaybackControls(
+                    isPlaying = isPlaying,
+                    isEnabled = controlsEnabled,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    showSecondaryRow = false,
+                    playButtonSize = AdaptiveDefaults.playButtonSize(formFactor),
+                    controlButtonSize = AdaptiveDefaults.controlButtonSize(formFactor),
+                    buttonGap = 24.dp,
+                    playFocusRequester = playFocusRequester,
+                    isSwitchGroupEnabled = controlsEnabled,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    showFavorite = isMaConnected,
+                    isFavorite = false,
+                    onFavoriteClick = onFavoriteClick
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Secondary Controls Row: Switch Group, Favorite, Queue Toggle
+                val secondarySize = AdaptiveDefaults.secondaryButtonSize(formFactor)
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Switch Group
+                    FilledTonalIconButton(
+                        onClick = onSwitchGroupClick,
+                        enabled = controlsEnabled,
+                        modifier = Modifier
+                            .size(secondarySize)
+                            .tvFocusable()
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_swap_horiz),
+                            contentDescription = stringResource(R.string.accessibility_switch_group_button),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // Favorite
+                    if (isMaConnected) {
+                        FilledTonalIconButton(
+                            onClick = onFavoriteClick,
+                            modifier = Modifier
+                                .size(secondarySize)
+                                .tvFocusable()
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_favorite_border),
+                                contentDescription = stringResource(R.string.accessibility_favorite_track),
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+
+                    // Speaker / Group button (MA only)
+                    if (showPlayerButton) {
+                        FilledTonalIconButton(
+                            onClick = onPlayerClick,
+                            modifier = Modifier
+                                .size(secondarySize)
+                                .tvFocusable()
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_speaker_group),
+                                contentDescription = stringResource(R.string.accessibility_player_button),
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+
+                    // Queue Toggle
+                    if (queueViewModel != null) {
+                        FilledTonalIconButton(
+                            onClick = { queueVisible = !queueVisible },
+                            modifier = Modifier
+                                .size(secondarySize)
+                                .tvFocusable(focusRequester = queueToggleFocusRequester)
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_queue_music),
+                                contentDescription = stringResource(R.string.accessibility_queue_button),
+                                modifier = Modifier.size(24.dp),
+                                tint = if (queueVisible)
+                                    MaterialTheme.colorScheme.primary
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Queue Sidebar (slides in from right)
+        AnimatedVisibility(
+            visible = queueVisible && queueViewModel != null,
+            enter = slideInHorizontally { it },
+            exit = slideOutHorizontally { it }
+        ) {
+            Row(modifier = Modifier.fillMaxHeight()) {
+                VerticalDivider(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                Box(
+                    modifier = Modifier
+                        .width(400.dp)
+                        .fillMaxHeight()
+                ) {
+                    queueViewModel?.let { vm ->
+                        QueueSheetContent(
+                            viewModel = vm,
+                            onBrowseLibrary = onBrowseLibrary
+                        )
+                    }
+                }
+            }
         }
     }
 }

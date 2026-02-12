@@ -148,4 +148,38 @@ object AdaptiveDefaults {
         FormFactor.TABLET_10 -> 0.50f
         else -> 0.0f
     }
+
+    // -- TV Now Playing --
+
+    /** Whether this form factor has a toggleable queue sidebar (TV only) */
+    fun hasTvQueueSidebar(formFactor: FormFactor): Boolean =
+        formFactor == FormFactor.TV
+
+    /** Whether to show the volume slider (false on TV, remote handles volume) */
+    fun showVolumeSlider(formFactor: FormFactor): Boolean =
+        formFactor != FormFactor.TV
+
+    /** Secondary button size (switch group, favorite, queue toggle) */
+    fun secondaryButtonSize(formFactor: FormFactor): Dp = when (formFactor) {
+        FormFactor.PHONE -> 48.dp
+        FormFactor.TABLET_7 -> 48.dp
+        FormFactor.TABLET_10 -> 48.dp
+        FormFactor.TV -> 64.dp
+    }
+
+    // -- Browse Queue Sidebar --
+
+    /** Whether browse/search screens can show a toggleable queue sidebar */
+    fun showBrowseQueueSidebar(formFactor: FormFactor): Boolean =
+        formFactor == FormFactor.TABLET_7 ||
+        formFactor == FormFactor.TABLET_10 ||
+        formFactor == FormFactor.TV
+
+    /** Width of the queue sidebar on browse/search screens */
+    fun browseQueueSidebarWidth(formFactor: FormFactor): Dp = when (formFactor) {
+        FormFactor.TABLET_7 -> 280.dp
+        FormFactor.TABLET_10 -> 320.dp
+        FormFactor.TV -> 350.dp
+        FormFactor.PHONE -> 0.dp  // Not shown
+    }
 }
