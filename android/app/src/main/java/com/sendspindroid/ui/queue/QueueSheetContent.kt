@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaQueueItem
+import com.sendspindroid.ui.adaptive.FormFactor
+import com.sendspindroid.ui.adaptive.LocalFormFactor
+import com.sendspindroid.ui.adaptive.tvFocusable
 
 /**
  * Queue content composable designed to be hosted in a BottomSheetDialogFragment.
@@ -249,9 +252,11 @@ private fun QueueHeader(
         )
         IconButton(
             onClick = onToggleShuffle,
-            modifier = Modifier.semantics {
-                contentDescription = "Toggle shuffle"
-            }
+            modifier = Modifier
+                .tvFocusable()
+                .semantics {
+                    contentDescription = "Toggle shuffle"
+                }
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_shuffle),
@@ -272,9 +277,11 @@ private fun QueueHeader(
         )
         IconButton(
             onClick = onCycleRepeat,
-            modifier = Modifier.semantics {
-                contentDescription = "Cycle repeat mode"
-            }
+            modifier = Modifier
+                .tvFocusable()
+                .semantics {
+                    contentDescription = "Cycle repeat mode"
+                }
         ) {
             Icon(
                 painter = painterResource(
@@ -292,7 +299,10 @@ private fun QueueHeader(
 
         // Overflow menu
         Box {
-            IconButton(onClick = { showOverflowMenu = true }) {
+            IconButton(
+                onClick = { showOverflowMenu = true },
+                modifier = Modifier.tvFocusable()
+            ) {
                 Icon(
                     imageVector = Icons.Filled.MoreVert,
                     contentDescription = "More options",
@@ -325,10 +335,15 @@ private fun QueueHeader(
 
 @Composable
 private fun NowPlayingQueueItem(item: MaQueueItem) {
+    val formFactor = LocalFormFactor.current
+    val isTv = formFactor == FormFactor.TV
+    val artSize = if (isTv) 56.dp else 48.dp
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .then(if (isTv) Modifier.tvFocusable() else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -348,7 +363,7 @@ private fun NowPlayingQueueItem(item: MaQueueItem) {
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(48.dp)
+                .size(artSize)
                 .clip(RoundedCornerShape(6.dp))
         )
 
@@ -400,6 +415,20 @@ private fun SwipeToDismissQueueItem(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit
 ) {
+    val formFactor = LocalFormFactor.current
+
+    // TV: Skip swipe wrapper (D-pad can't swipe). Render item directly with focus support.
+    if (formFactor == FormFactor.TV) {
+        QueueListItem(
+            item = item,
+            onPlay = onPlay,
+            onRemove = onRemove,
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown
+        )
+        return
+    }
+
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value == SwipeToDismissBoxValue.EndToStart) {
@@ -460,13 +489,18 @@ private fun QueueListItem(
     onMoveDown: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val formFactor = LocalFormFactor.current
+    val isTv = formFactor == FormFactor.TV
+    val artSize = if (isTv) 56.dp else 44.dp
+    val verticalPad = if (isTv) 12.dp else 8.dp
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
+            .then(if (isTv) Modifier.tvFocusable() else Modifier)
             .clickable(onClick = onPlay)
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 16.dp, end = 4.dp, top = verticalPad, bottom = verticalPad),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Album art
@@ -475,7 +509,7 @@ private fun QueueListItem(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(44.dp)
+                .size(artSize)
                 .clip(RoundedCornerShape(6.dp))
         )
 
@@ -485,7 +519,8 @@ private fun QueueListItem(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.name,
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (isTv) MaterialTheme.typography.bodyLarge
+                        else MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

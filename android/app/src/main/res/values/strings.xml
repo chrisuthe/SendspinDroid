@@ -626,4 +626,21 @@
     <string name="accessibility_queue_current_track">Currently playing: %1$s by %2$s</string>
     <string name="accessibility_queue_remove">Remove from queue</string>
     <string name="accessibility_queue_drag">Drag to reorder</string>
+
+    <!-- Player / Speaker Group Management -->
+    <string name="player_title">Speakers</string>
+    <string name="player_current_speaker">Current speaker</string>
+    <string name="player_available_speakers">Available Speakers</string>
+    <string name="player_no_speakers">No compatible speakers</string>
+    <string name="player_no_speakers_subtitle">No other speakers can be grouped with this player</string>
+    <string name="player_load_failed">Failed to load speakers</string>
+    <string name="player_group_count">%d speakers</string>
+    <string name="player_state_playing">Playing</string>
+    <string name="player_state_paused">Paused</string>
+    <string name="player_state_idle">Idle</string>
+
+    <!-- Accessibility - Players -->
+    <string name="accessibility_player_button">Manage speakers</string>
+    <string name="accessibility_player_toggle">Toggle %s in group</string>
+    <string name="accessibility_refresh">Refresh</string>
 </resources>

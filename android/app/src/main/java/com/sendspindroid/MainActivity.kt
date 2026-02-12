@@ -2655,12 +2655,12 @@ class MainActivity : AppCompatActivity() {
     private fun showQueueSheet() {
         Log.d(TAG, "Queue button clicked - showing queue sheet")
 
-        // On tablets (sw >= 600dp) when Now Playing is shown (not browsing),
-        // the queue is already visible inline -- skip the bottom sheet
-        val isTablet = resources.configuration.smallestScreenWidthDp >= 600
+        // On tablets (sw >= 600dp) or TV when Now Playing is shown (not browsing),
+        // the queue is already visible inline/sidebar -- skip the bottom sheet
+        val isTabletOrTv = resources.configuration.smallestScreenWidthDp >= 600 || isTvDevice
         val isOnNowPlaying = !viewModel.isNavigationContentVisible.value
-        if (isTablet && isOnNowPlaying) {
-            Log.d(TAG, "Queue already visible inline on tablet Now Playing -- skipping sheet")
+        if (isTabletOrTv && isOnNowPlaying) {
+            Log.d(TAG, "Queue already visible inline on tablet/TV Now Playing -- skipping sheet")
             return
         }
 
