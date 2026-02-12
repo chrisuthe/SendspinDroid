@@ -45,10 +45,10 @@ import com.sendspindroid.musicassistant.model.MaPlayer
 import com.sendspindroid.ui.adaptive.tvFocusable
 
 /**
- * Main composable content for the Player / Speaker Group management sheet.
+ * Main composable content for the Player Group management sheet.
  *
- * Shows the locked current player at the top, followed by a list of compatible
- * speakers with toggles to add/remove them from the current player's group.
+ * Shows the locked current player (this device) at the top, followed by a list
+ * of compatible players with toggles to add/remove them from the group.
  *
  * Used inside both [PlayerBottomSheet] (phone ModalBottomSheet) and can be
  * reused in other containers (dialog, side panel) for larger form factors.
