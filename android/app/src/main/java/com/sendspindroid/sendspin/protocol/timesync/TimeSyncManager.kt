@@ -48,6 +48,10 @@ class TimeSyncManager(
         private const val INTERVAL_MS_HIGH_JITTER = 200L   // Faster bursts on noisy networks
         private const val INTERVAL_MS_LOW_JITTER = 500L    // Slower bursts on stable networks
 
+        // Converged maintenance parameters: back off once Kalman filter is locked
+        private const val BURST_COUNT_CONVERGED = 3       // Minimal burst for drift tracking
+        private const val INTERVAL_MS_CONVERGED = 3000L   // 3s between maintenance bursts
+
         // Jitter thresholds for switching strategy (microseconds)
         private const val HIGH_JITTER_THRESHOLD_US = 20_000L  // 20ms jitter → aggressive mode
         private const val LOW_JITTER_THRESHOLD_US = 5_000L    // 5ms jitter → conservative mode
@@ -287,6 +291,13 @@ class TimeSyncManager(
                 currentBurstCount = SendSpinProtocol.TimeSync.BURST_COUNT
                 currentIntervalMs = SendSpinProtocol.TimeSync.INTERVAL_MS
             }
+        }
+
+        // Convergence override: once Kalman filter is locked, back off to maintenance rate.
+        // This automatically reverts when isConverged goes false (after reset/thaw/error climb).
+        if (timeFilter.isConverged) {
+            currentBurstCount = BURST_COUNT_CONVERGED
+            currentIntervalMs = INTERVAL_MS_CONVERGED
         }
     }
 }
