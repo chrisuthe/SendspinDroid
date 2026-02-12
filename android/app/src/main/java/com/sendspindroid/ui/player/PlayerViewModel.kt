@@ -163,25 +163,36 @@ class PlayerViewModel : ViewModel() {
 
         val currentGroupIds = currentPlayer.groupMembers.toSet()
 
-        // Find players that can be grouped with the current player.
-        // If canGroupWith is populated, use it as the filter. Otherwise fall back
-        // to showing all other available players with the same provider (e.g. all
-        // Sendspin/slimproto players can group with each other).
-        val compatibleIds = currentPlayer.canGroupWith.toSet()
-        val useProviderFallback = compatibleIds.isEmpty()
+        // Debug: log all players and their filter-relevant fields
+        Log.d(TAG, "Current player: id=${currentPlayer.playerId}, name=${currentPlayer.name}, " +
+            "provider=${currentPlayer.provider}, type=${currentPlayer.type}, " +
+            "canGroupWith=${currentPlayer.canGroupWith}, groupMembers=${currentPlayer.groupMembers}")
+        allPlayers.forEach { player ->
+            Log.d(TAG, "  Player: id=${player.playerId}, name=${player.name}, " +
+                "provider=${player.provider}, type=${player.type}, " +
+                "available=${player.available}, enabled=${player.enabled}, " +
+                "hideInUi=${player.hideInUi}, canGroupWith=${player.canGroupWith}")
+        }
 
+        // Find players that can be grouped with the current player.
+        // Show all other available, enabled, visible players — regardless of provider.
+        // Music Assistant manages grouping compatibility via the API; we just present
+        // the choices and let the server accept or reject group commands.
         val groupablePlayers = allPlayers
             .filter { player ->
-                player.playerId != thisDevicePlayerId &&
-                player.available &&
-                player.enabled &&
-                !player.hideInUi &&
-                if (useProviderFallback) {
-                    // Same provider = same grouping domain
-                    player.provider == currentPlayer.provider
-                } else {
-                    player.playerId in compatibleIds
+                val notSelf = player.playerId != thisDevicePlayerId
+                val isAvailable = player.available
+                val isEnabled = player.enabled
+                val notHidden = !player.hideInUi
+
+                // Log why each player is included or excluded
+                if (notSelf) {
+                    Log.d(TAG, "  Filter ${player.name}: available=$isAvailable, " +
+                        "enabled=$isEnabled, notHidden=$notHidden, " +
+                        "provider=${player.provider}")
                 }
+
+                notSelf && isAvailable && isEnabled && notHidden
             }
             .map { player ->
                 GroupablePlayer(
@@ -200,8 +211,7 @@ class PlayerViewModel : ViewModel() {
         )
 
         Log.i(TAG, "Player state built: current=${currentPlayer.name} (provider=${currentPlayer.provider}), " +
-            "groupable=${groupablePlayers.size}, inGroup=${groupMemberCount - 1}, " +
-            "canGroupWith=${compatibleIds.size}, providerFallback=$useProviderFallback")
+            "groupable=${groupablePlayers.size}, inGroup=${groupMemberCount - 1}")
     }
 
     /**
