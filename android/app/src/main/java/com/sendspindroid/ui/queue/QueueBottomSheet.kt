@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -78,6 +79,7 @@ fun QueueBottomSheet(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    var showSaveDialog by remember { mutableStateOf(false) }
 
     // Load queue when sheet opens
     LaunchedEffect(Unit) {
@@ -111,11 +113,28 @@ fun QueueBottomSheet(
                         onMoveDown = { viewModel.moveItem(it, MoveDirection.DOWN) },
                         onToggleShuffle = { viewModel.toggleShuffle() },
                         onCycleRepeat = { viewModel.cycleRepeatMode() },
-                        onClearQueue = { viewModel.clearQueue() }
+                        onClearQueue = { viewModel.clearQueue() },
+                        onSaveAsPlaylist = { showSaveDialog = true }
                     )
                 }
             }
         }
+    }
+
+    if (showSaveDialog) {
+        val state = uiState as? QueueUiState.Success
+        val trackUris = state?.let {
+            buildList {
+                it.currentItem?.uri?.let(::add)
+                addAll(it.upNextItems.mapNotNull { item -> item.uri })
+            }
+        } ?: emptyList()
+
+        SaveQueueAsPlaylistDialog(
+            trackUris = trackUris,
+            onDismiss = { showSaveDialog = false },
+            onSuccess = { showSaveDialog = false }
+        )
     }
 }
 
@@ -133,7 +152,8 @@ private fun QueueContent(
     onMoveDown: (String) -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
-    onClearQueue: () -> Unit
+    onClearQueue: () -> Unit,
+    onSaveAsPlaylist: () -> Unit
 ) {
     val listState = rememberLazyListState()
 
@@ -147,9 +167,11 @@ private fun QueueContent(
             itemCount = state.totalItems,
             shuffleEnabled = state.shuffleEnabled,
             repeatMode = state.repeatMode,
+            hasTrackUris = state.currentItem?.uri != null || state.upNextItems.any { it.uri != null },
             onToggleShuffle = onToggleShuffle,
             onCycleRepeat = onCycleRepeat,
-            onClearQueue = onClearQueue
+            onClearQueue = onClearQueue,
+            onSaveAsPlaylist = onSaveAsPlaylist
         )
 
         LazyColumn(
@@ -216,9 +238,11 @@ private fun QueueHeader(
     itemCount: Int,
     shuffleEnabled: Boolean,
     repeatMode: String,
+    hasTrackUris: Boolean,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
-    onClearQueue: () -> Unit
+    onClearQueue: () -> Unit,
+    onSaveAsPlaylist: () -> Unit
 ) {
     var showOverflowMenu by remember { mutableStateOf(false) }
 
@@ -313,6 +337,17 @@ private fun QueueHeader(
                 expanded = showOverflowMenu,
                 onDismissRequest = { showOverflowMenu = false }
             ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.queue_save_as_playlist)) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                    },
+                    enabled = hasTrackUris,
+                    onClick = {
+                        showOverflowMenu = false
+                        onSaveAsPlaylist()
+                    }
+                )
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.queue_clear)) },
                     leadingIcon = {

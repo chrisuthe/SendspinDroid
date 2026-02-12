@@ -601,6 +601,15 @@
     <string name="queue_item_count">%d items</string>
     <string name="queue_item_count_one">1 item</string>
     <string name="queue_clear">Clear Queue</string>
+    <string name="queue_save_as_playlist">Save as Playlist</string>
+    <string name="queue_save_create_new">Create new playlist\u2026</string>
+    <string name="queue_save_confirm_replace_title">Replace playlist contents?</string>
+    <string name="queue_save_confirm_replace_message">This will permanently delete all %1$d tracks in \"%2$s\" and replace them with %3$d tracks from your queue. This cannot be undone.</string>
+    <string name="queue_save_replace_button">Replace Playlist</string>
+    <string name="queue_save_adding_tracks">Adding %1$d tracks\u2026</string>
+    <string name="queue_save_creating">Creating playlist\u2026</string>
+    <string name="queue_save_removing">Removing existing tracks\u2026</string>
+    <string name="queue_save_success">Saved %1$d tracks to %2$s</string>
     <string name="queue_cleared">Queue cleared</string>
     <string name="queue_clear_failed">Failed to clear queue</string>
     <string name="queue_item_removed">Removed from queue</string>
