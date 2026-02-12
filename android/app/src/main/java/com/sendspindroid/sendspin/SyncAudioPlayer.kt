@@ -240,6 +240,9 @@ class SyncAudioPlayer(
         private const val BUFFER_CRITICAL_MS = 200L   // Critical warning at 200ms
         private const val BUFFER_WARNING_INTERVAL_US = 500_000L  // Rate limit warnings to 500ms
 
+        // Silence keepalive: write silence when pending-to-DAC drops below this threshold
+        private const val SILENCE_KEEPALIVE_THRESHOLD_US = 200_000L  // 200ms
+
         // Playback loop timing (milliseconds)
         private const val STATE_POLL_DELAY_MS = 10L   // Polling interval during state transitions
         private const val BUFFER_EMPTY_DELAY_MS = 5L  // Short delay when buffer is empty/draining
@@ -673,6 +676,95 @@ class SyncAudioPlayer(
             Log.i(TAG, "Playback stopped")
         }
     }
+
+    /**
+     * Enter idle mode: reset sync state but keep AudioTrack alive and writing silence.
+     *
+     * Used when the stream ends but the server is still connected. The playback loop
+     * continues in INITIALIZING state, writing silence to keep DAC timestamps warm
+     * for the next stream start.
+     *
+     * This method is thread-safe and can be called from any thread.
+     */
+    fun enterIdle() {
+        stateLock.withLock {
+            // Clear all audio buffers
+            chunkQueue.clear()
+            totalQueuedSamples.set(0)
+            synchronized(pendingChunks) { pendingChunks.clear() }
+
+            lastChunkServerTime = 0L
+
+            // Reset playback state machine to INITIALIZING (silence-writing state)
+            setPlaybackState(PlaybackState.INITIALIZING)
+            scheduledStartLoopTimeUs = null
+            firstServerTimestampUs = null
+
+            // Reset sync error tracking
+            syncUpdateCounter = 0
+            totalFramesWritten = 0L
+            serverTimelineCursor = 0L
+            serverTimelineCursorRemainder = 0L
+            playbackStartTimeUs = 0L
+            startTimeCalibrated = false
+            baselineFramePosition = 0L
+            baselineServerTimeUs = 0L
+            lastBaselineRefreshUs = 0L
+            samplesReadSinceStart = 0L
+            syncErrorUs = 0L
+            syncErrorFilter.reset()
+            clearDacCalibrations()
+            playingStateEnteredAtUs = 0L
+
+            // Reset DAC timestamp stability tracking so it re-warms
+            consecutiveValidTimestamps = 0
+            dacTimestampsStable = false
+            lastDacPacingLogTimeUs = 0L
+
+            // Reset sample insert/drop correction state
+            insertEveryNFrames = 0
+            dropEveryNFrames = 0
+            framesUntilNextInsert = 0
+            framesUntilNextDrop = 0
+            lastOutputFrame.fill(0)
+            secondLastOutputFrame.fill(0)
+            crossfadeTargetFrame.fill(0)
+            crossfadeScratchBuf.fill(0)
+            crossfadeState = CrossfadeState.IDLE
+            crossfadeProgress = 0
+
+            // Reset gap/overlap tracking
+            expectedNextTimestampUs = null
+
+            // Flush AudioTrack to clear any buffered audio, but keep it playing
+            // so the playback loop can write silence immediately
+            try {
+                val track = audioTrack
+                if (track != null) {
+                    track.pause()
+                    track.flush()
+                    track.play()
+                }
+            } catch (e: IllegalStateException) {
+                Log.w(TAG, "Failed to flush AudioTrack during enterIdle", e)
+            }
+
+            // NOTE: Do NOT stop AudioTrack or cancel playback loop.
+            // The loop will continue in INITIALIZING state, writing silence
+            // to keep DAC timestamps warm.
+
+            Log.i(TAG, "Entered idle mode - continuing silence for DAC keepalive")
+        }
+    }
+
+    /**
+     * Check if this player's format matches the given parameters.
+     *
+     * Used to determine if the player can be reused for a new stream
+     * without tearing down the AudioTrack (preserving DAC timestamp warmth).
+     */
+    fun matchesFormat(sr: Int, ch: Int, bd: Int): Boolean =
+        sr == sampleRate && ch == channels && bd == bitDepth
 
     /**
      * Cancel the playback loop coroutine and wait for it to complete.
@@ -1356,6 +1448,30 @@ class SyncAudioPlayer(
     }
 
     /**
+     * Reduced-rate silence writer for keeping DAC timestamps warm once stable.
+     *
+     * Unlike preCalibrateDacTiming() which writes every loop iteration (10ms),
+     * this only writes when the pending-to-DAC buffer drops below a threshold.
+     * This saves CPU during long idle periods while keeping AudioTimestamp valid.
+     */
+    private fun writeSilenceKeepAlive() {
+        val track = audioTrack ?: return
+
+        val pendingUs = getPendingToDacUs(track)
+        if (pendingUs > SILENCE_KEEPALIVE_THRESHOLD_US) return
+
+        // Write 10ms of silence to top up the buffer
+        val silenceFrames = sampleRate / 100
+        val silenceBytes = silenceFrames * bytesPerFrame
+        val silence = ByteArray(silenceBytes)
+
+        val written = track.write(silence, 0, silenceBytes)
+        if (written > 0) {
+            totalFramesWritten += written / bytesPerFrame
+        }
+    }
+
+    /**
      * Trigger a reanchor - reset sync state due to large error.
      *
      * Called when sync error exceeds REANCHOR_THRESHOLD_US.
@@ -1467,7 +1583,13 @@ class SyncAudioPlayer(
                 // State machine for synchronized playback
                 when (playbackState) {
                     PlaybackState.INITIALIZING -> {
-                        // Waiting for first chunk - nothing to do
+                        // Write silence to keep DAC timestamps warm while waiting
+                        // for first chunk. Once stable, reduced-rate keepalive.
+                        if (!dacTimestampsStable) {
+                            preCalibrateDacTiming()
+                        } else {
+                            writeSilenceKeepAlive()
+                        }
                         delay(STATE_POLL_DELAY_MS)
                         continue
                     }
@@ -1504,7 +1626,13 @@ class SyncAudioPlayer(
                     }
 
                     PlaybackState.REANCHORING -> {
-                        // Waiting for new chunks after reanchor
+                        // Write silence to keep DAC timestamps warm while waiting
+                        // for new chunks after reanchor
+                        if (!dacTimestampsStable) {
+                            preCalibrateDacTiming()
+                        } else {
+                            writeSilenceKeepAlive()
+                        }
                         delay(STATE_POLL_DELAY_MS)
                         continue
                     }

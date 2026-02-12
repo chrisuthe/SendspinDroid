@@ -1053,9 +1053,6 @@ class PlaybackService : MediaLibraryService() {
                 Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
                 currentCodec = codec
 
-                // Stop existing player if any
-                syncAudioPlayer?.release()
-
                 // Release existing decoder and create new one for this stream
                 audioDecoder?.release()
                 audioDecoder = null
@@ -1084,21 +1081,28 @@ class PlaybackService : MediaLibraryService() {
                 // Update notification to show we're now streaming
                 startForegroundServiceWithNotification()
 
-                // Create and start the audio player
-                syncAudioPlayer = SyncAudioPlayer(
-                    timeFilter = timeFilter,
-                    sampleRate = sampleRate,
-                    channels = channels,
-                    bitDepth = bitDepth
-                ).apply {
-                    // Set callback to update SendSpinPlayer when playback state changes
-                    setStateCallback(SyncAudioPlayerStateCallback())
-                    initialize()
-                    start()
+                // Reuse existing player if format matches (DAC timestamps stay warm)
+                val existingPlayer = syncAudioPlayer
+                if (existingPlayer != null && existingPlayer.matchesFormat(sampleRate, channels, bitDepth)) {
+                    Log.i(TAG, "Reusing existing SyncAudioPlayer - DAC already warm")
+                    existingPlayer.clearBuffer()
+                } else {
+                    // Format changed or no existing player - create new one
+                    existingPlayer?.release()
+                    syncAudioPlayer = SyncAudioPlayer(
+                        timeFilter = timeFilter,
+                        sampleRate = sampleRate,
+                        channels = channels,
+                        bitDepth = bitDepth
+                    ).apply {
+                        // Set callback to update SendSpinPlayer when playback state changes
+                        setStateCallback(SyncAudioPlayerStateCallback())
+                        initialize()
+                        start()
+                    }
+                    sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
+                    Log.i(TAG, "SyncAudioPlayer created: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit")
                 }
-                sendSpinPlayer?.setSyncAudioPlayer(syncAudioPlayer)
-
-                Log.i(TAG, "SyncAudioPlayer started: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit")
             }
         }
 
@@ -1113,8 +1117,9 @@ class PlaybackService : MediaLibraryService() {
         override fun onStreamEnd() {
             mainHandler.post {
                 Log.i(TAG, "Stream end - server terminated playback")
-                // Stop the audio player gracefully when server ends the stream
-                syncAudioPlayer?.stop()
+                // Enter idle mode: keep AudioTrack alive and writing silence
+                // so DAC timestamps stay warm for the next stream start
+                syncAudioPlayer?.enterIdle()
             }
         }
 
