@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * UI state for the Player / Speaker Group sheet.
+ * UI state for the Player Group management sheet.
  */
 sealed interface PlayerUiState {
     data object Loading : PlayerUiState
@@ -34,10 +34,10 @@ data class GroupablePlayer(
 )
 
 /**
- * ViewModel for the Speaker Group management sheet.
+ * ViewModel for the Player Group management sheet.
  *
- * Manages loading the player list, determining which speakers can be
- * grouped with the current (locked) player, and toggling group membership.
+ * Manages loading the player list, determining which players can be
+ * grouped with this device, and toggling group membership.
  *
  * Follows the same pattern as [com.sendspindroid.ui.queue.QueueViewModel].
  */
@@ -61,17 +61,15 @@ class PlayerViewModel : ViewModel() {
         _uiState.value = PlayerUiState.Loading
         viewModelScope.launch {
             Log.d(TAG, "Loading players...")
-            val activePlayerId = MusicAssistantManager.getSelectedPlayer()
-            if (activePlayerId == null) {
-                Log.e(TAG, "No active player selected")
-                _uiState.value = PlayerUiState.Error("No active player selected")
-                return@launch
-            }
+            // Use THIS device's player ID (the UUID we registered with SendSpin),
+            // not the "selected player" which may be a different speaker.
+            val thisDevicePlayerId = MusicAssistantManager.getThisDevicePlayerId()
+            Log.d(TAG, "This device player ID: $thisDevicePlayerId")
 
             val result = MusicAssistantManager.getAllPlayers()
             result.fold(
                 onSuccess = { allPlayers ->
-                    buildSuccessState(activePlayerId, allPlayers)
+                    buildSuccessState(thisDevicePlayerId, allPlayers)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load players", error)
@@ -154,25 +152,36 @@ class PlayerViewModel : ViewModel() {
     /**
      * Build the Success UI state from the active player and full player list.
      */
-    private fun buildSuccessState(activePlayerId: String, allPlayers: List<MaPlayer>) {
-        val currentPlayer = allPlayers.find { it.playerId == activePlayerId }
+    private fun buildSuccessState(thisDevicePlayerId: String, allPlayers: List<MaPlayer>) {
+        val currentPlayer = allPlayers.find { it.playerId == thisDevicePlayerId }
         if (currentPlayer == null) {
-            Log.e(TAG, "Active player $activePlayerId not found in player list")
-            _uiState.value = PlayerUiState.Error("Active player not found")
+            Log.e(TAG, "This device player $thisDevicePlayerId not found in player list " +
+                "(${allPlayers.size} players: ${allPlayers.map { "${it.playerId}=${it.name}" }})")
+            _uiState.value = PlayerUiState.Error("This device not found in player list")
             return
         }
 
-        // Find players that can be grouped with the current player
-        val compatibleIds = currentPlayer.canGroupWith.toSet()
         val currentGroupIds = currentPlayer.groupMembers.toSet()
+
+        // Find players that can be grouped with the current player.
+        // If canGroupWith is populated, use it as the filter. Otherwise fall back
+        // to showing all other available players with the same provider (e.g. all
+        // Sendspin/slimproto players can group with each other).
+        val compatibleIds = currentPlayer.canGroupWith.toSet()
+        val useProviderFallback = compatibleIds.isEmpty()
 
         val groupablePlayers = allPlayers
             .filter { player ->
-                player.playerId in compatibleIds &&
-                player.playerId != activePlayerId &&
+                player.playerId != thisDevicePlayerId &&
                 player.available &&
                 player.enabled &&
-                !player.hideInUi
+                !player.hideInUi &&
+                if (useProviderFallback) {
+                    // Same provider = same grouping domain
+                    player.provider == currentPlayer.provider
+                } else {
+                    player.playerId in compatibleIds
+                }
             }
             .map { player ->
                 GroupablePlayer(
@@ -190,8 +199,9 @@ class PlayerViewModel : ViewModel() {
             groupMemberCount = groupMemberCount
         )
 
-        Log.i(TAG, "Player state built: current=${currentPlayer.name}, " +
-            "groupable=${groupablePlayers.size}, inGroup=${groupMemberCount - 1}")
+        Log.i(TAG, "Player state built: current=${currentPlayer.name} (provider=${currentPlayer.provider}), " +
+            "groupable=${groupablePlayers.size}, inGroup=${groupMemberCount - 1}, " +
+            "canGroupWith=${compatibleIds.size}, providerFallback=$useProviderFallback")
     }
 
     /**
@@ -199,11 +209,11 @@ class PlayerViewModel : ViewModel() {
      */
     private fun reloadSilently() {
         viewModelScope.launch {
-            val activePlayerId = MusicAssistantManager.getSelectedPlayer() ?: return@launch
+            val thisDevicePlayerId = MusicAssistantManager.getThisDevicePlayerId()
             val result = MusicAssistantManager.getAllPlayers()
             result.fold(
                 onSuccess = { allPlayers ->
-                    buildSuccessState(activePlayerId, allPlayers)
+                    buildSuccessState(thisDevicePlayerId, allPlayers)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Silent reload failed", error)

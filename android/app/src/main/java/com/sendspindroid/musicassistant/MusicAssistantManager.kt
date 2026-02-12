@@ -919,6 +919,17 @@ object MusicAssistantManager {
         MaSettings.clearSelectedPlayerForServer(server.id)
     }
 
+    /**
+     * Get this device's player ID — the UUID registered with the SendSpin server.
+     *
+     * This is the MA player_id for the SendSpinDroid app itself, as opposed to
+     * [getSelectedPlayer] which returns whichever player was auto-selected for
+     * playback commands.
+     *
+     * @return This device's player ID
+     */
+    fun getThisDevicePlayerId(): String = UserSettings.getPlayerId()
+
     // ======== Player Management (Group / Multi-Room) ========
 
     /**
