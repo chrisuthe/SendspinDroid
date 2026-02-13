@@ -1232,8 +1232,12 @@ class SyncAudioPlayer(
         val dacNowServerUs = timeFilter.clientToServer(nowMicros - pendingToDacUs)
 
         // Where should the queue head be in server time?
-        // TARGET_PENDING_US ahead of DAC output = our target write-to-DAC buffer
-        val desiredHeadServerUs = dacNowServerUs + TARGET_PENDING_US
+        // The first real chunk goes at the write cursor, which is pendingToDacUs
+        // ahead of the DAC output. Use the actual measured pending (not the
+        // steady-state TARGET_PENDING_US constant) so the chunk exits the DAC
+        // at the correct wall-clock moment regardless of how much silence
+        // accumulated during pre-calibration.
+        val desiredHeadServerUs = dacNowServerUs + pendingToDacUs
 
         val headChunk = chunkQueue.peek() ?: return true  // No chunks yet, keep waiting
 
@@ -2273,16 +2277,27 @@ class SyncAudioPlayer(
                 baselineServerTimeUs = kalmanServerTimeUs
                 lastBaselineRefreshUs = loopTimeUs
 
-                // Ensure totalFramesWritten >= framePosition so that
-                // getPendingToDacUs() gives sensible results. After
-                // flush+play the DAC may report frames that weren't tracked
-                // in our counter (e.g. silence from pre-calibration phase).
-                if (totalFramesWritten < framePosition) {
-                    totalFramesWritten = framePosition
-                }
+                // Reconcile totalFramesWritten and serverTimelineCursor so the
+                // sync error equation starts from a consistent baseline.
+                //
+                // Problem: by this point, pre-calibration silence has inflated
+                // totalFramesWritten, and several real audio chunks have already
+                // advanced serverTimelineCursor. Snapping totalFramesWritten alone
+                // would erase real-audio frames from the accounting while leaving
+                // the cursor ahead, producing a large false sync error.
+                //
+                // Solution: compute the current pending depth and set the cursor
+                // so that cursorAtDac = kalmanServerTimeUs (the Kalman-derived
+                // server time at the DAC output right now). This is the same
+                // reference point the DAC-aware start gating uses.
+                val pendingFrames = (totalFramesWritten - framePosition).coerceAtLeast(0)
+                val currentPendingUs = (pendingFrames * 1_000_000L) / sampleRate
+                serverTimelineCursor = kalmanServerTimeUs + currentPendingUs
+                serverTimelineCursorRemainder = 0L
 
                 Log.i(TAG, "Sync baseline calibrated: " +
                     "framePos=$framePosition, totalWritten=$totalFramesWritten, " +
+                    "pending=${currentPendingUs/1000}ms, " +
                     "baselineServerTime=${baselineServerTimeUs}us")
             }
 
