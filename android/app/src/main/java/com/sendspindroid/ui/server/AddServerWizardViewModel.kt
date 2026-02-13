@@ -357,8 +357,7 @@ class AddServerWizardViewModel : ViewModel() {
      * Handle "Back" action based on current step.
      * Returns the previous step, or null if at the beginning.
      *
-     * In edit mode, we don't allow going back past the Save step since
-     * the user started there and shouldn't see the initial setup wizard.
+     * In edit mode, back navigation stops at FindServer (skipping Welcome).
      */
     fun onBack(): WizardStep? {
         val previous = when (_currentStep.value) {
@@ -388,15 +387,10 @@ class AddServerWizardViewModel : ViewModel() {
             }
             WizardStep.RemoteOnlyWarning -> WizardStep.FindServer
             WizardStep.Save -> {
-                // In edit mode, don't allow going back from Save - close the wizard instead
-                if (isEditMode) {
-                    null
-                } else {
-                    when (_remoteAccessMethod.value) {
-                        RemoteAccessMethod.REMOTE_ID -> WizardStep.RemoteId
-                        RemoteAccessMethod.PROXY -> WizardStep.Proxy
-                        RemoteAccessMethod.NONE -> WizardStep.RemoteChoice
-                    }
+                when (_remoteAccessMethod.value) {
+                    RemoteAccessMethod.REMOTE_ID -> WizardStep.RemoteId
+                    RemoteAccessMethod.PROXY -> WizardStep.Proxy
+                    RemoteAccessMethod.NONE -> WizardStep.RemoteChoice
                 }
             }
         }
