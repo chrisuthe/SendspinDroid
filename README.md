@@ -1,10 +1,9 @@
 ![GitHub all releases](https://img.shields.io/github/downloads/chrisuthe/SendspinDroid/total?color=blue)
 
-# SendSpin Player for Android
+# SendSpin Player & Music Assitant Client for Android
 
-A native Android client for [SendSpin](https://www.sendspin-audio.com/) -- synchronized multi-room audio that just works.
+A native Android client for [SendSpin](https://www.sendspin-audio.com/)
 
-Play music in perfect sync across every room in your home. No special hardware required -- just your Android phone or tablet.
 
 ## Features
 
