@@ -200,7 +200,7 @@ class PlayerViewModel : ViewModel() {
                     isInGroup = player.playerId in currentGroupIds
                 )
             }
-            .sortedBy { it.player.name.lowercase() }
+            .sortedWith(compareByDescending<GroupablePlayer> { it.isInGroup }.thenBy { it.player.name.lowercase() })
 
         val groupMemberCount = 1 + groupablePlayers.count { it.isInGroup } // +1 for current player
 
