@@ -1,6 +1,6 @@
 ![GitHub all releases](https://img.shields.io/github/downloads/chrisuthe/SendspinDroid/total?color=blue)
 
-# SendSpin Player & Music Assitant Client for Android
+# SendSpin Player & Music Assistant Client for Android
 
 A native Android client for [SendSpin](https://www.sendspin-audio.com/)
 
