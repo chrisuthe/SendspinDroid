@@ -105,7 +105,7 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
 
-    val isBuffering = playbackState == PlaybackState.BUFFERING
+    val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty
     val controlsEnabled = playbackState == PlaybackState.READY || playbackState == PlaybackState.BUFFERING
 
     // Get server name from connection state
