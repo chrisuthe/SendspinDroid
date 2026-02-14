@@ -75,6 +75,8 @@ A native Android client for [SendSpin](https://www.sendspin-audio.com/)
 2. **Open** -- The app searches for SendSpin servers on your network
 3. **Tap** -- Select your server and you're listening
 
+For development and testing guides, see the [Wiki](https://github.com/chrisuthe/SendspinDroid/wiki).
+
 ### Connecting to a Server
 
 - **Local network**: Servers are discovered automatically via mDNS
