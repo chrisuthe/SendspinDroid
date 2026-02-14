@@ -111,6 +111,18 @@ class PlayerViewModel : ViewModel() {
                 groupMemberCount = optimisticCount
             )
 
+            // Power on the player first if it's off and we're adding it
+            if (!isCurrentlyInGroup && groupable.player.powered == false) {
+                Log.d(TAG, "Player $playerId is powered off, powering on first")
+                val powerResult = MusicAssistantManager.powerOnPlayer(playerId)
+                if (powerResult.isFailure) {
+                    Log.e(TAG, "Failed to power on player $playerId", powerResult.exceptionOrNull())
+                    _uiState.value = currentState
+                    _togglingPlayerId.value = null
+                    return@launch
+                }
+            }
+
             val apiResult = if (isCurrentlyInGroup) {
                 MusicAssistantManager.setGroupMembers(
                     targetPlayerId = targetPlayerId,
