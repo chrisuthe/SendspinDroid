@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaPlayer
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -121,6 +122,8 @@ class PlayerViewModel : ViewModel() {
                     _togglingPlayerId.value = null
                     return@launch
                 }
+                // Give the player time to come alive before adding to group
+                delay(500)
             }
 
             val apiResult = if (isCurrentlyInGroup) {
