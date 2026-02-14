@@ -1003,6 +1003,36 @@ object MusicAssistantManager {
     }
 
     /**
+     * Power on a player.
+     *
+     * Uses the `players/cmd/power` MA API command to turn on a player
+     * (e.g., a Chromecast) before adding it to a group.
+     *
+     * @param playerId The player to power on
+     * @return Result.success on success, or failure on error
+     */
+    suspend fun powerOnPlayer(playerId: String): Result<Unit> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                sendMaCommand(apiUrl, token, "players/cmd/power", mapOf(
+                    "player_id" to playerId,
+                    "powered" to true
+                ))
+                Log.i(TAG, "Player powered on: $playerId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to power on player", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Remove a player from all groups.
      *
      * @param playerId The player to ungroup
