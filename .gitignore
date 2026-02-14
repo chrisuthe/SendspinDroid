@@ -14,6 +14,7 @@ go-player/*.aar
 
 # IDE
 .DS_Store
+.idea/
 *.swp
 *.swo
 *~
@@ -46,6 +47,8 @@ Screenshot_*.png
 # Build outputs (generated, not source)
 *.aab
 *.apk
+android/build_output.txt
 
 # Windows junk
 Thumbs.db
+android/nul
