@@ -197,7 +197,8 @@ class AddServerWizardViewModel : ViewModel() {
         _maUsername,
         _maPassword,
         _maToken,
-        _isMusicAssistant
+        _isMusicAssistant,
+        _setAsDefault
     ) { values ->
         // Destructure the array of values
         val step = values[0] as WizardStep
@@ -220,13 +221,14 @@ class AddServerWizardViewModel : ViewModel() {
         val maPass = values[16] as String
         val maTokenVal = values[17] as String?
         val isMusicAssistantVal = values[18] as Boolean
+        val isDefaultVal = values[19] as Boolean
 
         WizardState(
             currentStep = step,
             isEditMode = _editingServer.value != null,
             isNextEnabled = computeNextEnabled(step),
             serverName = name,
-            setAsDefault = _setAsDefault.value,
+            setAsDefault = isDefaultVal,
             isMusicAssistant = isMusicAssistantVal,
             localAddress = localAddr,
             discoveredServers = discovered,
