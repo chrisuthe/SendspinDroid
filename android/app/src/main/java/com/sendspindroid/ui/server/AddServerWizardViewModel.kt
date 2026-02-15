@@ -344,8 +344,10 @@ class AddServerWizardViewModel : ViewModel() {
                 true
             }
             WizardStep.RemoteOnlyWarning -> {
-                // User acknowledged warning, proceed to remote choice
-                _currentStep.value = WizardStep.RemoteChoice
+                // User acknowledged warning, go directly to Remote ID input
+                // (Remote-only requires a Remote ID; the RemoteChoice step is unnecessary)
+                _remoteAccessMethod.value = RemoteAccessMethod.REMOTE_ID
+                _currentStep.value = WizardStep.RemoteId
                 true
             }
             WizardStep.Save -> {
@@ -378,7 +380,11 @@ class AddServerWizardViewModel : ViewModel() {
                     WizardStep.FindServer
                 }
             }
-            WizardStep.RemoteId -> WizardStep.RemoteChoice
+            WizardStep.RemoteId -> {
+                // If user came from remote-only flow, go back to warning
+                if (localConnectionSkipped) WizardStep.RemoteOnlyWarning
+                else WizardStep.RemoteChoice
+            }
             WizardStep.Proxy -> WizardStep.RemoteChoice
             WizardStep.TestingRemote -> {
                 when (_remoteAccessMethod.value) {
@@ -749,6 +755,10 @@ class AddServerWizardViewModel : ViewModel() {
             // Remote ID step
             is WizardStepAction.UpdateRemoteId -> {
                 remoteId = action.id.uppercase().take(26)
+                // Remote Access is a Music Assistant feature — auto-set the flag
+                if (remoteId.isNotBlank() && !isMusicAssistant) {
+                    isMusicAssistant = true
+                }
                 false
             }
             WizardStepAction.ScanQrCode -> {

@@ -439,9 +439,9 @@
     <string name="wizard_remote_only_title">Remote Only Mode</string>
     <string name="wizard_remote_only_description">Without a local connection, some features may be limited:</string>
     <string name="wizard_remote_only_warning_1">Higher latency for audio sync</string>
-    <string name="wizard_remote_only_warning_2">Music Assistant features require proxy authentication</string>
+    <string name="wizard_remote_only_warning_2">You\'ll be prompted to log in after connecting</string>
     <string name="wizard_remote_only_warning_3">Connection depends on remote service availability</string>
-    <string name="wizard_remote_only_continue">Continue Anyway</string>
+    <string name="wizard_remote_only_continue">Continue</string>
     <string name="wizard_remote_only_go_back">Go Back</string>
 
     <!-- New Wizard Flow - Save -->
@@ -590,6 +590,12 @@
     <string name="ma_username">Username</string>
     <string name="ma_password">Password</string>
     <string name="ma_port">API Port</string>
+    <string name="ma_login_dialog_title">Music Assistant Login</string>
+    <string name="ma_login_dialog_message">Enter your credentials to access library browsing and player management</string>
+    <string name="ma_login_dialog_login">Log In</string>
+    <string name="ma_login_dialog_skip">Skip</string>
+    <string name="ma_login_dialog_logging_in">Logging in\u2026</string>
+    <string name="ma_login_dialog_failed">Login failed: %s</string>
 
     <!-- Queue Management -->
     <string name="queue_title">Queue</string>

@@ -561,6 +561,27 @@ class SendSpinClient(
     fun getRemoteId(): String? = remoteId
 
     /**
+     * Get the MA API DataChannel from the WebRTC transport.
+     *
+     * Only available when connected in REMOTE mode and the "ma-api"
+     * DataChannel has been established. Returns null in LOCAL/PROXY modes
+     * or if the channel is not yet open.
+     */
+    fun getMaApiDataChannel(): org.webrtc.DataChannel? {
+        val t = transport
+        return if (t is WebRTCTransport) t.getMaApiDataChannel() else null
+    }
+
+    /**
+     * Drain any MA API messages buffered by WebRTCTransport before the
+     * MaDataChannelTransport observer was registered.
+     */
+    fun drainMaApiMessageBuffer(): List<String> {
+        val t = transport
+        return if (t is WebRTCTransport) t.drainMaApiMessageBuffer() else emptyList()
+    }
+
+    /**
      * Disconnect from the current server.
      */
     fun disconnect() {

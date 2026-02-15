@@ -52,9 +52,19 @@ class WebRTCTransport(
     private val remoteId: String
 ) : SendSpinTransport, SignalingClient.Listener {
 
+    /**
+     * Listener for the MA API DataChannel lifecycle.
+     * Called when the secondary "ma-api" channel opens or closes.
+     */
+    interface MaApiChannelListener {
+        fun onMaApiChannelOpen(channel: DataChannel)
+        fun onMaApiChannelClosed()
+    }
+
     companion object {
         private const val TAG = "WebRTCTransport"
         private const val DATA_CHANNEL_NAME = "sendspin"
+        private const val MA_API_CHANNEL_NAME = "ma-api"
 
         // Singleton initialization flag
         @Volatile
@@ -101,14 +111,59 @@ class WebRTCTransport(
     private var signalingClient: SignalingClient? = null
     private var peerConnection: PeerConnection? = null
     private var dataChannel: DataChannel? = null
+    private var maApiDataChannel: DataChannel? = null
     private var listener: SendSpinTransport.Listener? = null
+    private var maApiChannelListener: MaApiChannelListener? = null
 
     // Queue ICE candidates until remote description is set
     private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
     private var remoteDescriptionSet = false
 
+    // Buffer for MA API DataChannel messages received before MaDataChannelTransport
+    // takes over. The MA gateway sends ServerInfo immediately when the channel opens,
+    // but PlaybackService may not have wired up the transport yet.
+    private val maApiMessageBuffer = ConcurrentLinkedQueue<String>()
+
     override fun setListener(listener: SendSpinTransport.Listener?) {
         this.listener = listener
+    }
+
+    /**
+     * Set a listener for the MA API DataChannel lifecycle.
+     * The listener is notified when the "ma-api" channel opens or closes.
+     */
+    fun setMaApiChannelListener(listener: MaApiChannelListener?) {
+        this.maApiChannelListener = listener
+    }
+
+    /**
+     * Get the MA API DataChannel, if open.
+     * Returns null if not connected or channel not yet open.
+     */
+    fun getMaApiDataChannel(): DataChannel? {
+        val dc = maApiDataChannel
+        return if (dc?.state() == DataChannel.State.OPEN) dc else null
+    }
+
+    /**
+     * Drain any buffered MA API messages received before the transport was wired up.
+     *
+     * The MA gateway sends ServerInfo immediately when the DataChannel is bridged.
+     * This message may arrive before [MaDataChannelTransport] registers its observer.
+     * Call this after creating the transport to replay any early messages.
+     *
+     * @return List of buffered text messages (may be empty)
+     */
+    fun drainMaApiMessageBuffer(): List<String> {
+        val messages = mutableListOf<String>()
+        while (true) {
+            val msg = maApiMessageBuffer.poll() ?: break
+            messages.add(msg)
+        }
+        if (messages.isNotEmpty()) {
+            Log.d(TAG, "Drained ${messages.size} buffered MA API message(s)")
+        }
+        return messages
     }
 
     override fun connect() {
@@ -169,6 +224,9 @@ class WebRTCTransport(
         dataChannel?.close()
         dataChannel = null
 
+        maApiDataChannel?.close()
+        maApiDataChannel = null
+
         peerConnection?.close()
         peerConnection = null
 
@@ -176,6 +234,7 @@ class WebRTCTransport(
         signalingClient = null
 
         pendingIceCandidates.clear()
+        maApiMessageBuffer.clear()
         remoteDescriptionSet = false
     }
 
@@ -282,15 +341,23 @@ class WebRTCTransport(
             return
         }
 
-        // Create DataChannel for SendSpin protocol
+        // Create DataChannel for SendSpin protocol (audio)
         val dcInit = DataChannel.Init().apply {
             ordered = true  // Maintain message order
             maxRetransmits = -1  // Reliable delivery
         }
         dataChannel = peerConnection?.createDataChannel(DATA_CHANNEL_NAME, dcInit)
         dataChannel?.registerObserver(DataChannelObserver())
-
         Log.d(TAG, "DataChannel created: $DATA_CHANNEL_NAME")
+
+        // Create DataChannel for MA API (text-only, ordered, reliable)
+        val maApiInit = DataChannel.Init().apply {
+            ordered = true
+            maxRetransmits = -1  // Reliable delivery
+        }
+        maApiDataChannel = peerConnection?.createDataChannel(MA_API_CHANNEL_NAME, maApiInit)
+        maApiDataChannel?.registerObserver(MaApiDataChannelObserver())
+        Log.d(TAG, "DataChannel created: $MA_API_CHANNEL_NAME")
 
         // Create and send SDP offer
         createOffer()
@@ -432,6 +499,52 @@ class WebRTCTransport(
             } else {
                 val text = String(bytes, Charsets.UTF_8)
                 listener?.onMessage(text)
+            }
+        }
+
+        override fun onBufferedAmountChange(previousAmount: Long) {}
+    }
+
+    /**
+     * Observer for the MA API DataChannel ("ma-api").
+     *
+     * This observer only handles lifecycle events (open/close). Message handling
+     * is delegated to MaDataChannelTransport which registers its own observer
+     * after receiving the channel reference.
+     */
+    private inner class MaApiDataChannelObserver : DataChannel.Observer {
+
+        override fun onStateChange() {
+            val dc = maApiDataChannel ?: return
+            Log.d(TAG, "MA API DataChannel state: ${dc.state()}")
+
+            when (dc.state()) {
+                DataChannel.State.OPEN -> {
+                    Log.i(TAG, "MA API DataChannel open")
+                    scope.launch {
+                        maApiChannelListener?.onMaApiChannelOpen(dc)
+                    }
+                }
+                DataChannel.State.CLOSED -> {
+                    Log.d(TAG, "MA API DataChannel closed")
+                    scope.launch {
+                        maApiChannelListener?.onMaApiChannelClosed()
+                    }
+                }
+                else -> {}
+            }
+        }
+
+        override fun onMessage(buffer: DataChannel.Buffer) {
+            // Buffer text messages (e.g., ServerInfo) that arrive before
+            // MaDataChannelTransport registers its own observer.
+            if (!buffer.binary) {
+                val data = buffer.data
+                val bytes = ByteArray(data.remaining())
+                data.get(bytes)
+                val text = String(bytes, Charsets.UTF_8)
+                maApiMessageBuffer.add(text)
+                Log.d(TAG, "Buffered MA API message (${text.length} chars)")
             }
         }
 

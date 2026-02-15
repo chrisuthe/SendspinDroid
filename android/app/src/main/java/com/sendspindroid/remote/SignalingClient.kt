@@ -30,23 +30,29 @@ import java.util.concurrent.atomic.AtomicReference
  * ```
  * Client                    Signaling Server                  MA Server
  *   │                              │                              │
- *   │──connect────────────────────►│                              │
- *   │◄─connected──────────────────│                              │
- *   │                              │                              │
- *   │──{type:"connect",           │                              │
- *   │   remoteId:"XXXX..."}──────►│                              │
- *   │                              │──────────────────────────────►│
- *   │◄─{type:"server-connected",  │                              │
+ *   │──{type:"connect-request",   │                              │
+ *   │   remoteId:"XXXX..."}──────►│──────────────────────────────►│
+ *   │                              │◄─{type:"session-ready",...}──│
+ *   │◄─{type:"connected",         │                              │
+ *   │   sessionId:"...",           │                              │
  *   │   iceServers:[...]}─────────│                              │
  *   │                              │                              │
  *   │──{type:"offer",             │                              │
- *   │   sdp:"..."}───────────────►│──────────────────────────────►│
+ *   │   remoteId:"...",            │                              │
+ *   │   sessionId:"...",           │                              │
+ *   │   data:{sdp:"...",           │                              │
+ *   │         type:"offer"}}──────►│──────────────────────────────►│
  *   │                              │                              │
  *   │◄─{type:"answer",            │◄──────────────────────────────│
- *   │   sdp:"..."}────────────────│                              │
+ *   │   data:{sdp:"...",           │                              │
+ *   │         type:"answer"}}─────│                              │
  *   │                              │                              │
- *   │──{type:"ice-candidate",...}─►│──────────────────────────────►│
- *   │◄─{type:"ice-candidate",...}─│◄──────────────────────────────│
+ *   │──{type:"ice-candidate",     │                              │
+ *   │   remoteId:"...",            │                              │
+ *   │   sessionId:"...",           │                              │
+ *   │   data:{...}}───────────────►│──────────────────────────────►│
+ *   │◄─{type:"ice-candidate",     │◄──────────────────────────────│
+ *   │   data:{...}}───────────────│                              │
  * ```
  *
  * @param remoteId The 26-character Remote ID from Music Assistant settings
@@ -94,6 +100,9 @@ class SignalingClient(
 
     private var webSocket: WebSocket? = null
     private var listener: Listener? = null
+
+    /** Session ID assigned by the signaling server after connect-request. */
+    private var sessionId: String? = null
 
     /**
      * Listener for signaling events.
@@ -147,22 +156,31 @@ class SignalingClient(
 
     /**
      * Send an SDP offer to the server.
+     * The SDP is wrapped in a `data` object per the signaling protocol.
      */
     fun sendOffer(sdp: String) {
         val message = JSONObject().apply {
             put("type", "offer")
-            put("sdp", sdp)
+            put("remoteId", remoteId)
+            sessionId?.let { put("sessionId", it) }
+            put("data", JSONObject().apply {
+                put("sdp", sdp)
+                put("type", "offer")
+            })
         }
         sendJson(message)
     }
 
     /**
      * Send an ICE candidate to the server.
+     * The candidate is wrapped in a `data` object per the signaling protocol.
      */
     fun sendIceCandidate(candidate: IceCandidateInfo) {
         val message = JSONObject().apply {
             put("type", "ice-candidate")
-            put("candidate", JSONObject().apply {
+            put("remoteId", remoteId)
+            sessionId?.let { put("sessionId", it) }
+            put("data", JSONObject().apply {
                 put("candidate", candidate.sdp)
                 put("sdpMid", candidate.sdpMid)
                 put("sdpMLineIndex", candidate.sdpMLineIndex)
@@ -178,6 +196,7 @@ class SignalingClient(
         Log.d(TAG, "Disconnecting from signaling server")
         webSocket?.close(1000, "Client disconnect")
         webSocket = null
+        sessionId = null
         _state.value = State.Disconnected
     }
 
@@ -199,7 +218,8 @@ class SignalingClient(
 
     private fun isValidRemoteId(id: String): Boolean {
         // Remote ID is 26 uppercase alphanumeric characters
-        return id.length == 26 && id.all { it.isLetterOrDigit() && it.isUpperCase() }
+        // Digits are valid but not "uppercase", so check letter case separately
+        return id.length == 26 && id.all { it.isDigit() || (it.isLetter() && it.isUpperCase()) }
     }
 
     private fun parseIceServers(jsonArray: JSONArray): List<IceServerConfig> {
@@ -247,7 +267,7 @@ class SignalingClient(
 
             // Request connection to the Remote ID
             val connectMessage = JSONObject().apply {
-                put("type", "connect")
+                put("type", "connect-request")
                 put("remoteId", remoteId)
             }
             sendJson(connectMessage)
@@ -262,38 +282,54 @@ class SignalingClient(
                     val type = json.optString("type", "")
 
                     when (type) {
-                        "server-connected" -> {
-                            // MA server accepted our connection, parse ICE servers
+                        "connected" -> {
+                            // Signaling server confirmed connection to MA server.
+                            // Store the session ID for subsequent messages.
+                            sessionId = json.optString("sessionId", ""
+                            ).takeIf { it.isNotEmpty() }
                             val iceServersJson = json.optJSONArray("iceServers") ?: JSONArray()
                             val iceServers = parseIceServers(iceServersJson)
 
-                            Log.i(TAG, "Server connected, ${iceServers.size} ICE servers available")
+                            Log.i(TAG, "Server connected (sessionId=$sessionId), ${iceServers.size} ICE servers")
                             _state.value = State.ServerConnected(iceServers)
                             listener?.onServerConnected(iceServers)
                         }
 
                         "answer" -> {
-                            val sdp = json.getString("sdp")
+                            // SDP answer is wrapped in "data" object
+                            val data = json.getJSONObject("data")
+                            val sdp = data.getString("sdp")
                             Log.d(TAG, "Received SDP answer")
                             listener?.onAnswer(sdp)
                         }
 
                         "ice-candidate" -> {
-                            val candidateJson = json.getJSONObject("candidate")
+                            // ICE candidate is wrapped in "data" object
+                            val data = json.getJSONObject("data")
                             val candidate = IceCandidateInfo(
-                                sdp = candidateJson.getString("candidate"),
-                                sdpMid = candidateJson.optString("sdpMid", ""),
-                                sdpMLineIndex = candidateJson.optInt("sdpMLineIndex", 0)
+                                sdp = data.getString("candidate"),
+                                sdpMid = data.optString("sdpMid", ""),
+                                sdpMLineIndex = data.optInt("sdpMLineIndex", 0)
                             )
                             Log.d(TAG, "Received ICE candidate: ${candidate.sdp.take(50)}...")
                             listener?.onIceCandidate(candidate)
                         }
 
+                        "peer-disconnected" -> {
+                            Log.w(TAG, "Peer (MA server) disconnected")
+                            listener?.onDisconnected()
+                        }
+
                         "error" -> {
-                            val message = json.optString("message", "Unknown error")
+                            val message = json.optString("error",
+                                json.optString("message", "Unknown error"))
                             Log.e(TAG, "Signaling error: $message")
                             _state.value = State.Error(message)
                             listener?.onError(message)
+                        }
+
+                        "ping", "pong" -> {
+                            // JSON-level keepalive messages - ignore
                         }
 
                         else -> {
@@ -314,6 +350,7 @@ class SignalingClient(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "Signaling closed: $code $reason")
             this@SignalingClient.webSocket = null
+            sessionId = null
             _state.value = State.Disconnected
             listener?.onDisconnected()
         }
@@ -321,6 +358,7 @@ class SignalingClient(
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             Log.e(TAG, "Signaling failure", t)
             this@SignalingClient.webSocket = null
+            sessionId = null
             val message = t.message ?: "Connection failed"
             _state.value = State.Error(message)
             listener?.onError(message)

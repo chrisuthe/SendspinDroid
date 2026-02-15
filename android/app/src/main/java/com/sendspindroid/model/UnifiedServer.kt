@@ -44,8 +44,12 @@ data class UnifiedServer(
      * - Queue management
      * - Player controls (Choose Players)
      *
-     * Note: MA API requires a reachable endpoint (Local or Proxy) - Remote-only
-     * connections cannot access the MA API directly.
+     * The MA API can be accessed via:
+     * - LOCAL/PROXY: persistent WebSocket to ws://host:8095/ws
+     * - REMOTE: WebRTC DataChannel ("ma-api") bridged to the MA WebSocket API
+     *
+     * Note: Even if this flag is false, MusicAssistantManager will auto-detect
+     * MA capability if a stored authentication token exists for this server.
      */
     val isMusicAssistant: Boolean = false
 ) {

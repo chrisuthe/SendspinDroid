@@ -2684,6 +2684,8 @@ class MainActivity : AppCompatActivity() {
      * - Queue button: only visible when connected to MA
      * - Bottom navigation: only visible when connected to MA (Home/Search/Library need MA API)
      */
+    private var maLoginDialogShowing = false
+
     private fun observeMaConnectionState() {
         lifecycleScope.launch {
             MusicAssistantManager.connectionState.collectLatest { state ->
@@ -2704,10 +2706,87 @@ class MainActivity : AppCompatActivity() {
                     hideNavigationContent()
                 }
 
+                // Show login dialog when MA server detected but no token stored
+                if (state is MaConnectionState.NeedsAuth && !maLoginDialogShowing) {
+                    showMaLoginDialog()
+                }
+
                 // Update ViewModel for Compose UI
                 viewModel.setMaConnected(isMaConnected)
 
                 Log.d(TAG, "MA connection state changed: $state, MA-dependent UI visible: $isMaConnected")
+            }
+        }
+    }
+
+    /**
+     * Show a login dialog for Music Assistant authentication.
+     *
+     * Displayed when the app detects an MA server but has no stored token
+     * (e.g., first connection via Remote ID, or after token expiry).
+     */
+    private fun showMaLoginDialog() {
+        if (maLoginDialogShowing) return
+        maLoginDialogShowing = true
+
+        val dialogView = LayoutInflater.from(this).inflate(
+            R.layout.dialog_ma_login, null
+        )
+        val usernameInput = dialogView.findViewById<EditText>(R.id.ma_login_username)
+        val passwordInput = dialogView.findViewById<EditText>(R.id.ma_login_password)
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.ma_login_dialog_title)
+            .setMessage(R.string.ma_login_dialog_message)
+            .setView(dialogView)
+            .setPositiveButton(R.string.ma_login_dialog_login, null) // Set below to prevent auto-dismiss
+            .setNegativeButton(R.string.ma_login_dialog_skip) { d, _ ->
+                d.dismiss()
+            }
+            .setOnDismissListener {
+                maLoginDialogShowing = false
+            }
+            .create()
+
+        dialog.show()
+
+        // Override positive button to handle async login without dismissing
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val username = usernameInput.text.toString().trim()
+            val password = passwordInput.text.toString().trim()
+
+            if (username.isBlank() || password.isBlank()) {
+                usernameInput.error = if (username.isBlank()) "Required" else null
+                passwordInput.error = if (password.isBlank()) "Required" else null
+                return@setOnClickListener
+            }
+
+            // Disable inputs during login
+            usernameInput.isEnabled = false
+            passwordInput.isEnabled = false
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = false
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false
+            dialog.setMessage(getString(R.string.ma_login_dialog_logging_in))
+
+            lifecycleScope.launch {
+                val success = MusicAssistantManager.login(username, password)
+                if (success) {
+                    dialog.dismiss()
+                } else {
+                    // Re-enable inputs for retry
+                    usernameInput.isEnabled = true
+                    passwordInput.isEnabled = true
+                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
+                    dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
+
+                    val errorState = MusicAssistantManager.connectionState.value
+                    val errorMsg = if (errorState is MaConnectionState.Error) {
+                        errorState.message
+                    } else {
+                        "Unknown error"
+                    }
+                    dialog.setMessage(getString(R.string.ma_login_dialog_failed, errorMsg))
+                }
             }
         }
     }
