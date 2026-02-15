@@ -1,37 +1,55 @@
 package com.sendspindroid.ui.wizard
 
 /**
- * Navigation routes for the Add Server Wizard.
- * Each step in the wizard has a corresponding route.
+ * Client mode — determines whether the app shows full Music Assistant features
+ * or basic SendSpin playback controls.
  */
-object WizardRoutes {
-    const val WELCOME = "welcome"
-    const val FIND_SERVER = "find_server"
-    const val TESTING_LOCAL = "testing_local"
-    const val MA_LOGIN = "ma_login"
-    const val REMOTE_CHOICE = "remote_choice"
-    const val REMOTE_ID = "remote_id"
-    const val PROXY = "proxy"
-    const val TESTING_REMOTE = "testing_remote"
-    const val REMOTE_ONLY_WARNING = "remote_only_warning"
-    const val SAVE = "save"
+enum class ClientMode {
+    SENDSPIN,           // Basic playback: album art, play/pause/next/back
+    MUSIC_ASSISTANT     // Full MA: library browsing, search, playlists, queue management
 }
 
 /**
- * Wizard step enum for internal state management.
- * Mirrors AddServerWizardViewModel.WizardStep for Compose integration.
+ * Wizard step enum for the branching Add Server flow.
+ *
+ * The wizard branches at ClientType based on user intent,
+ * then further at MA_NetworkQuestion based on network situation.
+ *
+ * SendSpin path:
+ *   ClientType → SS_FindServer → SS_TestLocal → SS_Finish
+ *
+ * MA local path:
+ *   ClientType → MA_NetworkQuestion → MA_FindServer → MA_TestLocal →
+ *   MA_Login → MA_RemoteQuestion → [MA_RemoteSetup → MA_TestRemote →] MA_Finish
+ *
+ * MA remote-only path:
+ *   ClientType → MA_NetworkQuestion → MA_RemoteOnlySetup →
+ *   MA_TestRemoteOnly → MA_LoginRemote → MA_FinishRemoteOnly
  */
 enum class WizardStep {
-    Welcome,
-    FindServer,
-    TestingLocal,
-    MaLogin,
-    RemoteChoice,
-    RemoteId,
-    Proxy,
-    TestingRemote,
-    RemoteOnlyWarning,
-    Save
+    // Entry point (all paths)
+    ClientType,
+
+    // SendSpin path
+    SS_FindServer,
+    SS_TestLocal,
+    SS_Finish,
+
+    // Music Assistant local path
+    MA_NetworkQuestion,
+    MA_FindServer,
+    MA_TestLocal,
+    MA_Login,
+    MA_RemoteQuestion,
+    MA_RemoteSetup,
+    MA_TestRemote,
+    MA_Finish,
+
+    // Music Assistant remote-only path
+    MA_RemoteOnlySetup,
+    MA_TestRemoteOnly,
+    MA_LoginRemote,
+    MA_FinishRemoteOnly
 }
 
 /**

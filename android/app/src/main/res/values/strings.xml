@@ -375,6 +375,17 @@
     <string name="no_servers_yet">No servers yet</string>
     <string name="no_saved_servers_hint">Add a server using the + button</string>
     <string name="no_nearby_servers_hint">No servers found on this network</string>
+
+    <!-- Welcome / Empty State -->
+    <string name="welcome_title">Welcome to SendspinDroid</string>
+    <string name="welcome_subtitle">Stream high-quality audio from your SendSpin or Music Assistant server</string>
+    <string name="welcome_add_first_server">Add Your First Server</string>
+    <string name="welcome_or">or</string>
+    <string name="welcome_scanning">Searching for servers nearby\u2026</string>
+    <string name="welcome_servers_found">%d server(s) found nearby</string>
+    <string name="welcome_no_servers_found">No servers found on this network</string>
+    <string name="welcome_quick_connect">Quick Connect</string>
+    <string name="welcome_found_on_network">Found on your local network</string>
     <string name="auto_connecting_to_default">Auto-connecting to %s…</string>
 
     <!-- Auto-Reconnection -->

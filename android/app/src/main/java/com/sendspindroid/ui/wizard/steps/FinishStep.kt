@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
@@ -28,12 +29,16 @@ import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
- * Save step - final step to name and save the server.
+ * Final wizard step — name the server, set as default, and show a summary
+ * of configured connections.
+ *
+ * Used for SS_Finish, MA_Finish, and MA_FinishRemoteOnly.
  */
 @Composable
-fun SaveStep(
+fun FinishStep(
     serverName: String,
     isDefault: Boolean,
+    connectionSummary: List<String>,
     onNameChange: (String) -> Unit,
     onDefaultChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -54,7 +59,6 @@ fun SaveStep(
             tint = MaterialTheme.colorScheme.primary
         )
 
-        // Title and description
         Text(
             text = stringResource(R.string.wizard_save_title),
             style = MaterialTheme.typography.titleLarge
@@ -118,29 +122,64 @@ fun SaveStep(
                 }
             }
         }
+
+        // Connection summary
+        if (connectionSummary.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "Connection Summary",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    connectionSummary.forEach { line ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 2.dp)
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_check_circle),
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Preview(showBackground = true)
 @Composable
-private fun SaveStepPreview() {
+private fun FinishStepPreview() {
     SendSpinTheme {
-        SaveStep(
+        FinishStep(
             serverName = "Living Room",
             isDefault = true,
-            onNameChange = {},
-            onDefaultChange = {}
-        )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun SaveStepEmptyPreview() {
-    SendSpinTheme {
-        SaveStep(
-            serverName = "",
-            isDefault = false,
+            connectionSummary = listOf(
+                "Local: 192.168.1.100:8927",
+                "Remote ID: VVPN3-TLP34-...",
+                "Music Assistant: Authenticated"
+            ),
             onNameChange = {},
             onDefaultChange = {}
         )

@@ -18,7 +18,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -26,13 +25,13 @@ import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
- * Welcome step of the wizard.
- * Presents two options: "Set up my server" or "Find other servers".
+ * MA local path — asks whether the user also wants remote access.
+ * Tapping a card navigates directly (no Next button).
  */
 @Composable
-fun WelcomeStep(
-    onSetupMyServer: () -> Unit,
-    onFindOtherServers: () -> Unit,
+fun RemoteQuestionStep(
+    onYesRemote: () -> Unit,
+    onNoLocalOnly: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -42,28 +41,16 @@ fun WelcomeStep(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // App icon
-        Icon(
-            painter = painterResource(R.drawable.ic_server),
-            contentDescription = null,
-            modifier = Modifier.size(64.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Title
         Text(
-            text = stringResource(R.string.wizard_welcome_title),
+            text = "Remote Access",
             style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Subtitle
         Text(
-            text = stringResource(R.string.wizard_welcome_subtitle),
+            text = "Want to access your server when you\u2019re away from home?",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
@@ -71,28 +58,27 @@ fun WelcomeStep(
 
         Spacer(modifier = Modifier.height(48.dp))
 
-        // Option cards
-        WelcomeOptionCard(
-            icon = R.drawable.ic_wifi,
-            title = stringResource(R.string.wizard_setup_my_server),
-            description = stringResource(R.string.wizard_setup_my_server_desc),
-            onClick = onSetupMyServer
+        RemoteOptionCard(
+            icon = R.drawable.ic_cloud_connected,
+            title = "Yes, set up remote access",
+            description = "Control your music when you\u2019re not on your home network.",
+            onClick = onYesRemote
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        WelcomeOptionCard(
-            icon = R.drawable.ic_search,
-            title = stringResource(R.string.wizard_find_other_servers),
-            description = stringResource(R.string.wizard_find_other_servers_desc),
-            onClick = onFindOtherServers
+        RemoteOptionCard(
+            icon = R.drawable.ic_wifi,
+            title = "No, local only",
+            description = "Only use this server when on the same network.",
+            onClick = onNoLocalOnly
         )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WelcomeOptionCard(
+private fun RemoteOptionCard(
     icon: Int,
     title: String,
     description: String,
@@ -138,11 +124,11 @@ private fun WelcomeOptionCard(
 
 @Preview(showBackground = true)
 @Composable
-private fun WelcomeStepPreview() {
+private fun RemoteQuestionStepPreview() {
     SendSpinTheme {
-        WelcomeStep(
-            onSetupMyServer = {},
-            onFindOtherServers = {}
+        RemoteQuestionStep(
+            onYesRemote = {},
+            onNoLocalOnly = {}
         )
     }
 }

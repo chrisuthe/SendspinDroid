@@ -23,6 +23,8 @@ import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
+import com.sendspindroid.network.NetworkEvaluator
+import com.sendspindroid.network.TransportType
 import com.sendspindroid.remote.RemoteConnection
 import com.sendspindroid.sendspin.MusicAssistantAuth
 import com.sendspindroid.ui.remote.QrScannerDialog
@@ -67,6 +69,9 @@ class AddServerWizardActivity : FragmentActivity() {
 
     private data class DiscoveredServer(val name: String, val address: String, val path: String)
 
+    // Network evaluator for auto-detecting network type
+    private var networkEvaluator: NetworkEvaluator? = null
+
     // TV device detection (for QR scanner)
     private val isTvDevice: Boolean by lazy {
         val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
@@ -91,6 +96,20 @@ class AddServerWizardActivity : FragmentActivity() {
         // Initialize discovery manager
         discoveryManager = NsdDiscoveryManager(this, discoveryListener)
 
+        // Initialize network evaluator and set hint
+        networkEvaluator = NetworkEvaluator(this).also { evaluator ->
+            evaluator.evaluateCurrentNetwork()
+            val state = evaluator.networkState.value
+            val hint = when (state.transportType) {
+                TransportType.WIFI -> "You appear to be on WiFi"
+                TransportType.CELLULAR -> "You appear to be on cellular data"
+                TransportType.ETHERNET -> "You appear to be on Ethernet"
+                TransportType.VPN -> "You appear to be on a VPN"
+                TransportType.UNKNOWN -> ""
+            }
+            viewModel.setNetworkHint(hint)
+        }
+
         // Let Compose handle IME insets so keyboard doesn't cover text fields
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -98,9 +117,10 @@ class AddServerWizardActivity : FragmentActivity() {
             SendSpinTheme {
                 val state by viewModel.wizardState.collectAsState()
 
-                // Auto-start discovery when entering FindServer step
+                // Auto-start discovery when entering a FindServer step
                 androidx.compose.runtime.LaunchedEffect(state.currentStep) {
-                    if (state.currentStep == WizardStep.FindServer && !state.isSearching) {
+                    if ((state.currentStep == WizardStep.SS_FindServer ||
+                         state.currentStep == WizardStep.MA_FindServer) && !state.isSearching) {
                         startDiscovery()
                     }
                 }
@@ -110,7 +130,7 @@ class AddServerWizardActivity : FragmentActivity() {
                     onClose = { finish() },
                     onBack = { handleBack() },
                     onNext = { handleNext() },
-                    onSkip = { viewModel.onSkipLocal() },
+                    onSkip = { viewModel.onSkipMaLogin() },
                     onSave = { attemptSave() },
                     onStepAction = { action -> handleStepAction(action) }
                 )
@@ -136,49 +156,61 @@ class AddServerWizardActivity : FragmentActivity() {
 
     private fun handleNext() {
         when (viewModel.currentStep.value) {
-            WizardStep.Welcome -> {
-                viewModel.onNext()
-            }
-            WizardStep.FindServer -> {
+            // FindServer steps — validate address and start test
+            WizardStep.SS_FindServer,
+            WizardStep.MA_FindServer -> {
                 if (viewModel.localAddress.isBlank()) {
                     showToast(getString(R.string.wizard_local_address_hint))
                     return
                 }
                 startLocalConnectionTest()
             }
-            WizardStep.MaLogin -> {
+
+            // MA Login steps — test connection if no token yet
+            WizardStep.MA_Login,
+            WizardStep.MA_LoginRemote -> {
                 if (viewModel.maToken != null) {
                     viewModel.onNext()
                 } else {
                     startMaConnectionTest()
                 }
             }
-            WizardStep.RemoteChoice -> {
-                viewModel.onNext()
-            }
-            WizardStep.RemoteId -> {
-                if (viewModel.remoteId.isNotBlank()) {
-                    if (!validateRemoteId()) return
-                    startRemoteConnectionTest()
-                } else {
-                    viewModel.navigateTo(WizardStep.Save)
+
+            // Remote setup steps — validate and start test
+            WizardStep.MA_RemoteSetup,
+            WizardStep.MA_RemoteOnlySetup -> {
+                val method = viewModel.remoteAccessMethod.value
+                when (method) {
+                    RemoteAccessMethod.REMOTE_ID -> {
+                        if (viewModel.remoteId.isNotBlank()) {
+                            if (!validateRemoteId()) return
+                            startRemoteConnectionTest()
+                        } else {
+                            // No remote ID entered — skip test, go to next
+                            viewModel.onNext()
+                        }
+                    }
+                    RemoteAccessMethod.PROXY -> {
+                        if (viewModel.proxyUrl.isNotBlank()) {
+                            if (!validateProxy()) return
+                            startProxyConnectionTest()
+                        } else {
+                            viewModel.onNext()
+                        }
+                    }
+                    RemoteAccessMethod.NONE -> viewModel.onNext()
                 }
             }
-            WizardStep.Proxy -> {
-                if (viewModel.proxyUrl.isNotBlank()) {
-                    if (!validateProxy()) return
-                    startProxyConnectionTest()
-                } else {
-                    viewModel.navigateTo(WizardStep.Save)
-                }
-            }
-            WizardStep.RemoteOnlyWarning -> {
-                viewModel.onNext()
-            }
-            WizardStep.Save -> {
+
+            // Finish steps — handled by onSave
+            WizardStep.SS_Finish,
+            WizardStep.MA_Finish,
+            WizardStep.MA_FinishRemoteOnly -> {
                 // Handled by onSave
             }
-            else -> { /* Testing steps handled by test completion */ }
+
+            // Card-selection and testing steps — no Next action
+            else -> viewModel.onNext()
         }
     }
 
@@ -191,16 +223,9 @@ class AddServerWizardActivity : FragmentActivity() {
 
         if (needsActivityHandling) {
             when (action) {
-                WizardStepAction.FindOtherServers,
-                WizardStepAction.StartDiscovery -> {
-                    startDiscovery()
-                }
-                WizardStepAction.TestMaConnection -> {
-                    startMaConnectionTest()
-                }
-                WizardStepAction.ScanQrCode -> {
-                    openQrScanner()
-                }
+                WizardStepAction.StartDiscovery -> startDiscovery()
+                WizardStepAction.TestMaConnection -> startMaConnectionTest()
+                WizardStepAction.ScanQrCode -> openQrScanner()
                 else -> { /* Handled by ViewModel */ }
             }
         }
@@ -288,7 +313,13 @@ class AddServerWizardActivity : FragmentActivity() {
     // ========================================================================
 
     private fun startLocalConnectionTest() {
-        viewModel.navigateTo(WizardStep.TestingLocal)
+        // Navigate to the correct testing step
+        val testStep = when (viewModel.currentStep.value) {
+            WizardStep.SS_FindServer -> WizardStep.SS_TestLocal
+            WizardStep.MA_FindServer -> WizardStep.MA_TestLocal
+            else -> return
+        }
+        viewModel.navigateTo(testStep)
 
         lifecycleScope.launch {
             delay(500) // Brief delay for UI to show
@@ -311,7 +342,6 @@ class AddServerWizardActivity : FragmentActivity() {
     private suspend fun testLocalConnection(address: String): Result<Int> {
         return withContext(Dispatchers.IO) {
             try {
-                // Build WebSocket URL
                 val wsUrl = if (address.contains(":")) {
                     "ws://$address/sendspin"
                 } else {
@@ -325,7 +355,6 @@ class AddServerWizardActivity : FragmentActivity() {
                     .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                     .build()
 
-                // Use OkHttp's WebSocket to attempt a proper handshake
                 val request = okhttp3.Request.Builder()
                     .url(wsUrl)
                     .build()
@@ -348,7 +377,6 @@ class AddServerWizardActivity : FragmentActivity() {
                         Log.d(TAG, "WebSocket connection failed: ${t.message}, response code: ${response?.code}")
                         resultCode = response?.code ?: 0
                         errorMessage = t.message
-                        // If we got a response code, the server is reachable even if WebSocket failed
                         connectionSuccess = response != null
                         latch.countDown()
                     }
@@ -373,13 +401,20 @@ class AddServerWizardActivity : FragmentActivity() {
     private fun startMaConnectionTest() {
         viewModel.testMaConnection { success ->
             if (success) {
-                viewModel.navigateTo(WizardStep.RemoteChoice)
+                // Advance past the login step
+                viewModel.onNext()
             }
         }
     }
 
     private fun startRemoteConnectionTest() {
-        viewModel.navigateTo(WizardStep.TestingRemote)
+        // Navigate to the correct testing step
+        val testStep = when (viewModel.currentStep.value) {
+            WizardStep.MA_RemoteSetup -> WizardStep.MA_TestRemote
+            WizardStep.MA_RemoteOnlySetup -> WizardStep.MA_TestRemoteOnly
+            else -> return
+        }
+        viewModel.navigateTo(testStep)
 
         lifecycleScope.launch {
             delay(500)
@@ -405,7 +440,6 @@ class AddServerWizardActivity : FragmentActivity() {
                 val parsed = RemoteConnection.parseRemoteId(remoteId)
                     ?: return@withContext Result.failure(IllegalArgumentException("Invalid Remote ID format"))
 
-                // Validate the remote ID format - actual connection will be tested when used
                 if (RemoteConnection.isValidRemoteId(parsed)) {
                     Result.success("Remote ID format valid")
                 } else {
@@ -419,7 +453,12 @@ class AddServerWizardActivity : FragmentActivity() {
     }
 
     private fun startProxyConnectionTest() {
-        viewModel.navigateTo(WizardStep.TestingRemote)
+        val testStep = when (viewModel.currentStep.value) {
+            WizardStep.MA_RemoteSetup -> WizardStep.MA_TestRemote
+            WizardStep.MA_RemoteOnlySetup -> WizardStep.MA_TestRemoteOnly
+            else -> return
+        }
+        viewModel.navigateTo(testStep)
 
         lifecycleScope.launch {
             delay(500)
@@ -443,11 +482,6 @@ class AddServerWizardActivity : FragmentActivity() {
         }
     }
 
-    /**
-     * Test proxy connection using LOGIN mode (username/password).
-     * Exchanges credentials for a long-lived access token via MusicAssistantAuth,
-     * then stores the token in the ViewModel for saving with the server.
-     */
     private suspend fun testProxyLoginConnection(): Result<String> {
         return try {
             val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
@@ -459,7 +493,6 @@ class AddServerWizardActivity : FragmentActivity() {
                 password = viewModel.proxyPassword
             )
 
-            // Store the access token so it gets saved with the server
             viewModel.proxyToken = loginResult.accessToken
             Log.d(TAG, "Proxy login successful, token obtained for user: ${loginResult.userName}")
 
@@ -476,16 +509,11 @@ class AddServerWizardActivity : FragmentActivity() {
         }
     }
 
-    /**
-     * Test proxy connection using TOKEN mode (pre-existing auth token).
-     * Tests WebSocket connectivity with the provided Bearer token.
-     */
     private suspend fun testProxyTokenConnection(): Result<String> {
         return withContext(Dispatchers.IO) {
             try {
                 val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
 
-                // Convert HTTP URL to WebSocket URL for proper testing
                 val wsUrl = normalizedUrl
                     .replace("https://", "wss://")
                     .replace("http://", "ws://")
@@ -501,7 +529,6 @@ class AddServerWizardActivity : FragmentActivity() {
                 val requestBuilder = okhttp3.Request.Builder()
                     .url(wsUrl)
 
-                // Add authentication header if token is available
                 if (viewModel.proxyToken.isNotBlank()) {
                     requestBuilder.addHeader("Authorization", "Bearer ${viewModel.proxyToken}")
                 }
@@ -521,7 +548,6 @@ class AddServerWizardActivity : FragmentActivity() {
                     override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
                         Log.d(TAG, "Proxy WebSocket connection failed: ${t.message}, response code: ${response?.code}")
                         errorMessage = t.message
-                        // If we got a response, the proxy is reachable even if WebSocket upgrade failed
                         connectionSuccess = response != null
                         latch.countDown()
                     }
@@ -579,7 +605,6 @@ class AddServerWizardActivity : FragmentActivity() {
     // ========================================================================
 
     private fun attemptSave() {
-        // Validate
         if (viewModel.serverName.isBlank()) {
             showToast(getString(R.string.wizard_name_required))
             return

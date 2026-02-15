@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -41,16 +40,17 @@ import com.sendspindroid.ui.wizard.DiscoveredServerUi
 
 /**
  * Find server step - discover servers via mDNS or enter address manually.
+ *
+ * The Music Assistant checkbox is no longer here — the client mode
+ * (SendSpin vs MA) is chosen on the ClientType step.
  */
 @Composable
 fun FindServerStep(
     discoveredServers: List<DiscoveredServerUi>,
     localAddress: String,
     isSearching: Boolean,
-    isMusicAssistant: Boolean,
     onAddressChange: (String) -> Unit,
     onServerSelected: (DiscoveredServerUi) -> Unit,
-    onMusicAssistantChange: (Boolean) -> Unit,
     onStartSearch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -135,43 +135,6 @@ fun FindServerStep(
                 placeholder = { Text(stringResource(R.string.wizard_local_address_hint)) },
                 singleLine = true
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Music Assistant checkbox
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onMusicAssistantChange(!isMusicAssistant) }
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = isMusicAssistant,
-                        onCheckedChange = onMusicAssistantChange
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.wizard_music_assistant_checkbox),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = stringResource(R.string.wizard_music_assistant_checkbox_desc),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
         }
 
         // Refresh button
@@ -272,10 +235,8 @@ private fun FindServerStepPreview() {
             ),
             localAddress = "",
             isSearching = true,
-            isMusicAssistant = true,
             onAddressChange = {},
             onServerSelected = {},
-            onMusicAssistantChange = {},
             onStartSearch = {}
         )
     }
@@ -289,10 +250,8 @@ private fun FindServerStepEmptyPreview() {
             discoveredServers = emptyList(),
             localAddress = "192.168.1.100:8927",
             isSearching = false,
-            isMusicAssistant = false,
             onAddressChange = {},
             onServerSelected = {},
-            onMusicAssistantChange = {},
             onStartSearch = {}
         )
     }
