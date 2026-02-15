@@ -485,13 +485,15 @@ private fun ConnectedShell(
                                         .width(AdaptiveDefaults.browseQueueSidebarWidth(formFactor))
                                         .fillMaxHeight()
                                 ) {
+                                    val metadata by viewModel.metadata.collectAsState()
                                     QueueSheetContent(
                                         viewModel = queueViewModel,
                                         onBrowseLibrary = {
                                             // Already on a browse screen — close the sidebar
                                             browseQueueVisible = false
                                         },
-                                        modifier = Modifier.fillMaxSize()
+                                        modifier = Modifier.fillMaxSize(),
+                                        currentTrackTitle = metadata.title
                                     )
                                 }
                             }

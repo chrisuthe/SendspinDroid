@@ -74,13 +74,14 @@ import com.sendspindroid.ui.adaptive.tvFocusable
 fun QueueSheetContent(
     viewModel: QueueViewModel,
     onBrowseLibrary: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentTrackTitle: String? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSaveDialog by remember { mutableStateOf(false) }
 
-    // Load queue when content appears
-    LaunchedEffect(Unit) {
+    // Load queue when content appears, and reload when the track changes
+    LaunchedEffect(currentTrackTitle) {
         viewModel.loadQueue()
     }
 

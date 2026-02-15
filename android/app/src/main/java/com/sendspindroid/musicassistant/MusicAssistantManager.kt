@@ -774,10 +774,9 @@ object MusicAssistantManager {
             try {
                 Log.d(TAG, "${effectiveMode.name} media: $uri")
 
-                // Use THIS app's player ID - the same ID we registered with SendSpin
-                // This ensures playback goes to OUR queue, not some other player
-                val playerId = UserSettings.getPlayerId()
-                Log.d(TAG, "Using our player ID: $playerId")
+                // Resolve the effective queue ID — if we're grouped, target the leader's queue
+                val playerId = getEffectiveQueueId(apiUrl, token)
+                Log.d(TAG, "Using queue ID: $playerId")
 
                 // Build play command arguments
                 val args = mutableMapOf<String, Any>(
@@ -806,6 +805,34 @@ object MusicAssistantManager {
     // ========================================================================
 
     /**
+     * Resolve the effective queue ID for this player.
+     *
+     * In Music Assistant, the queue belongs to the group leader. When this
+     * player is synced to another player (the leader), queue operations must
+     * target the leader's queue_id, not ours.
+     *
+     * @return The queue_id to use for queue operations (leader's ID if grouped,
+     *         or our own ID if standalone/leader)
+     */
+    private suspend fun getEffectiveQueueId(apiUrl: String, token: String): String {
+        val playerId = UserSettings.getPlayerId()
+        return try {
+            val response = sendMaCommand(apiUrl, token, "players/all", emptyMap())
+            val players = parsePlayers(response)
+            val thisPlayer = players.find { it.playerId == playerId }
+
+            val effectiveId = thisPlayer?.syncedTo ?: playerId
+            if (effectiveId != playerId) {
+                Log.d(TAG, "Player is grouped — using leader queue: $effectiveId (our ID: $playerId)")
+            }
+            effectiveId
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to resolve group leader, using own player ID", e)
+            playerId
+        }
+    }
+
+    /**
      * Get the current queue items for the player.
      *
      * @param limit Maximum number of items to return (default 200, max 500)
@@ -820,7 +847,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Fetching queue items for player: $playerId (limit=$limit, offset=$offset)")
 
                 // First get the queue state (shuffle, repeat, current index)
@@ -856,7 +883,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Clearing queue for player: $playerId")
 
                 sendMaCommand(apiUrl, token, "player_queues/clear", mapOf("queue_id" to playerId))
@@ -883,7 +910,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Playing queue item: $queueItemId on player: $playerId")
 
                 sendMaCommand(
@@ -913,7 +940,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Removing queue item: $queueItemId from player: $playerId")
 
                 sendMaCommand(
@@ -944,7 +971,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Moving queue item $queueItemId to position $newIndex")
 
                 sendMaCommand(
@@ -978,7 +1005,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Setting shuffle ${if (enabled) "ON" else "OFF"} for player: $playerId")
 
                 sendMaCommand(
@@ -1008,7 +1035,7 @@ object MusicAssistantManager {
 
         return withContext(Dispatchers.IO) {
             try {
-                val playerId = UserSettings.getPlayerId()
+                val playerId = getEffectiveQueueId(apiUrl, token)
                 Log.d(TAG, "Setting repeat mode '$mode' for player: $playerId")
 
                 sendMaCommand(
