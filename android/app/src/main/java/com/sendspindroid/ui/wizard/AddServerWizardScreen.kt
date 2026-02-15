@@ -31,11 +31,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -43,28 +38,21 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
+import com.sendspindroid.ui.wizard.steps.ClientTypeStep
 import com.sendspindroid.ui.wizard.steps.FindServerStep
+import com.sendspindroid.ui.wizard.steps.FinishStep
 import com.sendspindroid.ui.wizard.steps.MaLoginStep
-import com.sendspindroid.ui.wizard.steps.ProxyStep
-import com.sendspindroid.ui.wizard.steps.RemoteChoiceStep
-import com.sendspindroid.ui.wizard.steps.RemoteIdStep
-import com.sendspindroid.ui.wizard.steps.RemoteOnlyWarningStep
-import com.sendspindroid.ui.wizard.steps.SaveStep
+import com.sendspindroid.ui.wizard.steps.NetworkQuestionStep
+import com.sendspindroid.ui.wizard.steps.RemoteQuestionStep
+import com.sendspindroid.ui.wizard.steps.RemoteSetupStep
 import com.sendspindroid.ui.wizard.steps.TestingStep
-import com.sendspindroid.ui.wizard.steps.WelcomeStep
 
 /**
  * Main Add Server Wizard screen that hosts all wizard steps.
  * Uses animated content to transition between steps with slide animations.
  *
- * @param state Current wizard state
- * @param onClose Called when wizard is closed (via back or close button)
- * @param onBack Called when back button is pressed within the wizard
- * @param onNext Called when next button is pressed
- * @param onSkip Called when skip button is pressed (on certain steps)
- * @param onSave Called when save button is pressed on final step
- * @param onStepAction Handles step-specific actions (e.g., start discovery, test connection)
- * @param modifier Modifier for the screen
+ * The wizard branches based on user intent (SendSpin vs Music Assistant)
+ * and network situation (same network vs remote-only).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -154,26 +142,55 @@ private fun WizardStepContent(
     onStepAction: (WizardStepAction) -> Unit
 ) {
     when (step) {
-        WizardStep.Welcome -> WelcomeStep(
-            onSetupMyServer = { onStepAction(WizardStepAction.SetupMyServer) },
-            onFindOtherServers = { onStepAction(WizardStepAction.FindOtherServers) }
+        // Entry point
+        WizardStep.ClientType -> ClientTypeStep(
+            onClientModeSelected = { onStepAction(WizardStepAction.SelectClientMode(it)) }
         )
-        WizardStep.FindServer -> FindServerStep(
+
+        // SendSpin path
+        WizardStep.SS_FindServer -> FindServerStep(
             discoveredServers = state.discoveredServers,
             localAddress = state.localAddress,
             isSearching = state.isSearching,
-            isMusicAssistant = state.isMusicAssistant,
             onAddressChange = { onStepAction(WizardStepAction.UpdateLocalAddress(it)) },
             onServerSelected = { onStepAction(WizardStepAction.SelectDiscoveredServer(it)) },
-            onMusicAssistantChange = { onStepAction(WizardStepAction.UpdateIsMusicAssistant(it)) },
             onStartSearch = { onStepAction(WizardStepAction.StartDiscovery) }
         )
-        WizardStep.TestingLocal -> TestingStep(
+        WizardStep.SS_TestLocal -> TestingStep(
             testState = state.localTestState,
             isLocalTest = true,
             onRetry = { onStepAction(WizardStepAction.RetryLocalTest) }
         )
-        WizardStep.MaLogin -> MaLoginStep(
+        WizardStep.SS_Finish -> FinishStep(
+            serverName = state.serverName,
+            isDefault = state.setAsDefault,
+            connectionSummary = state.connectionSummary,
+            onNameChange = { onStepAction(WizardStepAction.UpdateServerName(it)) },
+            onDefaultChange = { onStepAction(WizardStepAction.UpdateSetAsDefault(it)) }
+        )
+
+        // MA path — network question
+        WizardStep.MA_NetworkQuestion -> NetworkQuestionStep(
+            networkHint = state.networkHint,
+            onSameNetwork = { onStepAction(WizardStepAction.SelectNetworkLocation(isLocal = true)) },
+            onRemote = { onStepAction(WizardStepAction.SelectNetworkLocation(isLocal = false)) }
+        )
+
+        // MA local path
+        WizardStep.MA_FindServer -> FindServerStep(
+            discoveredServers = state.discoveredServers,
+            localAddress = state.localAddress,
+            isSearching = state.isSearching,
+            onAddressChange = { onStepAction(WizardStepAction.UpdateLocalAddress(it)) },
+            onServerSelected = { onStepAction(WizardStepAction.SelectDiscoveredServer(it)) },
+            onStartSearch = { onStepAction(WizardStepAction.StartDiscovery) }
+        )
+        WizardStep.MA_TestLocal -> TestingStep(
+            testState = state.localTestState,
+            isLocalTest = true,
+            onRetry = { onStepAction(WizardStepAction.RetryLocalTest) }
+        )
+        WizardStep.MA_Login -> MaLoginStep(
             username = state.maUsername,
             password = state.maPassword,
             port = state.maPort,
@@ -183,38 +200,77 @@ private fun WizardStepContent(
             onPortChange = { onStepAction(WizardStepAction.UpdateMaPort(it)) },
             onTestConnection = { onStepAction(WizardStepAction.TestMaConnection) }
         )
-        WizardStep.RemoteChoice -> RemoteChoiceStep(
-            selectedMethod = state.remoteAccessMethod,
-            onMethodSelected = { onStepAction(WizardStepAction.SelectRemoteMethod(it)) }
+        WizardStep.MA_RemoteQuestion -> RemoteQuestionStep(
+            onYesRemote = { onStepAction(WizardStepAction.SelectWantsRemote(wantsRemote = true)) },
+            onNoLocalOnly = { onStepAction(WizardStepAction.SelectWantsRemote(wantsRemote = false)) }
         )
-        WizardStep.RemoteId -> RemoteIdStep(
+        WizardStep.MA_RemoteSetup -> RemoteSetupStep(
+            remoteAccessMethod = state.remoteAccessMethod,
             remoteId = state.remoteId,
-            onRemoteIdChange = { onStepAction(WizardStepAction.UpdateRemoteId(it)) },
-            onScanQr = { onStepAction(WizardStepAction.ScanQrCode) }
-        )
-        WizardStep.Proxy -> ProxyStep(
             proxyUrl = state.proxyUrl,
-            authMode = state.proxyAuthMode,
-            username = state.proxyUsername,
-            password = state.proxyPassword,
-            token = state.proxyToken,
+            proxyAuthMode = state.proxyAuthMode,
+            proxyUsername = state.proxyUsername,
+            proxyPassword = state.proxyPassword,
+            proxyToken = state.proxyToken,
+            onMethodChange = { onStepAction(WizardStepAction.SelectRemoteMethod(it)) },
+            onRemoteIdChange = { onStepAction(WizardStepAction.UpdateRemoteId(it)) },
+            onScanQr = { onStepAction(WizardStepAction.ScanQrCode) },
             onProxyUrlChange = { onStepAction(WizardStepAction.UpdateProxyUrl(it)) },
             onAuthModeChange = { onStepAction(WizardStepAction.UpdateProxyAuthMode(it)) },
-            onUsernameChange = { onStepAction(WizardStepAction.UpdateProxyUsername(it)) },
-            onPasswordChange = { onStepAction(WizardStepAction.UpdateProxyPassword(it)) },
-            onTokenChange = { onStepAction(WizardStepAction.UpdateProxyToken(it)) }
+            onProxyUsernameChange = { onStepAction(WizardStepAction.UpdateProxyUsername(it)) },
+            onProxyPasswordChange = { onStepAction(WizardStepAction.UpdateProxyPassword(it)) },
+            onProxyTokenChange = { onStepAction(WizardStepAction.UpdateProxyToken(it)) }
         )
-        WizardStep.TestingRemote -> TestingStep(
+        WizardStep.MA_TestRemote -> TestingStep(
             testState = state.remoteTestState,
             isLocalTest = false,
             onRetry = { onStepAction(WizardStepAction.RetryRemoteTest) }
         )
-        WizardStep.RemoteOnlyWarning -> RemoteOnlyWarningStep(
-            onContinue = { onStepAction(WizardStepAction.AcknowledgeRemoteOnlyWarning) }
-        )
-        WizardStep.Save -> SaveStep(
+        WizardStep.MA_Finish -> FinishStep(
             serverName = state.serverName,
             isDefault = state.setAsDefault,
+            connectionSummary = state.connectionSummary,
+            onNameChange = { onStepAction(WizardStepAction.UpdateServerName(it)) },
+            onDefaultChange = { onStepAction(WizardStepAction.UpdateSetAsDefault(it)) }
+        )
+
+        // MA remote-only path
+        WizardStep.MA_RemoteOnlySetup -> RemoteSetupStep(
+            remoteAccessMethod = state.remoteAccessMethod,
+            remoteId = state.remoteId,
+            proxyUrl = state.proxyUrl,
+            proxyAuthMode = state.proxyAuthMode,
+            proxyUsername = state.proxyUsername,
+            proxyPassword = state.proxyPassword,
+            proxyToken = state.proxyToken,
+            onMethodChange = { onStepAction(WizardStepAction.SelectRemoteMethod(it)) },
+            onRemoteIdChange = { onStepAction(WizardStepAction.UpdateRemoteId(it)) },
+            onScanQr = { onStepAction(WizardStepAction.ScanQrCode) },
+            onProxyUrlChange = { onStepAction(WizardStepAction.UpdateProxyUrl(it)) },
+            onAuthModeChange = { onStepAction(WizardStepAction.UpdateProxyAuthMode(it)) },
+            onProxyUsernameChange = { onStepAction(WizardStepAction.UpdateProxyUsername(it)) },
+            onProxyPasswordChange = { onStepAction(WizardStepAction.UpdateProxyPassword(it)) },
+            onProxyTokenChange = { onStepAction(WizardStepAction.UpdateProxyToken(it)) }
+        )
+        WizardStep.MA_TestRemoteOnly -> TestingStep(
+            testState = state.remoteTestState,
+            isLocalTest = false,
+            onRetry = { onStepAction(WizardStepAction.RetryRemoteTest) }
+        )
+        WizardStep.MA_LoginRemote -> MaLoginStep(
+            username = state.maUsername,
+            password = state.maPassword,
+            port = state.maPort,
+            testState = state.maTestState,
+            onUsernameChange = { onStepAction(WizardStepAction.UpdateMaUsername(it)) },
+            onPasswordChange = { onStepAction(WizardStepAction.UpdateMaPassword(it)) },
+            onPortChange = { onStepAction(WizardStepAction.UpdateMaPort(it)) },
+            onTestConnection = { onStepAction(WizardStepAction.TestMaConnection) }
+        )
+        WizardStep.MA_FinishRemoteOnly -> FinishStep(
+            serverName = state.serverName,
+            isDefault = state.setAsDefault,
+            connectionSummary = state.connectionSummary,
             onNameChange = { onStepAction(WizardStepAction.UpdateServerName(it)) },
             onDefaultChange = { onStepAction(WizardStepAction.UpdateSetAsDefault(it)) }
         )
@@ -223,6 +279,10 @@ private fun WizardStepContent(
 
 /**
  * Bottom bar with Back, Skip, and Next/Save buttons.
+ *
+ * Card-selection steps (ClientType, NetworkQuestion, RemoteQuestion) have no buttons —
+ * the user taps a card to navigate. Testing steps also have no buttons (auto-advance).
+ * Finish steps show Back + Save. Config steps show Back + Next.
  */
 @Composable
 private fun WizardBottomBar(
@@ -234,10 +294,33 @@ private fun WizardBottomBar(
     isNextEnabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val isFirstStep = step == WizardStep.Welcome
-    val isTestingStep = step == WizardStep.TestingLocal || step == WizardStep.TestingRemote
-    val isFinalStep = step == WizardStep.Save
-    val showSkip = step == WizardStep.FindServer
+    // Card-selection steps — no bottom bar at all
+    val isCardSelectionStep = step in setOf(
+        WizardStep.ClientType,
+        WizardStep.MA_NetworkQuestion,
+        WizardStep.MA_RemoteQuestion
+    )
+
+    // Testing steps — no bottom bar (auto-advance on completion)
+    val isTestingStep = step in setOf(
+        WizardStep.SS_TestLocal,
+        WizardStep.MA_TestLocal,
+        WizardStep.MA_TestRemote,
+        WizardStep.MA_TestRemoteOnly
+    )
+
+    // Finish/save steps
+    val isFinalStep = step in setOf(
+        WizardStep.SS_Finish,
+        WizardStep.MA_Finish,
+        WizardStep.MA_FinishRemoteOnly
+    )
+
+    // Show skip on MA_Login steps (user can proceed without authenticating)
+    val showSkip = step == WizardStep.MA_Login || step == WizardStep.MA_LoginRemote
+
+    // Hide bottom bar entirely for card-selection and testing steps
+    if (isCardSelectionStep || isTestingStep) return
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -250,17 +333,13 @@ private fun WizardBottomBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Back button
-            if (!isFirstStep && !isTestingStep) {
-                OutlinedButton(onClick = onBack) {
-                    Text(stringResource(R.string.wizard_back))
-                }
-            } else {
-                Spacer(modifier = Modifier.width(1.dp))
+            OutlinedButton(onClick = onBack) {
+                Text(stringResource(R.string.wizard_back))
             }
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // Skip button
+            // Skip button (MA Login steps)
             if (showSkip) {
                 TextButton(onClick = onSkip) {
                     Text(stringResource(R.string.wizard_skip))
@@ -269,16 +348,14 @@ private fun WizardBottomBar(
             }
 
             // Next/Save button
-            if (!isTestingStep) {
-                Button(
-                    onClick = if (isFinalStep) onSave else onNext,
-                    enabled = isNextEnabled
-                ) {
-                    Text(
-                        if (isFinalStep) stringResource(R.string.wizard_save)
-                        else stringResource(R.string.wizard_next)
-                    )
-                }
+            Button(
+                onClick = if (isFinalStep) onSave else onNext,
+                enabled = isNextEnabled
+            ) {
+                Text(
+                    if (isFinalStep) stringResource(R.string.wizard_save)
+                    else stringResource(R.string.wizard_next)
+                )
             }
         }
     }
@@ -290,32 +367,60 @@ private fun WizardBottomBar(
 @Composable
 private fun getStepTitle(step: WizardStep): String {
     return when (step) {
-        WizardStep.Welcome -> stringResource(R.string.wizard_title_add_server)
-        WizardStep.FindServer -> stringResource(R.string.wizard_find_server_title)
-        WizardStep.TestingLocal, WizardStep.TestingRemote -> stringResource(R.string.wizard_testing_title)
-        WizardStep.MaLogin -> stringResource(R.string.wizard_ma_login_title)
-        WizardStep.RemoteChoice -> stringResource(R.string.wizard_remote_choice_title)
-        WizardStep.RemoteId -> stringResource(R.string.wizard_remote_title)
-        WizardStep.Proxy -> stringResource(R.string.wizard_proxy_title)
-        WizardStep.RemoteOnlyWarning -> stringResource(R.string.wizard_remote_only_title)
-        WizardStep.Save -> stringResource(R.string.wizard_save_title)
+        WizardStep.ClientType -> stringResource(R.string.wizard_title_add_server)
+
+        WizardStep.SS_FindServer,
+        WizardStep.MA_FindServer -> stringResource(R.string.wizard_find_server_title)
+
+        WizardStep.SS_TestLocal,
+        WizardStep.MA_TestLocal,
+        WizardStep.MA_TestRemote,
+        WizardStep.MA_TestRemoteOnly -> stringResource(R.string.wizard_testing_title)
+
+        WizardStep.MA_NetworkQuestion -> stringResource(R.string.wizard_title_add_server)
+        WizardStep.MA_Login,
+        WizardStep.MA_LoginRemote -> stringResource(R.string.wizard_ma_login_title)
+
+        WizardStep.MA_RemoteQuestion -> stringResource(R.string.wizard_title_add_server)
+
+        WizardStep.MA_RemoteSetup,
+        WizardStep.MA_RemoteOnlySetup -> stringResource(R.string.wizard_remote_title)
+
+        WizardStep.SS_Finish,
+        WizardStep.MA_Finish,
+        WizardStep.MA_FinishRemoteOnly -> stringResource(R.string.wizard_save_title)
     }
 }
 
 /**
  * Returns the progress (0-1) for the given wizard step.
+ * Progress is per-path to give users accurate feedback.
  */
 private fun getStepProgress(step: WizardStep): Float {
     return when (step) {
-        WizardStep.Welcome -> 0.1f
-        WizardStep.FindServer -> 0.25f
-        WizardStep.TestingLocal -> 0.30f
-        WizardStep.MaLogin -> 0.45f
-        WizardStep.RemoteChoice -> 0.55f
-        WizardStep.RemoteOnlyWarning -> 0.50f
-        WizardStep.RemoteId, WizardStep.Proxy -> 0.70f
-        WizardStep.TestingRemote -> 0.80f
-        WizardStep.Save -> 1.0f
+        // Entry point
+        WizardStep.ClientType -> 0.05f
+
+        // SendSpin path (3 steps after ClientType)
+        WizardStep.SS_FindServer -> 0.33f
+        WizardStep.SS_TestLocal -> 0.50f
+        WizardStep.SS_Finish -> 1.0f
+
+        // MA local path (up to 8 steps after ClientType)
+        WizardStep.MA_NetworkQuestion -> 0.12f
+        WizardStep.MA_FindServer -> 0.25f
+        WizardStep.MA_TestLocal -> 0.35f
+        WizardStep.MA_Login -> 0.50f
+        WizardStep.MA_RemoteQuestion -> 0.62f
+        WizardStep.MA_RemoteSetup -> 0.75f
+        WizardStep.MA_TestRemote -> 0.87f
+        WizardStep.MA_Finish -> 1.0f
+
+        // MA remote-only path (5 steps after ClientType)
+        WizardStep.MA_RemoteOnlySetup -> 0.25f
+        WizardStep.MA_TestRemoteOnly -> 0.50f
+        WizardStep.MA_LoginRemote -> 0.75f
+        WizardStep.MA_FinishRemoteOnly -> 1.0f
     }
 }
 
@@ -327,14 +432,22 @@ private fun getStepProgress(step: WizardStep): Float {
  * Complete state for the wizard.
  */
 data class WizardState(
-    val currentStep: WizardStep = WizardStep.Welcome,
+    val currentStep: WizardStep = WizardStep.ClientType,
     val isEditMode: Boolean = false,
     val isNextEnabled: Boolean = true,
+
+    // Client mode (SendSpin vs Music Assistant)
+    val clientMode: ClientMode = ClientMode.SENDSPIN,
 
     // Server data
     val serverName: String = "",
     val setAsDefault: Boolean = false,
-    val isMusicAssistant: Boolean = false,
+
+    // Network hint (auto-detected)
+    val networkHint: String = "",
+
+    // Connection summary (for Finish steps)
+    val connectionSummary: List<String> = emptyList(),
 
     // Local connection
     val localAddress: String = "",
@@ -343,7 +456,7 @@ data class WizardState(
     val localTestState: ConnectionTestState = ConnectionTestState.Idle,
 
     // Remote access
-    val remoteAccessMethod: RemoteAccessMethod = RemoteAccessMethod.NONE,
+    val remoteAccessMethod: RemoteAccessMethod = RemoteAccessMethod.REMOTE_ID,
     val remoteId: String = "",
     val remoteTestState: ConnectionTestState = ConnectionTestState.Idle,
 
@@ -382,14 +495,18 @@ data class DiscoveredServerUi(
  * Actions that can be triggered from wizard steps.
  */
 sealed class WizardStepAction {
-    // Welcome step
-    data object SetupMyServer : WizardStepAction()
-    data object FindOtherServers : WizardStepAction()
+    // ClientType step — card tap
+    data class SelectClientMode(val mode: ClientMode) : WizardStepAction()
+
+    // NetworkQuestion step — card tap
+    data class SelectNetworkLocation(val isLocal: Boolean) : WizardStepAction()
+
+    // RemoteQuestion step — card tap
+    data class SelectWantsRemote(val wantsRemote: Boolean) : WizardStepAction()
 
     // Find server step
     data class UpdateLocalAddress(val address: String) : WizardStepAction()
     data class SelectDiscoveredServer(val server: DiscoveredServerUi) : WizardStepAction()
-    data class UpdateIsMusicAssistant(val isMusicAssistant: Boolean) : WizardStepAction()
     data object StartDiscovery : WizardStepAction()
     data object RetryLocalTest : WizardStepAction()
 
@@ -399,25 +516,22 @@ sealed class WizardStepAction {
     data class UpdateMaPort(val port: Int) : WizardStepAction()
     data object TestMaConnection : WizardStepAction()
 
-    // Remote choice step
+    // Remote setup step (method selection within tabbed UI)
     data class SelectRemoteMethod(val method: RemoteAccessMethod) : WizardStepAction()
 
-    // Remote ID step
+    // Remote ID
     data class UpdateRemoteId(val id: String) : WizardStepAction()
     data object ScanQrCode : WizardStepAction()
     data object RetryRemoteTest : WizardStepAction()
 
-    // Proxy step
+    // Proxy
     data class UpdateProxyUrl(val url: String) : WizardStepAction()
     data class UpdateProxyAuthMode(val mode: ProxyAuthMode) : WizardStepAction()
     data class UpdateProxyUsername(val username: String) : WizardStepAction()
     data class UpdateProxyPassword(val password: String) : WizardStepAction()
     data class UpdateProxyToken(val token: String) : WizardStepAction()
 
-    // Remote only warning
-    data object AcknowledgeRemoteOnlyWarning : WizardStepAction()
-
-    // Save step
+    // Finish step
     data class UpdateServerName(val name: String) : WizardStepAction()
     data class UpdateSetAsDefault(val isDefault: Boolean) : WizardStepAction()
 }
@@ -428,10 +542,10 @@ sealed class WizardStepAction {
 
 @Preview(showBackground = true)
 @Composable
-private fun WizardWelcomePreview() {
+private fun WizardClientTypePreview() {
     SendSpinTheme {
         AddServerWizardScreen(
-            state = WizardState(currentStep = WizardStep.Welcome),
+            state = WizardState(currentStep = WizardStep.ClientType),
             onClose = {},
             onBack = {},
             onNext = {},
@@ -448,7 +562,7 @@ private fun WizardFindServerPreview() {
     SendSpinTheme {
         AddServerWizardScreen(
             state = WizardState(
-                currentStep = WizardStep.FindServer,
+                currentStep = WizardStep.SS_FindServer,
                 discoveredServers = listOf(
                     DiscoveredServerUi("1", "Living Room", "192.168.1.100:8927"),
                     DiscoveredServerUi("2", "Office", "192.168.1.101:8927")

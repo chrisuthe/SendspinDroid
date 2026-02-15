@@ -33,6 +33,10 @@ import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Server list screen showing saved and discovered servers in sections.
+ *
+ * When no saved servers exist, shows the welcome/hero empty state with
+ * discovered servers inline for quick-connect. When saved servers exist,
+ * shows the standard sectioned list with a FAB.
  */
 @Composable
 fun ServerListScreen(
@@ -52,92 +56,19 @@ fun ServerListScreen(
     val discovered by discoveredServers.collectAsState()
     val onlineIds by onlineSavedServerIds.collectAsState()
 
-    // Check if we have any servers at all
-    val hasAnyServers = saved.isNotEmpty() || discovered.isNotEmpty()
-
-    Box(modifier = modifier.fillMaxSize()) {
-        if (!hasAnyServers) {
-            // Empty state
-            ServerListEmptyState(isScanning = isScanning)
-        } else {
-            // Server list with sections
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 144.dp) // Space for FAB
-            ) {
-                // Saved Servers Section
-                if (saved.isNotEmpty()) {
-                    item(key = "header_saved") {
-                        ServerSectionHeader(
-                            title = stringResource(R.string.saved_servers_section)
-                        )
-                    }
-
-                    items(
-                        items = saved,
-                        key = { "saved_${it.id}" }
-                    ) { server ->
-                        val status = serverStatuses[server.id]
-                            ?: if (onlineIds.contains(server.id)) ServerItemStatus.ONLINE
-                            else ServerItemStatus.DISCONNECTED
-                        val reconnect = reconnectInfo[server.id]
-
-                        ServerListItem(
-                            server = server,
-                            status = status,
-                            onClick = { onServerClick(server) },
-                            onLongClick = { onServerLongClick(server) },
-                            reconnectAttempt = reconnect?.first,
-                            reconnectMaxAttempts = reconnect?.second
-                        )
-                    }
-                }
-
-                // Discovered Servers Section
-                item(key = "header_discovered") {
-                    ServerSectionHeader(
-                        title = stringResource(R.string.nearby_servers_section),
-                        showScanning = isScanning,
-                        emptyHint = if (discovered.isEmpty() && isScanning)
-                            stringResource(R.string.scanning_ellipsis)
-                        else null
-                    )
-                }
-
-                if (discovered.isNotEmpty()) {
-                    items(
-                        items = discovered,
-                        key = { "discovered_${it.id}" }
-                    ) { server ->
-                        val status = serverStatuses[server.id] ?: ServerItemStatus.ONLINE
-
-                        ServerListItem(
-                            server = server,
-                            status = status,
-                            onClick = { onServerClick(server) },
-                            onLongClick = { onServerLongClick(server) },
-                            onQuickConnectClick = { onQuickConnectClick(server) }
-                        )
-                    }
-                }
-            }
-        }
-
-        // FAB for adding servers
-        FloatingActionButton(
-            onClick = onAddServerClick,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_add),
-                contentDescription = stringResource(R.string.add_server)
-            )
-        }
-    }
+    ServerListScreenContent(
+        savedServers = saved,
+        discoveredServers = discovered,
+        onlineSavedServerIds = onlineIds,
+        isScanning = isScanning,
+        serverStatuses = serverStatuses,
+        reconnectInfo = reconnectInfo,
+        onServerClick = onServerClick,
+        onServerLongClick = onServerLongClick,
+        onQuickConnectClick = onQuickConnectClick,
+        onAddServerClick = onAddServerClick,
+        modifier = modifier
+    )
 }
 
 /**
@@ -157,45 +88,79 @@ fun ServerListScreen(
     onAddServerClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Check if we have any servers at all
-    val hasAnyServers = savedServers.isNotEmpty() || discoveredServers.isNotEmpty()
+    ServerListScreenContent(
+        savedServers = savedServers,
+        discoveredServers = discoveredServers,
+        onlineSavedServerIds = onlineSavedServerIds,
+        isScanning = isScanning,
+        serverStatuses = serverStatuses,
+        reconnectInfo = reconnectInfo,
+        onServerClick = onServerClick,
+        onServerLongClick = onServerLongClick,
+        onQuickConnectClick = onQuickConnectClick,
+        onAddServerClick = onAddServerClick,
+        modifier = modifier
+    )
+}
+
+/**
+ * Shared implementation for both overloads.
+ */
+@Composable
+private fun ServerListScreenContent(
+    savedServers: List<UnifiedServer>,
+    discoveredServers: List<UnifiedServer>,
+    onlineSavedServerIds: Set<String>,
+    isScanning: Boolean,
+    serverStatuses: Map<String, ServerItemStatus>,
+    reconnectInfo: Map<String, Pair<Int, Int>>,
+    onServerClick: (UnifiedServer) -> Unit,
+    onServerLongClick: (UnifiedServer) -> Unit,
+    onQuickConnectClick: (UnifiedServer) -> Unit,
+    onAddServerClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val hasSavedServers = savedServers.isNotEmpty()
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (!hasAnyServers) {
-            // Empty state
-            ServerListEmptyState(isScanning = isScanning)
+        if (!hasSavedServers) {
+            // Welcome / empty state — hero card with discovered servers inline
+            ServerListEmptyState(
+                isScanning = isScanning,
+                discoveredServers = discoveredServers,
+                onAddServerClick = onAddServerClick,
+                onQuickConnectClick = onQuickConnectClick
+            )
         } else {
-            // Server list with sections
+            // Normal server list with saved + discovered sections
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 144.dp) // Space for FAB
+                contentPadding = PaddingValues(bottom = 88.dp) // Space for FAB
             ) {
                 // Saved Servers Section
-                if (savedServers.isNotEmpty()) {
-                    item(key = "header_saved") {
-                        ServerSectionHeader(
-                            title = stringResource(R.string.saved_servers_section)
-                        )
-                    }
+                item(key = "header_saved") {
+                    ServerSectionHeader(
+                        title = stringResource(R.string.saved_servers_section)
+                    )
+                }
 
-                    items(
-                        items = savedServers,
-                        key = { "saved_${it.id}" }
-                    ) { server ->
-                        val status = serverStatuses[server.id]
-                            ?: if (onlineSavedServerIds.contains(server.id)) ServerItemStatus.ONLINE
-                            else ServerItemStatus.DISCONNECTED
-                        val reconnect = reconnectInfo[server.id]
+                items(
+                    items = savedServers,
+                    key = { "saved_${it.id}" }
+                ) { server ->
+                    val status = serverStatuses[server.id]
+                        ?: if (onlineSavedServerIds.contains(server.id)) ServerItemStatus.ONLINE
+                        else ServerItemStatus.DISCONNECTED
+                    val reconnect = reconnectInfo[server.id]
 
-                        ServerListItem(
-                            server = server,
-                            status = status,
-                            onClick = { onServerClick(server) },
-                            onLongClick = { onServerLongClick(server) },
-                            reconnectAttempt = reconnect?.first,
-                            reconnectMaxAttempts = reconnect?.second
-                        )
-                    }
+                    ServerListItem(
+                        server = server,
+                        status = status,
+                        onClick = { onServerClick(server) },
+                        onLongClick = { onServerLongClick(server) },
+                        reconnectAttempt = reconnect?.first,
+                        reconnectMaxAttempts = reconnect?.second
+                    )
                 }
 
                 // Discovered Servers Section
@@ -226,21 +191,22 @@ fun ServerListScreen(
                     }
                 }
             }
-        }
 
-        // FAB for adding servers
-        FloatingActionButton(
-            onClick = onAddServerClick,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(16.dp),
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_add),
-                contentDescription = stringResource(R.string.add_server)
-            )
+            // FAB for adding servers — only when saved servers exist
+            // (empty state has its own prominent Add Server button)
+            FloatingActionButton(
+                onClick = onAddServerClick,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_add),
+                    contentDescription = stringResource(R.string.add_server)
+                )
+            }
         }
     }
 }
@@ -299,6 +265,38 @@ private fun ServerListScreenEmptyPreview() {
             discoveredServers = emptyList(),
             onlineSavedServerIds = emptySet(),
             isScanning = true,
+            serverStatuses = emptyMap(),
+            reconnectInfo = emptyMap(),
+            onServerClick = {},
+            onServerLongClick = {},
+            onQuickConnectClick = {},
+            onAddServerClick = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 360, heightDp = 640)
+@Composable
+private fun ServerListScreenEmptyWithDiscoveredPreview() {
+    SendSpinTheme {
+        ServerListScreen(
+            savedServers = emptyList(),
+            discoveredServers = listOf(
+                UnifiedServer(
+                    id = "1",
+                    name = "Living Room",
+                    local = LocalConnection("192.168.1.100:8927"),
+                    isDiscovered = true
+                ),
+                UnifiedServer(
+                    id = "2",
+                    name = "Kitchen Speaker",
+                    local = LocalConnection("192.168.1.101:8927"),
+                    isDiscovered = true
+                )
+            ),
+            onlineSavedServerIds = emptySet(),
+            isScanning = false,
             serverStatuses = emptyMap(),
             reconnectInfo = emptyMap(),
             onServerClick = {},

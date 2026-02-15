@@ -54,13 +54,15 @@ object MusicAssistantAuth {
      * @property accessToken The access token for API/WebSocket authentication
      * @property userId The user's ID in Music Assistant (may be empty)
      * @property userName The user's display name
+     * @property baseUrl The server's base URL from the server info message
      */
     data class LoginResult(
         val accessToken: String,
         val userId: String,
         val userName: String,
         val serverVersion: String = "unknown",
-        val maServerId: String = ""
+        val maServerId: String = "",
+        val baseUrl: String = ""
     )
 
     /**
@@ -112,6 +114,7 @@ object MusicAssistantAuth {
                 private var serverInfoReceived = false
                 private var capturedServerVersion = "unknown"
                 private var capturedMaServerId = ""
+                private var capturedBaseUrl = ""
 
                 override fun onOpen(ws: WebSocket, response: Response) {
                     Log.d(TAG, "WebSocket connected, waiting for server info...")
@@ -129,6 +132,7 @@ object MusicAssistantAuth {
                             serverInfoReceived = true
                             capturedServerVersion = json.optString("server_version", "unknown")
                             capturedMaServerId = json.optString("server_id", "")
+                            capturedBaseUrl = json.optString("base_url", "")
                             Log.d(TAG, "Server info received (version=$capturedServerVersion), sending login command")
 
                             // Send auth/login command
@@ -185,7 +189,8 @@ object MusicAssistantAuth {
                                     userId = userId,
                                     userName = userName,
                                     serverVersion = capturedServerVersion,
-                                    maServerId = capturedMaServerId
+                                    maServerId = capturedMaServerId,
+                                    baseUrl = capturedBaseUrl
                                 ))
                             } else {
                                 ws.close(1000, "Invalid response")
