@@ -13,12 +13,15 @@ import com.sendspindroid.model.UnifiedServer
  * |-----------------|----------------|
  * | LOCAL | local address + port 8095 |
  * | PROXY | proxy URL base + /ws |
- * | REMOTE | falls back to local or proxy if available |
+ * | REMOTE | WebRTC DataChannel (sentinel URL), or local/proxy fallback |
  *
- * ## Why Remote-Only Can't Access MA API
- * Remote Access uses WebRTC for audio streaming, which doesn't tunnel
- * HTTP/WebSocket connections. The MA API requires a direct WS connection,
- * so Remote-only servers need a local or proxy fallback configured.
+ * ## Remote Mode
+ * The MA server's WebRTC gateway supports a second DataChannel ("ma-api")
+ * that transparently bridges to the full WebSocket API. When in REMOTE mode
+ * with a WebRTC connection, we return a sentinel URL "webrtc://ma-api" to
+ * indicate that the transport should use the DataChannel rather than a
+ * direct WebSocket. If no WebRTC connection is available, falls back to
+ * local or proxy URLs if configured.
  *
  * ## Usage
  * ```kotlin
@@ -32,6 +35,13 @@ import com.sendspindroid.model.UnifiedServer
  * ```
  */
 object MaApiEndpoint {
+
+    /**
+     * Sentinel URL returned for REMOTE mode when a WebRTC DataChannel is available.
+     * This signals [MusicAssistantManager] to use [MaDataChannelTransport] instead
+     * of a WebSocket.
+     */
+    const val WEBRTC_SENTINEL_URL = "webrtc://ma-api"
 
     /**
      * Derives the MA API WebSocket URL for a server.
@@ -51,10 +61,14 @@ object MaApiEndpoint {
                 deriveFromProxy(server)
             }
             ConnectionMode.REMOTE -> {
-                // WebRTC doesn't tunnel HTTP/WS - try fallbacks
-                // First try local (might be reachable even if we connected via Remote)
-                deriveFromLocal(server)
-                    ?: deriveFromProxy(server)
+                // REMOTE mode: prefer WebRTC DataChannel (sentinel URL)
+                // If the server has a remote config, the DataChannel will be available
+                if (server.remote != null) {
+                    WEBRTC_SENTINEL_URL
+                } else {
+                    // No remote config - try local/proxy fallbacks
+                    deriveFromLocal(server) ?: deriveFromProxy(server)
+                }
             }
         }
     }
@@ -103,10 +117,10 @@ object MaApiEndpoint {
      * Checks if a server has any endpoint that could support MA API.
      *
      * @param server The unified server configuration
-     * @return true if local or proxy is configured
+     * @return true if local, proxy, or remote is configured
      */
     fun hasApiEndpoint(server: UnifiedServer): Boolean {
-        return server.local != null || server.proxy != null
+        return server.local != null || server.proxy != null || server.remote != null
     }
 
     /**

@@ -13,30 +13,25 @@ import com.sendspindroid.musicassistant.model.MaPlayer
 import com.sendspindroid.musicassistant.model.MaPlayerFeature
 import com.sendspindroid.musicassistant.model.MaPlayerType
 import com.sendspindroid.musicassistant.model.MaServerInfo
+import com.sendspindroid.musicassistant.transport.MaApiTransport
+import com.sendspindroid.musicassistant.transport.MaApiTransportFactory
+import com.sendspindroid.musicassistant.transport.MaDataChannelTransport
+import com.sendspindroid.musicassistant.transport.MaWebSocketTransport
+import org.webrtc.DataChannel
 import com.sendspindroid.sendspin.MusicAssistantAuth
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
-import java.util.UUID
-import java.util.concurrent.TimeUnit
 
 // ============================================================================
 // Data Models for Music Assistant API responses
@@ -224,6 +219,55 @@ object MusicAssistantManager {
     private var currentConnectionMode: ConnectionMode? = null
     private var currentApiUrl: String? = null
 
+    // Persistent MA API transport (replaces fire-and-forget WebSocket pattern)
+    @Volatile
+    private var apiTransport: MaApiTransport? = null
+
+    /**
+     * Returns the active API transport, if connected.
+     * Used by MaImageProxy for HTTP proxy requests in REMOTE mode.
+     */
+    fun getApiTransport(): MaApiTransport? = apiTransport
+
+    // WebRTC DataChannel for MA API in REMOTE mode
+    @Volatile
+    private var maApiDataChannel: DataChannel? = null
+
+    // Pre-created DataChannel transport that eagerly captures ServerInfo
+    @Volatile
+    private var pendingDataChannelTransport: MaDataChannelTransport? = null
+
+    /**
+     * Set the MA API DataChannel from WebRTCTransport.
+     *
+     * Called by PlaybackService when a remote connection establishes the "ma-api"
+     * DataChannel. Eagerly creates a [MaDataChannelTransport] and replays any
+     * messages buffered by WebRTCTransport (e.g., ServerInfo sent before this
+     * method is called).
+     *
+     * @param channel The open DataChannel, or null to clear
+     * @param bufferedMessages Messages buffered by WebRTCTransport before the
+     *                         transport observer was registered
+     */
+    fun setMaApiDataChannel(channel: DataChannel?, bufferedMessages: List<String> = emptyList()) {
+        maApiDataChannel = channel
+        if (channel != null) {
+            // Create transport eagerly so its observer captures future messages
+            val transport = MaDataChannelTransport(channel)
+            pendingDataChannelTransport = transport
+            Log.d(TAG, "MA API DataChannel set, transport created eagerly")
+
+            // Replay any messages buffered by WebRTCTransport before we took over
+            if (bufferedMessages.isNotEmpty()) {
+                Log.d(TAG, "Replaying ${bufferedMessages.size} buffered MA API message(s)")
+                transport.replayBufferedMessages(bufferedMessages)
+            }
+        } else {
+            pendingDataChannelTransport = null
+            Log.d(TAG, "MA API DataChannel cleared")
+        }
+    }
+
     // Coroutine scope for async operations
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -261,11 +305,18 @@ object MusicAssistantManager {
         currentServer = server
         currentConnectionMode = connectionMode
 
-        // Check 1: Is this server marked as Music Assistant?
-        if (!server.isMusicAssistant) {
-            Log.d(TAG, "Server is not marked as Music Assistant")
+        // Check 1: Is this server a Music Assistant server?
+        // Detect via: (a) user-declared flag, (b) stored token from prior auth,
+        // (c) presence of "ma-api" DataChannel (only MA servers create this).
+        val hasStoredToken = MaSettings.getTokenForServer(server.id) != null
+        val hasMaApiChannel = maApiDataChannel != null
+        if (!server.isMusicAssistant && !hasStoredToken && !hasMaApiChannel) {
+            Log.d(TAG, "Server is not marked as Music Assistant, no stored token, no ma-api channel")
             _connectionState.value = MaConnectionState.Unavailable
             return
+        }
+        if (!server.isMusicAssistant) {
+            Log.i(TAG, "Server not flagged as MA but auto-detected (token=$hasStoredToken, channel=$hasMaApiChannel)")
         }
 
         // Check 2: Can we reach the MA API?
@@ -297,6 +348,15 @@ object MusicAssistantManager {
      */
     fun onServerDisconnected() {
         Log.d(TAG, "Server disconnected")
+
+        // Disconnect the persistent transport
+        apiTransport?.disconnect()
+        apiTransport = null
+
+        // Clear DataChannel reference (owned by WebRTCTransport, not us)
+        maApiDataChannel = null
+        pendingDataChannelTransport = null
+
         currentServer = null
         currentConnectionMode = null
         currentApiUrl = null
@@ -306,25 +366,37 @@ object MusicAssistantManager {
     /**
      * Attempt to authenticate with a stored token.
      *
-     * For now, this validates the token by making a simple API call.
-     * In the future, this will establish a persistent WebSocket connection.
+     * Establishes a persistent transport connection (WebSocket for LOCAL/PROXY,
+     * DataChannel for REMOTE) and authenticates with the given token.
+     * All subsequent API calls are multiplexed over this single connection.
      */
     private fun connectWithToken(apiUrl: String, token: String, serverId: String) {
         _connectionState.value = MaConnectionState.Connecting
 
         scope.launch {
             try {
-                // Validate the token against the actual MA server and get real metadata
-                val validation = validateToken(apiUrl, token)
+                // Disconnect any existing transport
+                apiTransport?.disconnect()
+                apiTransport = null
+
+                // Create the appropriate transport for this connection mode
+                val transport = createTransport(apiUrl)
+                    ?: throw IOException("Cannot create MA API transport for mode $currentConnectionMode")
+
+                // Connect and authenticate (handles ServerInfoMessage + auth handshake)
+                transport.connect(token)
+
+                // Store the transport for all future commands
+                apiTransport = transport
 
                 val serverInfo = MaServerInfo(
                     serverId = serverId,
-                    serverVersion = validation.serverVersion,
+                    serverVersion = transport.serverVersion ?: "unknown",
                     apiUrl = apiUrl,
-                    maServerId = validation.maServerId
+                    maServerId = transport.maServerId
                 )
 
-                Log.i(TAG, "MA API connected successfully (server ${validation.serverVersion})")
+                Log.i(TAG, "MA API connected successfully (server ${transport.serverVersion})")
                 _connectionState.value = MaConnectionState.Connected(serverInfo)
 
                 // Auto-select a player for playback commands
@@ -338,8 +410,19 @@ object MusicAssistantManager {
                     }
                 )
 
+            } catch (e: MaApiTransport.AuthenticationException) {
+                Log.e(TAG, "Token authentication failed", e)
+                apiTransport?.disconnect()
+                apiTransport = null
+                MaSettings.clearTokenForServer(serverId)
+                _connectionState.value = MaConnectionState.Error(
+                    message = "Authentication expired. Please log in again.",
+                    isAuthError = true
+                )
             } catch (e: MusicAssistantAuth.AuthenticationException) {
                 Log.e(TAG, "Token authentication failed", e)
+                apiTransport?.disconnect()
+                apiTransport = null
                 // Token expired or invalid - clear it and request re-login
                 MaSettings.clearTokenForServer(serverId)
                 _connectionState.value = MaConnectionState.Error(
@@ -348,12 +431,16 @@ object MusicAssistantManager {
                 )
             } catch (e: IOException) {
                 Log.e(TAG, "Network error connecting to MA API", e)
+                apiTransport?.disconnect()
+                apiTransport = null
                 _connectionState.value = MaConnectionState.Error(
                     message = "Network error: ${e.message}",
                     isAuthError = false
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error connecting to MA API", e)
+                apiTransport?.disconnect()
+                apiTransport = null
                 _connectionState.value = MaConnectionState.Error(
                     message = e.message ?: "Unknown error",
                     isAuthError = false
@@ -363,10 +450,56 @@ object MusicAssistantManager {
     }
 
     /**
+     * Create the appropriate MaApiTransport for the current connection mode.
+     *
+     * LOCAL/PROXY: MaWebSocketTransport (persistent WebSocket to ws://host:8095/ws)
+     * REMOTE: MaDataChannelTransport (WebRTC DataChannel "ma-api")
+     *
+     * For REMOTE mode, if the DataChannel is not available, falls back to
+     * a WebSocket if a local or proxy URL can be derived.
+     *
+     * @param apiUrl The derived API URL (may be sentinel "webrtc://ma-api" for REMOTE)
+     * @return The transport, or null if not available
+     */
+    private fun createTransport(apiUrl: String): MaApiTransport? {
+        val mode = currentConnectionMode ?: return null
+
+        // For REMOTE mode, use the pre-created transport (which already has
+        // an observer capturing ServerInfo). This avoids the race where
+        // ServerInfo is sent before connect()/login() is called.
+        if (mode == ConnectionMode.REMOTE) {
+            val pending = pendingDataChannelTransport
+            if (pending != null) {
+                pendingDataChannelTransport = null  // Consumed; don't reuse
+                Log.d(TAG, "Using pre-created DataChannel transport (serverInfo=${pending.serverVersion != null})")
+                return pending
+            }
+            // Fallback: create fresh (may miss ServerInfo if already sent)
+            val channel = maApiDataChannel
+            if (channel != null) {
+                Log.w(TAG, "Creating fresh DataChannel transport (pre-created was null)")
+                return MaDataChannelTransport(channel)
+            }
+            // No DataChannel — try WebSocket fallback
+            val wsUrl = currentServer?.let { server ->
+                MaApiEndpoint.deriveFromLocal(server) ?: MaApiEndpoint.deriveFromProxy(server)
+            }
+            return if (wsUrl != null) MaWebSocketTransport(wsUrl) else null
+        }
+
+        // LOCAL/PROXY: WebSocket transport
+        return MaWebSocketTransport(apiUrl)
+    }
+
+    /**
      * Perform fresh login with username/password credentials.
      *
-     * Called when user needs to re-authenticate (token expired, new setup, etc.).
-     * On success, stores the token for future use.
+     * Uses the persistent transport layer (WebSocket for LOCAL/PROXY, DataChannel
+     * for REMOTE) to authenticate. This means login works even when only a WebRTC
+     * connection is available (no direct HTTP/WS access to the server).
+     *
+     * On success, stores the token for future connections and leaves the transport
+     * connected for immediate API use.
      *
      * @param username MA username
      * @param password MA password
@@ -379,24 +512,49 @@ object MusicAssistantManager {
         _connectionState.value = MaConnectionState.Connecting
 
         return try {
-            val result = MusicAssistantAuth.login(apiUrl, username, password)
+            // Disconnect any existing transport
+            apiTransport?.disconnect()
+            apiTransport = null
+
+            // Create a fresh transport for this connection mode
+            val transport = createTransport(apiUrl)
+                ?: throw IOException("Cannot create MA API transport for mode $currentConnectionMode")
+
+            // Login via transport (sends auth/login over WebSocket or DataChannel)
+            val loginResult = transport.connectWithCredentials(username, password)
+
+            // Store the transport for all future commands (it's already connected)
+            apiTransport = transport
 
             // Store the token for future connections
-            MaSettings.setTokenForServer(server.id, result.accessToken)
+            MaSettings.setTokenForServer(server.id, loginResult.accessToken)
 
             val serverInfo = MaServerInfo(
                 serverId = server.id,
-                serverVersion = result.serverVersion,
+                serverVersion = transport.serverVersion ?: "unknown",
                 apiUrl = apiUrl,
-                maServerId = result.maServerId
+                maServerId = transport.maServerId
             )
 
-            Log.i(TAG, "MA login successful for user: ${result.userName} (server ${result.serverVersion})")
+            Log.i(TAG, "MA login successful for user: ${loginResult.userName} (server ${transport.serverVersion})")
             _connectionState.value = MaConnectionState.Connected(serverInfo)
+
+            // Auto-select a player for playback commands
+            autoSelectPlayer().fold(
+                onSuccess = { playerId ->
+                    Log.i(TAG, "Auto-selected player for playback: $playerId")
+                },
+                onFailure = { error ->
+                    Log.w(TAG, "No players available for auto-selection: ${error.message}")
+                }
+            )
+
             true
 
-        } catch (e: MusicAssistantAuth.AuthenticationException) {
+        } catch (e: MaApiTransport.AuthenticationException) {
             Log.e(TAG, "Login failed: invalid credentials", e)
+            apiTransport?.disconnect()
+            apiTransport = null
             _connectionState.value = MaConnectionState.Error(
                 message = "Invalid username or password",
                 isAuthError = true
@@ -404,6 +562,8 @@ object MusicAssistantManager {
             false
         } catch (e: IOException) {
             Log.e(TAG, "Login failed: network error", e)
+            apiTransport?.disconnect()
+            apiTransport = null
             _connectionState.value = MaConnectionState.Error(
                 message = "Network error: ${e.message}",
                 isAuthError = false
@@ -411,6 +571,8 @@ object MusicAssistantManager {
             false
         } catch (e: Exception) {
             Log.e(TAG, "Login failed", e)
+            apiTransport?.disconnect()
+            apiTransport = null
             _connectionState.value = MaConnectionState.Error(
                 message = e.message ?: "Login failed",
                 isAuthError = false
@@ -423,6 +585,7 @@ object MusicAssistantManager {
      * Authenticate with an existing token.
      *
      * Called when re-establishing connection after app restart.
+     * Delegates to connectWithToken which establishes a persistent transport.
      *
      * @param token The stored access token
      * @return true if authentication succeeded
@@ -434,22 +597,42 @@ object MusicAssistantManager {
         _connectionState.value = MaConnectionState.Connecting
 
         return try {
-            // Validate the token against the actual MA server
-            val validation = validateToken(apiUrl, token)
+            // Disconnect any existing transport
+            apiTransport?.disconnect()
+            apiTransport = null
+
+            // Create and connect transport
+            val transport = createTransport(apiUrl)
+                ?: throw IOException("Cannot create MA API transport")
+
+            transport.connect(token)
+            apiTransport = transport
 
             val serverInfo = MaServerInfo(
                 serverId = server.id,
-                serverVersion = validation.serverVersion,
+                serverVersion = transport.serverVersion ?: "unknown",
                 apiUrl = apiUrl,
-                maServerId = validation.maServerId
+                maServerId = transport.maServerId
             )
 
-            Log.i(TAG, "MA token auth successful (server ${validation.serverVersion})")
+            Log.i(TAG, "MA token auth successful (server ${transport.serverVersion})")
             _connectionState.value = MaConnectionState.Connected(serverInfo)
             true
 
+        } catch (e: MaApiTransport.AuthenticationException) {
+            Log.e(TAG, "Token auth failed: invalid/expired token", e)
+            apiTransport?.disconnect()
+            apiTransport = null
+            MaSettings.clearTokenForServer(server.id)
+            _connectionState.value = MaConnectionState.Error(
+                message = "Authentication expired. Please log in again.",
+                isAuthError = true
+            )
+            false
         } catch (e: MusicAssistantAuth.AuthenticationException) {
             Log.e(TAG, "Token auth failed: invalid/expired token", e)
+            apiTransport?.disconnect()
+            apiTransport = null
             // Token expired or invalid - clear it and request re-login
             MaSettings.clearTokenForServer(server.id)
             _connectionState.value = MaConnectionState.Error(
@@ -459,6 +642,8 @@ object MusicAssistantManager {
             false
         } catch (e: IOException) {
             Log.e(TAG, "Token auth network error", e)
+            apiTransport?.disconnect()
+            apiTransport = null
             _connectionState.value = MaConnectionState.Error(
                 message = "Network error: ${e.message}",
                 isAuthError = false
@@ -466,6 +651,8 @@ object MusicAssistantManager {
             false
         } catch (e: Exception) {
             Log.e(TAG, "Token auth failed", e)
+            apiTransport?.disconnect()
+            apiTransport = null
             _connectionState.value = MaConnectionState.Error(
                 message = "Authentication failed: ${e.message}",
                 isAuthError = true
@@ -500,14 +687,6 @@ object MusicAssistantManager {
     // ========================================================================
     // Music Assistant API Commands
     // ========================================================================
-
-    // Shared OkHttp client for WebSocket connections
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.MILLISECONDS) // Required for WebSocket
-        .writeTimeout(5, TimeUnit.SECONDS)
-        .pingInterval(30, TimeUnit.SECONDS)
-        .build()
 
     private const val COMMAND_TIMEOUT_MS = 15000L
 
@@ -1263,283 +1442,32 @@ object MusicAssistantManager {
     }
 
     /**
-     * Result of a successful token validation against the MA server.
+     * Send a command to the Music Assistant API via the persistent transport.
      *
-     * Contains real server metadata extracted from the server_info message
-     * received during the WebSocket handshake.
-     */
-    private data class TokenValidationResult(
-        val serverVersion: String,
-        val maServerId: String
-    )
-
-    /**
-     * Validate a token against the MA server by connecting, receiving server_info,
-     * and authenticating. This is a one-shot WebSocket operation.
+     * All 40+ API methods funnel through this single method. The transport
+     * handles connection persistence, authentication, and message_id correlation.
      *
-     * The flow mirrors the first two phases of [sendMaCommand]:
-     * 1. Connect to /ws, receive server_info (captures server_version, server_id)
-     * 2. Send auth command with token, verify success
-     * 3. Close connection
+     * Note: The apiUrl and token parameters are kept for signature compatibility
+     * with all existing call sites but are not used - the transport is already
+     * authenticated at connect time.
      *
-     * @param apiUrl The MA WebSocket URL (already includes /ws)
-     * @param token The authentication token to validate
-     * @return [TokenValidationResult] with real server metadata
-     * @throws MusicAssistantAuth.AuthenticationException if token is invalid/expired
-     * @throws IOException on network errors or timeout
-     */
-    private suspend fun validateToken(apiUrl: String, token: String): TokenValidationResult {
-        return withContext(Dispatchers.IO) {
-            val wsUrl = convertToWebSocketUrl(apiUrl)
-            Log.d(TAG, "Validating token against MA server: $wsUrl")
-
-            val result = CompletableDeferred<TokenValidationResult>()
-            var socketRef: WebSocket? = null
-            val authMessageId = UUID.randomUUID().toString()
-
-            val listener = object : WebSocketListener() {
-                private var serverInfoReceived = false
-                private var capturedVersion = "unknown"
-                private var capturedServerId = ""
-
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.d(TAG, "Validation WebSocket connected, waiting for server info...")
-                    socketRef = webSocket
-                }
-
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    try {
-                        val json = JSONObject(text)
-
-                        // First message: server_info (identified by server_id field)
-                        if (!serverInfoReceived && json.has("server_id")) {
-                            serverInfoReceived = true
-                            capturedVersion = json.optString("server_version", "unknown")
-                            capturedServerId = json.optString("server_id", "")
-                            Log.d(TAG, "Server info: version=$capturedVersion, id=$capturedServerId")
-
-                            // Send auth command with token
-                            val authMsg = JSONObject().apply {
-                                put("message_id", authMessageId)
-                                put("command", "auth")
-                                put("args", JSONObject().apply {
-                                    put("token", token)
-                                })
-                            }
-                            webSocket.send(authMsg.toString())
-                            return
-                        }
-
-                        // Auth response (matched by message_id)
-                        if (json.optString("message_id") == authMessageId) {
-                            if (json.has("error_code")) {
-                                val details = json.optString("details", "Authentication failed")
-                                Log.e(TAG, "Token validation failed: $details")
-                                webSocket.close(1000, "Auth failed")
-                                result.completeExceptionally(
-                                    MusicAssistantAuth.AuthenticationException(details)
-                                )
-                                return
-                            }
-
-                            // Auth success - close and return server metadata
-                            Log.d(TAG, "Token validated successfully")
-                            webSocket.close(1000, "Validated")
-                            result.complete(
-                                TokenValidationResult(
-                                    serverVersion = capturedVersion,
-                                    maServerId = capturedServerId
-                                )
-                            )
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error parsing validation message", e)
-                    }
-                }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    Log.e(TAG, "Validation WebSocket failure", t)
-                    if (!result.isCompleted) {
-                        result.completeExceptionally(
-                            IOException("Connection failed: ${t.message}", t)
-                        )
-                    }
-                }
-
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    if (!result.isCompleted) {
-                        result.completeExceptionally(
-                            IOException("Connection closed before validation complete")
-                        )
-                    }
-                }
-            }
-
-            val request = Request.Builder().url(wsUrl).build()
-            httpClient.newWebSocket(request, listener)
-
-            try {
-                withTimeout(COMMAND_TIMEOUT_MS) {
-                    result.await()
-                }
-            } catch (e: TimeoutCancellationException) {
-                socketRef?.close(1000, "Timeout")
-                throw IOException("Token validation timed out after ${COMMAND_TIMEOUT_MS / 1000} seconds")
-            }
-        }
-    }
-
-    /**
-     * Send a command to the Music Assistant WebSocket API.
-     *
-     * Opens a one-shot WebSocket connection, authenticates with token,
-     * sends the command, waits for the response, and closes.
-     *
-     * @param apiUrl The MA WebSocket base URL (http/https, will be converted to ws/wss)
-     * @param token The authentication token
+     * @param apiUrl (unused) The MA WebSocket URL - kept for call site compatibility
+     * @param token (unused) The auth token - kept for call site compatibility
      * @param command The MA command to execute (e.g., "players/all")
      * @param args Command arguments as a map
      * @return The JSON response object
-     * @throws IOException on network errors
-     * @throws MusicAssistantAuth.AuthenticationException on auth failures
+     * @throws IOException if transport is disconnected
+     * @throws MaApiTransport.MaCommandException if server returns an error
      */
     private suspend fun sendMaCommand(
-        apiUrl: String,
-        token: String,
+        @Suppress("UNUSED_PARAMETER") apiUrl: String,
+        @Suppress("UNUSED_PARAMETER") token: String,
         command: String,
         args: Map<String, Any>
     ): JSONObject {
-        return withContext(Dispatchers.IO) {
-            // apiUrl from MaApiEndpoint already includes /ws path
-            // Just ensure it's a WebSocket URL (ws:// or wss://)
-            val wsUrl = convertToWebSocketUrl(apiUrl)
-            Log.d(TAG, "Connecting to MA API: $wsUrl for command: $command")
-
-            val result = CompletableDeferred<JSONObject>()
-            var socketRef: WebSocket? = null
-            val commandMessageId = UUID.randomUUID().toString()
-            val authMessageId = UUID.randomUUID().toString()
-
-            val listener = object : WebSocketListener() {
-                private var serverInfoReceived = false
-                private var authenticated = false
-
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    Log.d(TAG, "MA WebSocket connected, waiting for server info...")
-                    socketRef = webSocket
-                }
-
-                override fun onMessage(webSocket: WebSocket, text: String) {
-                    try {
-                        val json = JSONObject(text)
-
-                        // First message: server info
-                        if (!serverInfoReceived && json.has("server_id")) {
-                            serverInfoReceived = true
-                            Log.d(TAG, "Server info received, authenticating...")
-
-                            // Send auth command with token (MA uses "auth" command)
-                            val authMsg = JSONObject().apply {
-                                put("message_id", authMessageId)
-                                put("command", "auth")
-                                put("args", JSONObject().apply {
-                                    put("token", token)
-                                })
-                            }
-                            webSocket.send(authMsg.toString())
-                            return
-                        }
-
-                        // Auth response
-                        if (json.optString("message_id") == authMessageId) {
-                            if (json.has("error_code")) {
-                                val errorCode = json.getString("error_code")
-                                val details = json.optString("details", "Authentication failed")
-                                Log.e(TAG, "Auth failed: $errorCode - $details")
-                                webSocket.close(1000, "Auth failed")
-                                result.completeExceptionally(
-                                    MusicAssistantAuth.AuthenticationException(details)
-                                )
-                                return
-                            }
-
-                            authenticated = true
-                            Log.d(TAG, "Authenticated, sending command: $command")
-
-                            // Send the actual command
-                            val cmdMsg = JSONObject().apply {
-                                put("message_id", commandMessageId)
-                                put("command", command)
-                                if (args.isNotEmpty()) {
-                                    put("args", JSONObject(args))
-                                }
-                            }
-                            webSocket.send(cmdMsg.toString())
-                            return
-                        }
-
-                        // Command response
-                        if (json.optString("message_id") == commandMessageId) {
-                            if (json.has("error_code")) {
-                                val errorCode = json.getString("error_code")
-                                val details = json.optString("details", "Command failed")
-                                Log.e(TAG, "Command failed: $errorCode - $details")
-                                webSocket.close(1000, "Command failed")
-                                result.completeExceptionally(Exception("$errorCode: $details"))
-                                return
-                            }
-
-                            Log.d(TAG, "Command response received")
-                            webSocket.close(1000, "Done")
-                            result.complete(json)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error parsing MA message", e)
-                    }
-                }
-
-                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                    Log.e(TAG, "MA WebSocket failure", t)
-                    if (!result.isCompleted) {
-                        result.completeExceptionally(IOException("Connection failed: ${t.message}", t))
-                    }
-                }
-
-                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                    Log.d(TAG, "MA WebSocket closed: $code $reason")
-                    if (!result.isCompleted) {
-                        result.completeExceptionally(IOException("Connection closed before command complete"))
-                    }
-                }
-            }
-
-            val request = Request.Builder()
-                .url(wsUrl)
-                .build()
-
-            httpClient.newWebSocket(request, listener)
-
-            try {
-                withTimeout(COMMAND_TIMEOUT_MS) {
-                    result.await()
-                }
-            } catch (e: TimeoutCancellationException) {
-                socketRef?.close(1000, "Timeout")
-                throw IOException("Command timed out after ${COMMAND_TIMEOUT_MS / 1000} seconds")
-            }
-        }
-    }
-
-    /**
-     * Convert HTTP/HTTPS URL to WebSocket URL (ws/wss).
-     */
-    private fun convertToWebSocketUrl(url: String): String {
-        return when {
-            url.startsWith("https://") -> url.replaceFirst("https://", "wss://")
-            url.startsWith("http://") -> url.replaceFirst("http://", "ws://")
-            url.startsWith("wss://") || url.startsWith("ws://") -> url
-            else -> "wss://$url"
-        }
+        val transport = apiTransport
+            ?: throw IOException("MA API transport not connected")
+        return transport.sendCommand(command, args, COMMAND_TIMEOUT_MS)
     }
 
     // ========================================================================
@@ -2143,17 +2071,27 @@ object MusicAssistantManager {
         // Convert WebSocket URL to HTTP URL for imageproxy endpoint
         // ws://host:port/ws -> http://host:port
         // wss://host:port/ws -> https://host:port
-        val baseUrl = currentApiUrl
-            ?.replace("/ws", "")
-            ?.replace("wss://", "https://")
-            ?.replace("ws://", "http://")
-            ?: ""
+        // webrtc://ma-api -> ma-proxy:// (proxied over DataChannel)
+        val apiUrl = currentApiUrl ?: ""
+        val isRemoteMode = apiUrl == MaApiEndpoint.WEBRTC_SENTINEL_URL
+        val baseUrl = if (isRemoteMode) {
+            // REMOTE mode: use ma-proxy:// scheme for Coil MaProxyImageFetcher
+            // URLs become: ma-proxy:///imageproxy?provider=x&path=y (proxied over DataChannel)
+            "${MaProxyImageFetcher.SCHEME}://"
+        } else {
+            apiUrl
+                .replace("/ws", "")
+                .replace("wss://", "https://")
+                .replace("ws://", "http://")
+        }
 
         // Try direct image field - can be a URL string or a JSONObject with path/provider
         val imageField = json.opt("image")
         when (imageField) {
             is String -> {
-                if (imageField.startsWith("http")) return imageField
+                if (imageField.startsWith("http")) {
+                    return maybeProxyImageUrl(imageField, isRemoteMode, baseUrl)
+                }
             }
             is JSONObject -> {
                 // Image is an object with path, provider, type
@@ -2178,7 +2116,9 @@ object MusicAssistantManager {
             val albumImageField = album.opt("image")
             when (albumImageField) {
                 is String -> {
-                    if (albumImageField.startsWith("http")) return albumImageField
+                    if (albumImageField.startsWith("http")) {
+                        return maybeProxyImageUrl(albumImageField, isRemoteMode, baseUrl)
+                    }
                 }
                 is JSONObject -> {
                     val url = buildImageProxyUrl(albumImageField, baseUrl)
@@ -2195,6 +2135,33 @@ object MusicAssistantManager {
         }
 
         return ""
+    }
+
+    /**
+     * In REMOTE mode, rewrite server-local image URLs to use the ma-proxy:// scheme.
+     *
+     * The MA server may return fully-qualified URLs like:
+     *   https://music.example.com/imageproxy?provider=x&path=y
+     * These point to the server's internal network and aren't reachable from
+     * a remote client. We extract the path+query and rewrite as:
+     *   ma-proxy:///imageproxy?provider=x&path=y
+     *
+     * URLs that don't contain "/imageproxy" are assumed to be truly remote
+     * (e.g., CDN URLs from Spotify/YouTube) and are returned as-is.
+     */
+    private fun maybeProxyImageUrl(url: String, isRemoteMode: Boolean, baseUrl: String): String {
+        if (!isRemoteMode) return url
+
+        // Check if this is a server-local imageproxy URL
+        val proxyIndex = url.indexOf("/imageproxy")
+        if (proxyIndex >= 0) {
+            // Extract path+query: /imageproxy?provider=x&path=y
+            val pathAndQuery = url.substring(proxyIndex)
+            return "$baseUrl$pathAndQuery"
+        }
+
+        // Not an imageproxy URL — likely a CDN URL that's accessible from anywhere
+        return url
     }
 
     /**
