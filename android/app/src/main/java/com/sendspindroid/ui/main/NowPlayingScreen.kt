@@ -648,7 +648,8 @@ private fun NowPlayingWithQueuePanel(
         ) {
             QueueSheetContent(
                 viewModel = queueViewModel,
-                onBrowseLibrary = onBrowseLibrary
+                onBrowseLibrary = onBrowseLibrary,
+                currentTrackTitle = metadata.title
             )
         }
     }
@@ -909,7 +910,8 @@ private fun NowPlayingTv(
                     queueViewModel?.let { vm ->
                         QueueSheetContent(
                             viewModel = vm,
-                            onBrowseLibrary = onBrowseLibrary
+                            onBrowseLibrary = onBrowseLibrary,
+                            currentTrackTitle = metadata.title
                         )
                     }
                 }
