@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
@@ -70,6 +71,7 @@ fun SearchScreen(
     onItemClick: (MaLibraryItem) -> Unit,
     onAlbumClick: (MaAlbum) -> Unit = {},
     onArtistClick: (MaArtist) -> Unit = {},
+    onPodcastClick: (MaPodcast) -> Unit = {},
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},
     onPlayNext: (MaLibraryItem) -> Unit = {}
@@ -85,6 +87,7 @@ fun SearchScreen(
             when (item) {
                 is MaAlbum -> onAlbumClick(item)
                 is MaArtist -> onArtistClick(item)
+                is MaPodcast -> onPodcastClick(item)
                 else -> onItemClick(item)
             }
         },
@@ -220,7 +223,8 @@ private fun FilterChipsRow(
             MaMediaType.ARTIST to R.string.search_filter_artists,
             MaMediaType.TRACK to R.string.search_filter_tracks,
             MaMediaType.PLAYLIST to R.string.search_filter_playlists,
-            MaMediaType.RADIO to R.string.search_filter_radio
+            MaMediaType.RADIO to R.string.search_filter_radio,
+            MaMediaType.PODCAST to R.string.search_filter_podcasts
         )
     }
 

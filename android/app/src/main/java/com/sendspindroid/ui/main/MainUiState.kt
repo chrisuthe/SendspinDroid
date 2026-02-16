@@ -82,6 +82,16 @@ sealed class DetailDestination {
     data class Playlist(val playlistId: String, val playlistName: String) : DetailDestination() {
         override val title: String get() = playlistName
     }
+
+    data class Podcast(
+        val podcastId: String,
+        val podcastName: String,
+        val podcastImageUri: String? = null,
+        val podcastPublisher: String? = null,
+        val totalEpisodes: Int = 0
+    ) : DetailDestination() {
+        override val title: String get() = podcastName
+    }
 }
 
 /**

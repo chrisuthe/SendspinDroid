@@ -2,6 +2,7 @@ package com.sendspindroid.musicassistant.transport
 
 import android.util.Log
 import kotlinx.coroutines.CompletableDeferred
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.util.UUID
@@ -37,6 +38,10 @@ class MaCommandMultiplexer {
 
     // Pending API commands: message_id -> CompletableDeferred<JSONObject>
     private val pendingCommands = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+
+    // Accumulated partial results: message_id -> JSONArray of items received so far
+    // MA server sends large results in 500-item batches with "partial": true
+    private val partialResults = ConcurrentHashMap<String, JSONArray>()
 
     // Pending HTTP proxy requests: request_id -> CompletableDeferred<HttpProxyResponse>
     private val pendingProxyRequests =
@@ -97,22 +102,52 @@ class MaCommandMultiplexer {
             // Check for command response (has message_id matching a pending command)
             val messageId = json.optString("message_id", "")
             if (messageId.isNotEmpty()) {
+                val isPartial = json.optBoolean("partial", false)
+
+                // Handle partial result: accumulate and wait for more
+                if (isPartial && pendingCommands.containsKey(messageId)) {
+                    val resultArray = json.optJSONArray("result")
+                    if (resultArray != null && resultArray.length() > 0) {
+                        val accumulated = partialResults.getOrPut(messageId) { JSONArray() }
+                        for (i in 0 until resultArray.length()) {
+                            accumulated.put(resultArray.get(i))
+                        }
+                        Log.d(TAG, "Partial result for $messageId: +${resultArray.length()} items (total so far: ${accumulated.length()})")
+                    }
+                    return
+                }
+
                 val deferred = pendingCommands.remove(messageId)
                 if (deferred != null) {
                     if (json.has("error_code")) {
                         val errorCode = json.optString("error_code", "unknown")
                         val details = json.optString("details", "Command failed")
                         Log.w(TAG, "Command error: $errorCode - $details")
+                        partialResults.remove(messageId)
                         deferred.completeExceptionally(
                             MaApiTransport.MaCommandException(errorCode, details)
                         )
                     } else {
+                        // Merge any accumulated partial results with this final batch
+                        val accumulated = partialResults.remove(messageId)
+                        if (accumulated != null) {
+                            val finalArray = json.optJSONArray("result")
+                            if (finalArray != null) {
+                                for (i in 0 until finalArray.length()) {
+                                    accumulated.put(finalArray.get(i))
+                                }
+                            }
+                            json.put("result", accumulated)
+                            Log.d(TAG, "Merged partial results for $messageId: ${accumulated.length()} total items")
+                        }
                         deferred.complete(json)
                     }
                     return
                 }
                 // message_id present but no matching pending command - might be
                 // an event or a response to something we already timed out on
+                // Also clean up any stale partial results
+                partialResults.remove(messageId)
             }
 
             // Server-push event (no matching message_id)
@@ -167,6 +202,7 @@ class MaCommandMultiplexer {
             deferred.completeExceptionally(error)
         }
         pendingCommands.clear()
+        partialResults.clear()
 
         pendingProxyRequests.forEach { (_, deferred) ->
             deferred.completeExceptionally(error)

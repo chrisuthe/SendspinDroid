@@ -567,6 +567,7 @@
     <string name="search_filter_tracks">Tracks</string>
     <string name="search_filter_playlists">Playlists</string>
     <string name="search_filter_radio">Radio</string>
+    <string name="search_filter_podcasts">Podcasts</string>
     <string name="search_section_artists">Artists</string>
     <string name="search_section_albums">Albums</string>
     <string name="search_section_tracks">Tracks</string>
