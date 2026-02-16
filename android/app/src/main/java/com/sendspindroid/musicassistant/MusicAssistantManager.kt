@@ -129,6 +129,24 @@ data class MaRadio(
 }
 
 /**
+ * Represents a podcast from Music Assistant.
+ *
+ * Implements MaLibraryItem for use in unified adapters.
+ * Subtitle rendering: Publisher name (e.g., "NPR")
+ */
+data class MaPodcast(
+    val podcastId: String,
+    override val name: String,
+    override val imageUri: String?,
+    override val uri: String?,
+    val publisher: String?,
+    val totalEpisodes: Int
+) : MaLibraryItem {
+    override val id: String get() = podcastId
+    override val mediaType: MaMediaType = MaMediaType.PODCAST
+}
+
+/**
  * Represents a browseable folder from Music Assistant.
  *
  * Used in the Browse tab to navigate provider content hierarchies.
@@ -1970,6 +1988,41 @@ object MusicAssistantManager {
     }
 
     /**
+     * Get podcasts from the Music Assistant library.
+     *
+     * @param limit Max items to return (default 15)
+     * @param offset Number of items to skip for pagination
+     * @param orderBy Sort order (default "name")
+     * @return Result with list of podcasts
+     */
+    suspend fun getPodcasts(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name"
+    ): Result<List<MaPodcast>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching podcasts (limit=$limit, offset=$offset, orderBy=$orderBy)")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/podcasts/library_items",
+                    mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
+                )
+                val podcasts = parsePodcasts(response)
+                Log.d(TAG, "Got ${podcasts.size} podcasts")
+                Result.success(podcasts)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch podcasts", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Browse Music Assistant providers for folder-based content.
      *
      * @param path Browse path (null for root, "provider_id://" for provider root,
@@ -2527,6 +2580,7 @@ object MusicAssistantManager {
                             MaMediaType.ARTIST -> "artist"
                             MaMediaType.PLAYLIST -> "playlist"
                             MaMediaType.RADIO -> "radio"
+                            MaMediaType.PODCAST -> "podcast"
                             MaMediaType.FOLDER -> "folder"
                         }
                     }
@@ -3183,6 +3237,47 @@ object MusicAssistantManager {
         return radios
     }
 
+    private fun parsePodcasts(response: JSONObject): List<MaPodcast> {
+        val podcasts = mutableListOf<MaPodcast>()
+
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return podcasts
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val podcastId = item.optString("item_id", "")
+                .ifEmpty { item.optString("uri", "") }
+
+            if (podcastId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty {
+                "library://podcast/$podcastId"
+            }
+
+            val publisher = item.optString("publisher", "").ifEmpty { null }
+            val totalEpisodes = item.optInt("total_episodes", 0)
+
+            podcasts.add(
+                MaPodcast(
+                    podcastId = podcastId,
+                    name = name,
+                    imageUri = imageUri,
+                    uri = uri,
+                    publisher = publisher,
+                    totalEpisodes = totalEpisodes
+                )
+            )
+        }
+
+        return podcasts
+    }
+
     /**
      * Parse browse items from MA API response.
      *
@@ -3341,6 +3436,25 @@ object MusicAssistantManager {
                             trackCount = trackCount,
                             owner = owner,
                             uri = uri
+                        )
+                    )
+                }
+                "podcast" -> {
+                    val podcastId = item.optString("item_id", "")
+                        .ifEmpty { item.optString("uri", "") }
+                    if (podcastId.isEmpty()) continue
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    val publisher = item.optString("publisher", "").ifEmpty { null }
+                    val totalEpisodes = item.optInt("total_episodes", 0)
+                    items.add(
+                        MaPodcast(
+                            podcastId = podcastId,
+                            name = name.ifEmpty { podcastId },
+                            imageUri = imageUri,
+                            uri = uri,
+                            publisher = publisher,
+                            totalEpisodes = totalEpisodes
                         )
                     )
                 }

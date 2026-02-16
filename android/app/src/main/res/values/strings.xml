@@ -546,6 +546,7 @@
     <string name="library_tab_playlists">Playlists</string>
     <string name="library_tab_tracks">Tracks</string>
     <string name="library_tab_radio">Radio</string>
+    <string name="library_tab_podcasts">Podcasts</string>
     <string name="library_tab_browse">Browse</string>
     <string name="library_sort_name">Name</string>
     <string name="library_sort_date_added">Date Added</string>
