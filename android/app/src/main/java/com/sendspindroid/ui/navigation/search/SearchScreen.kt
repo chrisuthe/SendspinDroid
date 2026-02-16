@@ -343,6 +343,22 @@ private fun SearchResultsList(
                 )
             }
         }
+
+        // Podcasts section
+        if (results.podcasts.isNotEmpty()) {
+            item(key = "header_podcasts") {
+                SearchResultsHeader(title = stringResource(R.string.search_section_podcasts))
+            }
+            items(
+                items = results.podcasts,
+                key = { "podcast_${it.id}" }
+            ) { podcast ->
+                SearchResultItem(
+                    item = podcast,
+                    onClick = { onItemClick(podcast) }
+                )
+            }
+        }
     }
 }
 
