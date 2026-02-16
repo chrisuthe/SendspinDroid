@@ -251,6 +251,9 @@ private fun ConnectedShell(
     // Browse queue sidebar visibility (tablet/TV)
     var browseQueueVisible by rememberSaveable { mutableStateOf(false) }
 
+    // Now Playing queue sidebar visibility (tablet)
+    var nowPlayingQueueVisible by rememberSaveable { mutableStateOf(true) }
+
     // Player / Speaker Group bottom sheet state
     var showPlayerSheet by remember { mutableStateOf(false) }
     val playerViewModel: PlayerViewModel? = if (isMaConnected) viewModel() else null
@@ -328,22 +331,32 @@ private fun ConnectedShell(
                 }
             },
             actions = {
-                // Queue toggle button (tablet/TV, only when browsing)
+                // Queue toggle button (tablet/TV)
                 val isBrowsing = selectedNavTab != null || currentDetail != null
-                if (isBrowsing && AdaptiveDefaults.showBrowseQueueSidebar(formFactor)) {
+                val isNowPlaying = selectedNavTab == null && currentDetail == null
+                val showQueueToggle = AdaptiveDefaults.showBrowseQueueSidebar(formFactor) &&
+                    (isBrowsing || (isNowPlaying && isMaConnected))
+                if (showQueueToggle) {
                     val queueModifier = if (formFactor == FormFactor.TV) {
                         Modifier.tvFocusable()
                     } else {
                         Modifier
                     }
+                    val isQueueActive = if (isNowPlaying) nowPlayingQueueVisible else browseQueueVisible
                     IconButton(
-                        onClick = { browseQueueVisible = !browseQueueVisible },
+                        onClick = {
+                            if (isNowPlaying) {
+                                nowPlayingQueueVisible = !nowPlayingQueueVisible
+                            } else {
+                                browseQueueVisible = !browseQueueVisible
+                            }
+                        },
                         modifier = queueModifier
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_queue_music),
                             contentDescription = stringResource(R.string.queue_view),
-                            tint = if (browseQueueVisible) {
+                            tint = if (isQueueActive) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -435,6 +448,7 @@ private fun ConnectedShell(
                     viewModel.setCurrentNavTab(NavTab.LIBRARY)
                     viewModel.setNavigationContentVisible(true)
                 },
+                inlineQueueVisible = nowPlayingQueueVisible,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
