@@ -109,20 +109,32 @@ fun LibraryScreen(
             ) { page ->
                 val contentType = tabs[page]
 
-                BrowseListScreen(
-                    stateFlow = viewModel.getStateFor(contentType),
-                    contentType = contentType,
-                    sortOptions = viewModel.getSortOptionsFor(contentType),
-                    onSortChange = { sort -> viewModel.setSortOption(contentType, sort) },
-                    onLoadMore = { viewModel.loadMore(contentType) },
-                    onRefresh = { viewModel.refresh(contentType) },
-                    onItemClick = { item ->
-                        handleItemClick(item, onAlbumClick, onArtistClick, onItemClick)
-                    },
-                    onAddToPlaylist = onAddToPlaylist,
-                    onAddToQueue = onAddToQueue,
-                    onPlayNext = onPlayNext
-                )
+                if (contentType == LibraryViewModel.ContentType.BROWSE) {
+                    BrowseContentScreen(
+                        viewModel = viewModel,
+                        onItemClick = { item ->
+                            handleItemClick(item, onAlbumClick, onArtistClick, onItemClick)
+                        },
+                        onAddToPlaylist = onAddToPlaylist,
+                        onAddToQueue = onAddToQueue,
+                        onPlayNext = onPlayNext
+                    )
+                } else {
+                    BrowseListScreen(
+                        stateFlow = viewModel.getStateFor(contentType),
+                        contentType = contentType,
+                        sortOptions = viewModel.getSortOptionsFor(contentType),
+                        onSortChange = { sort -> viewModel.setSortOption(contentType, sort) },
+                        onLoadMore = { viewModel.loadMore(contentType) },
+                        onRefresh = { viewModel.refresh(contentType) },
+                        onItemClick = { item ->
+                            handleItemClick(item, onAlbumClick, onArtistClick, onItemClick)
+                        },
+                        onAddToPlaylist = onAddToPlaylist,
+                        onAddToQueue = onAddToQueue,
+                        onPlayNext = onPlayNext
+                    )
+                }
             }
         }
     }
@@ -161,6 +173,7 @@ private fun getTabTitle(contentType: LibraryViewModel.ContentType): String {
         LibraryViewModel.ContentType.PLAYLISTS -> stringResource(R.string.library_tab_playlists)
         LibraryViewModel.ContentType.TRACKS -> stringResource(R.string.library_tab_tracks)
         LibraryViewModel.ContentType.RADIO -> stringResource(R.string.library_tab_radio)
+        LibraryViewModel.ContentType.BROWSE -> stringResource(R.string.library_tab_browse)
     }
 }
 
