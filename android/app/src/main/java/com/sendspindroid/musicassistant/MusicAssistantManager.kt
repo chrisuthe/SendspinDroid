@@ -2570,20 +2570,21 @@ object MusicAssistantManager {
         val albums: List<MaAlbum> = emptyList(),
         val tracks: List<MaTrack> = emptyList(),
         val playlists: List<MaPlaylist> = emptyList(),
-        val radios: List<MaRadio> = emptyList()
+        val radios: List<MaRadio> = emptyList(),
+        val podcasts: List<MaPodcast> = emptyList()
     ) {
         /**
          * Check if all result lists are empty.
          */
         fun isEmpty(): Boolean =
             artists.isEmpty() && albums.isEmpty() && tracks.isEmpty() &&
-            playlists.isEmpty() && radios.isEmpty()
+            playlists.isEmpty() && radios.isEmpty() && podcasts.isEmpty()
 
         /**
          * Get total count of all results.
          */
         fun totalCount(): Int =
-            artists.size + albums.size + tracks.size + playlists.size + radios.size
+            artists.size + albums.size + tracks.size + playlists.size + radios.size + podcasts.size
     }
 
     /**
@@ -2645,7 +2646,7 @@ object MusicAssistantManager {
                 Log.d(TAG, "Search returned ${results.totalCount()} results " +
                         "(${results.artists.size} artists, ${results.albums.size} albums, " +
                         "${results.tracks.size} tracks, ${results.playlists.size} playlists, " +
-                        "${results.radios.size} radios)")
+                        "${results.radios.size} radios, ${results.podcasts.size} podcasts)")
 
                 Result.success(results)
             } catch (e: Exception) {
@@ -2677,7 +2678,8 @@ object MusicAssistantManager {
             albums = parseAlbumsArray(result.optJSONArray("albums")),
             tracks = parseTracksArray(result.optJSONArray("tracks")),
             playlists = parsePlaylistsArray(result.optJSONArray("playlists")),
-            radios = parseRadiosArray(result.optJSONArray("radios"))
+            radios = parseRadiosArray(result.optJSONArray("radios")),
+            podcasts = parsePodcastsArray(result.optJSONArray("podcasts"))
         )
     }
 
@@ -3287,6 +3289,47 @@ object MusicAssistantManager {
         }
 
         return radios
+    }
+
+    /**
+     * Parse an array of podcasts from JSON (used by search results).
+     */
+    private fun parsePodcastsArray(array: JSONArray?): List<MaPodcast> {
+        if (array == null) return emptyList()
+        val podcasts = mutableListOf<MaPodcast>()
+
+        for (i in 0 until array.length()) {
+            val item = array.optJSONObject(i) ?: continue
+
+            val podcastId = item.optString("item_id", "")
+                .ifEmpty { item.optString("uri", "") }
+
+            if (podcastId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty {
+                "library://podcast/$podcastId"
+            }
+
+            val publisher = item.optString("publisher", "").ifEmpty { null }
+            val totalEpisodes = item.optInt("total_episodes", 0)
+
+            podcasts.add(
+                MaPodcast(
+                    podcastId = podcastId,
+                    name = name,
+                    imageUri = imageUri,
+                    uri = uri,
+                    publisher = publisher,
+                    totalEpisodes = totalEpisodes
+                )
+            )
+        }
+
+        return podcasts
     }
 
     private fun parsePodcasts(response: JSONObject): List<MaPodcast> {

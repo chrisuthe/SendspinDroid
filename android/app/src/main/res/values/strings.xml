@@ -573,6 +573,7 @@
     <string name="search_section_tracks">Tracks</string>
     <string name="search_section_playlists">Playlists</string>
     <string name="search_section_radio">Radio</string>
+    <string name="search_section_podcasts">Podcasts</string>
 
     <!-- Accessibility - Search -->
     <string name="accessibility_search_input">Search input field</string>
