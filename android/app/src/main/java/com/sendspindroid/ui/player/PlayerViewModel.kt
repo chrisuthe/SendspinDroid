@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaPlayer
+import com.sendspindroid.musicassistant.model.MaPlayerType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -190,24 +191,27 @@ class PlayerViewModel : ViewModel() {
         }
 
         // Find players that can be grouped with the current player.
-        // Show all other available, enabled, visible players — regardless of provider.
-        // Music Assistant manages grouping compatibility via the API; we just present
-        // the choices and let the server accept or reject group commands.
+        // Only show players whose ID or provider appears in the current player's
+        // canGroupWith list — matching the official MA frontend behavior.
+        // Also skip GROUP-type players (only individual players can be grouped).
         val groupablePlayers = allPlayers
             .filter { player ->
                 val notSelf = player.playerId != thisDevicePlayerId
                 val isAvailable = player.available
                 val isEnabled = player.enabled
                 val notHidden = !player.hideInUi
+                val notGroup = player.type != MaPlayerType.GROUP
+                val canGroup = player.playerId in currentPlayer.canGroupWith ||
+                    player.provider in currentPlayer.canGroupWith
 
                 // Log why each player is included or excluded
                 if (notSelf) {
                     Log.d(TAG, "  Filter ${player.name}: available=$isAvailable, " +
-                        "enabled=$isEnabled, notHidden=$notHidden, " +
-                        "provider=${player.provider}")
+                        "enabled=$isEnabled, notHidden=$notHidden, notGroup=$notGroup, " +
+                        "canGroup=$canGroup, provider=${player.provider}")
                 }
 
-                notSelf && isAvailable && isEnabled && notHidden
+                notSelf && isAvailable && isEnabled && notHidden && notGroup && canGroup
             }
             .map { player ->
                 GroupablePlayer(
