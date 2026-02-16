@@ -147,6 +147,26 @@ data class MaPodcast(
 }
 
 /**
+ * Represents a podcast episode from Music Assistant.
+ *
+ * Implements MaLibraryItem for display in the podcast detail screen.
+ * Tracks playback status (fully played, resume position).
+ */
+data class MaPodcastEpisode(
+    val episodeId: String,
+    override val name: String,
+    override val imageUri: String?,
+    override val uri: String?,
+    val position: Int,             // Episode number
+    val duration: Long,            // Duration in seconds
+    val fullyPlayed: Boolean = false,
+    val resumePositionMs: Long = 0 // Resume position in milliseconds
+) : MaLibraryItem {
+    override val id: String get() = episodeId
+    override val mediaType: MaMediaType = MaMediaType.PODCAST
+}
+
+/**
  * Represents a browseable folder from Music Assistant.
  *
  * Used in the Browse tab to navigate provider content hierarchies.
@@ -2023,6 +2043,38 @@ object MusicAssistantManager {
     }
 
     /**
+     * Get episodes for a podcast from Music Assistant.
+     *
+     * @param podcastId The MA podcast item_id
+     * @return Result with list of podcast episodes
+     */
+    suspend fun getPodcastEpisodes(podcastId: String): Result<List<MaPodcastEpisode>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Fetching podcast episodes for: $podcastId")
+                val response = sendMaCommand(
+                    apiUrl, token, "music/podcasts/podcast_episodes",
+                    mapOf(
+                        "item_id" to podcastId,
+                        "provider_instance_id_or_domain" to "library"
+                    )
+                )
+                val episodes = parsePodcastEpisodes(response)
+                Log.d(TAG, "Got ${episodes.size} episodes for podcast $podcastId")
+                Result.success(episodes)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to fetch podcast episodes: $podcastId", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Browse Music Assistant providers for folder-based content.
      *
      * @param path Browse path (null for root, "provider_id://" for provider root,
@@ -3276,6 +3328,48 @@ object MusicAssistantManager {
         }
 
         return podcasts
+    }
+
+    private fun parsePodcastEpisodes(response: JSONObject): List<MaPodcastEpisode> {
+        val episodes = mutableListOf<MaPodcastEpisode>()
+
+        val resultArray = response.optJSONArray("result")
+            ?: response.optJSONObject("result")?.optJSONArray("items")
+            ?: return episodes
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+
+            val episodeId = item.optString("item_id", "")
+                .ifEmpty { item.optString("uri", "") }
+
+            if (episodeId.isEmpty()) continue
+
+            val name = item.optString("name", "")
+            if (name.isEmpty()) continue
+
+            val imageUri = extractImageUri(item).ifEmpty { null }
+            val uri = item.optString("uri", "").ifEmpty { null }
+            val position = item.optInt("position", 0)
+            val duration = item.optLong("duration", 0)
+            val fullyPlayed = item.optBoolean("fully_played", false)
+            val resumePositionMs = item.optLong("resume_position_ms", 0)
+
+            episodes.add(
+                MaPodcastEpisode(
+                    episodeId = episodeId,
+                    name = name,
+                    imageUri = imageUri,
+                    uri = uri,
+                    position = position,
+                    duration = duration,
+                    fullyPlayed = fullyPlayed,
+                    resumePositionMs = resumePositionMs
+                )
+            )
+        }
+
+        return episodes
     }
 
     /**

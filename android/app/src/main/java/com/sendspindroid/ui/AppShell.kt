@@ -69,6 +69,7 @@ import com.sendspindroid.ui.detail.AlbumDetailScreen
 import com.sendspindroid.ui.detail.ArtistDetailScreen
 import com.sendspindroid.ui.detail.PlaylistDetailScreen
 import com.sendspindroid.ui.detail.PlaylistDetailViewModel
+import com.sendspindroid.ui.detail.PodcastDetailScreen
 import com.sendspindroid.ui.main.DetailDestination
 import com.sendspindroid.ui.main.MainActivityViewModel
 import com.sendspindroid.ui.main.NavTab
@@ -286,6 +287,9 @@ private fun ConnectedShell(
     val onPlaylistDetailClick: (String, String) -> Unit = { playlistId, playlistName ->
         viewModel.navigateToDetail(DetailDestination.Playlist(playlistId, playlistName))
     }
+    val onPodcastDetailClick: (String, String, String?, String?, Int) -> Unit = { podcastId, podcastName, imageUri, publisher, totalEpisodes ->
+        viewModel.navigateToDetail(DetailDestination.Podcast(podcastId, podcastName, imageUri, publisher, totalEpisodes))
+    }
 
     // Server name for the toolbar subtitle
     val serverName = when (val state = connectionState) {
@@ -488,6 +492,7 @@ private fun ConnectedShell(
                                 onAlbumClick = onAlbumClick,
                                 onArtistClick = onArtistClick,
                                 onPlaylistDetailClick = onPlaylistDetailClick,
+                                onPodcastDetailClick = onPodcastDetailClick,
                                 onShowSuccess = onShowSuccess,
                                 onShowError = onShowError,
                                 onShowUndoSnackbar = onShowUndoSnackbar
@@ -657,6 +662,7 @@ private fun BrowseContent(
     onAlbumClick: (albumId: String, albumName: String) -> Unit,
     onArtistClick: (artistId: String, artistName: String) -> Unit,
     onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
+    onPodcastDetailClick: (podcastId: String, podcastName: String, imageUri: String?, publisher: String?, totalEpisodes: Int) -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
@@ -799,6 +805,9 @@ private fun BrowseContent(
                 onArtistClick = { artist ->
                     onArtistClick(artist.artistId, artist.name)
                 },
+                onPodcastClick = { podcast ->
+                    onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes)
+                },
                 onAddToPlaylist = addToPlaylist,
                 onAddToQueue = addToQueue,
                 onPlayNext = playNext
@@ -814,6 +823,9 @@ private fun BrowseContent(
                 },
                 onArtistClick = { artist ->
                     onArtistClick(artist.artistId, artist.name)
+                },
+                onPodcastClick = { podcast ->
+                    onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes)
                 },
                 onItemClick = playItem,
                 onAddToPlaylist = addToPlaylist,
@@ -996,6 +1008,16 @@ private fun DetailContent(
                     }
                 },
                 viewModel = playlistViewModel
+            )
+        }
+
+        is DetailDestination.Podcast -> {
+            PodcastDetailScreen(
+                podcastId = detail.podcastId,
+                podcastName = detail.podcastName,
+                podcastImageUri = detail.podcastImageUri,
+                podcastPublisher = detail.podcastPublisher,
+                totalEpisodes = detail.totalEpisodes
             )
         }
     }
