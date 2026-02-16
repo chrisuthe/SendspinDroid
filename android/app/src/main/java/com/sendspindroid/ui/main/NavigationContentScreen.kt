@@ -20,7 +20,6 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  *
  * @param viewModel The MainActivityViewModel providing playback state
  * @param onMiniPlayerClick Called when mini player album art is tapped (navigate to NowPlaying)
- * @param onStopClick Called when stop button is clicked (disconnect)
  * @param onPlayPauseClick Called when play/pause button is clicked
  * @param content Slot for the fragment content (Home/Search/Library)
  */
@@ -28,7 +27,6 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 fun NavigationContentScreen(
     viewModel: MainActivityViewModel,
     onMiniPlayerClick: () -> Unit,
-    onStopClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = {}
@@ -46,7 +44,6 @@ fun NavigationContentScreen(
         isPlaying = isPlaying,
         volume = volume,
         onMiniPlayerClick = onMiniPlayerClick,
-        onStopClick = onStopClick,
         onPlayPauseClick = onPlayPauseClick,
         onVolumeChange = { viewModel.updateVolume(it) },
         positionMs = positionMs,
@@ -66,7 +63,6 @@ fun NavigationContentScreen(
     isPlaying: Boolean,
     volume: Float,
     onMiniPlayerClick: () -> Unit,
-    onStopClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     positionMs: Long = 0,
@@ -84,7 +80,6 @@ fun NavigationContentScreen(
             isPlaying = isPlaying,
             volume = volume,
             onCardClick = onMiniPlayerClick,
-            onStopClick = onStopClick,
             onPlayPauseClick = onPlayPauseClick,
             onVolumeChange = onVolumeChange,
             positionMs = positionMs,
@@ -123,7 +118,6 @@ private fun NavigationContentScreenPreview() {
             isPlaying = true,
             volume = 0.75f,
             onMiniPlayerClick = {},
-            onStopClick = {},
             onPlayPauseClick = {},
             onVolumeChange = {}
         ) {
@@ -151,7 +145,6 @@ private fun NavigationContentScreenPausedPreview() {
             isPlaying = false,
             volume = 0.5f,
             onMiniPlayerClick = {},
-            onStopClick = {},
             onPlayPauseClick = {},
             onVolumeChange = {}
         )

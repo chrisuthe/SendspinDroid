@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -59,7 +58,6 @@ fun MiniPlayer(
     isPlaying: Boolean,
     volume: Float,
     onCardClick: () -> Unit,
-    onStopClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     positionMs: Long = 0,
@@ -187,43 +185,25 @@ fun MiniPlayer(
                         }
                     }
 
-                    // Controls
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
+                    // Play/Pause Button
+                    FilledIconButton(
+                        onClick = onPlayPauseClick,
+                        modifier = Modifier.size(40.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
-                        // Stop Button
-                        IconButton(
-                            onClick = onStopClick,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_stop),
-                                contentDescription = stringResource(R.string.disconnect),
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        // Play/Pause Button
-                        FilledIconButton(
-                            onClick = onPlayPauseClick,
-                            modifier = Modifier.size(40.dp),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            )
-                        ) {
-                            Icon(
-                                painter = painterResource(
-                                    if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
-                                ),
-                                contentDescription = stringResource(
-                                    if (isPlaying) R.string.accessibility_pause_button
-                                    else R.string.accessibility_play_button
-                                ),
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
+                        Icon(
+                            painter = painterResource(
+                                if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+                            ),
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.accessibility_pause_button
+                                else R.string.accessibility_play_button
+                            ),
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
 
@@ -278,6 +258,170 @@ fun MiniPlayer(
     }
 }
 
+/**
+ * Side mini player for phone landscape mode.
+ * Vertical layout: album art on top, track info, controls, progress bar.
+ * No volume slider — landscape phone uses hardware volume.
+ */
+@Composable
+fun MiniPlayerSide(
+    metadata: TrackMetadata,
+    artworkSource: ArtworkSource?,
+    isPlaying: Boolean,
+    onCardClick: () -> Unit,
+    onPlayPauseClick: () -> Unit,
+    positionMs: Long = 0,
+    durationMs: Long = 0,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxHeight(),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Box {
+            Column(
+                modifier = Modifier.fillMaxHeight()
+            ) {
+                // Album art — tappable to open full player
+                val context = LocalContext.current
+                val imageRequest = when (artworkSource) {
+                    is ArtworkSource.ByteArray -> {
+                        ImageRequest.Builder(context)
+                            .data(artworkSource.data)
+                            .crossfade(true)
+                            .build()
+                    }
+                    is ArtworkSource.Uri -> {
+                        ImageRequest.Builder(context)
+                            .data(artworkSource.uri)
+                            .crossfade(true)
+                            .build()
+                    }
+                    is ArtworkSource.Url -> {
+                        ImageRequest.Builder(context)
+                            .data(artworkSource.url)
+                            .crossfade(true)
+                            .build()
+                    }
+                    null -> null
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clickable(onClick = onCardClick)
+                ) {
+                    AsyncImage(
+                        model = imageRequest,
+                        contentDescription = stringResource(R.string.accessibility_open_full_player),
+                        modifier = Modifier.matchParentSize(),
+                        contentScale = ContentScale.Crop,
+                        placeholder = painterResource(R.drawable.placeholder_album_simple),
+                        error = painterResource(R.drawable.placeholder_album_simple),
+                        fallback = painterResource(R.drawable.placeholder_album_simple)
+                    )
+                    // Up-arrow hint overlay
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 2.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_expand_up),
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                // Track info
+                Column(
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isPlaying) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_audio_playing),
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text(
+                            text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (metadata.artist.isNotEmpty()) {
+                        Text(
+                            text = metadata.artist,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                // Controls
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilledIconButton(
+                        onClick = onPlayPauseClick,
+                        modifier = Modifier.size(44.dp),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
+                    ) {
+                        Icon(
+                            painter = painterResource(
+                                if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
+                            ),
+                            contentDescription = stringResource(
+                                if (isPlaying) R.string.accessibility_pause_button
+                                else R.string.accessibility_play_button
+                            ),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+
+            // Progress bar at bottom edge
+            if (durationMs > 0) {
+                LinearProgressIndicator(
+                    progress = { (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .align(Alignment.BottomCenter),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+            }
+        }
+    }
+}
+
 @Preview(showBackground = true)
 @Composable
 private fun MiniPlayerPreview() {
@@ -292,7 +436,6 @@ private fun MiniPlayerPreview() {
             isPlaying = true,
             volume = 0.75f,
             onCardClick = {},
-            onStopClick = {},
             onPlayPauseClick = {},
             onVolumeChange = {}
         )
@@ -309,7 +452,6 @@ private fun MiniPlayerNotPlayingPreview() {
             isPlaying = false,
             volume = 0.5f,
             onCardClick = {},
-            onStopClick = {},
             onPlayPauseClick = {},
             onVolumeChange = {}
         )
@@ -332,7 +474,6 @@ private fun MiniPlayerAllDevicesPreview() {
             isPlaying = true,
             volume = 0.75f,
             onCardClick = {},
-            onStopClick = {},
             onPlayPauseClick = {},
             onVolumeChange = {}
         )

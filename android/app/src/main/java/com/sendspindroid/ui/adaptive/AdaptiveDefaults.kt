@@ -129,6 +129,18 @@ object AdaptiveDefaults {
     fun showMiniPlayer(formFactor: FormFactor): Boolean =
         formFactor != FormFactor.TV
 
+    /**
+     * Whether to show the mini player as a side panel (phone landscape only).
+     * Uses smallestScreenWidthDp rather than formFactor because phones in landscape
+     * get classified as TABLET_7 by WindowSizeClass (width becomes ~780dp).
+     * smallestScreenWidthDp stays constant regardless of orientation.
+     */
+    fun showSideMiniPlayer(smallestScreenWidthDp: Int, isLandscape: Boolean): Boolean =
+        smallestScreenWidthDp < 600 && isLandscape
+
+    /** Width of the side mini player */
+    fun sideMiniPlayerWidth(): Dp = 200.dp
+
     // -- Inline Queue Panel (Tablet) --
 
     /** Whether Now Playing should show an inline queue panel alongside controls */
