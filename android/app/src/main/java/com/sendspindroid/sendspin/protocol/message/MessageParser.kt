@@ -1,7 +1,7 @@
 package com.sendspindroid.sendspin.protocol.message
 
-import android.util.Base64
 import android.util.Log
+import java.util.Base64
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.ServerCommandResult
@@ -232,7 +232,7 @@ object MessageParser {
         val codecHeader = if (player.has("codec_header")) {
             try {
                 val codecHeaderBase64 = player.getString("codec_header")
-                Base64.decode(codecHeaderBase64, Base64.DEFAULT)
+                Base64.getDecoder().decode(codecHeaderBase64)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to decode codec_header", e)
                 null

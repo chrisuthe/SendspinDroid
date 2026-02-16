@@ -79,8 +79,7 @@ android {
         // Follows semantic versioning (major.minor.patch[-prerelease])
         versionName = "2.0.0-alpha10"
 
-        // TODO: Add testInstrumentationRunner for UI tests
-        // testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -270,8 +269,13 @@ dependencies {
     // TODO: Add Retrofit if REST API is added
     // implementation("com.squareup.retrofit2:retrofit:2.11.x")
 
-    // TODO: Add testing dependencies
-    // testImplementation("junit:junit:4.13.2")
-    // androidTestImplementation("androidx.test.ext:junit:1.2.x")
-    // androidTestImplementation("androidx.test.espresso:espresso-core:3.6.x")
+    // Unit tests (JVM, no emulator needed)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("io.mockk:mockk:1.13.16")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("org.json:json:20231013")  // Real JSONObject for JVM tests (Android stubs throw)
+
+    // Instrumented tests (emulator-based)
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
 }
