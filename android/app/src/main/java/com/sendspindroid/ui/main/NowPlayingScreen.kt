@@ -90,6 +90,7 @@ fun NowPlayingScreen(
     onBrowseLibrary: () -> Unit = {},
     showPlayerButton: Boolean = false,
     onPlayerClick: () -> Unit = {},
+    inlineQueueVisible: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val connectionState by viewModel.connectionState.collectAsState()
@@ -212,7 +213,8 @@ fun NowPlayingScreen(
                     queueViewModel = inlineQueueViewModel,
                     onBrowseLibrary = onBrowseLibrary,
                     showPlayerButton = showPlayerButton,
-                    onPlayerClick = onPlayerClick
+                    onPlayerClick = onPlayerClick,
+                    queueVisible = inlineQueueVisible
                 )
             }
             isLandscape -> {
@@ -301,6 +303,7 @@ private fun NowPlayingPortrait(
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
     showQueueButton: Boolean = true,
+    isQueueActive: Boolean = false,
     albumArtFraction: Float = 0.7f,
     compactControls: Boolean = false,
     showPlayerButton: Boolean = false,
@@ -412,9 +415,9 @@ private fun NowPlayingPortrait(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Queue button (hidden when inline queue panel is visible on tablets)
+        // Queue button
         if (isMaConnected && showQueueButton) {
-            QueueButton(onClick = onQueueClick)
+            QueueButton(onClick = onQueueClick, isActive = isQueueActive)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -445,6 +448,7 @@ private fun NowPlayingLandscape(
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
     showQueueButton: Boolean = true,
+    showSecondaryRow: Boolean = false,
     showPlayerButton: Boolean = false,
     onPlayerClick: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -535,7 +539,7 @@ private fun NowPlayingLandscape(
                 onPreviousClick = onPreviousClick,
                 onPlayPauseClick = onPlayPauseClick,
                 onNextClick = onNextClick,
-                showSecondaryRow = false, // In landscape, show inline
+                showSecondaryRow = showSecondaryRow,
                 isSwitchGroupEnabled = controlsEnabled,
                 onSwitchGroupClick = onSwitchGroupClick,
                 showFavorite = isMaConnected,
@@ -592,65 +596,104 @@ private fun NowPlayingWithQueuePanel(
     onBrowseLibrary: () -> Unit,
     showPlayerButton: Boolean = false,
     onPlayerClick: () -> Unit = {},
+    queueVisible: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val formFactor = LocalFormFactor.current
-    val controlsWeight = AdaptiveDefaults.nowPlayingControlsWeight(formFactor)
-    val queueWeight = AdaptiveDefaults.inlineQueueWeight(formFactor)
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Row(modifier = modifier.fillMaxSize()) {
-        // Left column: Now Playing controls
+        // Left column: Now Playing controls (expands to fill when queue is hidden)
         Box(
             modifier = Modifier
-                .weight(controlsWeight)
+                .weight(1f)
                 .fillMaxHeight()
         ) {
-            NowPlayingPortrait(
-                metadata = metadata,
-                groupName = groupName,
-                artworkSource = artworkSource,
-                isBuffering = isBuffering,
-                isPlaying = isPlaying,
-                controlsEnabled = controlsEnabled,
-                volume = volume,
-                accentColor = accentColor,
-                isMaConnected = isMaConnected,
-                positionMs = positionMs,
-                durationMs = durationMs,
-                onPreviousClick = onPreviousClick,
-                onPlayPauseClick = onPlayPauseClick,
-                onNextClick = onNextClick,
-                onSwitchGroupClick = onSwitchGroupClick,
-                onFavoriteClick = onFavoriteClick,
-                onVolumeChange = onVolumeChange,
-                onQueueClick = {},
-                showQueueButton = false,
-                albumArtFraction = 0.5f,
-                compactControls = true,
-                showPlayerButton = showPlayerButton,
-                onPlayerClick = onPlayerClick
-            )
+            if (!queueVisible && isLandscape) {
+                // Queue hidden in landscape: use side-by-side layout so controls fit vertically
+                NowPlayingLandscape(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    volume = volume,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = {},
+                    showQueueButton = false,
+                    showSecondaryRow = true,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
+                )
+            } else {
+                // Queue visible or portrait: portrait-style vertical stack fits the narrow column
+                NowPlayingPortrait(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    volume = volume,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    onVolumeChange = onVolumeChange,
+                    onQueueClick = {},
+                    showQueueButton = false,
+                    albumArtFraction = 0.5f,
+                    compactControls = queueVisible,
+                    showPlayerButton = showPlayerButton,
+                    onPlayerClick = onPlayerClick
+                )
+            }
         }
 
-        // Vertical divider
-        VerticalDivider(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(vertical = 16.dp),
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-
-        // Right column: Inline Queue
-        Box(
-            modifier = Modifier
-                .weight(queueWeight)
-                .fillMaxHeight()
+        // Queue sidebar (animated)
+        AnimatedVisibility(
+            visible = queueVisible,
+            enter = slideInHorizontally { it },
+            exit = slideOutHorizontally { it }
         ) {
-            QueueSheetContent(
-                viewModel = queueViewModel,
-                onBrowseLibrary = onBrowseLibrary,
-                currentTrackTitle = metadata.title
-            )
+            Row(modifier = Modifier.fillMaxHeight()) {
+                // Vertical divider
+                VerticalDivider(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(vertical = 16.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                // Inline Queue
+                Box(
+                    modifier = Modifier
+                        .width(AdaptiveDefaults.browseQueueSidebarWidth(formFactor))
+                        .fillMaxHeight()
+                ) {
+                    QueueSheetContent(
+                        viewModel = queueViewModel,
+                        onBrowseLibrary = onBrowseLibrary,
+                        currentTrackTitle = metadata.title
+                    )
+                }
+            }
         }
     }
 }
