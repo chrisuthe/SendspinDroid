@@ -43,6 +43,7 @@ class LibraryViewModel : ViewModel() {
         PLAYLISTS,
         TRACKS,
         RADIO,
+        PODCASTS,
         BROWSE
     }
 
@@ -68,7 +69,7 @@ class LibraryViewModel : ViewModel() {
     fun getSortOptionsFor(type: ContentType): List<SortOption> {
         return when (type) {
             ContentType.ALBUMS -> listOf(SortOption.NAME, SortOption.DATE_ADDED, SortOption.YEAR)
-            ContentType.TRACKS -> listOf(SortOption.NAME, SortOption.DATE_ADDED)
+            ContentType.TRACKS, ContentType.PODCASTS -> listOf(SortOption.NAME, SortOption.DATE_ADDED)
             else -> listOf(SortOption.NAME)  // Artists, Playlists, Radio - only name sort
         }
     }
@@ -112,6 +113,9 @@ class LibraryViewModel : ViewModel() {
     private val _radioState = MutableStateFlow(TabState())
     val radioState: StateFlow<TabState> = _radioState.asStateFlow()
 
+    private val _podcastsState = MutableStateFlow(TabState())
+    val podcastsState: StateFlow<TabState> = _podcastsState.asStateFlow()
+
     private val _browseState = MutableStateFlow(TabState())
     val browseState: StateFlow<TabState> = _browseState.asStateFlow()
 
@@ -125,6 +129,7 @@ class LibraryViewModel : ViewModel() {
             ContentType.PLAYLISTS -> playlistsState
             ContentType.TRACKS -> tracksState
             ContentType.RADIO -> radioState
+            ContentType.PODCASTS -> podcastsState
             ContentType.BROWSE -> browseState
         }
     }
@@ -139,6 +144,7 @@ class LibraryViewModel : ViewModel() {
             ContentType.PLAYLISTS -> _playlistsState
             ContentType.TRACKS -> _tracksState
             ContentType.RADIO -> _radioState
+            ContentType.PODCASTS -> _podcastsState
             ContentType.BROWSE -> _browseState
         }
     }
@@ -377,6 +383,11 @@ class LibraryViewModel : ViewModel() {
                 orderBy = sort.apiValue
             )
             ContentType.RADIO -> MusicAssistantManager.getRadioStations(
+                limit = PAGE_SIZE,
+                offset = offset,
+                orderBy = sort.apiValue
+            )
+            ContentType.PODCASTS -> MusicAssistantManager.getPodcasts(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue

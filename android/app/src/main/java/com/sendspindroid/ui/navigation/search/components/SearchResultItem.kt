@@ -38,6 +38,7 @@ import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MaBrowseFolder
+import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
@@ -225,6 +226,7 @@ private fun getSubtitle(item: MaLibraryItem): String = when (item) {
     is MaAlbum -> buildAlbumSubtitle(item)
     is MaArtist -> "" // No subtitle for artists
     is MaRadio -> item.provider ?: ""
+    is MaPodcast -> item.publisher ?: ""
     is MaBrowseFolder -> "" // No subtitle for folders
     else -> ""
 }

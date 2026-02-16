@@ -44,5 +44,6 @@ enum class MaMediaType {
     ARTIST,
     PLAYLIST,
     RADIO,
+    PODCAST,
     FOLDER
 }

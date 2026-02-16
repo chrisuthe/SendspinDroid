@@ -173,6 +173,7 @@ private fun getTabTitle(contentType: LibraryViewModel.ContentType): String {
         LibraryViewModel.ContentType.PLAYLISTS -> stringResource(R.string.library_tab_playlists)
         LibraryViewModel.ContentType.TRACKS -> stringResource(R.string.library_tab_tracks)
         LibraryViewModel.ContentType.RADIO -> stringResource(R.string.library_tab_radio)
+        LibraryViewModel.ContentType.PODCASTS -> stringResource(R.string.library_tab_podcasts)
         LibraryViewModel.ContentType.BROWSE -> stringResource(R.string.library_tab_browse)
     }
 }
