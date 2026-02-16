@@ -29,7 +29,6 @@ class MiniPlayerComposeView @JvmOverloads constructor(
         }
 
     var onCardClick: (() -> Unit)? = null
-    var onStopClick: (() -> Unit)? = null
     var onPlayPauseClick: (() -> Unit)? = null
     var onVolumeChange: ((Float) -> Unit)? = null
 
@@ -51,7 +50,6 @@ class MiniPlayerComposeView @JvmOverloads constructor(
                 isPlaying = isPlaying,
                 volume = volume,
                 onCardClick = { onCardClick?.invoke() },
-                onStopClick = { onStopClick?.invoke() },
                 onPlayPauseClick = { onPlayPauseClick?.invoke() },
                 onVolumeChange = { newVolume ->
                     onVolumeChange?.invoke(newVolume) ?: vm.updateVolume(newVolume)

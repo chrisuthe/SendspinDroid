@@ -900,13 +900,6 @@ class MainActivity : AppCompatActivity() {
                     hideNavigationContent()
                 }
 
-                onStopClick = {
-                    Log.d(TAG, "Mini player: Stop/disconnect pressed")
-                    // Just disconnect -- state machine will transition to ServerList
-                    // and call showServerListView() via PlayerStateListener
-                    onDisconnectClicked()
-                }
-
                 onPlayPauseClick = {
                     Log.d(TAG, "Mini player: Play/Pause pressed")
                     onPlayPauseClicked()

@@ -1,5 +1,6 @@
 package com.sendspindroid.ui
 
+import android.content.res.Configuration
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -34,7 +35,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.VerticalDivider
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
+import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,6 +48,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -69,6 +74,7 @@ import com.sendspindroid.ui.main.MainActivityViewModel
 import com.sendspindroid.ui.main.NavTab
 import com.sendspindroid.ui.main.NowPlayingScreen
 import com.sendspindroid.ui.main.components.MiniPlayer
+import com.sendspindroid.ui.main.components.MiniPlayerSide
 import com.sendspindroid.ui.navigation.home.HomeScreen
 import com.sendspindroid.ui.navigation.home.HomeViewModel
 import com.sendspindroid.ui.navigation.library.LibraryScreen
@@ -455,6 +461,10 @@ private fun ConnectedShell(
             )
         } else {
             // Browsing mode (with optional detail overlay): content + queue sidebar + mini player
+            val configuration = LocalConfiguration.current
+            val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val useSideMiniPlayer = AdaptiveDefaults.showSideMiniPlayer(configuration.smallestScreenWidthDp, isLandscape)
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -513,10 +523,24 @@ private fun ConnectedShell(
                             }
                         }
                     }
+
+                    // Side mini player (phone landscape only)
+                    if (useSideMiniPlayer && AdaptiveDefaults.showMiniPlayer(formFactor)) {
+                        SideMiniPlayerBar(
+                            viewModel = viewModel,
+                            onPlayPauseClick = onPlayPauseClick,
+                            onReturnToNowPlaying = {
+                                viewModel.clearDetailNavigation()
+                                browseQueueVisible = false
+                                selectedNavTab = null
+                                viewModel.setNavigationContentVisible(false)
+                            }
+                        )
+                    }
                 }
 
-                // Mini player (phone/tablet only -- TV gets no mini player)
-                if (AdaptiveDefaults.showMiniPlayer(formFactor)) {
+                // Bottom mini player (portrait only -- not shown when side mini player is active)
+                if (!useSideMiniPlayer && AdaptiveDefaults.showMiniPlayer(formFactor)) {
                     MiniPlayerBar(
                         viewModel = viewModel,
                         onPlayPauseClick = onPlayPauseClick,
@@ -526,8 +550,7 @@ private fun ConnectedShell(
                             browseQueueVisible = false
                             selectedNavTab = null
                             viewModel.setNavigationContentVisible(false)
-                        },
-                        onDisconnectClick = onDisconnectClick
+                        }
                     )
                 }
             }
@@ -548,8 +571,19 @@ private fun ConnectedShell(
         )
     } else {
         // MA connected -> NavigationSuiteScaffold with browse tabs + Now Playing
+        // Force NavigationRail on phone landscape (auto-detect sometimes stays on BottomNav)
+        val configuration = LocalConfiguration.current
+        val isPhoneLandscape = configuration.smallestScreenWidthDp < 600 &&
+            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val navSuiteType = if (isPhoneLandscape) {
+            NavigationSuiteType.NavigationRail
+        } else {
+            NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfo())
+        }
+
         NavigationSuiteScaffold(
             modifier = modifier,
+            layoutType = navSuiteType,
             navigationSuiteItems = {
                 // Now Playing tab (replaces mini player on TV; not needed on phone/tablet
                 // since the mini player handles returning to the now playing screen)
@@ -1179,8 +1213,7 @@ private fun MiniPlayerBar(
     viewModel: MainActivityViewModel,
     onPlayPauseClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
-    onReturnToNowPlaying: () -> Unit,
-    onDisconnectClick: () -> Unit
+    onReturnToNowPlaying: () -> Unit
 ) {
     val metadata by viewModel.metadata.collectAsState()
     val artworkSource by viewModel.artworkSource.collectAsState()
@@ -1203,15 +1236,51 @@ private fun MiniPlayerBar(
                 Log.d(TAG, "Mini player tapped - returning to full player")
                 onReturnToNowPlaying()
             },
-            onStopClick = {
-                Log.d(TAG, "Mini player: Stop/disconnect pressed")
-                onDisconnectClick()
-            },
             onPlayPauseClick = onPlayPauseClick,
             onVolumeChange = onVolumeChange,
             positionMs = positionMs,
             durationMs = durationMs,
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+/**
+ * Animated side mini player for phone landscape.
+ * Slides in from the right, no volume slider.
+ */
+@Composable
+private fun SideMiniPlayerBar(
+    viewModel: MainActivityViewModel,
+    onPlayPauseClick: () -> Unit,
+    onReturnToNowPlaying: () -> Unit
+) {
+    val metadata by viewModel.metadata.collectAsState()
+    val artworkSource by viewModel.artworkSource.collectAsState()
+    val isPlaying by viewModel.isPlaying.collectAsState()
+    val positionMs by viewModel.positionMs.collectAsState()
+    val durationMs by viewModel.durationMs.collectAsState()
+
+    AnimatedVisibility(
+        visible = !metadata.isEmpty,
+        enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+        exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+    ) {
+        Row(modifier = Modifier.fillMaxHeight()) {
+            VerticalDivider()
+            MiniPlayerSide(
+                metadata = metadata,
+                artworkSource = artworkSource,
+                isPlaying = isPlaying,
+                onCardClick = {
+                    Log.d(TAG, "Side mini player tapped - returning to full player")
+                    onReturnToNowPlaying()
+                },
+                onPlayPauseClick = onPlayPauseClick,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                modifier = Modifier.width(AdaptiveDefaults.sideMiniPlayerWidth())
+            )
+        }
     }
 }
