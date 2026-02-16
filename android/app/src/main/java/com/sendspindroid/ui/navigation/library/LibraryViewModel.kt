@@ -42,7 +42,8 @@ class LibraryViewModel : ViewModel() {
         ARTISTS,
         PLAYLISTS,
         TRACKS,
-        RADIO
+        RADIO,
+        BROWSE
     }
 
     // ========================================================================
@@ -111,6 +112,9 @@ class LibraryViewModel : ViewModel() {
     private val _radioState = MutableStateFlow(TabState())
     val radioState: StateFlow<TabState> = _radioState.asStateFlow()
 
+    private val _browseState = MutableStateFlow(TabState())
+    val browseState: StateFlow<TabState> = _browseState.asStateFlow()
+
     /**
      * Get the StateFlow for a specific content type.
      */
@@ -121,6 +125,7 @@ class LibraryViewModel : ViewModel() {
             ContentType.PLAYLISTS -> playlistsState
             ContentType.TRACKS -> tracksState
             ContentType.RADIO -> radioState
+            ContentType.BROWSE -> browseState
         }
     }
 
@@ -134,11 +139,23 @@ class LibraryViewModel : ViewModel() {
             ContentType.PLAYLISTS -> _playlistsState
             ContentType.TRACKS -> _tracksState
             ContentType.RADIO -> _radioState
+            ContentType.BROWSE -> _browseState
         }
     }
 
     // Track which tabs have loaded initial data
     private val loadedTabs = mutableSetOf<ContentType>()
+
+    // ========================================================================
+    // Browse Navigation
+    // ========================================================================
+
+    /** Current browse path (null = root level showing providers) */
+    private val _browsePath = MutableStateFlow<String?>(null)
+    val browsePath: StateFlow<String?> = _browsePath.asStateFlow()
+
+    /** Navigation stack for back button support */
+    private val browsePathStack = mutableListOf<String?>()
 
     // ========================================================================
     // Data Loading
@@ -151,6 +168,12 @@ class LibraryViewModel : ViewModel() {
      * @param refresh If true, forces reload even if already loaded
      */
     fun loadItems(type: ContentType, refresh: Boolean = false) {
+        // Browse tab uses its own loading path
+        if (type == ContentType.BROWSE) {
+            loadBrowse(refresh)
+            return
+        }
+
         // Skip if already loaded and not refreshing
         if (!refresh && type in loadedTabs) {
             Log.d(TAG, "Tab $type already loaded, skipping")
@@ -250,6 +273,66 @@ class LibraryViewModel : ViewModel() {
     }
 
     /**
+     * Load browse items for the current path.
+     */
+    private fun loadBrowse(refresh: Boolean = false) {
+        val currentPath = _browsePath.value
+
+        // Skip if already loaded at this path and not refreshing
+        if (!refresh && ContentType.BROWSE in loadedTabs && _browseState.value.items.isNotEmpty()) {
+            return
+        }
+
+        _browseState.value = TabState(isLoading = true)
+
+        viewModelScope.launch {
+            try {
+                val items = MusicAssistantManager.browse(currentPath).getOrThrow()
+                _browseState.value = TabState(
+                    items = items,
+                    isLoading = false,
+                    hasMore = false  // Browse returns all items at once
+                )
+                loadedTabs.add(ContentType.BROWSE)
+                Log.d(TAG, "Loaded ${items.size} browse items for path: ${currentPath ?: "root"}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to browse path: ${currentPath ?: "root"}", e)
+                _browseState.value = TabState(
+                    isLoading = false,
+                    error = e.message ?: "Failed to browse"
+                )
+            }
+        }
+    }
+
+    /**
+     * Navigate into a browse folder.
+     */
+    fun navigateToFolder(path: String) {
+        browsePathStack.add(_browsePath.value)
+        _browsePath.value = path
+        loadedTabs.remove(ContentType.BROWSE)
+        loadBrowse()
+    }
+
+    /**
+     * Navigate back one level in the browse hierarchy.
+     * @return true if navigated back, false if already at root
+     */
+    fun navigateBack(): Boolean {
+        if (browsePathStack.isEmpty()) return false
+        _browsePath.value = browsePathStack.removeAt(browsePathStack.lastIndex)
+        loadedTabs.remove(ContentType.BROWSE)
+        loadBrowse()
+        return true
+    }
+
+    /**
+     * Whether the browse tab is at the root level (showing providers).
+     */
+    fun isAtBrowseRoot(): Boolean = _browsePath.value == null
+
+    /**
      * Refresh a tab's data.
      *
      * @param type The content type to refresh
@@ -298,6 +381,7 @@ class LibraryViewModel : ViewModel() {
                 offset = offset,
                 orderBy = sort.apiValue
             )
+            ContentType.BROWSE -> return emptyList()
         }
 
         return result.getOrThrow()

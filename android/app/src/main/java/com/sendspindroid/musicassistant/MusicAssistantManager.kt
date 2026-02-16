@@ -129,6 +129,25 @@ data class MaRadio(
 }
 
 /**
+ * Represents a browseable folder from Music Assistant.
+ *
+ * Used in the Browse tab to navigate provider content hierarchies.
+ * The [path] field is used as the parameter to the next browse() call
+ * when the user taps this folder.
+ */
+data class MaBrowseFolder(
+    val folderId: String,
+    override val name: String,
+    override val imageUri: String?,
+    override val uri: String?,
+    val path: String,
+    val isPlayable: Boolean = false
+) : MaLibraryItem {
+    override val id: String get() = folderId
+    override val mediaType: MaMediaType = MaMediaType.FOLDER
+}
+
+/**
  * Represents an item in the player queue from Music Assistant.
  *
  * Queue items have their own queue_item_id which is distinct from the
@@ -1951,6 +1970,34 @@ object MusicAssistantManager {
     }
 
     /**
+     * Browse Music Assistant providers for folder-based content.
+     *
+     * @param path Browse path (null for root, "provider_id://" for provider root,
+     *             "provider_id://sub/path" for subfolders)
+     * @return Result with list of browse items (folders and media items)
+     */
+    suspend fun browse(path: String? = null): Result<List<MaLibraryItem>> {
+        val apiUrl = currentApiUrl ?: return Result.failure(Exception("Not connected to MA"))
+        val server = currentServer ?: return Result.failure(Exception("No server connected"))
+        val token = MaSettings.getTokenForServer(server.id)
+            ?: return Result.failure(Exception("No auth token available"))
+
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Browsing path: ${path ?: "root"}")
+                val args: Map<String, Any> = if (path != null) mapOf("path" to path) else emptyMap()
+                val response = sendMaCommand(apiUrl, token, "music/browse", args)
+                val items = parseBrowseItems(response)
+                Log.d(TAG, "Got ${items.size} browse items for path: ${path ?: "root"}")
+                Result.success(items)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to browse path: ${path ?: "root"}", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    /**
      * Get tracks from Music Assistant library.
      *
      * @param limit Maximum number of tracks to return (default 25)
@@ -2480,6 +2527,7 @@ object MusicAssistantManager {
                             MaMediaType.ARTIST -> "artist"
                             MaMediaType.PLAYLIST -> "playlist"
                             MaMediaType.RADIO -> "radio"
+                            MaMediaType.FOLDER -> "folder"
                         }
                     }
                     args["media_types"] = typeStrings
@@ -3133,6 +3181,174 @@ object MusicAssistantManager {
         }
 
         return radios
+    }
+
+    /**
+     * Parse browse items from MA API response.
+     *
+     * The browse response is a heterogeneous array — each item's `media_type` field
+     * determines how to parse it (folder, track, radio, album, etc.).
+     */
+    private fun parseBrowseItems(response: JSONObject): List<MaLibraryItem> {
+        val items = mutableListOf<MaLibraryItem>()
+
+        val resultArray = response.optJSONArray("result") ?: return items
+
+        for (i in 0 until resultArray.length()) {
+            val item = resultArray.optJSONObject(i) ?: continue
+            val mediaType = item.optString("media_type", "")
+            val name = item.optString("name", "")
+
+            // Skip ".." back-navigation entries — we handle back nav ourselves
+            if (name == "..") continue
+
+            when (mediaType) {
+                "folder" -> {
+                    val folderId = item.optString("item_id", "")
+                    val path = item.optString("path", "")
+                    if (folderId.isEmpty() || path.isEmpty()) continue
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    val isPlayable = item.optBoolean("is_playable", false)
+                    items.add(
+                        MaBrowseFolder(
+                            folderId = folderId,
+                            name = name.ifEmpty { folderId },
+                            imageUri = imageUri,
+                            uri = uri,
+                            path = path,
+                            isPlayable = isPlayable
+                        )
+                    )
+                }
+                "track" -> {
+                    val trackId = item.optString("item_id", "")
+                        .ifEmpty { item.optString("uri", "") }
+                    if (trackId.isEmpty()) continue
+                    val artist = item.optString("artist", "")
+                        .ifEmpty {
+                            item.optJSONObject("artist")?.optString("name", "") ?: ""
+                        }
+                        .ifEmpty {
+                            item.optJSONArray("artists")?.let { artists ->
+                                if (artists.length() > 0) {
+                                    artists.optJSONObject(0)?.optString("name", "")
+                                } else null
+                            } ?: ""
+                        }
+                    val album = item.optString("album", "")
+                        .ifEmpty {
+                            item.optJSONObject("album")?.optString("name", "") ?: ""
+                        }
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    val duration = item.optLong("duration", 0).takeIf { it > 0 }
+                    items.add(
+                        MaTrack(
+                            itemId = trackId,
+                            name = name.ifEmpty { trackId },
+                            artist = artist.ifEmpty { null },
+                            album = album.ifEmpty { null },
+                            imageUri = imageUri,
+                            uri = uri,
+                            duration = duration
+                        )
+                    )
+                }
+                "radio" -> {
+                    val radioId = item.optString("item_id", "")
+                        .ifEmpty { item.optString("uri", "") }
+                    if (radioId.isEmpty()) continue
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    val provider = item.optString("provider", "")
+                        .ifEmpty {
+                            item.optJSONArray("provider_mappings")?.let { mappings ->
+                                if (mappings.length() > 0) {
+                                    mappings.optJSONObject(0)?.optString("provider_domain", "")
+                                } else null
+                            } ?: ""
+                        }
+                    items.add(
+                        MaRadio(
+                            radioId = radioId,
+                            name = name.ifEmpty { radioId },
+                            imageUri = imageUri,
+                            uri = uri,
+                            provider = provider.ifEmpty { null }
+                        )
+                    )
+                }
+                "album" -> {
+                    val albumId = item.optString("item_id", "")
+                        .ifEmpty { item.optString("uri", "") }
+                    if (albumId.isEmpty()) continue
+                    val artist = item.optString("artist", "")
+                        .ifEmpty {
+                            item.optJSONObject("artist")?.optString("name", "") ?: ""
+                        }
+                        .ifEmpty {
+                            item.optJSONArray("artists")?.let { artists ->
+                                if (artists.length() > 0) {
+                                    artists.optJSONObject(0)?.optString("name", "")
+                                } else null
+                            } ?: ""
+                        }
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    val year = item.optInt("year", 0).takeIf { it > 0 }
+                    items.add(
+                        MaAlbum(
+                            albumId = albumId,
+                            name = name.ifEmpty { albumId },
+                            imageUri = imageUri,
+                            uri = uri,
+                            artist = artist.ifEmpty { null },
+                            year = year,
+                            trackCount = null,
+                            albumType = null
+                        )
+                    )
+                }
+                "artist" -> {
+                    val artistId = item.optString("item_id", "")
+                        .ifEmpty { item.optString("uri", "") }
+                    if (artistId.isEmpty()) continue
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    items.add(
+                        MaArtist(
+                            artistId = artistId,
+                            name = name.ifEmpty { artistId },
+                            imageUri = imageUri,
+                            uri = uri
+                        )
+                    )
+                }
+                "playlist" -> {
+                    val playlistId = item.optString("item_id", "")
+                        .ifEmpty { item.optString("uri", "") }
+                    if (playlistId.isEmpty()) continue
+                    val imageUri = extractImageUri(item).ifEmpty { null }
+                    val uri = item.optString("uri", "").ifEmpty { null }
+                    val trackCount = item.optInt("track_count", 0)
+                    val owner = item.optString("owner", "").ifEmpty { null }
+                    items.add(
+                        MaPlaylist(
+                            playlistId = playlistId,
+                            name = name.ifEmpty { playlistId },
+                            imageUri = imageUri,
+                            trackCount = trackCount,
+                            owner = owner,
+                            uri = uri
+                        )
+                    )
+                }
+                // Skip unknown media types
+            }
+        }
+
+        return items
     }
 
     // ========================================================================

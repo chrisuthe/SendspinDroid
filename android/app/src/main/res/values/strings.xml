@@ -546,12 +546,14 @@
     <string name="library_tab_playlists">Playlists</string>
     <string name="library_tab_tracks">Tracks</string>
     <string name="library_tab_radio">Radio</string>
+    <string name="library_tab_browse">Browse</string>
     <string name="library_sort_name">Name</string>
     <string name="library_sort_date_added">Date Added</string>
     <string name="library_sort_year">Year</string>
     <string name="library_loading_more">Loading more...</string>
     <string name="library_empty">No items found</string>
     <string name="library_error">Failed to load library</string>
+    <string name="browse_empty">No items found</string>
 
     <!-- Search Screen -->
     <string name="search_hint">Search music...</string>
