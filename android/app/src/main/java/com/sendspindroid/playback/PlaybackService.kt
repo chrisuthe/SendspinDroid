@@ -1069,12 +1069,21 @@ class PlaybackService : MediaLibraryService() {
                     audioDecoder = AudioDecoderFactory.create(codec)
                     audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
                     Log.i(TAG, "Audio decoder created: $codec")
+                    decoderReady = true
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
-                    audioDecoder = AudioDecoderFactory.create("pcm")
+                    try {
+                        val fallback = AudioDecoderFactory.create("pcm")
+                        fallback.configure(sampleRate, channels, bitDepth)
+                        audioDecoder = fallback
+                        Log.i(TAG, "PCM fallback decoder configured")
+                        decoderReady = true
+                    } catch (fallbackEx: Exception) {
+                        Log.e(TAG, "PCM fallback decoder also failed", fallbackEx)
+                        audioDecoder = null
+                        // decoderReady stays false -- onAudioChunk will drop chunks
+                    }
                 }
-                // Signal that the new decoder is ready for use by onAudioChunk
-                decoderReady = true
 
                 // Get the time filter from SendSpinClient
                 val timeFilter = sendSpinClient?.getTimeFilter()

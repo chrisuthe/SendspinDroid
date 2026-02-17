@@ -4,9 +4,16 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.sendspindroid.model.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import java.util.UUID
 
 /**
@@ -65,32 +72,80 @@ object UnifiedServerRepository {
      */
     val discoveredServers: StateFlow<List<UnifiedServer>> = _discoveredServers.asStateFlow()
 
+    // Scope for derived StateFlows. Uses SupervisorJob so child failures don't
+    // cancel sibling derivations, and Default dispatcher for combination logic.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /**
+     * Combined view of saved + discovered servers, reactively derived.
+     * Automatically updates whenever _savedServers or _discoveredServers change.
+     * No manual updateCombinedServers() call needed.
+     */
+    private data class CombinedState(
+        val allServers: List<UnifiedServer> = emptyList(),
+        val onlineIds: Set<String> = emptySet(),
+        val filteredDiscovered: List<UnifiedServer> = emptyList()
+    )
+
+    private val _combined: StateFlow<CombinedState> = combine(
+        _savedServers, _discoveredServers
+    ) { saved, discovered ->
+        // Build a map of local addresses to saved server IDs for matching
+        val savedAddressToId = saved
+            .filter { it.local != null }
+            .associate { it.local!!.address to it.id }
+
+        // Get addresses of discovered servers
+        val discoveredAddresses = discovered.mapNotNull { it.local?.address }.toSet()
+
+        // Find saved servers that are currently online (discovered on network)
+        val onlineIds = saved
+            .filter { server -> server.local?.address in discoveredAddresses }
+            .map { it.id }
+            .toSet()
+
+        // Filter out discovered servers that match a saved server's local address
+        val uniqueDiscovered = discovered.filter { server ->
+            server.local?.address !in savedAddressToId.keys
+        }
+
+        if (onlineIds.isNotEmpty()) {
+            Log.d(TAG, "Online saved servers: ${onlineIds.size}")
+        }
+
+        CombinedState(
+            allServers = saved + uniqueDiscovered,
+            onlineIds = onlineIds,
+            filteredDiscovered = uniqueDiscovered
+        )
+    }.stateIn(scope, SharingStarted.Eagerly, CombinedState())
+
     /**
      * All servers combined (saved + discovered), deduplicated.
      * Discovered servers that match a saved server by local address are merged.
+     * Reactively derived -- updates automatically when source flows change.
      */
-    val allServers: StateFlow<List<UnifiedServer>>
-        get() {
-            // Return a combined flow - for now computed on access
-            // In a more complex implementation, this would be a derived StateFlow
-            return _allServersFlow.asStateFlow()
-        }
+    val allServers: StateFlow<List<UnifiedServer>> =
+        _combined.map { it.allServers }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
-    private val _allServersFlow = MutableStateFlow<List<UnifiedServer>>(emptyList())
-
-    private val _onlineSavedServerIds = MutableStateFlow<Set<String>>(emptySet())
     /**
      * IDs of saved servers that are currently discovered on the local network.
      * Use this to show "online" status indicators on saved servers.
+     * Reactively derived -- updates automatically when source flows change.
      */
-    val onlineSavedServerIds: StateFlow<Set<String>> = _onlineSavedServerIds.asStateFlow()
+    val onlineSavedServerIds: StateFlow<Set<String>> =
+        _combined.map { it.onlineIds }
+            .stateIn(scope, SharingStarted.Eagerly, emptySet())
 
-    private val _filteredDiscoveredServers = MutableStateFlow<List<UnifiedServer>>(emptyList())
     /**
      * Discovered servers filtered to exclude those that match saved servers.
      * Use this for the "Nearby Servers" section to avoid duplicates.
+     * Reactively derived -- updates automatically when source flows change.
      */
-    val filteredDiscoveredServers: StateFlow<List<UnifiedServer>> = _filteredDiscoveredServers.asStateFlow()
+    val filteredDiscoveredServers: StateFlow<List<UnifiedServer>> =
+        _combined.map { it.filteredDiscovered }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     @Volatile
     private var applicationContext: Context? = null
@@ -145,7 +200,6 @@ object UnifiedServerRepository {
         current.add(server.copy(isDiscovered = false))
 
         _savedServers.value = current
-        updateCombinedServers()
         persistServers()
 
         Log.d(TAG, "Saved server: ${server.name} (${server.id})")
@@ -162,7 +216,6 @@ object UnifiedServerRepository {
         if (index >= 0) {
             current[index] = current[index].copy(lastConnectedMs = System.currentTimeMillis())
             _savedServers.value = current
-            updateCombinedServers()
             persistServers()
         }
     }
@@ -173,7 +226,6 @@ object UnifiedServerRepository {
     fun deleteServer(serverId: String) {
         ensurePersistedDataLoaded()
         _savedServers.value = _savedServers.value.filter { it.id != serverId }
-        updateCombinedServers()
         persistServers()
 
         Log.d(TAG, "Deleted server: $serverId")
@@ -210,8 +262,6 @@ object UnifiedServerRepository {
 
         current.add(server)
         _discoveredServers.value = current
-        updateCombinedServers()
-
         Log.d(TAG, "Discovered server: $name at $address")
     }
 
@@ -220,7 +270,6 @@ object UnifiedServerRepository {
      */
     fun removeDiscoveredServer(address: String) {
         _discoveredServers.value = _discoveredServers.value.filter { it.local?.address != address }
-        updateCombinedServers()
     }
 
     /**
@@ -228,7 +277,6 @@ object UnifiedServerRepository {
      */
     fun clearDiscoveredServers() {
         _discoveredServers.value = emptyList()
-        updateCombinedServers()
     }
 
     /**
@@ -248,8 +296,6 @@ object UnifiedServerRepository {
 
         // Remove from discovered list
         _discoveredServers.value = _discoveredServers.value.filter { it.id != discoveredServer.id }
-        updateCombinedServers()
-
         return savedServer
     }
 
@@ -278,7 +324,6 @@ object UnifiedServerRepository {
         }
 
         _savedServers.value = updated
-        updateCombinedServers()
         persistServers()
 
         Log.d(TAG, "Set default server: ${serverId ?: "none"}")
@@ -292,43 +337,6 @@ object UnifiedServerRepository {
         return _savedServers.value.find { it.isDefaultServer }
     }
 
-    private fun updateCombinedServers() {
-        val saved = _savedServers.value
-        val discovered = _discoveredServers.value
-
-        // Build a map of local addresses to saved server IDs for matching
-        val savedAddressToId = saved
-            .filter { it.local != null }
-            .associate { it.local!!.address to it.id }
-
-        // Get addresses of discovered servers
-        val discoveredAddresses = discovered.mapNotNull { it.local?.address }.toSet()
-
-        // Find saved servers that are currently online (discovered on network)
-        val onlineIds = saved
-            .filter { server ->
-                server.local?.address in discoveredAddresses
-            }
-            .map { it.id }
-            .toSet()
-
-        _onlineSavedServerIds.value = onlineIds
-
-        // Filter out discovered servers that match a saved server's local address
-        val uniqueDiscovered = discovered.filter { server ->
-            server.local?.address !in savedAddressToId.keys
-        }
-
-        _filteredDiscoveredServers.value = uniqueDiscovered
-
-        // Combine: saved servers first, then unique discovered servers
-        _allServersFlow.value = saved + uniqueDiscovered
-
-        if (onlineIds.isNotEmpty()) {
-            Log.d(TAG, "Online saved servers: ${onlineIds.size}")
-        }
-    }
-
     // ========== Persistence ==========
 
     private fun loadPersistedServers() {
@@ -336,7 +344,6 @@ object UnifiedServerRepository {
         val data = prefs.getString(KEY_SAVED_SERVERS, null)
         if (data != null) {
             _savedServers.value = parseServers(data)
-            updateCombinedServers()
             Log.d(TAG, "Loaded ${_savedServers.value.size} saved servers")
         }
     }

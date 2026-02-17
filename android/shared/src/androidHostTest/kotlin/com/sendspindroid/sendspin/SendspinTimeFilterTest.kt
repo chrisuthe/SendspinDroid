@@ -8,6 +8,10 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 
 class SendspinTimeFilterTest {
 
@@ -397,5 +401,144 @@ class SendspinTimeFilterTest {
                     "but was $score",
             score in 0.1..5.0
         )
+    }
+
+    // --- H-01: Thread safety ---
+
+    @Test
+    fun concurrentAccess_addMeasurementAndServerToClient_doesNotCrash() {
+        // Verify that concurrent addMeasurement (writer) and serverToClient (reader)
+        // do not crash or produce obviously invalid results.
+        // This test exercises the synchronized/volatile fix for H-01.
+        val iterations = 1000
+        val failed = AtomicBoolean(false)
+        val writerDone = AtomicBoolean(false)
+        val readerCount = AtomicInteger(0)
+
+        // Seed the filter so it's ready
+        filter.addMeasurement(10_000L, 5000L, 1_000_000L)
+        filter.addMeasurement(10_000L, 5000L, 2_000_000L)
+
+        // Writer thread: continuously adds measurements
+        val writer = thread(name = "kalman-writer") {
+            try {
+                for (i in 3..iterations + 2) {
+                    filter.addMeasurement(10_000L, 5000L, i * 1_000_000L)
+                }
+            } catch (e: Exception) {
+                failed.set(true)
+            } finally {
+                writerDone.set(true)
+            }
+        }
+
+        // Reader thread: continuously reads serverToClient
+        val reader = thread(name = "kalman-reader") {
+            try {
+                while (!writerDone.get()) {
+                    val result = filter.serverToClient(100_000_000L)
+                    readerCount.incrementAndGet()
+                    // Result should be roughly 100M - 10K = 99,990,000
+                    // Allow wide tolerance since filter state is changing concurrently
+                    if (result < 0 || result > 200_000_000L) {
+                        failed.set(true)
+                    }
+                }
+            } catch (e: Exception) {
+                failed.set(true)
+            }
+        }
+
+        writer.join(5000)
+        reader.join(5000)
+
+        assertFalse("Concurrent access should not cause exceptions or invalid values", failed.get())
+        assertTrue("Reader should have executed multiple times", readerCount.get() > 10)
+    }
+
+    @Test
+    fun concurrentAccess_resetAndServerToClient_doesNotCrash() {
+        // Verify that concurrent reset (writer) and serverToClient (reader)
+        // do not crash. This simulates connection loss during audio playback.
+        val failed = AtomicBoolean(false)
+        val done = AtomicBoolean(false)
+
+        // Seed the filter
+        filter.addMeasurement(10_000L, 5000L, 1_000_000L)
+        filter.addMeasurement(10_000L, 5000L, 2_000_000L)
+
+        val resetter = thread(name = "kalman-resetter") {
+            try {
+                repeat(100) {
+                    filter.reset()
+                    // Re-initialize after reset
+                    filter.addMeasurement(10_000L, 5000L, 1_000_000L)
+                    filter.addMeasurement(10_000L, 5000L, 2_000_000L)
+                }
+            } catch (e: Exception) {
+                failed.set(true)
+            } finally {
+                done.set(true)
+            }
+        }
+
+        val reader = thread(name = "kalman-reader") {
+            try {
+                while (!done.get()) {
+                    filter.serverToClient(100_000_000L)
+                }
+            } catch (e: Exception) {
+                failed.set(true)
+            }
+        }
+
+        resetter.join(5000)
+        reader.join(5000)
+
+        assertFalse("Concurrent reset and read should not cause exceptions", failed.get())
+    }
+
+    @Test
+    fun concurrentAccess_freezeThawAndServerToClient_doesNotCrash() {
+        // Verify that freeze/thaw during concurrent reads does not crash
+        val failed = AtomicBoolean(false)
+        val done = AtomicBoolean(false)
+
+        // Converge the filter
+        for (i in 1..10) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+
+        val freezeThawer = thread(name = "freeze-thaw") {
+            try {
+                repeat(100) {
+                    filter.freeze()
+                    Thread.sleep(1)
+                    filter.thaw()
+                    // Re-add measurements after thaw
+                    filter.addMeasurement(10_000L, 3000L, (it + 11) * 1_000_000L)
+                }
+            } catch (e: Exception) {
+                failed.set(true)
+            } finally {
+                done.set(true)
+            }
+        }
+
+        val reader = thread(name = "reader") {
+            try {
+                while (!done.get()) {
+                    filter.serverToClient(100_000_000L)
+                    filter.clientToServer(100_000_000L)
+                }
+            } catch (e: Exception) {
+                failed.set(true)
+            }
+        }
+
+        freezeThawer.join(10000)
+        reader.join(10000)
+
+        assertFalse("Concurrent freeze/thaw and read should not crash", failed.get())
     }
 }

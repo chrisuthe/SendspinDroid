@@ -9,9 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.webrtc.DataChannel
-import org.webrtc.DefaultVideoDecoderFactory
-import org.webrtc.DefaultVideoEncoderFactory
-import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.PeerConnection
@@ -71,11 +68,15 @@ class WebRTCTransport(
         private var factoryInitialized = false
 
         private var peerConnectionFactory: PeerConnectionFactory? = null
-        private var eglBase: EglBase? = null
 
         /**
          * Initialize WebRTC factory. Must be called once per app lifecycle.
          * Thread-safe and idempotent.
+         *
+         * No EGL context is created because this app is audio-only (DataChannel
+         * transport). Passing null to video encoder/decoder factories is safe --
+         * they simply won't use hardware-accelerated video, which is irrelevant
+         * for a data-channel-only connection (H-23).
          */
         @Synchronized
         fun initializeFactory(context: Context) {
@@ -89,17 +90,27 @@ class WebRTCTransport(
                 .createInitializationOptions()
             PeerConnectionFactory.initialize(options)
 
-            // Create EglBase for hardware acceleration (optional for data-only)
-            eglBase = EglBase.create()
-
-            // Create PeerConnectionFactory
+            // Audio-only: no EGL context needed, pass null for video factories (H-23)
             peerConnectionFactory = PeerConnectionFactory.builder()
-                .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase?.eglBaseContext, true, true))
-                .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase?.eglBaseContext))
                 .createPeerConnectionFactory()
 
             factoryInitialized = true
             Log.d(TAG, "PeerConnectionFactory initialized")
+        }
+
+        /**
+         * Release the PeerConnectionFactory singleton.
+         *
+         * Call when the app no longer needs WebRTC connections (e.g., on
+         * application shutdown). After calling this, [initializeFactory]
+         * must be called again before creating new connections.
+         */
+        @Synchronized
+        fun releaseFactory() {
+            peerConnectionFactory?.dispose()
+            peerConnectionFactory = null
+            factoryInitialized = false
+            Log.d(TAG, "PeerConnectionFactory released")
         }
     }
 

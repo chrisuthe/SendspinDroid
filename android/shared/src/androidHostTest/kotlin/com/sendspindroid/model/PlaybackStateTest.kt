@@ -229,4 +229,58 @@ class PlaybackStateTest {
         )
         assertEquals(180000L, state.interpolatedPositionMs)
     }
+
+    // --- withMetadata positionUpdatedAt behavior (H-29) ---
+
+    @Test
+    fun withMetadata_nonZeroPosition_stampsPositionUpdatedAt() {
+        val state = PlaybackState()
+        val updated = state.withMetadata(
+            title = "Song", artist = null, album = null, artworkUrl = null,
+            durationMs = 180000, positionMs = 5000
+        )
+        // Platform.elapsedRealtimeMs() is mocked to return 10_000L
+        assertEquals(10_000L, updated.positionUpdatedAt)
+    }
+
+    @Test
+    fun withMetadata_zeroPosition_doesNotStampPositionUpdatedAt() {
+        // Simulates initial metadata for a new track: positionMs=0 should not
+        // stamp positionUpdatedAt, preventing phantom progress in interpolation.
+        val state = PlaybackState(positionUpdatedAt = 0L)
+        val updated = state.withMetadata(
+            title = "New Track", artist = null, album = null, artworkUrl = null,
+            durationMs = 180000, positionMs = 0
+        )
+        assertEquals(0L, updated.positionUpdatedAt)
+    }
+
+    @Test
+    fun withMetadata_zeroPosition_preservesExistingTimestamp() {
+        // If there was a previous valid timestamp, zero position preserves it
+        val state = PlaybackState(positionUpdatedAt = 5_000L)
+        val updated = state.withMetadata(
+            title = null, artist = null, album = null, artworkUrl = null,
+            durationMs = 0, positionMs = 0
+        )
+        assertEquals(5_000L, updated.positionUpdatedAt)
+    }
+
+    @Test
+    fun interpolatedPositionMs_zeroPositionAfterClear_returnsZero() {
+        // After withClearedMetadata (positionUpdatedAt=0), a metadata update
+        // with positionMs=0 should keep interpolation at 0, not count up.
+        val cleared = PlaybackState(
+            playbackState = PlaybackStateType.PLAYING
+        ).withClearedMetadata()
+
+        val updated = cleared.withMetadata(
+            title = "New Track", artist = null, album = null, artworkUrl = null,
+            durationMs = 180000, positionMs = 0
+        )
+
+        // positionUpdatedAt should be 0, so interpolation returns raw positionMs
+        assertEquals(0L, updated.positionUpdatedAt)
+        assertEquals(0L, updated.interpolatedPositionMs)
+    }
 }

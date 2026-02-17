@@ -393,4 +393,143 @@ class MaCommandMultiplexerTest {
         assertTrue(d2.isCompleted)
         assertEquals(0, multiplexer.pendingCommandCount)
     }
+
+    // ========================================================================
+    // H-17: hexToBytes validation
+    // ========================================================================
+
+    @Test
+    fun `hexToBytes decodes empty string to empty array`() {
+        val result = multiplexer.hexToBytes("")
+        assertEquals(0, result.size)
+    }
+
+    @Test
+    fun `hexToBytes decodes valid hex string`() {
+        // "Hello" = 48656c6c6f
+        val result = multiplexer.hexToBytes("48656c6c6f")
+        assertEquals("Hello", String(result, Charsets.UTF_8))
+    }
+
+    @Test
+    fun `hexToBytes handles uppercase hex`() {
+        // "OK" = 4F4B
+        val result = multiplexer.hexToBytes("4F4B")
+        assertEquals("OK", String(result, Charsets.UTF_8))
+    }
+
+    @Test
+    fun `hexToBytes handles mixed case hex`() {
+        // "OK" = 4f4B
+        val result = multiplexer.hexToBytes("4f4B")
+        assertEquals("OK", String(result, Charsets.UTF_8))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `hexToBytes throws on odd-length string`() {
+        multiplexer.hexToBytes("4f4")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `hexToBytes throws on single character`() {
+        multiplexer.hexToBytes("f")
+    }
+
+    @Test
+    fun `hexToBytes decodes single byte`() {
+        val result = multiplexer.hexToBytes("ff")
+        assertEquals(1, result.size)
+        assertEquals(0xFF.toByte(), result[0])
+    }
+
+    @Test
+    fun `hexToBytes decodes zero bytes`() {
+        val result = multiplexer.hexToBytes("0000")
+        assertEquals(2, result.size)
+        assertEquals(0.toByte(), result[0])
+        assertEquals(0.toByte(), result[1])
+    }
+
+    // ========================================================================
+    // H-15: Partial result accumulation atomicity
+    // ========================================================================
+
+    @Test
+    fun `partial result for unregistered command is forwarded as event`() {
+        // A partial message arrives for a message_id that was never registered
+        // (or was already unregistered). It should fall through to the event listener.
+        multiplexer.onMessage("""
+            {"message_id": "unknown_id", "partial": true, "result": ["item1"]}
+        """)
+
+        // Should be forwarded to event listener since no pending command matches
+        assertEquals(1, receivedEvents.size)
+    }
+
+    @Test
+    fun `partial result after unregister does not create orphan entry`() = runBlocking {
+        val (messageId, _) = multiplexer.registerCommand()
+
+        // Accumulate one partial
+        multiplexer.onMessage("""
+            {"message_id": "$messageId", "partial": true, "result": ["item1"]}
+        """)
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        // Unregister the command (simulating timeout)
+        multiplexer.unregisterCommand(messageId)
+        assertEquals(0, multiplexer.pendingCommandCount)
+
+        // Another partial arrives for the same messageId -- should NOT create
+        // an orphan entry in partialResults; should go to event listener
+        multiplexer.onMessage("""
+            {"message_id": "$messageId", "partial": true, "result": ["item2"]}
+        """)
+        assertEquals(0, multiplexer.pendingCommandCount)
+        assertEquals(1, receivedEvents.size)
+    }
+
+    @Test
+    fun `partial result with empty array does not accumulate`() = runBlocking {
+        val (messageId, deferred) = multiplexer.registerCommand()
+
+        // Partial with empty result array should not accumulate
+        multiplexer.onMessage("""
+            {"message_id": "$messageId", "partial": true, "result": []}
+        """)
+
+        // Should fall through to event listener since empty array is skipped
+        assertEquals(1, receivedEvents.size)
+
+        // Command still pending
+        assertFalse(deferred.isCompleted)
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        // Clean up
+        multiplexer.cancelAll("test cleanup")
+    }
+
+    // ========================================================================
+    // H-16: Proxy request ID uniqueness
+    // ========================================================================
+
+    @Test
+    fun `registerProxyRequest creates unique request IDs`() {
+        val ids = mutableSetOf<String>()
+        repeat(100) {
+            val (id, _) = multiplexer.registerProxyRequest()
+            assertTrue("Duplicate proxy request ID: $id", ids.add(id))
+        }
+        // Clean up
+        multiplexer.cancelAll("test cleanup")
+    }
+
+    @Test
+    fun `registerProxyRequest IDs have expected format`() {
+        val (id, _) = multiplexer.registerProxyRequest()
+        // Should start with "req_" and contain UUID fragment + random number
+        assertTrue("Proxy request ID should start with 'req_': $id", id.startsWith("req_"))
+        // Clean up
+        multiplexer.cancelAll("test cleanup")
+    }
 }

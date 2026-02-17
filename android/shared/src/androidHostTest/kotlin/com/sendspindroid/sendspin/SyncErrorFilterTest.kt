@@ -198,4 +198,78 @@ class SyncErrorFilterTest {
             kotlin.math.abs(offsetAfter - 5000) < kotlin.math.abs(offsetBefore - 5000)
         )
     }
+
+    // --- H-07: Drift convergence (no decay) ---
+
+    @Test
+    fun update_constantDrift_convergesToTrueDriftRate() {
+        // Simulate a genuine 50 ppm DAC clock drift (50 us per second).
+        // With the drift decay removed, the Kalman filter should converge
+        // to approximately the true drift rate.
+        val trueDriftPerUs = 50e-6  // 50 ppm
+        val baseOffset = 1000.0
+
+        for (i in 0 until 100) {
+            val timeUs = (i + 1) * 1_000_000L  // 1 second apart
+            val measurement = (baseOffset + trueDriftPerUs * timeUs).toLong()
+            filter.update(measurement, timeUs)
+        }
+
+        val estimatedDrift = filter.driftValue
+        // Drift should be within 20% of true value (50 ppm = 50e-6)
+        assertTrue(
+            "Drift should converge near true rate of 50e-6, but was $estimatedDrift",
+            estimatedDrift > trueDriftPerUs * 0.8 && estimatedDrift < trueDriftPerUs * 1.2
+        )
+    }
+
+    @Test
+    fun update_zeroDrift_driftStaysNearZero() {
+        // With constant measurements (no real drift), drift should stay near zero
+        // rather than decaying toward zero from some nonzero value
+        for (i in 0 until 50) {
+            filter.update(5000L, (i + 1) * 1_000_000L)
+        }
+
+        assertTrue(
+            "Drift should stay near zero for constant measurements, but was ${filter.driftValue}",
+            kotlin.math.abs(filter.driftValue) < 1e-6
+        )
+    }
+
+    // --- H-05: Symmetric covariance inflation during step changes ---
+
+    @Test
+    fun update_stepChange_driftAdaptsQuickly() {
+        // After convergence, introduce a step change that also implies a new drift rate.
+        // With symmetric covariance inflation, the drift should adapt faster because
+        // the off-diagonal terms (which couple offset and drift) are also inflated.
+        val driftPerUs = 30e-6  // 30 ppm drift after step change
+
+        // Converge at 1000us with zero drift
+        for (i in 1..20) {
+            filter.update(1000L, i * 1_000_000L)
+        }
+
+        // Step change to 5000us with ongoing drift of 30 ppm
+        val stepOffset = 5000.0
+        for (i in 21..40) {
+            val timeUs = i * 1_000_000L
+            val timeSinceStep = (i - 20) * 1_000_000L
+            val measurement = (stepOffset + driftPerUs * timeSinceStep).toLong()
+            filter.update(measurement, timeUs)
+        }
+
+        val offsetError = kotlin.math.abs(filter.offsetMicros - (stepOffset + driftPerUs * 20 * 1_000_000).toLong())
+        assertTrue(
+            "After step change with drift, offset should track well (error=$offsetError)",
+            offsetError < 2000  // Within 2ms
+        )
+
+        // Drift should be positive (tracking the 30 ppm drift)
+        assertTrue(
+            "Drift should be positive after step change with increasing measurements, was ${filter.driftValue}",
+            filter.driftValue > 0
+        )
+    }
 }

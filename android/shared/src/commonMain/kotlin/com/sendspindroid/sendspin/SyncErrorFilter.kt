@@ -33,13 +33,9 @@ class SyncErrorFilter(
         // Forgetting threshold - if normalized residual exceeds this, increase uncertainty
         private const val FORGETTING_THRESHOLD = 0.75
 
-        // Maximum allowed drift (±500 ppm = ±5e-4)
+        // Maximum allowed drift (+/-500 ppm = +/-5e-4)
         // Realistic clock drift is ~20-100 ppm
         private const val MAX_DRIFT = 5e-4
-
-        // Drift decay rate - slowly decay drift towards zero
-        // At ~10Hz updates, 0.01 gives ~1% decay per 100ms
-        private const val DRIFT_DECAY_RATE = 0.01
     }
 
     // State vector: [offset, drift]
@@ -164,12 +160,17 @@ class SyncErrorFilter(
             0.0
         }
 
-        // If residual is too large, this might be a step change - partially reset
+        // If residual is too large, this might be a step change - inflate covariance
+        // uniformly to adapt faster while preserving the correlation structure.
+        // Inflating only diagonal elements (p00, p11) would break the covariance matrix
+        // by artificially weakening the offset-drift coupling, making drift adaptation
+        // slower exactly when fast adaptation is most needed during step changes.
         if (normalizedResidual > FORGETTING_THRESHOLD * FORGETTING_THRESHOLD) {
-            // Increase covariance to adapt faster
+            // Increase all covariance elements by the same factor to preserve
+            // the correlation structure (p01/sqrt(p00*p11) stays the same)
             p00 = p00New * 10
-            p01 = p01New
-            p10 = p10New
+            p01 = p01New * 10
+            p10 = p10New * 10
             p11 = p11New * 10
         } else {
             p00 = p00New
@@ -191,11 +192,14 @@ class SyncErrorFilter(
         offset = offsetPredicted + k0 * innovation
         var newDrift = drift + k1 * innovation
 
-        // Bound drift to physically realistic values (±500 ppm)
+        // Bound drift to physically realistic values (+/-500 ppm)
         newDrift = newDrift.coerceIn(-MAX_DRIFT, MAX_DRIFT)
 
-        // Apply drift decay to prevent long-term accumulation
-        newDrift *= (1.0 - DRIFT_DECAY_RATE)
+        // NOTE: No multiplicative drift decay. The previous 1% per-update decay
+        // systematically underestimated genuine DAC clock drift by fighting against
+        // Kalman convergence. The process noise model (processNoiseDrift) already
+        // handles uncertainty about drift changes, and MAX_DRIFT clamping prevents
+        // unbounded growth.
 
         drift = newDrift
 

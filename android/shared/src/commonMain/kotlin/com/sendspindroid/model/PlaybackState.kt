@@ -71,7 +71,10 @@ data class PlaybackState(
         },
         durationMs = if (durationMs > 0) durationMs else this.durationMs,
         positionMs = positionMs,
-        positionUpdatedAt = Platform.elapsedRealtimeMs()
+        // Only stamp positionUpdatedAt when position is non-zero. When positionMs is 0
+        // (e.g., initial metadata for a new track before audio starts), keep existing
+        // timestamp so interpolatedPositionMs doesn't phantom-count up from zero.
+        positionUpdatedAt = if (positionMs > 0) Platform.elapsedRealtimeMs() else this.positionUpdatedAt
     )
 
     fun withClearedMetadata(): PlaybackState = copy(

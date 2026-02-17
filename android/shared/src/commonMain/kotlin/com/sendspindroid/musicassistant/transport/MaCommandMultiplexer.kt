@@ -119,33 +119,43 @@ class MaCommandMultiplexer {
             if (messageId.isNotEmpty()) {
                 val isPartial = json.optBoolean("partial")
 
-                // Handle partial result: accumulate and wait for more
-                val hasPending = synchronized(lock) { pendingCommands.containsKey(messageId) }
-                if (isPartial && hasPending) {
+                // Handle partial result: check pending + accumulate in one atomic block
+                // to prevent orphaned partialResults entries if unregisterCommand() runs
+                // between the check and accumulation.
+                if (isPartial) {
                     val resultArray = json.optJsonArray("result")
-                    if (resultArray != null && resultArray.size > 0) {
-                        synchronized(lock) {
-                            val accumulated = partialResults.getOrPut(messageId) { mutableListOf() }
-                            accumulated.addAll(resultArray)
-                            Log.d(TAG, "Partial result for $messageId: +${resultArray.size} items (total so far: ${accumulated.size})")
+                    val accumulated = synchronized(lock) {
+                        if (pendingCommands.containsKey(messageId) && resultArray != null && resultArray.size > 0) {
+                            val list = partialResults.getOrPut(messageId) { mutableListOf() }
+                            list.addAll(resultArray)
+                            list
+                        } else {
+                            null
                         }
                     }
-                    return
+                    if (accumulated != null) {
+                        Log.d(TAG, "Partial result for $messageId: +${resultArray!!.size} items (total so far: ${accumulated.size})")
+                        return
+                    }
+                    // If no pending command matched, fall through to event listener
                 }
 
-                val deferred = synchronized(lock) { pendingCommands.remove(messageId) }
+                // Final result or error: remove command + partials atomically
+                val (deferred, accumulated) = synchronized(lock) {
+                    val d = pendingCommands.remove(messageId)
+                    val a = partialResults.remove(messageId)
+                    d to a
+                }
                 if (deferred != null) {
                     if (json.has("error_code")) {
                         val errorCode = json.optString("error_code", "unknown")
                         val details = json.optString("details", "Command failed")
                         Log.w(TAG, "Command error: $errorCode - $details")
-                        synchronized(lock) { partialResults.remove(messageId) }
                         deferred.completeExceptionally(
                             MaApiTransport.MaCommandException(errorCode, details)
                         )
                     } else {
                         // Merge any accumulated partial results with this final batch
-                        val accumulated = synchronized(lock) { partialResults.remove(messageId) }
                         val finalJson = if (accumulated != null) {
                             val finalArray = json.optJsonArray("result")
                             if (finalArray != null) {
@@ -170,10 +180,6 @@ class MaCommandMultiplexer {
                     }
                     return
                 }
-                // message_id present but no matching pending command - might be
-                // an event or a response to something we already timed out on
-                // Also clean up any stale partial results
-                synchronized(lock) { partialResults.remove(messageId) }
             }
 
             // Server-push event (no matching message_id)
@@ -293,9 +299,14 @@ class MaCommandMultiplexer {
      *
      * The MA server gateway encodes HTTP proxy response bodies as hex strings
      * using Python's bytes.hex() method.
+     *
+     * @throws IllegalArgumentException if [hex] has an odd number of characters
      */
-    private fun hexToBytes(hex: String): ByteArray {
+    internal fun hexToBytes(hex: String): ByteArray {
         if (hex.isEmpty()) return ByteArray(0)
+        require(hex.length % 2 == 0) {
+            "Hex string must have an even number of characters, got ${hex.length}"
+        }
 
         val len = hex.length
         val data = ByteArray(len / 2)
@@ -310,7 +321,7 @@ class MaCommandMultiplexer {
     }
 
     /** Convert a hex character to its int value (0-15). */
-    private fun hexCharToInt(ch: Char): Int = when (ch) {
+    internal fun hexCharToInt(ch: Char): Int = when (ch) {
         in '0'..'9' -> ch - '0'
         in 'a'..'f' -> ch - 'a' + 10
         in 'A'..'F' -> ch - 'A' + 10

@@ -38,10 +38,11 @@ import java.util.Locale
 object FileLogger {
     private const val TAG = "FileLogger"
     private const val LOG_FILE = "debug.log"
-    private const val MAX_SIZE = 2 * 1024 * 1024 // 2MB max before rotation
+    private const val MAX_SIZE = 2 * 1024 * 1024L // 2MB max before rotation
 
     private var logFile: File? = null
     private val dateFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    private val writeLock = Any()
 
     /**
      * Whether file logging is enabled.
@@ -111,11 +112,13 @@ object FileLogger {
     fun raw(line: String) {
         if (!isEnabled) return
         val file = logFile ?: return
-        try {
-            checkRotation(file)
-            file.appendText("$line\n")
-        } catch (e: Exception) {
-            // Ignore file errors
+        synchronized(writeLock) {
+            try {
+                checkRotation(file)
+                file.appendText("$line\n")
+            } catch (e: Exception) {
+                // Ignore file errors
+            }
         }
     }
 
@@ -143,45 +146,46 @@ object FileLogger {
      * Clear the log file contents.
      */
     fun clear() {
-        logFile?.writeText("=== Log cleared at ${Date()} ===\n\n")
+        synchronized(writeLock) {
+            logFile?.writeText("=== Log cleared at ${Date()} ===\n\n")
+        }
     }
 
     private fun writeToFile(level: String, tag: String, message: String) {
         val file = logFile ?: return
-        try {
-            checkRotation(file)
-            val timestamp = dateFormat.format(Date())
-            file.appendText("$timestamp $level/$tag: $message\n")
-        } catch (e: Exception) {
-            // Ignore file errors - don't want logging to crash the app
+        synchronized(writeLock) {
+            try {
+                checkRotation(file)
+                val timestamp = dateFormat.format(Date())
+                file.appendText("$timestamp $level/$tag: $message\n")
+            } catch (e: Exception) {
+                // Ignore file errors - don't want logging to crash the app
+            }
         }
     }
 
     private fun writeStackTrace(throwable: Throwable) {
         val file = logFile ?: return
-        try {
-            val sw = java.io.StringWriter()
-            throwable.printStackTrace(PrintWriter(sw))
-            file.appendText(sw.toString())
-        } catch (e: Exception) {
-            // Ignore
+        synchronized(writeLock) {
+            try {
+                val sw = java.io.StringWriter()
+                throwable.printStackTrace(PrintWriter(sw))
+                file.appendText(sw.toString())
+            } catch (e: Exception) {
+                // Ignore
+            }
         }
     }
 
     private fun checkRotation(file: File) {
         if (file.exists() && file.length() > MAX_SIZE) {
-            // Simple rotation: keep last half of file
+            // Truncate and start fresh to avoid reading the entire file into memory.
+            // Previous approach read the full 2MB file into a String on every rotation,
+            // causing GC pressure under active logging.
             try {
-                val content = file.readText()
-                val halfPoint = content.length / 2
-                val newlineAfterHalf = content.indexOf('\n', halfPoint)
-                if (newlineAfterHalf > 0) {
-                    file.writeText("=== Log rotated at ${Date()} ===\n\n")
-                    file.appendText(content.substring(newlineAfterHalf + 1))
-                }
-            } catch (e: Exception) {
-                // Fallback: just truncate
                 file.writeText("=== Log rotated at ${Date()} ===\n\n")
+            } catch (e: Exception) {
+                // Ignore - rotation is best-effort
             }
         }
     }

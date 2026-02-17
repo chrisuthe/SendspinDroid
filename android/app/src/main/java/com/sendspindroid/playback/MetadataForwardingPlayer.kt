@@ -202,7 +202,9 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
 
     override fun addListener(listener: Player.Listener) {
         super.addListener(listener)
-        listeners.add(listener)
+        if (!listeners.contains(listener)) {
+            listeners.add(listener)
+        }
     }
 
     override fun removeListener(listener: Player.Listener) {

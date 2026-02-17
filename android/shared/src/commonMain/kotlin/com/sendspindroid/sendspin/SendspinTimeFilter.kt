@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin
 
 import com.sendspindroid.shared.log.Log
+import com.sendspindroid.shared.platform.Platform
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -257,8 +258,14 @@ class SendspinTimeFilter {
         private const val FORGETTING_FACTOR = 1.001
     }
 
+    // Lock for protecting filter state mutations (addMeasurement, reset, freeze, thaw).
+    // Hot-path readers (serverToClient, clientToServer) use @Volatile fields instead of
+    // locking to avoid blocking the audio thread.
+    private val lock = Any()
+
     // State vector: [offset, drift]
-    private var offset: Double = 0.0
+    // @Volatile: read by audio thread (serverToClient), written under lock by IO thread
+    @Volatile private var offset: Double = 0.0
     private var drift: Double = 0.0
 
     // Covariance matrix (2x2)
@@ -289,7 +296,8 @@ class SendspinTimeFilter {
 
     // Static delay offset for speaker synchronization (GroupSync calibration)
     // Positive = delay playback (plays later), Negative = advance (plays earlier)
-    private var staticDelayMicros: Long = 0
+    // @Volatile: read by audio thread (serverToClient), written from UI/main thread
+    @Volatile private var staticDelayMicros: Long = 0
 
     // Convergence tracking
     private var convergenceTimeMs: Long = 0L       // Time to reach isConverged
@@ -392,8 +400,9 @@ class SendspinTimeFilter {
 
     /**
      * Reset the filter to initial state.
+     * Thread-safe: synchronized to prevent concurrent mutation.
      */
-    fun reset() {
+    fun reset() = synchronized(lock) {
         offset = 0.0
         drift = 0.0
         p00 = Double.MAX_VALUE
@@ -429,9 +438,10 @@ class SendspinTimeFilter {
      * can continue from buffer without losing synchronization.
      *
      * Call this when connection is lost but reconnection will be attempted.
+     * Thread-safe: synchronized to capture a consistent snapshot.
      */
-    fun freeze() {
-        if (!isReady) return  // Nothing worth preserving
+    fun freeze() = synchronized(lock) {
+        if (!isReady) return
 
         frozenState = FrozenState(
             offset = offset,
@@ -454,8 +464,9 @@ class SendspinTimeFilter {
      * changed network conditions while preserving the general sync estimate.
      *
      * Call this after successful reconnection, before resuming time sync.
+     * Thread-safe: synchronized to prevent concurrent mutation.
      */
-    fun thaw() {
+    fun thaw() = synchronized(lock) {
         val frozen = frozenState ?: return
 
         offset = frozen.offset
@@ -488,10 +499,31 @@ class SendspinTimeFilter {
     /**
      * Discard frozen state and perform full reset.
      * Call this when reconnection fails and we need to start fresh.
+     * Thread-safe: synchronized to prevent concurrent mutation.
      */
-    fun resetAndDiscard() {
+    fun resetAndDiscard() = synchronized(lock) {
         frozenState = null
-        reset()
+        // Inline reset logic here since reset() also acquires the lock (reentrant on JVM,
+        // but we inline to be explicit and avoid platform-dependent reentrant behavior)
+        offset = 0.0
+        drift = 0.0
+        p00 = Double.MAX_VALUE
+        p01 = 0.0
+        p10 = 0.0
+        p11 = 1e-6
+        lastUpdateTime = 0
+        measurementCount = 0
+        baselineClientTime = 0
+        innovationWindowIndex = 0
+        innovationWindowCount = 0
+        adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
+        recentOffsetsIndex = 0
+        recentOffsetsCount = 0
+        rejectedCount = 0
+        convergenceTimeMs = 0
+        firstMeasurementTimeMs = 0
+        hasLoggedConvergence = false
+        stabilityScore = 1.0
     }
 
     /**
@@ -500,6 +532,8 @@ class SendspinTimeFilter {
      * Includes outlier pre-rejection: measurements that deviate significantly from
      * recent history are rejected before reaching the Kalman filter, protecting
      * against cellular congestion spikes and handoff transients.
+     *
+     * Thread-safe: synchronized to prevent concurrent mutation of filter state.
      *
      * @param measurementOffset The measured offset in microseconds
      * @param maxError The maximum error (uncertainty) in microseconds
@@ -512,13 +546,13 @@ class SendspinTimeFilter {
         maxError: Long,
         clientTimeMicros: Long,
         rtt: Long = 0L
-    ): Boolean {
+    ): Boolean = synchronized(lock) {
         val measurement = measurementOffset.toDouble()
         val variance = (maxError.toDouble() * maxError).coerceAtLeast(1.0)
 
         // Track first measurement time for convergence timing
         if (measurementCount == 0) {
-            firstMeasurementTimeMs = System.currentTimeMillis()
+            firstMeasurementTimeMs = Platform.currentTimeMillis()
         }
 
         when (measurementCount) {
@@ -576,7 +610,7 @@ class SendspinTimeFilter {
     private fun checkConvergence() {
         if (!hasLoggedConvergence && isConverged) {
             hasLoggedConvergence = true
-            convergenceTimeMs = System.currentTimeMillis() - firstMeasurementTimeMs
+            convergenceTimeMs = Platform.currentTimeMillis() - firstMeasurementTimeMs
             Log.i(TAG, "Kalman locked: time=${convergenceTimeMs}ms, " +
                     "offset=${offset.toLong()}us (+/-$errorMicros), drift=${String.format("%.2f", driftPpm)}ppm")
         }

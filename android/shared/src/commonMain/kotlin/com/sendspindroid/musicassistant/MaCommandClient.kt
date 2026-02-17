@@ -56,26 +56,35 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         const val IMAGE_PROXY_SCHEME = "ma-proxy"
     }
 
-    @Volatile
-    private var transport: MaApiTransport? = null
+    /**
+     * Immutable snapshot of the active transport and its connection context.
+     *
+     * Bundled into a single data class so that [setTransport] publishes all
+     * three values atomically via a single @Volatile write. Readers always
+     * see a consistent combination of transport, API URL, and remote mode.
+     */
+    internal data class TransportContext(
+        val transport: MaApiTransport? = null,
+        val apiUrl: String? = null,
+        val isRemoteMode: Boolean = false
+    )
 
     @Volatile
-    private var currentApiUrl: String? = null
-
-    @Volatile
-    private var isRemoteMode: Boolean = false
+    private var transportContext = TransportContext()
 
     /**
      * Set the active transport and connection context.
+     *
+     * All three fields are published atomically as a single [TransportContext]
+     * reference. This prevents readers from observing a stale apiUrl paired
+     * with a new transport or vice-versa.
      *
      * @param transport The connected MA API transport, or null to disconnect
      * @param apiUrl The MA API URL (used for image URL construction)
      * @param isRemoteMode Whether connected via WebRTC (affects image proxy URLs)
      */
     fun setTransport(transport: MaApiTransport?, apiUrl: String?, isRemoteMode: Boolean) {
-        this.transport = transport
-        this.currentApiUrl = apiUrl
-        this.isRemoteMode = isRemoteMode
+        transportContext = TransportContext(transport, apiUrl, isRemoteMode)
     }
 
     // ========================================================================
@@ -94,7 +103,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         command: String,
         args: Map<String, Any> = emptyMap()
     ): JsonObject {
-        val t = transport ?: throw MaTransportException("MA API transport not connected")
+        val ctx = transportContext
+        val t = ctx.transport ?: throw MaTransportException("MA API transport not connected")
         return t.sendCommand(command, args, COMMAND_TIMEOUT_MS)
     }
 
@@ -1924,8 +1934,9 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
      * In REMOTE mode, server-local URLs are rewritten to use the proxy scheme.
      */
     internal fun extractImageUri(json: JsonObject): String {
-        val apiUrl = currentApiUrl ?: ""
-        val remoteMode = isRemoteMode
+        val ctx = transportContext
+        val apiUrl = ctx.apiUrl ?: ""
+        val remoteMode = ctx.isRemoteMode
         val baseUrl = if (remoteMode) {
             "$IMAGE_PROXY_SCHEME://"
         } else {

@@ -151,10 +151,24 @@ class SignalingClient(
 
     /**
      * Connect to the signaling server and request connection to the Remote ID.
+     *
+     * Uses [MutableStateFlow.compareAndSet] to atomically transition from a
+     * connectable state (Disconnected / Error) to [State.Connecting]. This
+     * prevents a TOCTOU race where two concurrent callers could both pass the
+     * state guard and open duplicate WebSocket connections.
      */
     fun connect() {
-        if (_state.value !is State.Disconnected && _state.value !is State.Error) {
+        // Atomically claim the Connecting state.
+        // compareAndSet returns false if another caller already transitioned.
+        val currentState = _state.value
+        if (currentState !is State.Disconnected && currentState !is State.Error) {
             Log.w(TAG, "Already connecting or connected")
+            return
+        }
+
+        if (!_state.compareAndSet(currentState, State.Connecting)) {
+            // Another caller won the race -- let them proceed.
+            Log.w(TAG, "Concurrent connect() detected, yielding to first caller")
             return
         }
 
@@ -166,7 +180,6 @@ class SignalingClient(
         }
 
         Log.d(TAG, "Connecting to signaling server: $signalingUrl")
-        _state.value = State.Connecting
 
         val channel = Channel<String>(Channel.BUFFERED)
         sendChannel = channel

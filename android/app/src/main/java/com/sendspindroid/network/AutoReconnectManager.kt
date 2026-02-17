@@ -101,6 +101,20 @@ class AutoReconnectManager(
         )
 
         const val MAX_ATTEMPTS = 11
+
+        /**
+         * Minimum interval between network-triggered delay skips (ms).
+         * Prevents rapid network flapping from burning through all retry
+         * attempts in seconds. When the network toggles on/off faster than
+         * this window, subsequent onNetworkAvailable() calls are debounced.
+         */
+        internal const val NETWORK_DEBOUNCE_MS = 2_000L
+
+        /**
+         * Minimum delay (ms) imposed after a network-triggered skip so the
+         * loop does not fire attempts faster than the network can stabilize.
+         */
+        internal const val MIN_DELAY_AFTER_NETWORK_SKIP_MS = 500L
     }
 
     // State
@@ -116,6 +130,11 @@ class AutoReconnectManager(
     // Signal to skip the current backoff delay (set by onNetworkAvailable)
     @Volatile
     private var skipDelay: CompletableDeferred<Unit>? = null
+
+    // Monotonic timestamp of the last accepted network skip (for debounce).
+    // Uses System.nanoTime() for monotonic guarantees.
+    @Volatile
+    private var lastNetworkSkipNanos: Long = 0L
 
     // Network evaluator for determining connection priority
     private val networkEvaluator = NetworkEvaluator(context)
@@ -134,6 +153,7 @@ class AutoReconnectManager(
         reconnectingServer = server
         currentAttempt.set(0)
         isReconnecting.set(true)
+        lastNetworkSkipNanos = 0L
 
         // Get initial network state
         networkEvaluator.evaluateCurrentNetwork()
@@ -165,6 +185,7 @@ class AutoReconnectManager(
         reconnectingServerId = null
         reconnectingServer = null
         currentAttempt.set(0)
+        lastNetworkSkipNanos = 0L
     }
 
     /**
@@ -191,13 +212,31 @@ class AutoReconnectManager(
 
     /**
      * Called when network becomes available.
+     *
      * If reconnecting, skips the remaining backoff delay so the next attempt
-     * fires immediately. Does NOT cancel the coroutine -- it simply signals
-     * the loop to wake up early.
+     * fires sooner. Does NOT cancel the coroutine -- it simply signals the
+     * loop to wake up early.
+     *
+     * **Debounce**: On a flapping network (e.g. WiFi toggling), the OS may
+     * fire onAvailable() many times in quick succession. Without debounce,
+     * every call would skip a backoff delay, burning through all
+     * [MAX_ATTEMPTS] in seconds. We therefore ignore calls that arrive within
+     * [NETWORK_DEBOUNCE_MS] of the previous accepted skip.
+     *
+     * Network-triggered retries count toward [MAX_ATTEMPTS] -- the loop
+     * variable `attemptNumber` increments regardless of how the delay ended.
      */
     fun onNetworkAvailable() {
         if (!isReconnecting.get()) return
 
+        val now = System.nanoTime()
+        val elapsedMs = (now - lastNetworkSkipNanos) / 1_000_000
+        if (elapsedMs < NETWORK_DEBOUNCE_MS) {
+            Log.d(TAG, "Network available debounced (${elapsedMs}ms since last skip)")
+            return
+        }
+
+        lastNetworkSkipNanos = now
         Log.i(TAG, "Network available during reconnection - triggering immediate retry")
 
         // Re-evaluate network state so the next attempt picks the right methods
@@ -239,15 +278,24 @@ class AutoReconnectManager(
             // onNetworkAvailable completing the deferred.
             val signal = CompletableDeferred<Unit>()
             skipDelay = signal
+            var skippedByNetwork = false
             try {
                 withTimeout(delayMs) {
                     signal.await()
+                    skippedByNetwork = true
                     Log.d(TAG, "Backoff delay skipped by network event")
                 }
             } catch (_: TimeoutCancellationException) {
                 // Normal: the full delay elapsed without a skip signal
             }
             skipDelay = null
+
+            // When the delay was skipped by a network event, insert a short
+            // stabilization pause so we don't hammer the server on flapping
+            // networks. This delay is still cancellable via job cancellation.
+            if (skippedByNetwork) {
+                delay(MIN_DELAY_AFTER_NETWORK_SKIP_MS)
+            }
 
             // Check cancellation after waking from delay
             coroutineContext.ensureActive()
