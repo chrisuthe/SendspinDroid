@@ -18,6 +18,7 @@ import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
+import java.util.concurrent.CopyOnWriteArrayList
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import android.os.SystemClock
@@ -64,8 +65,9 @@ class SendSpinPlayer : Player {
      */
     var onQueueItemSelected: ((mediaId: String) -> Unit)? = null
 
-    // Listener management
-    private val listeners = mutableListOf<Player.Listener>()
+    // Listener management - CopyOnWriteArrayList prevents ConcurrentModificationException
+    // if a listener callback adds/removes listeners during iteration
+    private val listeners = CopyOnWriteArrayList<Player.Listener>()
 
     // Playback state tracking
     private var currentPlaybackState = Player.STATE_IDLE

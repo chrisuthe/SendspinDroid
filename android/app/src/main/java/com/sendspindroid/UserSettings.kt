@@ -454,8 +454,20 @@ object UserSettings {
      * Gets all saved proxy servers with nicknames and tokens.
      * Format: "url::nickname::token::timestamp::username" separated by "|"
      *
-     * Note: Tokens are stored in plain text. For production, consider using
-     * EncryptedSharedPreferences for sensitive data. Passwords are NEVER stored.
+     * SECURITY NOTE (L-15): Auth tokens are stored in plain-text SharedPreferences.
+     * This means they are readable by any process with root access or via adb backup.
+     * Passwords are NEVER stored, but auth tokens should still be protected.
+     *
+     * TODO: Migrate to EncryptedSharedPreferences (androidx.security:security-crypto).
+     *   This requires:
+     *   1. Adding the androidx.security:security-crypto dependency
+     *   2. Creating a separate EncryptedSharedPreferences instance for sensitive data
+     *   3. Migration logic to move existing tokens from plain prefs to encrypted prefs
+     *   4. Fallback handling for KeyStoreException on devices with corrupt Android Keystore
+     *   5. Testing on API 23+ (EncryptedSharedPreferences minSdk)
+     *   Deferred because the migration path is non-trivial and risks data loss if not
+     *   implemented carefully. Current risk is low: tokens are short-lived session tokens
+     *   for reverse proxy auth, not long-lived credentials.
      *
      * @return List of saved proxy servers ordered by most recently used
      */
@@ -485,6 +497,7 @@ object UserSettings {
      * @param url The proxy server URL
      * @param nickname User-friendly name for the server
      * @param authToken The authentication token (never store password!)
+     *   See L-15 security note on [getSavedProxyServers] regarding plain-text storage.
      * @param username Optional username for re-login convenience
      */
     fun saveProxyServer(url: String, nickname: String, authToken: String, username: String? = null) {

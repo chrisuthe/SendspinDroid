@@ -1,6 +1,6 @@
 package com.sendspindroid.sendspin.decoder
 
-import android.media.MediaCodec
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
 
@@ -70,13 +70,12 @@ object AudioDecoderFactory {
     }
 
     private fun isMediaCodecSupported(mimeType: String): Boolean {
-        return try {
-            val codec = MediaCodec.createDecoderByType(mimeType)
-            codec.release()
-            true
-        } catch (e: Exception) {
-            Log.d(TAG, "MediaCodec not available for $mimeType: ${e.message}")
-            false
+        val format = MediaFormat().apply { setString(MediaFormat.KEY_MIME, mimeType) }
+        val codecName = MediaCodecList(MediaCodecList.REGULAR_CODECS)
+            .findDecoderForFormat(format)
+        if (codecName == null) {
+            Log.d(TAG, "No decoder available for $mimeType")
         }
+        return codecName != null
     }
 }

@@ -306,11 +306,11 @@ class SyncAudioPlayer(
     // flushing AudioTrack while the playback loop is mid-write, which causes
     // clicks/pops and incorrect frame accounting.
     private val isFlushPending = AtomicBoolean(false)
-    private var pausedAtUs: Long = 0L  // Timestamp when pause() was called, for long-pause detection
+    @Volatile private var pausedAtUs: Long = 0L  // Timestamp when pause() was called, for long-pause detection
 
     // Playback state machine (from Python reference)
     @Volatile private var playbackState = PlaybackState.INITIALIZING
-    private var stateCallback: SyncAudioPlayerCallback? = null
+    @Volatile private var stateCallback: SyncAudioPlayerCallback? = null
     private var scheduledStartLoopTimeUs: Long? = null   // When to start in loop time
     private var firstServerTimestampUs: Long? = null     // First chunk's server timestamp
     private var lastReanchorTimeUs: Long = 0             // Cooldown tracking for reanchor
@@ -383,6 +383,12 @@ class SyncAudioPlayer(
     private val dacLoopCalibrations = ArrayDeque<DacCalibration>()
     private var lastDacCalibrationTimeUs = 0L
 
+    // Frame position wrap detection for pre-API-28 hardware.
+    // Some HAL implementations use 32-bit counters internally, causing framePosition
+    // to wrap around ~4.29 billion frames (~24.8 hours at 48kHz). Track the last valid
+    // frame position so we can detect and reject wrapped values.
+    private var lastValidFramePosition = 0L
+
     // Sample insert/drop correction state (from Python reference)
     private var insertEveryNFrames: Int = 0      // Insert duplicate frame every N frames (slow down)
     private var dropEveryNFrames: Int = 0        // Drop frame every N frames (speed up)
@@ -402,15 +408,16 @@ class SyncAudioPlayer(
     // No corrections applied until STARTUP_GRACE_PERIOD_US after entering PLAYING state
     private var playingStateEnteredAtUs = 0L     // When we transitioned to PLAYING state
 
-    // Statistics
-    private var chunksReceived = 0L
-    private var chunksPlayed = 0L
-    private var chunksDropped = 0L
-    private var syncCorrections = 0L
-    private var framesInserted = 0L
-    private var framesDropped = 0L
-    private var reanchorCount = 0L        // Count of reanchor events
-    private var bufferUnderrunCount = 0L  // Count of times queue was empty during playback
+    // Statistics - @Volatile because written from playback loop / WebSocket thread
+    // and read from main thread via getStats()
+    @Volatile private var chunksReceived = 0L
+    @Volatile private var chunksPlayed = 0L
+    @Volatile private var chunksDropped = 0L
+    @Volatile private var syncCorrections = 0L
+    @Volatile private var framesInserted = 0L
+    @Volatile private var framesDropped = 0L
+    @Volatile private var reanchorCount = 0L        // Count of reanchor events
+    @Volatile private var bufferUnderrunCount = 0L  // Count of times queue was empty during playback
 
     // Pre-sync chunk buffer - holds chunks received before time sync is ready
     // These will be processed once time sync completes
@@ -990,6 +997,7 @@ class SyncAudioPlayer(
             consecutiveValidTimestamps = 0
             dacTimestampsStable = false
             lastDacPacingLogTimeUs = 0L
+            lastValidFramePosition = 0L  // Reset frame position wrap detection
 
             // Reset sample insert/drop correction state
             insertEveryNFrames = 0
@@ -1631,6 +1639,7 @@ class SyncAudioPlayer(
             // Reset DAC timestamp stability tracking
             consecutiveValidTimestamps = 0
             dacTimestampsStable = false
+            lastValidFramePosition = 0L  // Reset frame position wrap detection
 
             // Transition to INITIALIZING to wait for new chunks
             setPlaybackState(PlaybackState.INITIALIZING)
@@ -2348,6 +2357,16 @@ class SyncAudioPlayer(
                 return
             }
 
+            // Detect 32-bit frame counter wrap on pre-API-28 HAL implementations.
+            // A backward jump of more than 1 second of frames indicates the counter
+            // wrapped rather than a genuine regression. Skip this reading.
+            if (lastValidFramePosition > 0 && framePosition < lastValidFramePosition - sampleRate) {
+                Log.w(TAG, "Frame position wrap detected: last=$lastValidFramePosition, " +
+                    "current=$framePosition, totalWritten=${totalFramesWritten.get()}")
+                return
+            }
+            lastValidFramePosition = framePosition
+
             // Store DAC calibration pair for time conversion
             storeDacCalibration(dacTimeMicros, loopTimeUs)
 
@@ -2538,17 +2557,16 @@ class SyncAudioPlayer(
         }
 
         // Find the two calibrations that bracket the target DAC time
-        // or use the nearest pair for extrapolation
-        val sorted = dacLoopCalibrations.sortedBy { it.dacTimeUs }
+        // or use the nearest pair for extrapolation.
+        // The deque is already time-ordered (addLast with monotonic timestamps),
+        // so we scan directly without sorting.
+        var lower = dacLoopCalibrations.first()
+        var upper = dacLoopCalibrations.last()
 
-        // Find where dacTimeUs falls in the sorted list
-        var lower = sorted.first()
-        var upper = sorted.last()
-
-        for (i in 0 until sorted.size - 1) {
-            if (sorted[i].dacTimeUs <= dacTimeUs && sorted[i + 1].dacTimeUs >= dacTimeUs) {
-                lower = sorted[i]
-                upper = sorted[i + 1]
+        for (i in 0 until dacLoopCalibrations.size - 1) {
+            if (dacLoopCalibrations[i].dacTimeUs <= dacTimeUs && dacLoopCalibrations[i + 1].dacTimeUs >= dacTimeUs) {
+                lower = dacLoopCalibrations[i]
+                upper = dacLoopCalibrations[i + 1]
                 break
             }
         }
