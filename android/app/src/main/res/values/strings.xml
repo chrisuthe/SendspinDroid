@@ -674,4 +674,153 @@
     <string name="accessibility_player_button">Manage players</string>
     <string name="accessibility_player_toggle">Toggle %s in group</string>
     <string name="accessibility_refresh">Refresh</string>
+
+    <!-- Common actions (shared across dialogs/buttons) -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_create">Create</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_back">Back</string>
+    <string name="action_menu">Menu</string>
+    <string name="action_shuffle">Shuffle</string>
+    <string name="action_up">Up</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_yes">Yes</string>
+    <string name="action_no">No</string>
+    <string name="add_to_queue">Add to Queue</string>
+    <string name="unit_ms">ms</string>
+
+    <!-- Accessibility - common -->
+    <string name="accessibility_more_options">More options</string>
+    <string name="accessibility_more_options_for">More options for %s</string>
+    <string name="accessibility_clear_search">Clear search</string>
+    <string name="accessibility_add_to_playlist">Add to playlist</string>
+    <string name="accessibility_replace_playlist">Replace playlist</string>
+    <string name="accessibility_toggle_shuffle">Toggle shuffle</string>
+    <string name="accessibility_cycle_repeat">Cycle repeat mode</string>
+    <string name="accessibility_played">Played</string>
+    <string name="accessibility_in_progress">In progress</string>
+    <string name="accessibility_play">Play</string>
+
+    <!-- Delete playlist dialog -->
+    <string name="delete_playlist_title">Delete Playlist</string>
+
+    <!-- Track count plurals -->
+    <string name="track_count_one">1 track</string>
+    <string name="track_count_other">%d tracks</string>
+
+    <!-- Wizard - Client Type Step -->
+    <string name="wizard_client_type_question">What kind of server are we connecting to?</string>
+    <string name="wizard_client_sendspin">Sendspin</string>
+    <string name="wizard_client_sendspin_desc">A spec compliant Sendspin player that can stream music from any Sendspin server. Supports playback, controls and album art on a local network connection.</string>
+    <string name="wizard_client_music_assistant">Music Assistant</string>
+    <string name="wizard_client_music_assistant_desc">Connect to Music Assistant as a client while also creating a Sendspin player in Music Assistant. Connect locally or remotely through Music Assistant remote connection or reverse proxy. All of Sendspin\u2019s features plus Music Assistant native library browsing and controls.</string>
+
+    <!-- Wizard - Network Question Step -->
+    <string name="wizard_network_question_title">Where\u2019s Your Server?</string>
+    <string name="wizard_network_question_subtitle">Are you on the same WiFi network as your Music Assistant server right now?</string>
+    <string name="wizard_network_yes_title">Yes, same network</string>
+    <string name="wizard_network_yes_desc">I\u2019m on the same WiFi or wired network. Let\u2019s find the server automatically.</string>
+    <string name="wizard_network_no_title">No, I\u2019m remote</string>
+    <string name="wizard_network_no_desc">I\u2019m away from home or on mobile data. I\u2019ll connect using a Remote ID or proxy URL.</string>
+
+    <!-- Wizard - Remote Question Step -->
+    <string name="wizard_remote_question_title">Remote Access</string>
+    <string name="wizard_remote_question_subtitle">Want to access your server when you\u2019re away from home?</string>
+    <string name="wizard_remote_yes_title">Yes, set up remote access</string>
+    <string name="wizard_remote_yes_desc">Control your music when you\u2019re not on your home network.</string>
+    <string name="wizard_remote_no_title">No, local only</string>
+    <string name="wizard_remote_no_desc">Only use this server when on the same network.</string>
+
+    <!-- Wizard - Remote Setup Step -->
+    <string name="wizard_connect_remotely">Connect Remotely</string>
+    <string name="wizard_connect_remotely_desc">Enter your Music Assistant Remote ID or reverse proxy details.</string>
+    <string name="wizard_tab_remote_id">Remote ID</string>
+    <string name="wizard_tab_reverse_proxy">Reverse Proxy</string>
+
+    <!-- Wizard - Finish Step -->
+    <string name="wizard_connection_summary">Connection Summary</string>
+
+    <!-- Podcast detail -->
+    <string name="podcast_no_episodes">No episodes found</string>
+    <string name="podcast_sort_newest">Newest</string>
+    <string name="podcast_sort_oldest">Oldest</string>
+    <string name="podcast_sort_name">Name</string>
+    <string name="podcast_sort_duration">Duration</string>
+
+    <!-- Stats labels - additional -->
+    <string name="stats_server">Server</string>
+    <string name="stats_address">Address</string>
+    <string name="stats_state">State</string>
+    <string name="stats_codec">Codec</string>
+    <string name="stats_reconnects">Reconnects</string>
+    <string name="stats_type">Type</string>
+    <string name="stats_quality">Quality</string>
+    <string name="stats_metered">Metered</string>
+    <string name="stats_wifi_rssi">WiFi RSSI</string>
+    <string name="stats_wifi_speed">WiFi Speed</string>
+    <string name="stats_wifi_band">WiFi Band</string>
+    <string name="stats_cellular">Cellular</string>
+    <string name="stats_playback">Playback</string>
+    <string name="stats_smoothed">Smoothed</string>
+    <string name="stats_drift_rate">Drift Rate</string>
+    <string name="stats_grace_period">Grace Period</string>
+    <string name="stats_grace_inactive">Inactive</string>
+    <string name="stats_offset">Offset</string>
+    <string name="stats_drift">Drift</string>
+    <string name="stats_error">Error</string>
+    <string name="stats_converged">Converged</string>
+    <string name="stats_measurements">Measurements</string>
+    <string name="stats_last_sync">Last Sync</string>
+    <string name="stats_frozen">Frozen</string>
+    <string name="stats_frozen_reconnecting">Yes (reconnecting)</string>
+    <string name="stats_sync_offset">Sync Offset</string>
+    <string name="stats_calibrated">Calibrated</string>
+    <string name="stats_calibrations">Calibrations</string>
+    <string name="stats_frames_written">Frames Written</string>
+    <string name="stats_server_position">Server Position</string>
+    <string name="stats_underruns">Underruns</string>
+    <string name="stats_queued">Queued</string>
+    <string name="stats_received">Received</string>
+    <string name="stats_played">Played</string>
+    <string name="stats_dropped">Dropped</string>
+    <string name="stats_gaps">Gaps Filled</string>
+    <string name="stats_overlaps">Overlaps</string>
+    <string name="stats_mode">Mode</string>
+    <string name="stats_inserted">Inserted</string>
+    <string name="stats_corrections">Corrections</string>
+    <string name="stats_reanchors">Reanchors</string>
+
+    <!-- Toast / error messages - playback -->
+    <string name="error_no_uri_play">Cannot play: no URI available</string>
+    <string name="error_no_uri_queue">Cannot add to queue: no URI available</string>
+    <string name="error_no_uri_play_next">Cannot play next: no URI available</string>
+    <string name="error_play_failed">Failed to play: %s</string>
+    <string name="error_queue_failed">Failed to add to queue: %s</string>
+    <string name="error_play_next_failed">Failed to play next: %s</string>
+    <string name="success_added_to_queue">Added to queue: %s</string>
+    <string name="success_playing_next">Playing next: %s</string>
+    <string name="success_added_to_playlist">Added to %s</string>
+    <string name="error_add_track_failed">Failed to add track</string>
+    <string name="snackbar_deleted">Deleted %s</string>
+    <string name="snackbar_track_removed">Track removed</string>
+
+    <!-- Bulk operations -->
+    <string name="bulk_fetching_tracks">Fetching tracks...</string>
+    <string name="bulk_no_tracks_found">No tracks found</string>
+    <string name="bulk_adding_tracks">Adding %d tracks...</string>
+    <string name="bulk_added_to_playlist">Added %1$s to %2$s</string>
+    <string name="bulk_failed_add_playlist">Failed to add to playlist</string>
+    <string name="bulk_failed_fetch_tracks">Failed to fetch tracks</string>
+
+    <!-- Save queue operations -->
+    <string name="save_queue_adding_tracks">Adding %d tracks\u2026</string>
+    <string name="save_queue_loading_existing">Loading existing tracks\u2026</string>
+    <string name="save_queue_removing_existing">Removing existing tracks\u2026</string>
+    <string name="save_queue_creating_playlist">Creating playlist\u2026</string>
+    <string name="save_queue_saved">Saved %1$d tracks to %2$s</string>
+    <string name="save_queue_failed_add">Failed to add tracks to playlist</string>
+    <string name="save_queue_failed_load">Failed to load existing tracks</string>
+    <string name="save_queue_failed_remove">Failed to remove existing tracks</string>
+    <string name="save_queue_failed_create">Failed to create playlist</string>
+    <string name="save_queue_failed_load_playlists">Failed to load playlists</string>
 </resources>

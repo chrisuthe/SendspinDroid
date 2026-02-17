@@ -9,7 +9,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.sendspindroid.R
 
 /**
  * A full-width "Add to Queue" outlined button for album/artist detail screens.
@@ -37,6 +39,6 @@ fun AddToQueueButton(
             contentDescription = null,
             modifier = Modifier.padding(end = 8.dp)
         )
-        Text(text = "Add to Queue")
+        Text(text = stringResource(R.string.add_to_queue))
     }
 }

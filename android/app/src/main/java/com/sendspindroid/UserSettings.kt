@@ -3,18 +3,36 @@ package com.sendspindroid
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.util.Log
 import androidx.preference.PreferenceManager
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 import com.sendspindroid.network.TransportType
 import java.util.UUID
 
 /**
  * Centralized access to user settings stored in SharedPreferences.
- * Uses the default SharedPreferences file for compatibility with PreferenceFragmentCompat.
+ *
+ * Two separate SharedPreferences instances are used:
+ * - [prefs]: Default SharedPreferences for non-sensitive UI settings (codec, layout, etc.).
+ *   Uses the default file for compatibility with PreferenceFragmentCompat.
+ * - [sensitivePrefs]: EncryptedSharedPreferences for auth tokens, credentials, and
+ *   connection secrets (proxy servers, remote servers). Encrypted at rest using
+ *   Android Keystore (L-15).
+ *
+ * If EncryptedSharedPreferences fails to initialize (broken Keystore on some OEMs),
+ * [sensitivePrefs] falls back to a plain SharedPreferences with a warning log.
+ * The app must not crash due to Keystore issues.
  *
  * Thread-safety: Uses @Volatile + double-checked locking for initialization,
  * matching the pattern in ServerRepository/UnifiedServerRepository.
  */
 object UserSettings {
+
+    private const val TAG = "UserSettings"
+
+    /** File name for the encrypted SharedPreferences store. */
+    private const val ENCRYPTED_PREFS_FILE = "sendspin_secure_prefs"
 
     // Preference keys - must match keys in preferences.xml
     const val KEY_PLAYER_ID = "player_id"
@@ -31,12 +49,12 @@ object UserSettings {
     const val KEY_CODEC_WIFI = "codec_wifi"
     const val KEY_CODEC_CELLULAR = "codec_cellular"
 
-    // Remote access preference keys
+    // Remote access preference keys (stored in encrypted prefs)
     const val KEY_REMOTE_SERVERS = "remote_servers"
     const val KEY_LAST_CONNECTION_MODE = "last_connection_mode"
     const val KEY_LAST_REMOTE_ID = "last_remote_id"
 
-    // Proxy access preference keys
+    // Proxy access preference keys (stored in encrypted prefs)
     const val KEY_PROXY_SERVERS = "proxy_servers"
     const val KEY_LAST_PROXY_URL = "last_proxy_url"
 
@@ -45,8 +63,21 @@ object UserSettings {
     const val SYNC_OFFSET_MAX = 5000
     const val SYNC_OFFSET_DEFAULT = 0
 
+    /** Non-sensitive UI/app preferences (default SharedPreferences). */
     @Volatile
     private var prefs: SharedPreferences? = null
+
+    /**
+     * Encrypted preferences for sensitive data (auth tokens, credentials).
+     * Falls back to plain SharedPreferences if Keystore is broken.
+     */
+    @Volatile
+    private var sensitivePrefs: SharedPreferences? = null
+
+    /** True if [sensitivePrefs] is actually encrypted; false if using plain fallback. */
+    @Volatile
+    internal var isEncrypted: Boolean = false
+        private set
 
     // In-memory fallback for player ID generated before prefs is available.
     // Ensures getPlayerId() always returns the same value even if called
@@ -63,7 +94,8 @@ object UserSettings {
         if (prefs == null) {
             synchronized(this) {
                 if (prefs == null) {
-                    val p = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+                    val appContext = context.applicationContext
+                    val p = PreferenceManager.getDefaultSharedPreferences(appContext)
                     // If a player ID was generated before prefs was available,
                     // persist it now so it survives app restarts.
                     cachedPlayerId?.let { id ->
@@ -71,9 +103,43 @@ object UserSettings {
                             p.edit().putString(KEY_PLAYER_ID, id).apply()
                         }
                     }
+
+                    // Initialize encrypted prefs for sensitive data (L-15).
+                    sensitivePrefs = createEncryptedPrefs(appContext)
+
                     prefs = p
                 }
             }
+        }
+    }
+
+    /**
+     * Creates an EncryptedSharedPreferences instance backed by Android Keystore.
+     * If the Keystore is broken (known issue on some OEM devices), falls back to
+     * a plain SharedPreferences and logs a warning. The app must not crash.
+     */
+    private fun createEncryptedPrefs(context: Context): SharedPreferences {
+        return try {
+            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            val encrypted = EncryptedSharedPreferences.create(
+                ENCRYPTED_PREFS_FILE,
+                masterKeyAlias,
+                context,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+            isEncrypted = true
+            Log.i(TAG, "Encrypted SharedPreferences initialized for sensitive data")
+            encrypted
+        } catch (e: Exception) {
+            // Known to fail on some OEMs with broken Android Keystore (e.g., certain
+            // Samsung, Xiaomi, Huawei devices). Fall back to plain SharedPreferences
+            // so the app remains functional. Auth tokens will be unencrypted on these
+            // devices -- same as before this fix -- but the app won't crash.
+            Log.w(TAG, "EncryptedSharedPreferences failed, falling back to plain prefs. " +
+                    "Auth tokens will NOT be encrypted on this device.", e)
+            isEncrypted = false
+            context.getSharedPreferences(ENCRYPTED_PREFS_FILE, Context.MODE_PRIVATE)
         }
     }
 
@@ -320,16 +386,18 @@ object UserSettings {
 
     /**
      * Gets the last used Remote ID for quick reconnection.
+     * Stored in encrypted prefs (contains connection credential).
      */
     fun getLastRemoteId(): String? {
-        return prefs?.getString(KEY_LAST_REMOTE_ID, null)
+        return sensitivePrefs?.getString(KEY_LAST_REMOTE_ID, null)
     }
 
     /**
      * Sets the last used Remote ID.
+     * Stored in encrypted prefs (contains connection credential).
      */
     fun setLastRemoteId(remoteId: String?) {
-        prefs?.edit()?.putString(KEY_LAST_REMOTE_ID, remoteId)?.apply()
+        sensitivePrefs?.edit()?.putString(KEY_LAST_REMOTE_ID, remoteId)?.apply()
     }
 
     /**
@@ -339,7 +407,7 @@ object UserSettings {
      * @return List of saved remote servers ordered by most recently used
      */
     fun getSavedRemoteServers(): List<SavedRemoteServer> {
-        val data = prefs?.getString(KEY_REMOTE_SERVERS, null) ?: return emptyList()
+        val data = sensitivePrefs?.getString(KEY_REMOTE_SERVERS, null) ?: return emptyList()
         return data.split("|")
             .filter { it.isNotBlank() }
             .mapNotNull { entry ->
@@ -373,7 +441,7 @@ object UserSettings {
 
         // Serialize and save
         val serialized = limited.joinToString("|") { "${it.remoteId}::${it.nickname}::${it.lastConnectedMs}" }
-        prefs?.edit()?.putString(KEY_REMOTE_SERVERS, serialized)?.apply()
+        sensitivePrefs?.edit()?.putString(KEY_REMOTE_SERVERS, serialized)?.apply()
     }
 
     /**
@@ -387,7 +455,7 @@ object UserSettings {
             existing.add(0, server.copy(lastConnectedMs = System.currentTimeMillis()))
 
             val serialized = existing.joinToString("|") { "${it.remoteId}::${it.nickname}::${it.lastConnectedMs}" }
-            prefs?.edit()?.putString(KEY_REMOTE_SERVERS, serialized)?.apply()
+            sensitivePrefs?.edit()?.putString(KEY_REMOTE_SERVERS, serialized)?.apply()
         }
     }
 
@@ -397,7 +465,7 @@ object UserSettings {
     fun removeRemoteServer(remoteId: String) {
         val existing = getSavedRemoteServers().filter { it.remoteId != remoteId }
         val serialized = existing.joinToString("|") { "${it.remoteId}::${it.nickname}::${it.lastConnectedMs}" }
-        prefs?.edit()?.putString(KEY_REMOTE_SERVERS, serialized)?.apply()
+        sensitivePrefs?.edit()?.putString(KEY_REMOTE_SERVERS, serialized)?.apply()
     }
 
     /**
@@ -438,41 +506,33 @@ object UserSettings {
 
     /**
      * Gets the last used proxy URL for quick reconnection.
+     * Stored in encrypted prefs (proxy URL can reveal server identity).
      */
     fun getLastProxyUrl(): String? {
-        return prefs?.getString(KEY_LAST_PROXY_URL, null)
+        return sensitivePrefs?.getString(KEY_LAST_PROXY_URL, null)
     }
 
     /**
      * Sets the last used proxy URL.
+     * Stored in encrypted prefs (proxy URL can reveal server identity).
      */
     fun setLastProxyUrl(url: String?) {
-        prefs?.edit()?.putString(KEY_LAST_PROXY_URL, url)?.apply()
+        sensitivePrefs?.edit()?.putString(KEY_LAST_PROXY_URL, url)?.apply()
     }
 
     /**
      * Gets all saved proxy servers with nicknames and tokens.
      * Format: "url::nickname::token::timestamp::username" separated by "|"
      *
-     * SECURITY NOTE (L-15): Auth tokens are stored in plain-text SharedPreferences.
-     * This means they are readable by any process with root access or via adb backup.
-     * Passwords are NEVER stored, but auth tokens should still be protected.
-     *
-     * TODO: Migrate to EncryptedSharedPreferences (androidx.security:security-crypto).
-     *   This requires:
-     *   1. Adding the androidx.security:security-crypto dependency
-     *   2. Creating a separate EncryptedSharedPreferences instance for sensitive data
-     *   3. Migration logic to move existing tokens from plain prefs to encrypted prefs
-     *   4. Fallback handling for KeyStoreException on devices with corrupt Android Keystore
-     *   5. Testing on API 23+ (EncryptedSharedPreferences minSdk)
-     *   Deferred because the migration path is non-trivial and risks data loss if not
-     *   implemented carefully. Current risk is low: tokens are short-lived session tokens
-     *   for reverse proxy auth, not long-lived credentials.
+     * Auth tokens and usernames are stored in EncryptedSharedPreferences (L-15),
+     * encrypted at rest via Android Keystore. On devices with broken Keystore,
+     * falls back to plain SharedPreferences (same as pre-L-15 behavior).
+     * Passwords are NEVER stored.
      *
      * @return List of saved proxy servers ordered by most recently used
      */
     fun getSavedProxyServers(): List<SavedProxyServer> {
-        val data = prefs?.getString(KEY_PROXY_SERVERS, null) ?: return emptyList()
+        val data = sensitivePrefs?.getString(KEY_PROXY_SERVERS, null) ?: return emptyList()
         return data.split("|")
             .filter { it.isNotBlank() }
             .mapNotNull { entry ->
@@ -497,7 +557,7 @@ object UserSettings {
      * @param url The proxy server URL
      * @param nickname User-friendly name for the server
      * @param authToken The authentication token (never store password!)
-     *   See L-15 security note on [getSavedProxyServers] regarding plain-text storage.
+     *   Stored in EncryptedSharedPreferences (L-15).
      * @param username Optional username for re-login convenience
      */
     fun saveProxyServer(url: String, nickname: String, authToken: String, username: String? = null) {
@@ -516,7 +576,7 @@ object UserSettings {
         val serialized = limited.joinToString("|") {
             "${it.url}::${it.nickname}::${it.authToken}::${it.lastConnectedMs}::${it.username ?: ""}"
         }
-        prefs?.edit()?.putString(KEY_PROXY_SERVERS, serialized)?.apply()
+        sensitivePrefs?.edit()?.putString(KEY_PROXY_SERVERS, serialized)?.apply()
     }
 
     /**
@@ -532,7 +592,7 @@ object UserSettings {
             val serialized = existing.joinToString("|") {
                 "${it.url}::${it.nickname}::${it.authToken}::${it.lastConnectedMs}::${it.username ?: ""}"
             }
-            prefs?.edit()?.putString(KEY_PROXY_SERVERS, serialized)?.apply()
+            sensitivePrefs?.edit()?.putString(KEY_PROXY_SERVERS, serialized)?.apply()
         }
     }
 
@@ -544,7 +604,7 @@ object UserSettings {
         val serialized = existing.joinToString("|") {
             "${it.url}::${it.nickname}::${it.authToken}::${it.lastConnectedMs}::${it.username ?: ""}"
         }
-        prefs?.edit()?.putString(KEY_PROXY_SERVERS, serialized)?.apply()
+        sensitivePrefs?.edit()?.putString(KEY_PROXY_SERVERS, serialized)?.apply()
     }
 
     /**
@@ -602,7 +662,25 @@ object UserSettings {
     internal fun resetForTesting() {
         synchronized(this) {
             prefs = null
+            sensitivePrefs = null
+            isEncrypted = false
             cachedPlayerId = null
+        }
+    }
+
+    /**
+     * Initialize with pre-created SharedPreferences instances.
+     * For unit tests only -- allows injecting mock prefs without Android context.
+     */
+    internal fun initializeForTesting(
+        plainPrefs: SharedPreferences,
+        encryptedPrefs: SharedPreferences,
+        encrypted: Boolean = false
+    ) {
+        synchronized(this) {
+            prefs = plainPrefs
+            sensitivePrefs = encryptedPrefs
+            isEncrypted = encrypted
         }
     }
 }
