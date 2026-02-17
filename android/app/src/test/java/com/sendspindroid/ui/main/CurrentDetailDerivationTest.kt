@@ -1,12 +1,12 @@
 package com.sendspindroid.ui.main
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -23,12 +23,15 @@ import org.junit.Test
  * These tests verify that this derivation correctly reflects push, pop,
  * and clear operations on the back stack -- the exact operations exposed
  * by navigateToDetail(), navigateDetailBack(), and clearDetailNavigation().
+ *
+ * Uses [backgroundScope] for the stateIn collector so that the eagerly-started
+ * coroutine is automatically cancelled when each test finishes.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class CurrentDetailDerivationTest {
 
     /** Helper: creates the same derived flow pattern used in MainActivityViewModel. */
-    private fun TestScope.derivedCurrentDetail(
+    private fun CoroutineScope.derivedCurrentDetail(
         backStack: MutableStateFlow<List<DetailDestination>>
     ): StateFlow<DetailDestination?> =
         backStack
@@ -38,20 +41,18 @@ class CurrentDetailDerivationTest {
     // -- Initial state --
 
     @Test
-    fun emptyStack_yieldsNull() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun emptyStack_yieldsNull() = runTest(UnconfinedTestDispatcher()) {
         val backStack = MutableStateFlow<List<DetailDestination>>(emptyList())
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         assertNull("Empty stack should yield null", currentDetail.value)
     }
 
     @Test
-    fun nonEmptyInitialStack_yieldsLastEntry() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun nonEmptyInitialStack_yieldsLastEntry() = runTest(UnconfinedTestDispatcher()) {
         val album = DetailDestination.Album("1", "Test Album")
         val backStack = MutableStateFlow<List<DetailDestination>>(listOf(album))
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         assertEquals("Should yield the single entry", album, currentDetail.value)
     }
@@ -59,10 +60,9 @@ class CurrentDetailDerivationTest {
     // -- Push (navigateToDetail) --
 
     @Test
-    fun push_singleEntry_becomesCurrentDetail() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun push_singleEntry_becomesCurrentDetail() = runTest(UnconfinedTestDispatcher()) {
         val backStack = MutableStateFlow<List<DetailDestination>>(emptyList())
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         val artist = DetailDestination.Artist("a1", "Test Artist")
         backStack.value = backStack.value + artist
@@ -71,10 +71,9 @@ class CurrentDetailDerivationTest {
     }
 
     @Test
-    fun push_nestedNavigation_yieldsNewTop() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun push_nestedNavigation_yieldsNewTop() = runTest(UnconfinedTestDispatcher()) {
         val backStack = MutableStateFlow<List<DetailDestination>>(emptyList())
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         val artist = DetailDestination.Artist("a1", "Artist")
         val album = DetailDestination.Album("b1", "Album")
@@ -91,11 +90,10 @@ class CurrentDetailDerivationTest {
     // -- Pop (navigateDetailBack) --
 
     @Test
-    fun pop_fromSingleEntry_yieldsNull() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun pop_fromSingleEntry_yieldsNull() = runTest(UnconfinedTestDispatcher()) {
         val album = DetailDestination.Album("1", "Album")
         val backStack = MutableStateFlow<List<DetailDestination>>(listOf(album))
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         assertEquals(album, currentDetail.value)
 
@@ -106,12 +104,11 @@ class CurrentDetailDerivationTest {
     }
 
     @Test
-    fun pop_fromNestedStack_revealsPreviousEntry() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun pop_fromNestedStack_revealsPreviousEntry() = runTest(UnconfinedTestDispatcher()) {
         val artist = DetailDestination.Artist("a1", "Artist")
         val album = DetailDestination.Album("b1", "Album")
         val backStack = MutableStateFlow(listOf(artist, album))
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         assertEquals("Top is Album", album, currentDetail.value)
 
@@ -123,8 +120,7 @@ class CurrentDetailDerivationTest {
     // -- Clear (clearDetailNavigation) --
 
     @Test
-    fun clear_fromDeepStack_yieldsNull() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun clear_fromDeepStack_yieldsNull() = runTest(UnconfinedTestDispatcher()) {
         val backStack = MutableStateFlow(
             listOf(
                 DetailDestination.Artist("a1", "Artist"),
@@ -132,7 +128,7 @@ class CurrentDetailDerivationTest {
                 DetailDestination.Playlist("p1", "Playlist")
             )
         )
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         assertEquals(
             "Pre-clear: Playlist on top",
@@ -149,10 +145,9 @@ class CurrentDetailDerivationTest {
     // -- Rapid updates --
 
     @Test
-    fun rapidPushPop_alwaysConsistent() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun rapidPushPop_alwaysConsistent() = runTest(UnconfinedTestDispatcher()) {
         val backStack = MutableStateFlow<List<DetailDestination>>(emptyList())
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         // Rapid sequence: push 3, pop 2, push 1
         val d1 = DetailDestination.Album("1", "A")
@@ -176,10 +171,9 @@ class CurrentDetailDerivationTest {
     // -- Full lifecycle --
 
     @Test
-    fun fullLifecycle_pushPopClearPush() = runTest {
-        val scope = TestScope(UnconfinedTestDispatcher(testScheduler))
+    fun fullLifecycle_pushPopClearPush() = runTest(UnconfinedTestDispatcher()) {
         val backStack = MutableStateFlow<List<DetailDestination>>(emptyList())
-        val currentDetail = scope.derivedCurrentDetail(backStack)
+        val currentDetail = backgroundScope.derivedCurrentDetail(backStack)
 
         // Start empty
         assertNull("Start: null", currentDetail.value)

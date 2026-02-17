@@ -18,6 +18,11 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -29,6 +34,7 @@ import org.junit.Test
  * H-02: Verifies disconnect() does not fire onDisconnected twice.
  * H-04: Verifies proxy auth-ack is consumed and not forwarded to protocol handler.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SendSpinClientDisconnectTest {
 
     private lateinit var mockContext: Context
@@ -37,6 +43,8 @@ class SendSpinClientDisconnectTest {
 
     @Before
     fun setUp() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+
         // Mock android.util.Log
         mockkStatic(Log::class)
         every { Log.v(any(), any()) } returns 0
@@ -46,8 +54,8 @@ class SendSpinClientDisconnectTest {
         every { Log.e(any(), any<String>()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
 
-        // Mock android.os.Build.MANUFACTURER
-        mockkStatic(android.os.Build::class)
+        // Note: android.os.Build.MANUFACTURER is null on JVM; the production code
+        // handles this with a fallback to "Unknown" in getManufacturer().
 
         // Mock UserSettings
         mockkObject(UserSettings)
@@ -73,6 +81,7 @@ class SendSpinClientDisconnectTest {
 
     @After
     fun tearDown() {
+        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -282,7 +291,7 @@ class SendSpinClientDisconnectTest {
         // Now simulate the auth-ack being a server/hello message.
         // This is the dangerous case: if the server sends back something that
         // looks like server/hello as the auth response.
-        val serverHelloAuthAck = """{"type":"server/hello","payload":{"server_name":"TestServer","server_id":"test-id","protocol_version":1,"active_roles":["player"]}}"""
+        val serverHelloAuthAck = """{"type":"server/hello","payload":{"name":"TestServer","server_id":"test-id","protocol_version":1,"active_roles":["player"]}}"""
 
         // Call onMessage with this auth-ack
         listener.onMessage(serverHelloAuthAck)
@@ -410,7 +419,7 @@ class SendSpinClientDisconnectTest {
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
         // Send a server/hello message (not an auth-ack because awaitingAuthResponse is false)
-        val serverHello = """{"type":"server/hello","payload":{"server_name":"TestServer","server_id":"test-id","protocol_version":1,"active_roles":["player"]}}"""
+        val serverHello = """{"type":"server/hello","payload":{"name":"TestServer","server_id":"test-id","protocol_version":1,"active_roles":["player"]}}"""
         listener.onMessage(serverHello)
 
         // Handshake should complete because this IS a normal protocol message

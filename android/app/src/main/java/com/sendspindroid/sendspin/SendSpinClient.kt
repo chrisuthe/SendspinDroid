@@ -212,7 +212,7 @@ class SendSpinClient(
 
     override fun getDeviceName(): String = deviceName
 
-    override fun getManufacturer(): String = android.os.Build.MANUFACTURER
+    override fun getManufacturer(): String = android.os.Build.MANUFACTURER ?: "Unknown"
 
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> =
         MessageBuilder.buildSupportedFormats(

@@ -150,9 +150,15 @@ class MediaCodecDecoderTest {
         var drainCallCount = 0
         every { mockCodec.dequeueOutputBuffer(any(), any()) } answers {
             drainCallCount++
-            // Return a buffer on the first drain call, then TRY_AGAIN for the rest
-            if (drainCallCount == 1) 0
-            else MediaCodec.INFO_TRY_AGAIN_LATER
+            if (drainCallCount == 1) {
+                // Populate BufferInfo so drainOutput collects the data
+                val info = firstArg<MediaCodec.BufferInfo>()
+                info.offset = 0
+                info.size = 960
+                0 // buffer index
+            } else {
+                MediaCodec.INFO_TRY_AGAIN_LATER
+            }
         }
         every { mockCodec.getOutputBuffer(0) } returns outBuffer
 
@@ -217,14 +223,24 @@ class MediaCodecDecoderTest {
         // Output sequence: buffer0 -> FORMAT_CHANGED -> buffer1 -> TRY_AGAIN
         val buf0 = testBuffer(480)
         val buf1 = testBuffer(480)
-        every { mockCodec.dequeueOutputBuffer(any(), any()) } returnsMany listOf(
+        val outputSequence = listOf(
             0,
             MediaCodec.INFO_OUTPUT_FORMAT_CHANGED,
             1,
             MediaCodec.INFO_TRY_AGAIN_LATER,
             // Final drain after input submit also gets TRY_AGAIN
             MediaCodec.INFO_TRY_AGAIN_LATER
-        )
+        ).iterator()
+        every { mockCodec.dequeueOutputBuffer(any(), any()) } answers {
+            val idx = outputSequence.next()
+            // Populate BufferInfo when returning a valid buffer index
+            if (idx >= 0) {
+                val info = firstArg<MediaCodec.BufferInfo>()
+                info.offset = 0
+                info.size = 480
+            }
+            idx
+        }
         every { mockCodec.getOutputBuffer(0) } returns buf0
         every { mockCodec.getOutputBuffer(1) } returns buf1
 
@@ -269,12 +285,21 @@ class MediaCodecDecoderTest {
 
         // Sequence: BUFFERS_CHANGED -> buffer0 -> TRY_AGAIN
         val buf0 = testBuffer(480)
-        every { mockCodec.dequeueOutputBuffer(any(), any()) } returnsMany listOf(
+        val outputSequence = listOf(
             MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED,
             0,
             MediaCodec.INFO_TRY_AGAIN_LATER,
             MediaCodec.INFO_TRY_AGAIN_LATER
-        )
+        ).iterator()
+        every { mockCodec.dequeueOutputBuffer(any(), any()) } answers {
+            val idx = outputSequence.next()
+            if (idx >= 0) {
+                val info = firstArg<MediaCodec.BufferInfo>()
+                info.offset = 0
+                info.size = 480
+            }
+            idx
+        }
         every { mockCodec.getOutputBuffer(0) } returns buf0
 
         val result = decoder.decode(ByteArray(100))
