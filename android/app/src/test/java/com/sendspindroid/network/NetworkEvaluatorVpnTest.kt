@@ -32,8 +32,8 @@ class NetworkEvaluatorVpnTest {
         every { Log.v(any(), any()) } returns 0
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
-        every { Log.w(any(), any()) } returns 0
-        every { Log.e(any(), any()) } returns 0
+        every { Log.w(any(), any<String>()) } returns 0
+        every { Log.e(any(), any<String>()) } returns 0
         every { Log.w(any(), any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
 
