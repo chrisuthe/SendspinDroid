@@ -17,6 +17,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
 
     steps:
     - name: Checkout code
@@ -28,7 +31,7 @@ jobs:
         distribution: 'temurin'
         java-version: '21'
 
-    - name: Setup Android SDK
+    - name: Set up Android SDK
       uses: android-actions/setup-android@v3
 
     - name: Cache Gradle packages
@@ -40,11 +43,11 @@ jobs:
         key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
         restore-keys: ${{ runner.os }}-gradle-
 
-    - name: Make gradlew executable
-      run: chmod +x android/gradlew
+    - name: Make Gradlew executable
+      run: chmod +x ./gradlew
 
     - name: Run unit tests
-      run: cd android && ./gradlew testDebugUnitTest
+      run: ./gradlew testDebugUnitTest
 
     - name: Upload test results
       if: always()
@@ -53,38 +56,41 @@ jobs:
         name: test-results
         path: android/app/build/reports/tests/
 
-    - name: Decode Keystore
+    - name: Check signing availability
       env:
         KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
       run: |
         if [ -n "$KEYSTORE_BASE64" ]; then
-          echo "$KEYSTORE_BASE64" | base64 -d > android/app/release.keystore
           echo "SIGNING_ENABLED=true" >> $GITHUB_ENV
         else
           echo "SIGNING_ENABLED=false" >> $GITHUB_ENV
+          echo "::warning::Keystore secret not configured -- building unsigned"
         fi
 
-    - name: Build Signed Release (APK + AAB)
+    - name: Decode keystore
+      if: env.SIGNING_ENABLED == 'true'
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      run: echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+
+    - name: Build signed release (APK + AAB)
       if: env.SIGNING_ENABLED == 'true'
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
       run: |
-        cd android
         ./gradlew assembleRelease bundleRelease \
           -Pandroid.injected.signing.store.file=$PWD/app/release.keystore \
           -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
           -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
           -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
-    - name: Build Unsigned Release (fallback)
+    - name: Build unsigned release (fallback)
       if: env.SIGNING_ENABLED == 'false'
-      run: |
-        cd android
-        ./gradlew assembleRelease bundleRelease
+      run: ./gradlew assembleRelease bundleRelease
 
-    - name: Get version from tag
+    - name: Determine version string
       id: get_version
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -93,30 +99,31 @@ jobs:
           echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
         fi
 
-    - name: Detect prerelease
+    - name: Detect prerelease suffix
       id: prerelease
       run: |
         VERSION=${{ steps.get_version.outputs.VERSION }}
         if echo "$VERSION" | grep -qiE '[-](alpha|beta|rc|preview|dev)'; then
-          echo "IS_PRERELEASE=true" >> $GITHUB_OUTPUT
+          IS_PRERELEASE=true
         else
-          echo "IS_PRERELEASE=false" >> $GITHUB_OUTPUT
+          IS_PRERELEASE=false
         fi
-        echo "Detected prerelease=${{ steps.prerelease.outputs.IS_PRERELEASE }} for $VERSION"
+        echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+        echo "Detected prerelease=$IS_PRERELEASE for $VERSION"
 
-    - name: Rename build artifacts
+    - name: Rename release APK
       run: |
         VERSION=${{ steps.get_version.outputs.VERSION }}
-        # Rename APK (for sideloading)
-        cd android/app/build/outputs/apk/release
-        APK_FILE=$(ls *.apk | head -1)
-        mv "$APK_FILE" "SendSpinDroid-${VERSION}.apk"
-        # Rename AAB (for Play Store)
-        cd ../../bundle/release
-        AAB_FILE=$(ls *.aab | head -1)
-        mv "$AAB_FILE" "SendSpinDroid-${VERSION}.aab"
+        APK_FILE=$(ls app/build/outputs/apk/release/*.apk | head -1)
+        mv "$APK_FILE" "app/build/outputs/apk/release/SendSpinDroid-${VERSION}.apk"
 
-    - name: Create Release
+    - name: Rename release AAB
+      run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        AAB_FILE=$(ls app/build/outputs/bundle/release/*.aab | head -1)
+        mv "$AAB_FILE" "app/build/outputs/bundle/release/SendSpinDroid-${VERSION}.aab"
+
+    - name: Create GitHub release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.get_version.outputs.VERSION }}
