@@ -50,6 +50,9 @@ class MaDataChannelTransport(
     override var maServerId: String? = null
         private set
 
+    override var baseUrl: String? = null
+        private set
+
     private val multiplexer = MaCommandMultiplexer()
 
     // Auth handshake state
@@ -267,6 +270,7 @@ class MaDataChannelTransport(
 
         serverVersion = null
         maServerId = null
+        baseUrl = null
         serverInfoReceived = false
         authMessageId = null
         pendingAuthToken = null
@@ -328,6 +332,7 @@ class MaDataChannelTransport(
                 serverInfoReceived = true
                 serverVersion = json.optString("server_version")
                 maServerId = json.optString("server_id")
+                baseUrl = json.optString("base_url", "").ifEmpty { null }
                 Log.d(TAG, "Server info received: v$serverVersion (id=$maServerId)")
 
                 // If connect()/connectWithCredentials() has already been called

@@ -86,6 +86,9 @@ class MaWebSocketTransport(
     override var maServerId: String? = null
         private set
 
+    override var baseUrl: String? = null
+        private set
+
     private val multiplexer = MaCommandMultiplexer()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var connectionJob: Job? = null
@@ -257,6 +260,7 @@ class MaWebSocketTransport(
 
         serverVersion = null
         maServerId = null
+        baseUrl = null
         authToken = null
         loginUsername = null
         loginPassword = null
@@ -310,6 +314,7 @@ class MaWebSocketTransport(
                                     serverInfoReceived = true
                                     serverVersion = json.optString("server_version")
                                     maServerId = json.optString("server_id")
+                                    baseUrl = json.optString("base_url").ifEmpty { null }
                                     Log.d(TAG, "Server info received: v$serverVersion (id=$maServerId)")
                                     _state.value = MaApiTransport.State.Authenticating
 
