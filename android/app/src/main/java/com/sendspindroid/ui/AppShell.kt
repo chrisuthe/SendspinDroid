@@ -59,6 +59,7 @@ import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
+import com.sendspindroid.musicassistant.EnqueueMode
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.ui.adaptive.AdaptiveDefaults
@@ -749,7 +750,7 @@ private fun BrowseContent(
                     MusicAssistantManager.playMedia(
                         uri,
                         item.mediaType.name.lowercase(),
-                        enqueueMode = MusicAssistantManager.EnqueueMode.NEXT
+                        enqueueMode = EnqueueMode.NEXT
                     ).fold(
                         onSuccess = {
                             Log.d(TAG, "Playing next: ${item.name}")
