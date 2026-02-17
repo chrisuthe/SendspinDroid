@@ -14,7 +14,8 @@ import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
-import com.sendspindroid.sendspin.MusicAssistantAuth
+import com.sendspindroid.musicassistant.MaAuthHelper
+import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.ui.dialogs.ProxyAuthModeDialog
 import com.sendspindroid.ui.dialogs.ProxyConnectDialog as ProxyConnectDialogContent
 import com.sendspindroid.ui.dialogs.ProxyCredentials
@@ -173,7 +174,7 @@ class ProxyConnectDialog : DialogFragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 // Call the login API
-                val result = MusicAssistantAuth.login(url, credentials.username, credentials.password)
+                val result = MaAuthHelper.loginForToken(url, credentials.username, credentials.password)
 
                 // Determine nickname: user-provided > MA user name > URL
                 val serverNickname = credentials.nickname
@@ -194,11 +195,9 @@ class ProxyConnectDialog : DialogFragment() {
                 onConnect?.invoke(url, result.accessToken, serverNickname)
                 dismiss()
 
-            } catch (e: MusicAssistantAuth.AuthenticationException) {
+            } catch (e: MaApiTransport.AuthenticationException) {
                 isLoading = false
                 // Error is shown inline in Compose UI
-            } catch (e: MusicAssistantAuth.ServerException) {
-                isLoading = false
             } catch (e: IOException) {
                 isLoading = false
             } catch (e: Exception) {

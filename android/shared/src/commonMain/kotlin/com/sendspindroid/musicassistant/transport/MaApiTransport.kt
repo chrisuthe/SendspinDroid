@@ -69,6 +69,12 @@ interface MaApiTransport {
     val maServerId: String?
 
     /**
+     * Server's base URL from the ServerInfoMessage, available after handshake.
+     * May be empty if the server doesn't provide it.
+     */
+    val baseUrl: String?
+
+    /**
      * Connect and authenticate to the MA API.
      *
      * Handles the full handshake:

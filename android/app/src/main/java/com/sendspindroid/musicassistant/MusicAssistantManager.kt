@@ -14,7 +14,6 @@ import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.musicassistant.transport.MaDataChannelTransport
 import com.sendspindroid.musicassistant.transport.MaWebSocketTransport
 import org.webrtc.DataChannel
-import com.sendspindroid.sendspin.MusicAssistantAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -287,16 +286,6 @@ object MusicAssistantManager {
                     message = "Authentication expired. Please log in again.",
                     isAuthError = true
                 )
-            } catch (e: MusicAssistantAuth.AuthenticationException) {
-                Log.e(TAG, "Token authentication failed", e)
-                apiTransport?.disconnect()
-                apiTransport = null
-                commandClient.setTransport(null, null, false)
-                MaSettings.clearTokenForServer(serverId)
-                _connectionState.value = MaConnectionState.Error(
-                    message = "Authentication expired. Please log in again.",
-                    isAuthError = true
-                )
             } catch (e: IOException) {
                 Log.e(TAG, "Network error connecting to MA API", e)
                 apiTransport?.disconnect()
@@ -461,17 +450,6 @@ object MusicAssistantManager {
             true
 
         } catch (e: MaApiTransport.AuthenticationException) {
-            Log.e(TAG, "Token auth failed: invalid/expired token", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            MaSettings.clearTokenForServer(server.id)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Authentication expired. Please log in again.",
-                isAuthError = true
-            )
-            false
-        } catch (e: MusicAssistantAuth.AuthenticationException) {
             Log.e(TAG, "Token auth failed: invalid/expired token", e)
             apiTransport?.disconnect()
             apiTransport = null
