@@ -30,7 +30,7 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Cache Gradle packages
@@ -42,6 +42,9 @@ jobs:
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle.kts') }}
           restore-keys: ${{ runner.os }}-gradle-
 
+      - name: Make Gradlew executable
+        run: chmod +x ./gradlew
+
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
@@ -52,7 +55,7 @@ jobs:
           name: test-results
           path: android/app/build/reports/tests/
 
-      - name: Calculate version
+      - name: Calculate dev version
         id: version
         run: |
           COMMIT_COUNT=$(git rev-list --count HEAD)
@@ -60,18 +63,18 @@ jobs:
           echo "code=$COMMIT_COUNT" >> $GITHUB_OUTPUT
           echo "name=dev-$SHORT_SHA" >> $GITHUB_OUTPUT
 
-      - name: Update version in build.gradle.kts
-        run: |
-          sed -i "s/versionCode = [0-9]*/versionCode = ${{ steps.version.outputs.code }}/" app/build.gradle.kts
-          sed -i "s/versionName = \"[^\"]*\"/versionName = \"${{ steps.version.outputs.name }}\"/" app/build.gradle.kts
+      - name: Update version code in Gradle
+        run: sed -i "s/versionCode = [0-9]*/versionCode = ${{ steps.version.outputs.code }}/" app/build.gradle.kts
+
+      - name: Update version name in Gradle
+        run: sed -i "s/versionName = \"[^\"]*\"/versionName = \"${{ steps.version.outputs.name }}\"/" app/build.gradle.kts
 
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
+        run: echo "$KEYSTORE_BASE64" | base64 -d > app/release.keystore
 
-      - name: Build signed Release APK
+      - name: Build signed release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -83,15 +86,17 @@ jobs:
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
-      - name: Delete existing dev release
+      - name: Delete existing dev GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete dev-latest --yes || true
+
+      - name: Delete existing dev release tag
         run: |
-          gh release delete dev-latest --yes || true
           git push origin :refs/tags/dev-latest || true
           git tag -d dev-latest || true
 
-      - name: Create dev release
+      - name: Create dev GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
