@@ -1,7 +1,7 @@
 package com.sendspindroid.musicassistant.transport
 
 import kotlinx.coroutines.flow.StateFlow
-import org.json.JSONObject
+import kotlinx.serialization.json.JsonObject
 
 /**
  * Persistent transport for Music Assistant API commands.
@@ -79,7 +79,7 @@ interface MaApiTransport {
      *
      * @param token MA API access token (long-lived or short-lived)
      * @throws AuthenticationException if token is invalid or expired
-     * @throws java.io.IOException on connection/network errors
+     * @throws Exception on connection/network errors
      */
     suspend fun connect(token: String)
 
@@ -95,7 +95,7 @@ interface MaApiTransport {
      * @param password MA password
      * @return [LoginResult] containing the access token and user info
      * @throws AuthenticationException if credentials are invalid
-     * @throws java.io.IOException on connection/network errors
+     * @throws Exception on connection/network errors
      */
     suspend fun connectWithCredentials(username: String, password: String): LoginResult
 
@@ -108,15 +108,14 @@ interface MaApiTransport {
      * @param args Command arguments as key-value pairs
      * @param timeoutMs Maximum time to wait for the response
      * @return The full JSON response (includes message_id, result, etc.)
-     * @throws java.io.IOException if transport is disconnected
-     * @throws kotlinx.coroutines.TimeoutCancellationException if response not received in time
+     * @throws Exception if transport is disconnected
      * @throws MaCommandException if the server returns an error response
      */
     suspend fun sendCommand(
         command: String,
         args: Map<String, Any> = emptyMap(),
         timeoutMs: Long = 15000L
-    ): JSONObject
+    ): JsonObject
 
     /**
      * Send an HTTP proxy request over the transport.
@@ -164,7 +163,7 @@ interface MaApiTransport {
      */
     interface EventListener {
         /** Called when a server-push event is received (no message_id). */
-        fun onEvent(event: JSONObject)
+        fun onEvent(event: JsonObject)
 
         /** Called when the transport disconnects unexpectedly. */
         fun onDisconnected(reason: String)

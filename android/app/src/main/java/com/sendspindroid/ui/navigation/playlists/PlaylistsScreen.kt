@@ -279,8 +279,9 @@ private fun buildPlaylistSubtitle(playlist: MaPlaylist): String {
         parts.add(trackText)
     }
 
-    if (!playlist.owner.isNullOrEmpty()) {
-        parts.add(playlist.owner)
+    val owner = playlist.owner
+    if (!owner.isNullOrEmpty()) {
+        parts.add(owner)
     }
 
     return parts.joinToString(" - ")

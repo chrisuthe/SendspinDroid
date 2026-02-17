@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaMediaType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -48,7 +49,7 @@ class SearchViewModel : ViewModel() {
      */
     data class SearchState(
         val query: String = "",
-        val results: MusicAssistantManager.SearchResults? = null,
+        val results: SearchResults? = null,
         val isLoading: Boolean = false,
         val error: String? = null,
         val activeFilters: Set<MaMediaType> = emptySet()

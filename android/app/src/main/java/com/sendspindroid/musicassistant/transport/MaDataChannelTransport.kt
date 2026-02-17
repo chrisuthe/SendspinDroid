@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
 import org.json.JSONObject
 import org.webrtc.DataChannel
 import java.io.IOException
@@ -197,7 +198,7 @@ class MaDataChannelTransport(
         command: String,
         args: Map<String, Any>,
         timeoutMs: Long
-    ): JSONObject {
+    ): JsonObject {
         if (_state.value !is MaApiTransport.State.Connected) {
             throw IOException("MA API DataChannel transport not in Connected state: ${_state.value}")
         }

@@ -6,13 +6,6 @@ package com.sendspindroid.musicassistant.model
  * Players can be grouped together for multi-room audio. The [canGroupWith] field
  * lists which other players are compatible for grouping with this one, and
  * [groupMembers] shows who is currently in this player's group.
- *
- * ## Usage
- * ```kotlin
- * val players = MusicAssistantManager.getAllPlayers().getOrThrow()
- * val currentPlayer = players.find { it.playerId == selectedId }
- * val groupable = players.filter { it.playerId in currentPlayer.canGroupWith }
- * ```
  */
 data class MaPlayer(
     val playerId: String,

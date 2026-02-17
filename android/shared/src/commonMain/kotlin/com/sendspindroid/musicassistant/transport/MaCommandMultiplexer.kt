@@ -1,12 +1,17 @@
 package com.sendspindroid.musicassistant.transport
 
-import android.util.Log
+import com.sendspindroid.shared.log.Log
 import kotlinx.coroutines.CompletableDeferred
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import java.io.IOException
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /**
  * Command multiplexer for the Music Assistant API protocol.
@@ -36,12 +41,12 @@ class MaCommandMultiplexer {
         private const val TAG = "MaCommandMultiplexer"
     }
 
-    // Pending API commands: message_id -> CompletableDeferred<JSONObject>
-    private val pendingCommands = ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    // Pending API commands: message_id -> CompletableDeferred<JsonObject>
+    private val pendingCommands = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
 
-    // Accumulated partial results: message_id -> JSONArray of items received so far
+    // Accumulated partial results: message_id -> list of items received so far
     // MA server sends large results in 500-item batches with "partial": true
-    private val partialResults = ConcurrentHashMap<String, JSONArray>()
+    private val partialResults = ConcurrentHashMap<String, MutableList<JsonElement>>()
 
     // Pending HTTP proxy requests: request_id -> CompletableDeferred<HttpProxyResponse>
     private val pendingProxyRequests =
@@ -56,9 +61,10 @@ class MaCommandMultiplexer {
      *
      * @return Pair of (message_id to include in outgoing JSON, deferred for the response)
      */
-    fun registerCommand(): Pair<String, CompletableDeferred<JSONObject>> {
-        val messageId = UUID.randomUUID().toString()
-        val deferred = CompletableDeferred<JSONObject>()
+    @OptIn(ExperimentalUuidApi::class)
+    fun registerCommand(): Pair<String, CompletableDeferred<JsonObject>> {
+        val messageId = Uuid.random().toString()
+        val deferred = CompletableDeferred<JsonObject>()
         pendingCommands[messageId] = deferred
         return messageId to deferred
     }
@@ -84,13 +90,13 @@ class MaCommandMultiplexer {
      */
     fun onMessage(text: String) {
         try {
-            val json = JSONObject(text)
+            val json = Json.parseToJsonElement(text).jsonObject
 
             // Check for HTTP proxy response
-            val type = json.optString("type", "")
+            val type = json.optString("type")
             if (type == "http-proxy-response") {
                 val status = json.optInt("status")
-                val bodyHex = json.optString("body", "")
+                val bodyHex = json.optString("body")
                 val bodyPreview = if (status >= 400 && bodyHex.isNotEmpty()) {
                     try { String(hexToBytes(bodyHex), Charsets.UTF_8).take(200) } catch (_: Exception) { "?" }
                 } else { "(${bodyHex.length / 2} bytes)" }
@@ -100,19 +106,17 @@ class MaCommandMultiplexer {
             }
 
             // Check for command response (has message_id matching a pending command)
-            val messageId = json.optString("message_id", "")
+            val messageId = json.optString("message_id")
             if (messageId.isNotEmpty()) {
-                val isPartial = json.optBoolean("partial", false)
+                val isPartial = json.optBoolean("partial")
 
                 // Handle partial result: accumulate and wait for more
                 if (isPartial && pendingCommands.containsKey(messageId)) {
-                    val resultArray = json.optJSONArray("result")
-                    if (resultArray != null && resultArray.length() > 0) {
-                        val accumulated = partialResults.getOrPut(messageId) { JSONArray() }
-                        for (i in 0 until resultArray.length()) {
-                            accumulated.put(resultArray.get(i))
-                        }
-                        Log.d(TAG, "Partial result for $messageId: +${resultArray.length()} items (total so far: ${accumulated.length()})")
+                    val resultArray = json.optJsonArray("result")
+                    if (resultArray != null && resultArray.size > 0) {
+                        val accumulated = partialResults.getOrPut(messageId) { mutableListOf() }
+                        accumulated.addAll(resultArray)
+                        Log.d(TAG, "Partial result for $messageId: +${resultArray.size} items (total so far: ${accumulated.size})")
                     }
                     return
                 }
@@ -130,17 +134,27 @@ class MaCommandMultiplexer {
                     } else {
                         // Merge any accumulated partial results with this final batch
                         val accumulated = partialResults.remove(messageId)
-                        if (accumulated != null) {
-                            val finalArray = json.optJSONArray("result")
+                        val finalJson = if (accumulated != null) {
+                            val finalArray = json.optJsonArray("result")
                             if (finalArray != null) {
-                                for (i in 0 until finalArray.length()) {
-                                    accumulated.put(finalArray.get(i))
-                                }
+                                accumulated.addAll(finalArray)
                             }
-                            json.put("result", accumulated)
-                            Log.d(TAG, "Merged partial results for $messageId: ${accumulated.length()} total items")
+                            val mergedArray = JsonArray(accumulated)
+                            // Rebuild the json object with merged result
+                            buildJsonObject {
+                                json.forEach { (k, v) ->
+                                    if (k != "result") put(k, v)
+                                }
+                                put("result", mergedArray)
+                            }
+                        } else {
+                            json
                         }
-                        deferred.complete(json)
+
+                        if (accumulated != null) {
+                            Log.d(TAG, "Merged partial results for $messageId: ${accumulated.size} total items")
+                        }
+                        deferred.complete(finalJson)
                     }
                     return
                 }
@@ -160,8 +174,8 @@ class MaCommandMultiplexer {
     /**
      * Handle an HTTP proxy response.
      */
-    private fun handleProxyResponse(json: JSONObject) {
-        val requestId = json.optString("id", "")
+    private fun handleProxyResponse(json: JsonObject) {
+        val requestId = json.optString("id")
         val deferred = pendingProxyRequests.remove(requestId)
 
         if (deferred == null) {
@@ -171,14 +185,14 @@ class MaCommandMultiplexer {
 
         try {
             val status = json.optInt("status", 500)
-            val headersJson = json.optJSONObject("headers")
+            val headersJson = json.optJsonObject("headers")
             val headers = mutableMapOf<String, String>()
-            headersJson?.keys()?.forEach { key ->
-                headers[key] = headersJson.optString(key, "")
+            headersJson?.forEach { (key, value) ->
+                headers[key] = (value as? kotlinx.serialization.json.JsonPrimitive)?.content ?: ""
             }
 
             // Body is hex-encoded
-            val hexBody = json.optString("body", "")
+            val hexBody = json.optString("body")
             val body = hexToBytes(hexBody)
 
             deferred.complete(MaApiTransport.HttpProxyResponse(status, headers, body))
@@ -235,10 +249,19 @@ class MaCommandMultiplexer {
         val data = ByteArray(len / 2)
         var i = 0
         while (i < len) {
-            data[i / 2] = ((Character.digit(hex[i], 16) shl 4) +
-                    Character.digit(hex[i + 1], 16)).toByte()
+            val high = hexCharToInt(hex[i])
+            val low = hexCharToInt(hex[i + 1])
+            data[i / 2] = ((high shl 4) + low).toByte()
             i += 2
         }
         return data
+    }
+
+    /** Convert a hex character to its int value (0-15). */
+    private fun hexCharToInt(ch: Char): Int = when (ch) {
+        in '0'..'9' -> ch - '0'
+        in 'a'..'f' -> ch - 'a' + 10
+        in 'A'..'F' -> ch - 'A' + 10
+        else -> 0
     }
 }

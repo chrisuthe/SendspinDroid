@@ -17,6 +17,7 @@ import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.musicassistant.transport.MaApiTransportFactory
 import com.sendspindroid.musicassistant.transport.MaDataChannelTransport
 import com.sendspindroid.musicassistant.transport.MaWebSocketTransport
+import com.sendspindroid.musicassistant.transport.toOrgJson
 import org.webrtc.DataChannel
 import com.sendspindroid.sendspin.MusicAssistantAuth
 import kotlinx.coroutines.CoroutineScope
@@ -32,146 +33,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
-
-// ============================================================================
-// Data Models for Music Assistant API responses
-// (MaTrack and MaAlbum are in :shared module)
-// ============================================================================
-
-/**
- * Represents a playlist from Music Assistant.
- *
- * Implements MaLibraryItem for use in unified adapters.
- */
-data class MaPlaylist(
-    val playlistId: String,
-    override val name: String,
-    override val imageUri: String?,
-    val trackCount: Int,
-    val owner: String?,
-    override val uri: String?
-) : MaLibraryItem {
-    override val id: String get() = playlistId
-    override val mediaType: MaMediaType = MaMediaType.PLAYLIST
-}
-
-/**
- * Represents an artist from Music Assistant.
- *
- * Implements MaLibraryItem for use in unified adapters.
- * Subtitle rendering: Empty (or genre if available later)
- */
-data class MaArtist(
-    val artistId: String,
-    override val name: String,
-    override val imageUri: String?,
-    override val uri: String?
-) : MaLibraryItem {
-    override val id: String get() = artistId
-    override val mediaType: MaMediaType = MaMediaType.ARTIST
-}
-
-/**
- * Represents a radio station from Music Assistant.
- *
- * Implements MaLibraryItem for use in unified adapters.
- * Subtitle rendering: Provider name (e.g., "TuneIn")
- */
-data class MaRadio(
-    val radioId: String,
-    override val name: String,
-    override val imageUri: String?,
-    override val uri: String?,
-    val provider: String?         // "tunein", "radiobrowser", etc.
-) : MaLibraryItem {
-    override val id: String get() = radioId
-    override val mediaType: MaMediaType = MaMediaType.RADIO
-}
-
-/**
- * Represents a podcast from Music Assistant.
- *
- * Implements MaLibraryItem for use in unified adapters.
- * Subtitle rendering: Publisher name (e.g., "NPR")
- */
-data class MaPodcast(
-    val podcastId: String,
-    override val name: String,
-    override val imageUri: String?,
-    override val uri: String?,
-    val publisher: String?,
-    val totalEpisodes: Int
-) : MaLibraryItem {
-    override val id: String get() = podcastId
-    override val mediaType: MaMediaType = MaMediaType.PODCAST
-}
-
-/**
- * Represents a podcast episode from Music Assistant.
- *
- * Implements MaLibraryItem for display in the podcast detail screen.
- * Tracks playback status (fully played, resume position).
- */
-data class MaPodcastEpisode(
-    val episodeId: String,
-    override val name: String,
-    override val imageUri: String?,
-    override val uri: String?,
-    val position: Int,             // Episode number
-    val duration: Long,            // Duration in seconds
-    val fullyPlayed: Boolean = false,
-    val resumePositionMs: Long = 0 // Resume position in milliseconds
-) : MaLibraryItem {
-    override val id: String get() = episodeId
-    override val mediaType: MaMediaType = MaMediaType.PODCAST
-}
-
-/**
- * Represents a browseable folder from Music Assistant.
- *
- * Used in the Browse tab to navigate provider content hierarchies.
- * The [path] field is used as the parameter to the next browse() call
- * when the user taps this folder.
- */
-data class MaBrowseFolder(
-    val folderId: String,
-    override val name: String,
-    override val imageUri: String?,
-    override val uri: String?,
-    val path: String,
-    val isPlayable: Boolean = false
-) : MaLibraryItem {
-    override val id: String get() = folderId
-    override val mediaType: MaMediaType = MaMediaType.FOLDER
-}
-
-/**
- * Represents an item in the player queue from Music Assistant.
- *
- * Queue items have their own queue_item_id which is distinct from the
- * media item's library ID. The queue_item_id is needed for operations
- * like remove, reorder, and jump-to.
- */
-data class MaQueueItem(
-    val queueItemId: String,
-    val name: String,
-    val artist: String?,
-    val album: String?,
-    val imageUri: String?,
-    val duration: Long?,       // seconds
-    val uri: String?,          // media URI (e.g., "library://track/123")
-    val isCurrentItem: Boolean // is this the currently playing track
-)
-
-/**
- * Represents the full queue state including settings.
- */
-data class MaQueueState(
-    val items: List<MaQueueItem>,
-    val currentIndex: Int,
-    val shuffleEnabled: Boolean,
-    val repeatMode: String     // "off", "one", "all"
-)
 
 /**
  * Global singleton managing Music Assistant API availability.
@@ -759,20 +620,6 @@ object MusicAssistantManager {
      * @param mediaType Optional media type hint for the API
      * @return Result with success or failure
      */
-    /**
-     * Enqueue mode for playMedia().
-     */
-    enum class EnqueueMode(val apiValue: String?) {
-        /** Replace queue and start playing immediately */
-        PLAY(null),
-        /** Append to end of queue */
-        ADD("add"),
-        /** Insert after currently playing track */
-        NEXT("next"),
-        /** Replace queue but don't start playing */
-        REPLACE("replace")
-    }
-
     suspend fun playMedia(
         uri: String,
         mediaType: String? = null,
@@ -1511,7 +1358,9 @@ object MusicAssistantManager {
     ): JSONObject {
         val transport = apiTransport
             ?: throw IOException("MA API transport not connected")
-        return transport.sendCommand(command, args, COMMAND_TIMEOUT_MS)
+        // Transport returns kotlinx JsonObject; convert back to org.json for
+        // existing parsing code (temporary until Phase 13 migration)
+        return transport.sendCommand(command, args, COMMAND_TIMEOUT_MS).toOrgJson()
     }
 
     // ========================================================================
@@ -2520,34 +2369,6 @@ object MusicAssistantManager {
     // ========================================================================
 
     /**
-     * Aggregated search results from Music Assistant.
-     *
-     * Contains results grouped by media type. Each list may be empty if no
-     * matches were found for that type, or if the type was filtered out.
-     */
-    data class SearchResults(
-        val artists: List<MaArtist> = emptyList(),
-        val albums: List<MaAlbum> = emptyList(),
-        val tracks: List<MaTrack> = emptyList(),
-        val playlists: List<MaPlaylist> = emptyList(),
-        val radios: List<MaRadio> = emptyList(),
-        val podcasts: List<MaPodcast> = emptyList()
-    ) {
-        /**
-         * Check if all result lists are empty.
-         */
-        fun isEmpty(): Boolean =
-            artists.isEmpty() && albums.isEmpty() && tracks.isEmpty() &&
-            playlists.isEmpty() && radios.isEmpty() && podcasts.isEmpty()
-
-        /**
-         * Get total count of all results.
-         */
-        fun totalCount(): Int =
-            artists.size + albums.size + tracks.size + playlists.size + radios.size + podcasts.size
-    }
-
-    /**
      * Search Music Assistant library.
      *
      * Calls the music/search endpoint which returns results grouped by media type.
@@ -2834,18 +2655,6 @@ object MusicAssistantManager {
     // ========================================================================
     // Detail Screen API Methods
     // ========================================================================
-
-    /**
-     * Aggregated artist details including top tracks and discography.
-     *
-     * Used by the Artist Detail screen to display complete artist information
-     * in a single request.
-     */
-    data class ArtistDetails(
-        val artist: MaArtist,
-        val topTracks: List<MaTrack>,
-        val albums: List<MaAlbum>
-    )
 
     /**
      * Get complete artist details including top tracks and discography.
