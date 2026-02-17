@@ -34,6 +34,13 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.URLEncoder
 
+/** Map app ConnectionMode to shared MaConnectionMode. */
+private fun ConnectionMode.toMaMode(): MaConnectionMode = when (this) {
+    ConnectionMode.LOCAL -> MaConnectionMode.LOCAL
+    ConnectionMode.REMOTE -> MaConnectionMode.REMOTE
+    ConnectionMode.PROXY -> MaConnectionMode.PROXY
+}
+
 /**
  * Global singleton managing Music Assistant API availability.
  *
@@ -198,7 +205,7 @@ object MusicAssistantManager {
         }
 
         // Check 2: Can we reach the MA API?
-        val apiUrl = MaApiEndpoint.deriveUrl(server, connectionMode)
+        val apiUrl = MaApiEndpoint.deriveUrl(server, connectionMode.toMaMode(), MaSettings.getDefaultPort())
         if (apiUrl == null) {
             Log.d(TAG, "No MA API endpoint available for connection mode $connectionMode")
             _connectionState.value = MaConnectionState.Unavailable
@@ -360,7 +367,7 @@ object MusicAssistantManager {
             }
             // No DataChannel — try WebSocket fallback
             val wsUrl = currentServer?.let { server ->
-                MaApiEndpoint.deriveFromLocal(server) ?: MaApiEndpoint.deriveFromProxy(server)
+                MaApiEndpoint.deriveFromLocal(server, MaSettings.getDefaultPort()) ?: MaApiEndpoint.deriveFromProxy(server)
             }
             return if (wsUrl != null) MaWebSocketTransport(wsUrl) else null
         }
