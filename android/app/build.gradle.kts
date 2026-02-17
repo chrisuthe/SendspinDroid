@@ -229,6 +229,9 @@ dependencies {
     // Preference - Settings UI with PreferenceFragmentCompat
     implementation("androidx.preference:preference-ktx:1.2.1")
 
+    // Security Crypto - EncryptedSharedPreferences for sensitive data (L-15)
+    implementation("androidx.security:security-crypto:1.0.0")
+
     // SwipeRefreshLayout - Pull-to-refresh for lists
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 

@@ -13,8 +13,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -38,7 +40,7 @@ fun ActionRow(
     onAddToPlaylist: () -> Unit,
     shuffleEnabled: Boolean = true,
     playlistEnabled: Boolean = true,
-    secondButtonLabel: String = "Add to Playlist",
+    secondButtonLabel: String? = null,
     secondButtonIcon: ImageVector = Icons.Filled.Add,
     modifier: Modifier = Modifier
 ) {
@@ -58,7 +60,7 @@ fun ActionRow(
                 contentDescription = null,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            Text(text = "Shuffle")
+            Text(text = stringResource(R.string.action_shuffle))
         }
 
         OutlinedButton(
@@ -71,7 +73,7 @@ fun ActionRow(
                 contentDescription = null,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            Text(text = secondButtonLabel)
+            Text(text = secondButtonLabel ?: stringResource(R.string.add_to_playlist))
         }
     }
 }
