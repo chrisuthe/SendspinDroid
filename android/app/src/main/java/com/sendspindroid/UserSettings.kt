@@ -10,6 +10,9 @@ import java.util.UUID
 /**
  * Centralized access to user settings stored in SharedPreferences.
  * Uses the default SharedPreferences file for compatibility with PreferenceFragmentCompat.
+ *
+ * Thread-safety: Uses @Volatile + double-checked locking for initialization,
+ * matching the pattern in ServerRepository/UnifiedServerRepository.
  */
 object UserSettings {
 
@@ -42,15 +45,35 @@ object UserSettings {
     const val SYNC_OFFSET_MAX = 5000
     const val SYNC_OFFSET_DEFAULT = 0
 
+    @Volatile
     private var prefs: SharedPreferences? = null
+
+    // In-memory fallback for player ID generated before prefs is available.
+    // Ensures getPlayerId() always returns the same value even if called
+    // before initialize(), preventing silent UUID loss (C-16).
+    @Volatile
+    private var cachedPlayerId: String? = null
 
     /**
      * Initialize UserSettings with application context.
      * Must be called before accessing settings, typically in Application.onCreate() or MainActivity.onCreate().
+     * Thread-safe: uses double-checked locking so concurrent callers don't race.
      */
     fun initialize(context: Context) {
         if (prefs == null) {
-            prefs = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+            synchronized(this) {
+                if (prefs == null) {
+                    val p = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+                    // If a player ID was generated before prefs was available,
+                    // persist it now so it survives app restarts.
+                    cachedPlayerId?.let { id ->
+                        if (p.getString(KEY_PLAYER_ID, null).isNullOrBlank()) {
+                            p.edit().putString(KEY_PLAYER_ID, id).apply()
+                        }
+                    }
+                    prefs = p
+                }
+            }
         }
     }
 
@@ -78,15 +101,44 @@ object UserSettings {
      * Gets the persistent player ID, generating one if it doesn't exist.
      * This ID is stable across app launches and name changes, allowing the server
      * to consistently identify this player.
+     *
+     * Thread-safe: if called before initialize(), generates a UUID and caches it
+     * in memory. The cached ID is persisted when initialize() runs.
+     * Double-checked locking ensures only one UUID is ever generated.
      */
     fun getPlayerId(): String {
-        val saved = prefs?.getString(KEY_PLAYER_ID, null)
-        return if (saved.isNullOrBlank()) {
+        // Fast path: prefs available and ID already stored
+        val p = prefs
+        if (p != null) {
+            val saved = p.getString(KEY_PLAYER_ID, null)
+            if (!saved.isNullOrBlank()) return saved
+        }
+
+        // Check in-memory cache (covers pre-init calls)
+        cachedPlayerId?.let { return it }
+
+        // Slow path: generate under lock to prevent duplicate UUIDs
+        synchronized(this) {
+            // Re-check after acquiring lock
+            cachedPlayerId?.let { return it }
+
+            // Also re-check prefs (initialize() may have run while we waited)
+            val p2 = prefs
+            if (p2 != null) {
+                val saved = p2.getString(KEY_PLAYER_ID, null)
+                if (!saved.isNullOrBlank()) {
+                    cachedPlayerId = saved
+                    return saved
+                }
+            }
+
             val newId = UUID.randomUUID().toString()
-            setPlayerId(newId)
-            newId
-        } else {
-            saved
+            cachedPlayerId = newId
+
+            // Persist immediately if prefs is available
+            p2?.edit()?.putString(KEY_PLAYER_ID, newId)?.apply()
+
+            return newId
         }
     }
 
@@ -94,6 +146,7 @@ object UserSettings {
      * Sets the player ID (typically only called internally on first launch).
      */
     fun setPlayerId(id: String) {
+        cachedPlayerId = id
         prefs?.edit()?.putString(KEY_PLAYER_ID, id)?.apply()
     }
 
@@ -525,5 +578,18 @@ object UserSettings {
                     else -> "Just now"
                 }
             }
+    }
+
+    // ========== Testing Support ==========
+
+    /**
+     * Reset all internal state. For unit tests only -- do not call in production.
+     */
+    @Suppress("unused") // Called via reflection or directly from tests
+    internal fun resetForTesting() {
+        synchronized(this) {
+            prefs = null
+            cachedPlayerId = null
+        }
     }
 }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,40 +40,43 @@ import kotlinx.serialization.json.put
  * ## Protocol Flow
  * ```
  * Client                    Signaling Server                  MA Server
- *   │                              │                              │
- *   │──{type:"connect-request",   │                              │
- *   │   remoteId:"XXXX..."}──────►│──────────────────────────────►│
- *   │                              │◄─{type:"session-ready",...}──│
- *   │◄─{type:"connected",         │                              │
- *   │   sessionId:"...",           │                              │
- *   │   iceServers:[...]}─────────│                              │
- *   │                              │                              │
- *   │──{type:"offer",             │                              │
- *   │   remoteId:"...",            │                              │
- *   │   sessionId:"...",           │                              │
- *   │   data:{sdp:"...",           │                              │
- *   │         type:"offer"}}──────►│──────────────────────────────►│
- *   │                              │                              │
- *   │◄─{type:"answer",            │◄──────────────────────────────│
- *   │   data:{sdp:"...",           │                              │
- *   │         type:"answer"}}─────│                              │
- *   │                              │                              │
- *   │──{type:"ice-candidate",     │                              │
- *   │   remoteId:"...",            │                              │
- *   │   sessionId:"...",           │                              │
- *   │   data:{...}}───────────────►│──────────────────────────────►│
- *   │◄─{type:"ice-candidate",     │◄──────────────────────────────│
- *   │   data:{...}}───────────────│                              │
+ *   |                              |                              |
+ *   |--{type:"connect-request",   |                              |
+ *   |   remoteId:"XXXX..."}------>|----------------------------->|
+ *   |                              |<-{type:"session-ready",...}--|
+ *   |<-{type:"connected",         |                              |
+ *   |   sessionId:"...",           |                              |
+ *   |   iceServers:[...]}---------|                              |
+ *   |                              |                              |
+ *   |--{type:"offer",             |                              |
+ *   |   remoteId:"...",            |                              |
+ *   |   sessionId:"...",           |                              |
+ *   |   data:{sdp:"...",           |                              |
+ *   |         type:"offer"}}------>|----------------------------->|
+ *   |                              |                              |
+ *   |<-{type:"answer",            |<-----------------------------|
+ *   |   data:{sdp:"...",           |                              |
+ *   |         type:"answer"}}-----|                              |
+ *   |                              |                              |
+ *   |--{type:"ice-candidate",     |                              |
+ *   |   remoteId:"...",            |                              |
+ *   |   sessionId:"...",           |                              |
+ *   |   data:{...}}--------------->|----------------------------->|
+ *   |<-{type:"ice-candidate",     |<-----------------------------|
+ *   |   data:{...}}---------------|                              |
  * ```
  *
  * @param remoteId The 26-character Remote ID from Music Assistant settings
  * @param signalingUrl URL of the signaling server
  * @param httpClient Optional Ktor HttpClient (creates one if not provided)
+ * @param ownsHttpClient If true (default), [destroy] closes the httpClient. Set to false
+ *   when injecting a shared HttpClient that is managed externally.
  */
 class SignalingClient(
     private val remoteId: String,
     private val signalingUrl: String = DEFAULT_SIGNALING_URL,
-    private val httpClient: HttpClient = createDefaultClient()
+    private val httpClient: HttpClient = createDefaultClient(),
+    private val ownsHttpClient: Boolean = true
 ) {
 
     companion object {
@@ -255,6 +259,8 @@ class SignalingClient(
 
     /**
      * Disconnect from the signaling server.
+     * Cancels the WebSocket session but does not release the HttpClient.
+     * Call [destroy] for full cleanup.
      */
     fun disconnect() {
         Log.d(TAG, "Disconnecting from signaling server")
@@ -266,8 +272,18 @@ class SignalingClient(
         _state.value = State.Disconnected
     }
 
+    /**
+     * Full teardown: disconnects the WebSocket, cancels the coroutine scope,
+     * and closes the HttpClient (if owned by this instance).
+     *
+     * After calling destroy(), this SignalingClient must not be reused.
+     */
     fun destroy() {
         disconnect()
+        scope.cancel()
+        if (ownsHttpClient) {
+            httpClient.close()
+        }
     }
 
     // ========================================================================
@@ -379,7 +395,7 @@ class SignalingClient(
                         (urlsValue[j] as? JsonPrimitive)?.content?.let { urls.add(it) }
                     }
                 }
-                else -> { /* null or JsonObject — skip */ }
+                else -> { /* null or JsonObject -- skip */ }
             }
 
             // Parse optional credentials

@@ -80,6 +80,8 @@ class TimeSyncManager(
     }
 
     fun onServerTime(measurement: TimeMeasurement): Boolean {
+        if (!running) return false
+
         synchronized(pendingBurstMeasurements) {
             if (burstInProgress) {
                 pendingBurstMeasurements.add(measurement)
@@ -108,15 +110,21 @@ class TimeSyncManager(
             burstInProgress = true
         }
 
-        repeat(currentBurstCount) {
-            if (!running || !currentCoroutineContext().isActive) return
-            sendClientTime()
-            delay(SendSpinProtocol.TimeSync.BURST_DELAY_MS)
+        try {
+            repeat(currentBurstCount) {
+                if (!running || !currentCoroutineContext().isActive) return
+                sendClientTime()
+                delay(SendSpinProtocol.TimeSync.BURST_DELAY_MS)
+            }
+
+            delay(SendSpinProtocol.TimeSync.BURST_DELAY_MS * 2)
+
+            processBurstResults()
+        } finally {
+            synchronized(pendingBurstMeasurements) {
+                burstInProgress = false
+            }
         }
-
-        delay(SendSpinProtocol.TimeSync.BURST_DELAY_MS * 2)
-
-        processBurstResults()
     }
 
     private fun processBurstResults() {

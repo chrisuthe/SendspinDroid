@@ -222,8 +222,15 @@ class MaDataChannelTransport(
         Log.d(TAG, "Sending command: $command (id=$messageId)")
         sendText(cmdMsg.toString())
 
-        return withTimeout(timeoutMs) {
-            deferred.await()
+        try {
+            return withTimeout(timeoutMs) {
+                deferred.await()
+            }
+        } catch (e: Exception) {
+            // Clean up the pending command on timeout (or any other failure)
+            // to prevent the CompletableDeferred from leaking in the multiplexer.
+            multiplexer.unregisterCommand(messageId)
+            throw e
         }
     }
 
@@ -252,8 +259,15 @@ class MaDataChannelTransport(
         Log.d(TAG, "Sending HTTP proxy: $method $path (id=$requestId)")
         sendText(proxyMsg.toString())
 
-        return withTimeout(timeoutMs) {
-            deferred.await()
+        try {
+            return withTimeout(timeoutMs) {
+                deferred.await()
+            }
+        } catch (e: Exception) {
+            // Clean up the pending proxy request on timeout (or any other failure)
+            // to prevent the CompletableDeferred from leaking in the multiplexer.
+            multiplexer.unregisterProxyRequest(requestId)
+            throw e
         }
     }
 

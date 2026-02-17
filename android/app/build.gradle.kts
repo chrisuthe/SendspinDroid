@@ -139,6 +139,14 @@ android {
         // Enable if you need BuildConfig.DEBUG or custom build config fields
     }
 
+    // Enable android.jar method stubs to return defaults instead of throwing
+    // Required for unit tests that use Android framework classes (e.g. Bundle)
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     // TODO: Add packaging options to handle native library conflicts
     // packaging {
     //     resources {

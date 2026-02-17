@@ -410,7 +410,7 @@ class DefaultServerPinger(
                         signalingClient.setListener(object : SignalingClient.Listener {
                             override fun onServerConnected(iceServers: List<com.sendspindroid.remote.IceServerConfig>) {
                                 Log.d(TAG, "Remote ping success (server connected)")
-                                signalingClient.disconnect()
+                                signalingClient.destroy()
                                 if (cont.isActive) cont.resume(true)
                             }
 
@@ -424,7 +424,7 @@ class DefaultServerPinger(
 
                             override fun onError(message: String) {
                                 Log.d(TAG, "Remote ping error: $message")
-                                signalingClient.disconnect()
+                                signalingClient.destroy()
                                 if (cont.isActive) cont.resume(false)
                             }
 
@@ -436,7 +436,7 @@ class DefaultServerPinger(
                         signalingClient.connect()
 
                         cont.invokeOnCancellation {
-                            signalingClient.disconnect()
+                            signalingClient.destroy()
                         }
                     }
                 }

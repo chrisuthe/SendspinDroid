@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
+import com.sendspindroid.musicassistant.transport.MaTransportException
 import java.io.IOException
 
 /**
@@ -525,6 +526,10 @@ class AddServerWizardViewModel : ViewModel() {
             } catch (e: MaApiTransport.AuthenticationException) {
                 maToken = null
                 _maTestState.value = ConnectionTestState.Failed("Invalid credentials")
+                onComplete(false)
+            } catch (e: MaTransportException) {
+                maToken = null
+                _maTestState.value = ConnectionTestState.Failed("Network error")
                 onComplete(false)
             } catch (e: IOException) {
                 maToken = null

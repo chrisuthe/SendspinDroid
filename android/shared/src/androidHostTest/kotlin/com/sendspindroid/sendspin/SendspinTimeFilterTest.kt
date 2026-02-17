@@ -339,4 +339,63 @@ class SendspinTimeFilterTest {
             errorAfterMany < errorAfterTwo
         )
     }
+
+    // --- Stability score (innovation variance ratio) ---
+
+    @Test
+    fun stabilityScore_consistentMeasurements_convergesToOne() {
+        // Feed many consistent measurements so the filter converges fully.
+        // With correct innovation normalization (using predicted P00),
+        // the stability score (mean normalized innovation) should settle near 1.0.
+        // The stale-p00 bug caused this to be systematically > 1.0 because the
+        // denominator was too small (prior posterior instead of predicted covariance).
+        val targetOffset = 50_000L  // 50ms
+        val maxError = 5000L
+
+        // Feed enough measurements to fill the innovation window and let
+        // the adaptive process noise settle. INNOVATION_WINDOW_SIZE is 20,
+        // so we need well beyond that for convergence.
+        for (i in 1..60) {
+            filter.addMeasurement(targetOffset, maxError, i * 1_000_000L)
+        }
+
+        val score = filter.stability
+        assertTrue(
+            "Stability score should converge near 1.0 with consistent measurements, " +
+                    "but was $score (> 1.0 suggests stale covariance in innovation normalization)",
+            score in 0.5..1.5
+        )
+    }
+
+    @Test
+    fun stabilityScore_afterReset_isOne() {
+        // Feed some measurements then reset
+        for (i in 1..10) {
+            filter.addMeasurement(10_000L, 5000L, i * 1_000_000L)
+        }
+        filter.reset()
+        assertEquals(1.0, filter.stability, 0.001)
+    }
+
+    @Test
+    fun stabilityScore_noisyMeasurements_remainsReasonable() {
+        // Feed measurements with moderate noise (simulating real-world jitter).
+        // Stability score should still be in a reasonable range, not diverging.
+        val baseOffset = 50_000L
+        val maxError = 5000L
+        val jitterAmplitude = 3000L  // Within measurement uncertainty
+
+        for (i in 1..80) {
+            // Alternate jitter pattern: +/- jitterAmplitude
+            val jitter = if (i % 2 == 0) jitterAmplitude else -jitterAmplitude
+            filter.addMeasurement(baseOffset + jitter, maxError, i * 1_000_000L)
+        }
+
+        val score = filter.stability
+        assertTrue(
+            "Stability score should remain in reasonable range with noisy measurements, " +
+                    "but was $score",
+            score in 0.1..5.0
+        )
+    }
 }

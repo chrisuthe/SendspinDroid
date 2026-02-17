@@ -505,27 +505,46 @@ class SyncAudioPlayer(
             return
         }
 
-        stateLock.withLock {
+        // Phase 1: Under lock, capture old playback loop refs and check preconditions
+        val captured = stateLock.withLock {
             if (isPlaying.get()) {
                 Log.w(TAG, "Already playing")
                 return
             }
 
-            val track = audioTrack
-            if (track == null) {
+            if (audioTrack == null) {
                 Log.e(TAG, "AudioTrack not initialized")
                 return
             }
 
-            // Cancel any existing playback job and scope - this ensures complete cleanup
-            // even during rapid start/stop cycles. cancelPlaybackLoop() clears the scope
-            // reference before waiting, so we're guaranteed scope is null after this.
-            cancelPlaybackLoop()
+            // Capture and clear old playback loop references while holding the lock.
+            // The actual cancellation/join happens outside the lock to avoid deadlock.
+            captureAndClearPlaybackLoop()
+        }
 
-            // Defensive check: scope should be null after cancelPlaybackLoop()
-            // This guards against any potential race condition
+        // Phase 2: Outside lock - cancel old scope and wait for coroutine to finish.
+        // Safe because references were already nulled under the lock, so no other
+        // thread can see or interact with the old scope/job.
+        awaitPlaybackLoopCancellation(captured)
+
+        // Phase 3: Re-acquire lock to set up new playback state
+        stateLock.withLock {
+            // Re-check preconditions after re-acquiring lock - another thread may
+            // have called start() or release() while we were awaiting cancellation
+            if (isPlaying.get() || isReleased.get()) {
+                Log.w(TAG, "State changed during playback loop cancellation - aborting start")
+                return
+            }
+
+            val track = audioTrack
+            if (track == null) {
+                Log.e(TAG, "AudioTrack was released during playback loop cancellation")
+                return
+            }
+
+            // Defensive check: scope should be null after capture+await
             if (scope != null) {
-                Log.e(TAG, "BUG: Scope was not null after cancelPlaybackLoop - forcing cleanup")
+                Log.e(TAG, "BUG: Scope was not null after cancellation - forcing cleanup")
                 scope?.cancel()
                 scope = null
             }
@@ -645,14 +664,23 @@ class SyncAudioPlayer(
      * It will wait for the playback loop to finish before returning.
      */
     fun stop() {
-        stateLock.withLock {
+        // Phase 1: Under lock, signal stop and capture playback loop references
+        val captured = stateLock.withLock {
             // Signal the playback loop to stop
             isPlaying.set(false)
             isPaused.set(false)
 
-            // Cancel the playback coroutine and wait for it to finish
-            cancelPlaybackLoop()
+            // Capture and clear playback loop references while holding the lock
+            captureAndClearPlaybackLoop()
+        }
 
+        // Phase 2: Outside lock - cancel scope and wait for coroutine to finish.
+        // The isPlaying=false signal causes the loop's while condition to exit,
+        // and scope.cancel() ensures prompt cancellation of any suspend points.
+        awaitPlaybackLoopCancellation(captured)
+
+        // Phase 3: Re-acquire lock for AudioTrack and state cleanup
+        stateLock.withLock {
             // Now safe to manipulate AudioTrack - playback loop has stopped
             audioTrack?.stop()
             audioTrack?.flush()
@@ -767,12 +795,16 @@ class SyncAudioPlayer(
         sr == sampleRate && ch == channels && bd == bitDepth
 
     /**
-     * Cancel the playback loop coroutine and wait for it to complete.
+     * Capture playback loop references and clear them atomically.
      *
-     * Must be called while holding stateLock or when certain no concurrent access.
-     * This method ensures complete cleanup even during rapid start/stop cycles.
+     * Must be called while holding stateLock. Returns a pair of (scope, job) that
+     * the caller must pass to [awaitPlaybackLoopCancellation] OUTSIDE the lock.
+     *
+     * Splitting capture (under lock) from await (outside lock) prevents deadlock:
+     * the playback loop may call setPlaybackState() which acquires stateLock, so
+     * we must not hold stateLock while waiting for the loop to finish.
      */
-    private fun cancelPlaybackLoop() {
+    private fun captureAndClearPlaybackLoop(): Pair<CoroutineScope?, Job?> {
         val currentScope = scope
         val job = playbackJob
 
@@ -780,6 +812,21 @@ class SyncAudioPlayer(
         // start() call could see stale references
         playbackJob = null
         scope = null
+
+        return Pair(currentScope, job)
+    }
+
+    /**
+     * Cancel the playback scope and wait for the job to complete.
+     *
+     * MUST be called OUTSIDE stateLock to avoid deadlock. The playback loop
+     * coroutine may be blocked on stateLock (e.g. inside setPlaybackState()),
+     * so holding the lock here would create a deadlock cycle:
+     *   main thread holds stateLock -> runBlocking waits for coroutine
+     *   coroutine waits for stateLock -> deadlock
+     */
+    private fun awaitPlaybackLoopCancellation(scopeAndJob: Pair<CoroutineScope?, Job?>) {
+        val (currentScope, job) = scopeAndJob
 
         if (currentScope == null) {
             return
@@ -817,12 +864,20 @@ class SyncAudioPlayer(
             return
         }
 
-        stateLock.withLock {
-            // Stop playback and cancel coroutines (stop() handles this)
+        // Phase 1: Under lock, signal stop and capture playback loop references
+        val captured = stateLock.withLock {
             isPlaying.set(false)
             isPaused.set(false)
-            cancelPlaybackLoop()
 
+            // Capture and clear playback loop references while holding the lock
+            captureAndClearPlaybackLoop()
+        }
+
+        // Phase 2: Outside lock - cancel scope and wait for coroutine to finish
+        awaitPlaybackLoopCancellation(captured)
+
+        // Phase 3: Re-acquire lock for final resource cleanup
+        stateLock.withLock {
             // Release AudioTrack
             try {
                 audioTrack?.stop()
