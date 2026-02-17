@@ -24,21 +24,21 @@ import kotlinx.serialization.json.longOrNull
  * (never throw). This matches org.json behavior.
  */
 
-/** Get a string value, or [default] if missing or null. */
+/** Get a string value, or [default] if missing, null, or not a primitive. */
 fun JsonObject.optString(key: String, default: String = ""): String =
-    this[key]?.jsonPrimitive?.contentOrNull ?: default
+    (this[key] as? JsonPrimitive)?.contentOrNull ?: default
 
-/** Get an int value, or [default] if missing or not a number. */
+/** Get an int value, or [default] if missing, not a number, or not a primitive. */
 fun JsonObject.optInt(key: String, default: Int = 0): Int =
-    this[key]?.jsonPrimitive?.intOrNull ?: default
+    (this[key] as? JsonPrimitive)?.intOrNull ?: default
 
-/** Get a long value, or [default] if missing or not a number. */
+/** Get a long value, or [default] if missing, not a number, or not a primitive. */
 fun JsonObject.optLong(key: String, default: Long = 0L): Long =
-    this[key]?.jsonPrimitive?.longOrNull ?: default
+    (this[key] as? JsonPrimitive)?.longOrNull ?: default
 
-/** Get a boolean value, or [default] if missing. */
+/** Get a boolean value, or [default] if missing or not a primitive. */
 fun JsonObject.optBoolean(key: String, default: Boolean = false): Boolean =
-    this[key]?.jsonPrimitive?.booleanOrNull ?: default
+    (this[key] as? JsonPrimitive)?.booleanOrNull ?: default
 
 /** Get a nested JsonObject, or null if missing or not an object. */
 fun JsonObject.optJsonObject(key: String): JsonObject? =
@@ -51,6 +51,6 @@ fun JsonObject.optJsonArray(key: String): JsonArray? =
 /** Check if a key exists in the object. */
 fun JsonObject.has(key: String): Boolean = key in this
 
-/** Get a double value, or [default] if missing or not a number. */
+/** Get a double value, or [default] if missing, not a number, or not a primitive. */
 fun JsonObject.optDouble(key: String, default: Double = 0.0): Double =
-    this[key]?.jsonPrimitive?.contentOrNull?.toDoubleOrNull() ?: default
+    (this[key] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: default
