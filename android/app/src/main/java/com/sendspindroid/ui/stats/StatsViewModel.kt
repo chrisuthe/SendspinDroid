@@ -10,7 +10,6 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
-import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.playback.PlaybackService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +59,8 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
         mediaControllerFuture = MediaController.Builder(context, sessionToken)
             .buildAsync()
 
+        // Use mainExecutor to ensure callback runs on the main thread,
+        // since it writes non-thread-safe fields (mediaController, isPolling)
         mediaControllerFuture?.addListener(
             {
                 try {
@@ -70,7 +71,7 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                     Log.e(TAG, "Failed to connect MediaController", e)
                 }
             },
-            MoreExecutors.directExecutor()
+            context.mainExecutor
         )
     }
 
@@ -97,6 +98,8 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
             val command = SessionCommand(PlaybackService.COMMAND_GET_STATS, Bundle.EMPTY)
             val result = controller.sendCustomCommand(command, Bundle.EMPTY)
 
+            // Use mainExecutor to ensure stats update runs on the main thread,
+            // keeping all state writes on a single thread
             result.addListener(
                 {
                     try {
@@ -106,7 +109,7 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
                         Log.w(TAG, "Failed to get stats", e)
                     }
                 },
-                MoreExecutors.directExecutor()
+                getApplication<Application>().mainExecutor
             )
         } catch (e: Exception) {
             Log.w(TAG, "Failed to request stats", e)

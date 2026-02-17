@@ -127,13 +127,44 @@ class MessageParserTest {
     }
 
     @Test
-    fun parseServerTime_zeroTimestamps_returnsNull() {
+    fun parseServerTime_zeroTimestamps_returnsResult() {
+        // Zero is a valid timestamp value (M-01 fix: nullable distinguishes absent from zero)
         val payload = buildJsonObject {
             put("client_transmitted", 0L)
             put("server_received", 0L)
             put("server_transmitted", 0L)
         }
-        assertNull(MessageParser.parseServerTime(payload, 100L))
+        val result = MessageParser.parseServerTime(payload, 0L)
+        assertNotNull(result)
+        assertEquals(0L, result!!.offset)
+        assertEquals(0L, result.rtt)
+    }
+
+    @Test
+    fun parseServerTime_missingFields_returnsNull() {
+        // Missing required fields should return null
+        val payload = buildJsonObject {
+            put("client_transmitted", 100L)
+            // server_received and server_transmitted absent
+        }
+        assertNull(MessageParser.parseServerTime(payload, 400L))
+    }
+
+    @Test
+    fun parseServerTime_partiallyMissingFields_returnsNull() {
+        // Only two of three required fields present
+        val payload = buildJsonObject {
+            put("client_transmitted", 100L)
+            put("server_received", 200L)
+            // server_transmitted absent
+        }
+        assertNull(MessageParser.parseServerTime(payload, 400L))
+    }
+
+    @Test
+    fun parseServerTime_emptyPayload_returnsNull() {
+        val payload = buildJsonObject { }
+        assertNull(MessageParser.parseServerTime(payload, 400L))
     }
 
     // --- parseServerState ---

@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaMediaType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Bottom sheet for searching and adding tracks to a playlist.
@@ -71,6 +73,7 @@ fun AddTracksBottomSheet(
     var isSearching by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val addedTracks = remember { mutableStateMapOf<String, Boolean>() }
+    val scope = rememberCoroutineScope()
 
     // Debounced search
     LaunchedEffect(query) {
@@ -182,8 +185,18 @@ fun AddTracksBottomSheet(
                                     track = track,
                                     isAdded = addedTracks[track.itemId] == true,
                                     onAdd = {
-                                        if (track.uri != null) {
-                                            addedTracks[track.itemId] = true
+                                        val uri = track.uri ?: return@AddTrackItem
+                                        addedTracks[track.itemId] = true
+                                        scope.launch {
+                                            MusicAssistantManager.addPlaylistTracks(
+                                                playlistId,
+                                                listOf(uri)
+                                            ).fold(
+                                                onSuccess = { onTrackAdded() },
+                                                onFailure = {
+                                                    addedTracks[track.itemId] = false
+                                                }
+                                            )
                                         }
                                     }
                                 )
@@ -197,21 +210,6 @@ fun AddTracksBottomSheet(
         }
     }
 
-    // Handle track additions
-    addedTracks.forEach { (trackId, added) ->
-        if (added) {
-            val track = results.find { it.itemId == trackId }
-            if (track != null) {
-                LaunchedEffect(trackId) {
-                    val uri = track.uri ?: return@LaunchedEffect
-                    MusicAssistantManager.addPlaylistTracks(playlistId, listOf(uri)).fold(
-                        onSuccess = { onTrackAdded() },
-                        onFailure = { /* revert icon if needed */ }
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable

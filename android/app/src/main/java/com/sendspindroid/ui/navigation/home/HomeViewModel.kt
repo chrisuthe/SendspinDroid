@@ -1,16 +1,16 @@
 package com.sendspindroid.ui.navigation.home
 
 import android.util.Log
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaAlbum
-import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -48,26 +48,26 @@ class HomeViewModel : ViewModel() {
     }
 
     // ========================================================================
-    // LiveData for each section - all use MaLibraryItem for unified adapter
+    // StateFlow for each section - all use MaLibraryItem for unified adapter
     // ========================================================================
 
-    private val _recentlyPlayed = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
-    val recentlyPlayed: LiveData<SectionState<MaLibraryItem>> = _recentlyPlayed
+    private val _recentlyPlayed = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val recentlyPlayed: StateFlow<SectionState<MaLibraryItem>> = _recentlyPlayed.asStateFlow()
 
-    private val _recentlyAdded = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
-    val recentlyAdded: LiveData<SectionState<MaLibraryItem>> = _recentlyAdded
+    private val _recentlyAdded = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val recentlyAdded: StateFlow<SectionState<MaLibraryItem>> = _recentlyAdded.asStateFlow()
 
-    private val _albums = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
-    val albums: LiveData<SectionState<MaLibraryItem>> = _albums
+    private val _albums = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val albums: StateFlow<SectionState<MaLibraryItem>> = _albums.asStateFlow()
 
-    private val _artists = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
-    val artists: LiveData<SectionState<MaLibraryItem>> = _artists
+    private val _artists = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val artists: StateFlow<SectionState<MaLibraryItem>> = _artists.asStateFlow()
 
-    private val _playlists = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
-    val playlists: LiveData<SectionState<MaLibraryItem>> = _playlists
+    private val _playlists = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val playlists: StateFlow<SectionState<MaLibraryItem>> = _playlists.asStateFlow()
 
-    private val _radioStations = MutableLiveData<SectionState<MaLibraryItem>>(SectionState.Loading)
-    val radioStations: LiveData<SectionState<MaLibraryItem>> = _radioStations
+    private val _radioStations = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
+    val radioStations: StateFlow<SectionState<MaLibraryItem>> = _radioStations.asStateFlow()
 
     // Track if initial load has been done
     private var hasLoadedData = false
@@ -79,8 +79,8 @@ class HomeViewModel : ViewModel() {
     /**
      * Load all home screen data.
      *
-     * Fetches all three sections in parallel using async/await.
-     * Can be called on fragment creation or pull-to-refresh.
+     * Fetches all sections in parallel using async/await.
+     * Can be called on screen creation or pull-to-refresh.
      *
      * @param forceRefresh If true, reloads even if data was already loaded
      */
@@ -109,7 +109,7 @@ class HomeViewModel : ViewModel() {
             val playlistsDeferred = async { loadPlaylists() }
             val radioDeferred = async { loadRadioStations() }
 
-            // Wait for all to complete (each updates its own LiveData)
+            // Wait for all to complete (each updates its own StateFlow)
             recentlyPlayedDeferred.await()
             recentlyAddedDeferred.await()
             albumsDeferred.await()
@@ -143,16 +143,16 @@ class HomeViewModel : ViewModel() {
                         .take(ITEMS_PER_SECTION)
 
                     Log.d(TAG, "Recently played after grouping: ${grouped.size} items")
-                    _recentlyPlayed.postValue(SectionState.Success(grouped))
+                    _recentlyPlayed.value = SectionState.Success(grouped)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load recently played", error)
-                    _recentlyPlayed.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                    _recentlyPlayed.value = SectionState.Error(error.message ?: "Failed to load")
                 }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading recently played", e)
-            _recentlyPlayed.postValue(SectionState.Error(e.message ?: "Failed to load"))
+            _recentlyPlayed.value = SectionState.Error(e.message ?: "Failed to load")
         }
     }
 
@@ -177,16 +177,16 @@ class HomeViewModel : ViewModel() {
                         .take(ITEMS_PER_SECTION)
 
                     Log.d(TAG, "Recently added after grouping: ${grouped.size} items")
-                    _recentlyAdded.postValue(SectionState.Success(grouped))
+                    _recentlyAdded.value = SectionState.Success(grouped)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load recently added", error)
-                    _recentlyAdded.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                    _recentlyAdded.value = SectionState.Error(error.message ?: "Failed to load")
                 }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading recently added", e)
-            _recentlyAdded.postValue(SectionState.Error(e.message ?: "Failed to load"))
+            _recentlyAdded.value = SectionState.Error(e.message ?: "Failed to load")
         }
     }
 
@@ -231,16 +231,16 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Playlists: ${items.size} items")
-                    _playlists.postValue(SectionState.Success(items))
+                    _playlists.value = SectionState.Success(items)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load playlists", error)
-                    _playlists.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                    _playlists.value = SectionState.Error(error.message ?: "Failed to load")
                 }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading playlists", e)
-            _playlists.postValue(SectionState.Error(e.message ?: "Failed to load"))
+            _playlists.value = SectionState.Error(e.message ?: "Failed to load")
         }
     }
 
@@ -253,16 +253,16 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Albums: ${items.size} items")
-                    _albums.postValue(SectionState.Success(items))
+                    _albums.value = SectionState.Success(items)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load albums", error)
-                    _albums.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                    _albums.value = SectionState.Error(error.message ?: "Failed to load")
                 }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading albums", e)
-            _albums.postValue(SectionState.Error(e.message ?: "Failed to load"))
+            _albums.value = SectionState.Error(e.message ?: "Failed to load")
         }
     }
 
@@ -275,16 +275,16 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Artists: ${items.size} items")
-                    _artists.postValue(SectionState.Success(items))
+                    _artists.value = SectionState.Success(items)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load artists", error)
-                    _artists.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                    _artists.value = SectionState.Error(error.message ?: "Failed to load")
                 }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading artists", e)
-            _artists.postValue(SectionState.Error(e.message ?: "Failed to load"))
+            _artists.value = SectionState.Error(e.message ?: "Failed to load")
         }
     }
 
@@ -297,16 +297,16 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Radio stations: ${items.size} items")
-                    _radioStations.postValue(SectionState.Success(items))
+                    _radioStations.value = SectionState.Success(items)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load radio stations", error)
-                    _radioStations.postValue(SectionState.Error(error.message ?: "Failed to load"))
+                    _radioStations.value = SectionState.Error(error.message ?: "Failed to load")
                 }
             )
         } catch (e: Exception) {
             Log.e(TAG, "Exception loading radio stations", e)
-            _radioStations.postValue(SectionState.Error(e.message ?: "Failed to load"))
+            _radioStations.value = SectionState.Error(e.message ?: "Failed to load")
         }
     }
 

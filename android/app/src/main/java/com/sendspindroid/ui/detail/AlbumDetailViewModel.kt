@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,8 +64,11 @@ class AlbumDetailViewModel : ViewModel() {
             Log.d(TAG, "Loading album details: $albumId")
 
             // Load album metadata and tracks in parallel
-            val albumResult = MusicAssistantManager.getAlbum(albumId)
-            val tracksResult = MusicAssistantManager.getAlbumTracks(albumId)
+            val albumDeferred = async { MusicAssistantManager.getAlbum(albumId) }
+            val tracksDeferred = async { MusicAssistantManager.getAlbumTracks(albumId) }
+
+            val albumResult = albumDeferred.await()
+            val tracksResult = tracksDeferred.await()
 
             when {
                 albumResult.isFailure -> {

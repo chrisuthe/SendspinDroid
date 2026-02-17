@@ -80,9 +80,17 @@ fun QueueSheetContent(
     val uiState by viewModel.uiState.collectAsState()
     var showSaveDialog by remember { mutableStateOf(false) }
 
-    // Load queue when content appears, and reload when the track changes
+    // Load queue when content first appears (with loading spinner),
+    // then silently refresh in the background when the track changes
+    // to avoid a loading flash on every track transition.
+    val hasLoadedOnce = remember { mutableStateOf(false) }
     LaunchedEffect(currentTrackTitle) {
-        viewModel.loadQueue()
+        if (!hasLoadedOnce.value) {
+            viewModel.loadQueue(showLoading = true)
+            hasLoadedOnce.value = true
+        } else {
+            viewModel.loadQueue(showLoading = false)
+        }
     }
 
     when (val state = uiState) {

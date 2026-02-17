@@ -340,11 +340,11 @@ class DefaultServerPinger(
             INTERVAL_BACKGROUND_MS
         }
 
-        // Apply exponential backoff on failures
+        // Apply exponential backoff on failures, but never go below base interval
         val failures = consecutiveFailures.get()
         return if (failures > 0) {
             val backoff = INITIAL_BACKOFF_MS * (1L shl (failures - 1).coerceAtMost(4))
-            backoff.coerceAtMost(MAX_BACKOFF_MS)
+            maxOf(backoff, baseInterval).coerceAtMost(MAX_BACKOFF_MS)
         } else {
             baseInterval
         }
@@ -429,7 +429,9 @@ class DefaultServerPinger(
                             }
 
                             override fun onDisconnected() {
-                                // May be called after we resume, ignore
+                                Log.d(TAG, "Remote ping: peer disconnected")
+                                signalingClient.destroy()
+                                if (cont.isActive) cont.resume(false)
                             }
                         })
 

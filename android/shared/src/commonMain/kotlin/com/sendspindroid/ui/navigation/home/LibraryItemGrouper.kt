@@ -102,7 +102,8 @@ object LibraryItemGrouper {
 
         // Generate a stable ID based on album/artist
         // This allows proper diffing when the real album data loads later
-        val syntheticId = "grouped_${first.album}_${first.artist}".hashCode().toString()
+        // Uses the raw string directly to avoid hashCode() collision risk
+        val syntheticId = "grouped_${first.album}_${first.artist}"
         val albumId = first.albumId ?: syntheticId
 
         // Construct the URI for playback - MA uses format "library://album/{id}"

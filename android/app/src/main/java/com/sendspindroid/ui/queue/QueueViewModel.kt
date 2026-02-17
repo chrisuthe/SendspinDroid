@@ -60,11 +60,17 @@ class QueueViewModel : ViewModel() {
 
     /**
      * Load the queue from Music Assistant.
+     *
+     * @param showLoading When true, transitions to [QueueUiState.Loading] before fetching,
+     *   causing a loading spinner. When false, keeps the current UI state visible while
+     *   refreshing in the background (silent refresh).
      */
-    fun loadQueue() {
-        _uiState.value = QueueUiState.Loading
+    fun loadQueue(showLoading: Boolean = true) {
+        if (showLoading) {
+            _uiState.value = QueueUiState.Loading
+        }
         viewModelScope.launch {
-            Log.d(TAG, "Loading queue items...")
+            Log.d(TAG, "Loading queue items (showLoading=$showLoading)...")
             val result = MusicAssistantManager.getQueueItems()
             result.fold(
                 onSuccess = { queueState ->
@@ -105,9 +111,10 @@ class QueueViewModel : ViewModel() {
 
     /**
      * Refresh the queue (reload from server).
+     * Shows loading state -- use for user-initiated refresh.
      */
     fun refresh() {
-        loadQueue()
+        loadQueue(showLoading = true)
     }
 
     /**
