@@ -55,7 +55,10 @@ class OpusDecoder : MediaCodecDecoder(MediaFormat.MIMETYPE_AUDIO_OPUS) {
         }
 
         // CSD-1: Pre-skip (number of samples to skip at start)
-        // This compensates for encoder delay
+        // This compensates for encoder delay.
+        // Note: Android MediaCodec requires native byte order for CSD-1/CSD-2
+        // (unsigned 64-bit native-order integer per the MediaCodec docs),
+        // NOT the little-endian order used by the Opus RFC 7845 OpusHead structure.
         val preSkipBuffer = ByteBuffer.allocate(8)
             .order(ByteOrder.nativeOrder())
             .putLong(DEFAULT_PRE_SKIP)
@@ -63,7 +66,8 @@ class OpusDecoder : MediaCodecDecoder(MediaFormat.MIMETYPE_AUDIO_OPUS) {
         format.setByteBuffer("csd-1", preSkipBuffer)
 
         // CSD-2: Seek pre-roll in nanoseconds
-        // Time to decode before a seek point to ensure clean audio
+        // Time to decode before a seek point to ensure clean audio.
+        // Same native byte order requirement as CSD-1 (see note above).
         val seekPreRollBuffer = ByteBuffer.allocate(8)
             .order(ByteOrder.nativeOrder())
             .putLong(DEFAULT_SEEK_PRE_ROLL_NS)

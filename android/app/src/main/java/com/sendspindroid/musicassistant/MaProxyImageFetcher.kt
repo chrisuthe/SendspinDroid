@@ -47,6 +47,9 @@ class MaProxyImageFetcher(
 
         /** URI scheme used for images that must be fetched via DataChannel HTTP proxy. */
         const val SCHEME = "ma-proxy"
+
+        /** Maximum number of HTTP redirects to follow before giving up. */
+        private const val MAX_REDIRECTS = 5
     }
 
     override suspend fun fetch(): FetchResult {
@@ -55,33 +58,62 @@ class MaProxyImageFetcher(
 
         Log.d(TAG, "Fetching proxied image: $path")
 
-        val response = transport.httpProxy(
-            method = "GET",
-            path = path,
-            timeoutMs = 15000L
-        )
+        var currentPath = path
+        var redirectCount = 0
 
-        if (response.status !in 200..299) {
-            throw IOException("HTTP proxy returned status ${response.status} for $path")
+        while (true) {
+            val response = transport.httpProxy(
+                method = "GET",
+                path = currentPath,
+                timeoutMs = 15000L
+            )
+
+            if (response.status in 300..399) {
+                val location = response.headers["location"]
+                    ?: response.headers["Location"]
+                    ?: throw IOException("HTTP redirect ${response.status} without Location header for $currentPath")
+
+                redirectCount++
+                if (redirectCount > MAX_REDIRECTS) {
+                    throw IOException("Too many redirects ($redirectCount) for $path")
+                }
+
+                // If the Location is an absolute URL, extract just the path+query portion
+                // since httpProxy expects a server-relative path.
+                currentPath = if (location.startsWith("http://") || location.startsWith("https://")) {
+                    val uri = java.net.URI(location)
+                    val redirectPath = uri.rawPath ?: "/"
+                    if (uri.rawQuery != null) "$redirectPath?${uri.rawQuery}" else redirectPath
+                } else {
+                    location
+                }
+
+                Log.d(TAG, "Following redirect ($redirectCount) -> $currentPath")
+                continue
+            }
+
+            if (response.status !in 200..299) {
+                throw IOException("HTTP proxy returned status ${response.status} for $currentPath")
+            }
+
+            if (response.body.isEmpty()) {
+                throw IOException("Empty response body for $currentPath")
+            }
+
+            // Determine MIME type from response headers or default to JPEG
+            val contentType = response.headers["content-type"]
+                ?: response.headers["Content-Type"]
+                ?: "image/jpeg"
+
+            // Wrap the byte array in an okio Buffer -> Source
+            val buffer = Buffer().write(response.body)
+
+            return SourceResult(
+                source = ImageSource(buffer, options.context),
+                mimeType = contentType,
+                dataSource = DataSource.NETWORK
+            )
         }
-
-        if (response.body.isEmpty()) {
-            throw IOException("Empty response body for $path")
-        }
-
-        // Determine MIME type from response headers or default to JPEG
-        val contentType = response.headers["content-type"]
-            ?: response.headers["Content-Type"]
-            ?: "image/jpeg"
-
-        // Wrap the byte array in an okio Buffer -> Source
-        val buffer = Buffer().write(response.body)
-
-        return SourceResult(
-            source = ImageSource(buffer, options.context),
-            mimeType = contentType,
-            dataSource = DataSource.NETWORK
-        )
     }
 
     /**

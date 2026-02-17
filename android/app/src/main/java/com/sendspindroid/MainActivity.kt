@@ -87,6 +87,7 @@ import androidx.fragment.app.Fragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.sendspindroid.ui.main.MainActivityViewModel
@@ -122,10 +123,21 @@ class MainActivity : AppCompatActivity() {
     // Compose shell overlay -- primary UI, renders on top of XML layout
     private var composeOverlay: ComposeView? = null
 
+    // Snackbar anchor -- always points to a view that is attached to the window.
+    // After setupComposeShell() removes the CoordinatorLayout, binding.coordinatorLayout
+    // becomes detached and cannot anchor Snackbars (causes IllegalArgumentException).
+    // This field is set to the rootFrame that replaces it in the view hierarchy.
+    private var snackbarAnchorView: View? = null
+
     // Server status tracking for Compose server list
     private val composeServerStatuses = mutableStateMapOf<String, ServerItemStatus>()
     private val composeReconnectInfo = mutableStateMapOf<String, Pair<Int, Int>>()
     private val composeIsScanning = mutableStateOf(false)
+
+    // Job references for coroutines that must be cancelled on config change
+    // (to avoid duplicates since Activity handles configChanges manually)
+    private var scanningPollJob: Job? = null
+    private var maConnectionObserverJob: Job? = null
 
     // ViewModel for managing UI state (survives configuration changes)
     private val viewModel: MainActivityViewModel by viewModels()
@@ -279,6 +291,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Returns a view suitable for anchoring Snackbars.
+     *
+     * After [setupComposeShell] runs, [binding.coordinatorLayout] is removed from
+     * its parent and is no longer attached to the window. [Snackbar.make] walks up
+     * the view's parent chain looking for a CoordinatorLayout or the window decor;
+     * a detached view causes IllegalArgumentException.
+     *
+     * This property returns [snackbarAnchorView] (the FrameLayout that replaced the
+     * CoordinatorLayout), falling back to [binding.coordinatorLayout] during the
+     * brief window before [setupComposeShell] runs (e.g. in [onCreate] / [setupUI]).
+     */
+    private val snackbarView: View
+        get() = snackbarAnchorView ?: binding.coordinatorLayout
+
+    /**
      * Snackbar error types for different error scenarios.
      * Used to determine appropriate duration, colors, and actions.
      */
@@ -314,7 +341,7 @@ class MainActivity : AppCompatActivity() {
         announceForAccessibility("Error: $message")
 
         val snackbar = Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             if (errorType == ErrorType.VALIDATION) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
         )
@@ -344,7 +371,7 @@ class MainActivity : AppCompatActivity() {
      */
     fun showSuccessSnackbar(message: String) {
         val snackbar = Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             Snackbar.LENGTH_SHORT
         )
@@ -364,7 +391,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showInfoSnackbar(message: String) {
         Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             Snackbar.LENGTH_SHORT
         ).show()
@@ -386,7 +413,7 @@ class MainActivity : AppCompatActivity() {
         onDismissed: () -> Unit = {}
     ) {
         val snackbar = Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             Snackbar.LENGTH_LONG
         )
@@ -429,7 +456,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             reconnectingSnackbar = Snackbar.make(
-                binding.coordinatorLayout,
+                snackbarView,
                 message,
                 Snackbar.LENGTH_INDEFINITE
             ).apply {
@@ -517,6 +544,18 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         Log.d(TAG, "Configuration changed: orientation=${newConfig.orientation}")
+
+        // Dismiss any lingering Snackbar before tearing down the view hierarchy
+        reconnectingSnackbar?.dismiss()
+        reconnectingSnackbar = null
+
+        // Clear the old snackbar anchor -- it will be set again by setupComposeShell()
+        snackbarAnchorView = null
+
+        // Dispose the old Compose overlay cleanly before re-inflation.
+        // DisposeOnViewTreeLifecycleDestroyed handles this when the view is detached
+        // by setContentView(), but we null the reference to avoid stale usage.
+        composeOverlay = null
 
         // Re-inflate the layout to get the correct orientation-specific layout
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -797,6 +836,10 @@ class MainActivity : AppCompatActivity() {
         // Add the new FrameLayout as the content view
         contentParent?.addView(rootFrame)
 
+        // rootFrame is now the attached view in the hierarchy -- use it for Snackbar anchoring
+        // (binding.coordinatorLayout was just removed from its parent and is detached)
+        snackbarAnchorView = rootFrame
+
         composeOverlay = overlay
 
         overlay.setContent {
@@ -861,8 +904,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Sync scanning state with discovery manager
-        lifecycleScope.launch {
+        // Sync scanning state with discovery manager.
+        // Cancel any previous poll job to prevent duplicates on config change.
+        scanningPollJob?.cancel()
+        scanningPollJob = lifecycleScope.launch {
             // Update scanning state when discovery starts/stops
             while (true) {
                 composeIsScanning.value = discoveryManager?.isDiscovering() == true
@@ -1307,24 +1352,43 @@ class MainActivity : AppCompatActivity() {
                 delay(DEFAULT_SERVER_AUTO_CONNECT_DELAY_MS)
 
                 // Only auto-connect if still in ServerList state and user hasn't manually disconnected.
-                // Wait for MediaController to be ready (avoids "Service not connected" snackbar at startup).
-                if (connectionState == AppConnectionState.ServerList && !userManuallyDisconnected) {
-                    // MediaController may still be initializing -- wait up to 5 more seconds
-                    var waited = 0
-                    while (mediaController == null && waited < 5000) {
-                        delay(250)
-                        waited += 250
-                    }
-                    if (mediaController != null &&
-                        connectionState == AppConnectionState.ServerList &&
-                        !userManuallyDisconnected) {
-                        Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
-                        onUnifiedServerSelected(defaultServer)
-                    } else {
-                        Log.d(TAG, "Auto-connect skipped: controller=${mediaController != null}, state=$connectionState")
-                    }
+                if (connectionState != AppConnectionState.ServerList || userManuallyDisconnected) {
+                    return@launch
+                }
+
+                // If MediaController is already available, connect immediately.
+                // Otherwise, gate auto-connect on the mediaControllerFuture listener
+                // instead of busy-polling (avoids wasting CPU on 250ms poll iterations).
+                if (mediaController != null) {
+                    attemptAutoConnect(defaultServer)
+                } else {
+                    Log.d(TAG, "MediaController not ready yet - waiting for future callback")
+                    mediaControllerFuture?.addListener(
+                        {
+                            runOnUiThread {
+                                attemptAutoConnect(defaultServer)
+                            }
+                        },
+                        MoreExecutors.directExecutor()
+                    )
                 }
             }
+        }
+    }
+
+    /**
+     * Attempts auto-connection to the default server if conditions are still valid.
+     * Called either immediately (if MediaController is ready) or from the
+     * mediaControllerFuture listener callback.
+     */
+    private fun attemptAutoConnect(defaultServer: UnifiedServer) {
+        if (mediaController != null &&
+            connectionState == AppConnectionState.ServerList &&
+            !userManuallyDisconnected) {
+            Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
+            onUnifiedServerSelected(defaultServer)
+        } else {
+            Log.d(TAG, "Auto-connect skipped: controller=${mediaController != null}, state=$connectionState")
         }
     }
 
@@ -1434,15 +1498,24 @@ class MainActivity : AppCompatActivity() {
                     override fun onServerLost(name: String) {
                         runOnUiThread {
                             Log.d(TAG, "Server lost: $name")
-                            // Remove from legacy list
-                            servers.removeAll { it.name == name }
+                            // Look up address from legacy list (keyed by address on add)
+                            val address = servers.find { it.name == name }?.address
+
+                            // Remove from legacy list by address (matches addServer dedup key)
+                            if (address != null) {
+                                servers.removeAll { it.address == address }
+                            } else {
+                                // Fallback: remove by name if address not found
+                                servers.removeAll { it.name == name }
+                            }
                             serverAdapter.submitList(servers.toList())
 
-                            // Remove from UnifiedServerRepository discovered servers
-                            val serverToRemove = UnifiedServerRepository.discoveredServers.value
-                                .find { it.name == name }
-                            serverToRemove?.local?.address?.let { address ->
-                                UnifiedServerRepository.removeDiscoveredServer(address)
+                            // Remove from UnifiedServerRepository by address
+                            val repoAddress = address
+                                ?: UnifiedServerRepository.discoveredServers.value
+                                    .find { it.name == name }?.local?.address
+                            if (repoAddress != null) {
+                                UnifiedServerRepository.removeDiscoveredServer(repoAddress)
                             }
                         }
                     }
@@ -1837,11 +1910,16 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                // Get address from current connecting state or reconnecting state
+                // Get address from current connecting state or reconnecting state.
+                // Fall back to currentConnectedServerId when state has moved past
+                // Connecting/Reconnecting (e.g., stale broadcast or race condition).
                 val address = when (val currentState = connectionState) {
                     is AppConnectionState.Connecting -> currentState.serverAddress
                     is AppConnectionState.Reconnecting -> currentState.serverAddress
-                    else -> ""
+                    else -> {
+                        Log.w(TAG, "STATE_CONNECTED received in unexpected state: $currentState, using serverId fallback")
+                        currentConnectedServerId ?: ""
+                    }
                 }
 
                 // Cancel any auto-reconnect in progress (we're now connected)
@@ -1875,11 +1953,15 @@ class MainActivity : AppCompatActivity() {
                 val bufferMs = extras.getLong("buffer_remaining_ms", 0)
                 Log.d(TAG, "Reconnecting to: $serverName (attempt $attempt, buffer ${bufferMs}ms)")
 
-                // Preserve server address from previous state
+                // Preserve server address from previous state.
+                // Fall back to currentConnectedServerId for robustness.
                 val address = when (val currentState = connectionState) {
                     is AppConnectionState.Connected -> currentState.serverAddress
                     is AppConnectionState.Reconnecting -> currentState.serverAddress
-                    else -> ""
+                    else -> {
+                        Log.w(TAG, "STATE_RECONNECTING received in unexpected state: $currentState, using serverId fallback")
+                        currentConnectedServerId ?: ""
+                    }
                 }
 
                 connectionState = AppConnectionState.Reconnecting(
@@ -2625,7 +2707,7 @@ class MainActivity : AppCompatActivity() {
             val result = MusicAssistantManager.favoriteCurrentTrack()
             result.fold(
                 onSuccess = { message ->
-                    Snackbar.make(binding.coordinatorLayout, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
+                    Snackbar.make(snackbarView, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
                     announceForAccessibility(getString(R.string.favorite_added))
                 },
                 onFailure = { error ->
@@ -2633,7 +2715,7 @@ class MainActivity : AppCompatActivity() {
                         error.message?.contains("No track") == true -> R.string.favorite_no_track
                         else -> R.string.favorite_error
                     }
-                    Snackbar.make(binding.coordinatorLayout, errorMessage, Snackbar.LENGTH_SHORT).show()
+                    Snackbar.make(snackbarView, errorMessage, Snackbar.LENGTH_SHORT).show()
                     Log.e(TAG, "Favorite failed: ${error.message}")
                 }
             )
@@ -2680,7 +2762,10 @@ class MainActivity : AppCompatActivity() {
     private var maLoginDialogShowing = false
 
     private fun observeMaConnectionState() {
-        lifecycleScope.launch {
+        // Cancel any previous observer to prevent duplicates on config change
+        // (setupUI() is called again in onConfigurationChanged)
+        maConnectionObserverJob?.cancel()
+        maConnectionObserverJob = lifecycleScope.launch {
             MusicAssistantManager.connectionState.collectLatest { state ->
                 val isMaConnected = state is MaConnectionState.Connected
 

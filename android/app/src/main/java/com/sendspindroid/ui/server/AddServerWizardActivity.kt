@@ -26,7 +26,8 @@ import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.TransportType
 import com.sendspindroid.remote.RemoteConnection
-import com.sendspindroid.sendspin.MusicAssistantAuth
+import com.sendspindroid.musicassistant.MaAuthHelper
+import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.ui.remote.QrScannerDialog
 import com.sendspindroid.ui.theme.SendSpinTheme
 import com.sendspindroid.ui.wizard.AddServerWizardScreen
@@ -487,8 +488,8 @@ class AddServerWizardActivity : FragmentActivity() {
             val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
             Log.d(TAG, "Testing proxy login connection to: $normalizedUrl")
 
-            val loginResult = MusicAssistantAuth.login(
-                baseUrl = normalizedUrl,
+            val loginResult = MaAuthHelper.loginForToken(
+                url = normalizedUrl,
                 username = viewModel.proxyUsername,
                 password = viewModel.proxyPassword
             )
@@ -497,12 +498,9 @@ class AddServerWizardActivity : FragmentActivity() {
             Log.d(TAG, "Proxy login successful, token obtained for user: ${loginResult.userName}")
 
             Result.success("Authenticated as ${loginResult.userName}")
-        } catch (e: MusicAssistantAuth.AuthenticationException) {
+        } catch (e: MaApiTransport.AuthenticationException) {
             Log.e(TAG, "Proxy login auth failed", e)
             Result.failure(Exception("Invalid credentials: ${e.message}"))
-        } catch (e: MusicAssistantAuth.ServerException) {
-            Log.e(TAG, "Proxy login server error", e)
-            Result.failure(Exception("Server error: ${e.message}"))
         } catch (e: Exception) {
             Log.e(TAG, "Proxy login exception", e)
             Result.failure(e)

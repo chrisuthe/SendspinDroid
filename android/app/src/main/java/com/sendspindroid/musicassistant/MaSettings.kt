@@ -22,7 +22,7 @@ import android.content.SharedPreferences
  * val token = MaSettings.getTokenForServer(serverId)
  * ```
  */
-object MaSettings {
+object MaSettings : MaSettingsProvider {
 
     private const val PREFS_NAME = "ma_settings"
     private const val KEY_TOKEN_PREFIX = "token_"
@@ -52,13 +52,26 @@ object MaSettings {
     }
 
     /**
+     * Returns the SharedPreferences instance, throwing if [initialize] has not been called.
+     *
+     * @throws IllegalStateException if [initialize] was not called before accessing settings
+     */
+    private fun requirePrefs(): SharedPreferences {
+        return prefs
+            ?: throw IllegalStateException(
+                "MaSettings.initialize(context) must be called before accessing settings"
+            )
+    }
+
+    /**
      * Gets the stored MA API token for a specific server.
      *
      * @param serverId The UnifiedServer.id
      * @return The stored token, or null if not set
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun getTokenForServer(serverId: String): String? {
-        return prefs?.getString("$KEY_TOKEN_PREFIX$serverId", null)
+    override fun getTokenForServer(serverId: String): String? {
+        return requirePrefs().getString("$KEY_TOKEN_PREFIX$serverId", null)
     }
 
     /**
@@ -66,9 +79,10 @@ object MaSettings {
      *
      * @param serverId The UnifiedServer.id
      * @param token The MA API access token
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun setTokenForServer(serverId: String, token: String) {
-        prefs?.edit()?.putString("$KEY_TOKEN_PREFIX$serverId", token)?.apply()
+    override fun setTokenForServer(serverId: String, token: String) {
+        requirePrefs().edit().putString("$KEY_TOKEN_PREFIX$serverId", token).apply()
     }
 
     /**
@@ -76,9 +90,10 @@ object MaSettings {
      * Call this when the token expires or user logs out.
      *
      * @param serverId The UnifiedServer.id
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun clearTokenForServer(serverId: String) {
-        prefs?.edit()?.remove("$KEY_TOKEN_PREFIX$serverId")?.apply()
+    override fun clearTokenForServer(serverId: String) {
+        requirePrefs().edit().remove("$KEY_TOKEN_PREFIX$serverId").apply()
     }
 
     /**
@@ -86,9 +101,10 @@ object MaSettings {
      * Used when deriving API URL from local connection address.
      *
      * @return The port number (default: 8095)
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun getDefaultPort(): Int {
-        return prefs?.getInt(KEY_DEFAULT_PORT, DEFAULT_MA_PORT) ?: DEFAULT_MA_PORT
+    override fun getDefaultPort(): Int {
+        return requirePrefs().getInt(KEY_DEFAULT_PORT, DEFAULT_MA_PORT)
     }
 
     /**
@@ -96,9 +112,10 @@ object MaSettings {
      * Only change if your MA installation uses a non-standard port.
      *
      * @param port The MA API port number
+     * @throws IllegalStateException if [initialize] was not called
      */
     fun setDefaultPort(port: Int) {
-        prefs?.edit()?.putInt(KEY_DEFAULT_PORT, port)?.apply()
+        requirePrefs().edit().putInt(KEY_DEFAULT_PORT, port).apply()
     }
 
     /**
@@ -106,23 +123,25 @@ object MaSettings {
      *
      * @param serverId The UnifiedServer.id
      * @return true if a token exists for this server
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun hasTokenForServer(serverId: String): Boolean {
+    override fun hasTokenForServer(serverId: String): Boolean {
         return getTokenForServer(serverId) != null
     }
 
     /**
      * Clears all stored tokens.
      * Use with caution - this logs out from all MA servers.
+     *
+     * @throws IllegalStateException if [initialize] was not called
      */
     fun clearAllTokens() {
-        prefs?.let { p ->
-            val editor = p.edit()
-            p.all.keys
-                .filter { it.startsWith(KEY_TOKEN_PREFIX) }
-                .forEach { editor.remove(it) }
-            editor.apply()
-        }
+        val p = requirePrefs()
+        val editor = p.edit()
+        p.all.keys
+            .filter { it.startsWith(KEY_TOKEN_PREFIX) }
+            .forEach { editor.remove(it) }
+        editor.apply()
     }
 
     /**
@@ -131,9 +150,10 @@ object MaSettings {
      *
      * @param serverId The UnifiedServer.id
      * @return The stored player ID, or null if not set (will use auto-detection)
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun getSelectedPlayerForServer(serverId: String): String? {
-        return prefs?.getString("$KEY_SELECTED_PLAYER_PREFIX$serverId", null)
+    override fun getSelectedPlayerForServer(serverId: String): String? {
+        return requirePrefs().getString("$KEY_SELECTED_PLAYER_PREFIX$serverId", null)
     }
 
     /**
@@ -142,9 +162,10 @@ object MaSettings {
      *
      * @param serverId The UnifiedServer.id
      * @param playerId The MA player_id to use for playback
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun setSelectedPlayerForServer(serverId: String, playerId: String) {
-        prefs?.edit()?.putString("$KEY_SELECTED_PLAYER_PREFIX$serverId", playerId)?.apply()
+    override fun setSelectedPlayerForServer(serverId: String, playerId: String) {
+        requirePrefs().edit().putString("$KEY_SELECTED_PLAYER_PREFIX$serverId", playerId).apply()
     }
 
     /**
@@ -152,8 +173,9 @@ object MaSettings {
      * Playback will fall back to auto-detecting an available player.
      *
      * @param serverId The UnifiedServer.id
+     * @throws IllegalStateException if [initialize] was not called
      */
-    fun clearSelectedPlayerForServer(serverId: String) {
-        prefs?.edit()?.remove("$KEY_SELECTED_PLAYER_PREFIX$serverId")?.apply()
+    override fun clearSelectedPlayerForServer(serverId: String) {
+        requirePrefs().edit().remove("$KEY_SELECTED_PLAYER_PREFIX$serverId").apply()
     }
 }

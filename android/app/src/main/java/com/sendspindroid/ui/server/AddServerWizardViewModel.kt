@@ -4,7 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
-import com.sendspindroid.sendspin.MusicAssistantAuth
+import com.sendspindroid.musicassistant.MaAuthHelper
+import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.ui.wizard.ClientMode
 import com.sendspindroid.ui.wizard.ConnectionTestState
 import com.sendspindroid.ui.wizard.DiscoveredServerUi
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
+import com.sendspindroid.musicassistant.transport.MaTransportException
 import java.io.IOException
 
 /**
@@ -507,7 +509,7 @@ class AddServerWizardViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val result = MusicAssistantAuth.login(apiUrl, maUsername, maPassword)
+                val result = MaAuthHelper.loginForToken(apiUrl, maUsername, maPassword)
                 maToken = result.accessToken
                 _maTestState.value = ConnectionTestState.Success("Connected to Music Assistant")
 
@@ -521,9 +523,13 @@ class AddServerWizardViewModel : ViewModel() {
                 }
 
                 onComplete(true)
-            } catch (e: MusicAssistantAuth.AuthenticationException) {
+            } catch (e: MaApiTransport.AuthenticationException) {
                 maToken = null
                 _maTestState.value = ConnectionTestState.Failed("Invalid credentials")
+                onComplete(false)
+            } catch (e: MaTransportException) {
+                maToken = null
+                _maTestState.value = ConnectionTestState.Failed("Network error")
                 onComplete(false)
             } catch (e: IOException) {
                 maToken = null

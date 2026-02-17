@@ -8,12 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import okio.ByteString
-import okio.ByteString.Companion.toByteString
 import org.webrtc.DataChannel
-import org.webrtc.DefaultVideoDecoderFactory
-import org.webrtc.DefaultVideoEncoderFactory
-import org.webrtc.EglBase
 import org.webrtc.IceCandidate
 import org.webrtc.MediaConstraints
 import org.webrtc.PeerConnection
@@ -41,8 +36,10 @@ import java.util.concurrent.atomic.AtomicReference
  * 8. DataChannel opens - transport is ready
  *
  * ## Threading
- * WebRTC callbacks come on internal WebRTC threads. This class bridges
- * to the IO dispatcher for consistency with the rest of the app.
+ * WebRTC callbacks arrive on internal WebRTC threads. All mutable references shared
+ * across threads are marked @Volatile so that cleanup() nulling them on the caller
+ * thread is immediately visible to observer callbacks on WebRTC threads. Observer
+ * callbacks check [isActive] to bail early when the transport has been torn down.
  *
  * @param context Android context for PeerConnectionFactory initialization
  * @param remoteId The 26-character Remote ID from Music Assistant settings
@@ -71,11 +68,15 @@ class WebRTCTransport(
         private var factoryInitialized = false
 
         private var peerConnectionFactory: PeerConnectionFactory? = null
-        private var eglBase: EglBase? = null
 
         /**
          * Initialize WebRTC factory. Must be called once per app lifecycle.
          * Thread-safe and idempotent.
+         *
+         * No EGL context is created because this app is audio-only (DataChannel
+         * transport). Passing null to video encoder/decoder factories is safe --
+         * they simply won't use hardware-accelerated video, which is irrelevant
+         * for a data-channel-only connection (H-23).
          */
         @Synchronized
         fun initializeFactory(context: Context) {
@@ -89,17 +90,27 @@ class WebRTCTransport(
                 .createInitializationOptions()
             PeerConnectionFactory.initialize(options)
 
-            // Create EglBase for hardware acceleration (optional for data-only)
-            eglBase = EglBase.create()
-
-            // Create PeerConnectionFactory
+            // Audio-only: no EGL context needed, pass null for video factories (H-23)
             peerConnectionFactory = PeerConnectionFactory.builder()
-                .setVideoEncoderFactory(DefaultVideoEncoderFactory(eglBase?.eglBaseContext, true, true))
-                .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase?.eglBaseContext))
                 .createPeerConnectionFactory()
 
             factoryInitialized = true
             Log.d(TAG, "PeerConnectionFactory initialized")
+        }
+
+        /**
+         * Release the PeerConnectionFactory singleton.
+         *
+         * Call when the app no longer needs WebRTC connections (e.g., on
+         * application shutdown). After calling this, [initializeFactory]
+         * must be called again before creating new connections.
+         */
+        @Synchronized
+        fun releaseFactory() {
+            peerConnectionFactory?.dispose()
+            peerConnectionFactory = null
+            factoryInitialized = false
+            Log.d(TAG, "PeerConnectionFactory released")
         }
     }
 
@@ -108,16 +119,32 @@ class WebRTCTransport(
     private val _state = AtomicReference(TransportState.Disconnected)
     override val state: TransportState get() = _state.get()
 
-    private var signalingClient: SignalingClient? = null
-    private var peerConnection: PeerConnection? = null
-    private var dataChannel: DataChannel? = null
-    private var maApiDataChannel: DataChannel? = null
-    private var listener: SendSpinTransport.Listener? = null
-    private var maApiChannelListener: MaApiChannelListener? = null
+    /**
+     * Whether the transport is in a state where callbacks should still be processed.
+     * Returns false after cleanup() has run (state becomes Failed, Closed, or Disconnected).
+     * Used as a guard in observer callbacks to avoid acting on stale/nulled references.
+     */
+    private val isActive: Boolean
+        get() = _state.get().let {
+            it == TransportState.Connecting || it == TransportState.Connected
+        }
+
+    // All nullable references below are accessed from multiple threads:
+    // - Caller thread (connect, close, destroy, setListener)
+    // - IO dispatcher coroutines (createPeerConnection, createOffer)
+    // - WebRTC internal threads (PeerConnectionObserver, DataChannelObserver callbacks)
+    // - SDP observer threads (onSetSuccess/onSetFailure)
+    // @Volatile ensures cleanup() nulling is immediately visible to all threads.
+    @Volatile private var signalingClient: SignalingClient? = null
+    @Volatile private var peerConnection: PeerConnection? = null
+    @Volatile private var dataChannel: DataChannel? = null
+    @Volatile private var maApiDataChannel: DataChannel? = null
+    @Volatile private var listener: SendSpinTransport.Listener? = null
+    @Volatile private var maApiChannelListener: MaApiChannelListener? = null
 
     // Queue ICE candidates until remote description is set
     private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
-    private var remoteDescriptionSet = false
+    @Volatile private var remoteDescriptionSet = false
 
     // Buffer for MA API DataChannel messages received before MaDataChannelTransport
     // takes over. The MA gateway sends ServerInfo immediately when the channel opens,
@@ -216,8 +243,22 @@ class WebRTCTransport(
     }
 
     override fun destroy() {
+        // Capture listener and active state before cleanup, since cleanup() nulls
+        // the dataChannel reference which prevents the async DataChannel.close()
+        // callback from reaching the listener (M-10).
+        val previousListener = listener
+        val wasActive = isActive
         close(1000, "Transport destroyed")
-        _state.set(TransportState.Closed)
+        // Transition to Closed. Use CAS so that if an async WebRTC callback
+        // already set the state to Closed and fired onClosed, we skip the
+        // duplicate callback.
+        val transitioned = _state.compareAndSet(TransportState.Connecting, TransportState.Closed) ||
+            _state.compareAndSet(TransportState.Connected, TransportState.Closed) ||
+            _state.compareAndSet(TransportState.Failed, TransportState.Closed) ||
+            _state.compareAndSet(TransportState.Disconnected, TransportState.Closed)
+        if (transitioned && wasActive) {
+            previousListener?.onClosed(1000, "Transport destroyed")
+        }
     }
 
     private fun cleanup() {
@@ -230,7 +271,7 @@ class WebRTCTransport(
         peerConnection?.close()
         peerConnection = null
 
-        signalingClient?.disconnect()
+        signalingClient?.destroy()
         signalingClient = null
 
         pendingIceCandidates.clear()
@@ -250,22 +291,25 @@ class WebRTCTransport(
 
     override fun onAnswer(sdp: String) {
         Log.d(TAG, "Setting remote description (answer)")
+        val pc = peerConnection ?: return
 
         val sessionDescription = SessionDescription(SessionDescription.Type.ANSWER, sdp)
-        peerConnection?.setRemoteDescription(object : SdpObserver {
+        pc.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(p0: SessionDescription?) {}
             override fun onCreateFailure(p0: String?) {}
 
             override fun onSetSuccess() {
+                if (!isActive) return
                 Log.d(TAG, "Remote description set successfully")
                 remoteDescriptionSet = true
 
                 // Add any queued ICE candidates
+                val pc2 = peerConnection ?: return
                 while (pendingIceCandidates.isNotEmpty()) {
                     val candidate = pendingIceCandidates.poll()
                     if (candidate != null) {
                         Log.d(TAG, "Adding queued ICE candidate")
-                        peerConnection?.addIceCandidate(candidate)
+                        pc2.addIceCandidate(candidate)
                     }
                 }
             }
@@ -278,6 +322,7 @@ class WebRTCTransport(
     }
 
     override fun onIceCandidate(candidate: IceCandidateInfo) {
+        if (!isActive) return
         val iceCandidate = IceCandidate(
             candidate.sdpMid,
             candidate.sdpMLineIndex,
@@ -286,7 +331,8 @@ class WebRTCTransport(
 
         if (remoteDescriptionSet) {
             Log.d(TAG, "Adding ICE candidate")
-            peerConnection?.addIceCandidate(iceCandidate)
+            val pc = peerConnection ?: return
+            pc.addIceCandidate(iceCandidate)
         } else {
             Log.d(TAG, "Queuing ICE candidate (remote description not set yet)")
             pendingIceCandidates.add(iceCandidate)
@@ -369,10 +415,13 @@ class WebRTCTransport(
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
         }
 
-        peerConnection?.createOffer(object : SdpObserver {
+        val pc = peerConnection ?: return
+        pc.createOffer(object : SdpObserver {
             override fun onCreateSuccess(sdp: SessionDescription) {
+                if (!isActive) return
                 Log.d(TAG, "SDP offer created")
-                peerConnection?.setLocalDescription(LocalDescriptionObserver(), sdp)
+                val pc2 = peerConnection ?: return
+                pc2.setLocalDescription(LocalDescriptionObserver(), sdp)
             }
 
             override fun onCreateFailure(error: String?) {
@@ -397,8 +446,10 @@ class WebRTCTransport(
     private inner class PeerConnectionObserver : PeerConnection.Observer {
 
         override fun onIceCandidate(candidate: IceCandidate) {
+            if (!isActive) return
             Log.d(TAG, "Local ICE candidate: ${candidate.sdp.take(50)}...")
-            signalingClient?.sendIceCandidate(
+            val sc = signalingClient ?: return
+            sc.sendIceCandidate(
                 IceCandidateInfo(
                     sdp = candidate.sdp,
                     sdpMid = candidate.sdpMid ?: "",
@@ -408,6 +459,7 @@ class WebRTCTransport(
         }
 
         override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
+            if (!isActive) return
             Log.d(TAG, "ICE connection state: $newState")
             when (newState) {
                 PeerConnection.IceConnectionState.CONNECTED,
@@ -432,6 +484,7 @@ class WebRTCTransport(
         }
 
         override fun onConnectionChange(newState: PeerConnection.PeerConnectionState) {
+            if (!isActive) return
             Log.d(TAG, "Peer connection state: $newState")
             when (newState) {
                 PeerConnection.PeerConnectionState.FAILED -> {
@@ -468,6 +521,7 @@ class WebRTCTransport(
 
         override fun onStateChange() {
             val dc = dataChannel ?: return
+            if (!isActive) return
             Log.d(TAG, "DataChannel state: ${dc.state()}")
 
             when (dc.state()) {
@@ -495,7 +549,7 @@ class WebRTCTransport(
             data.get(bytes)
 
             if (buffer.binary) {
-                listener?.onMessage(bytes.toByteString())
+                listener?.onMessage(bytes)
             } else {
                 val text = String(bytes, Charsets.UTF_8)
                 listener?.onMessage(text)
@@ -516,19 +570,22 @@ class WebRTCTransport(
 
         override fun onStateChange() {
             val dc = maApiDataChannel ?: return
+            if (!isActive) return
             Log.d(TAG, "MA API DataChannel state: ${dc.state()}")
 
             when (dc.state()) {
                 DataChannel.State.OPEN -> {
                     Log.i(TAG, "MA API DataChannel open")
+                    val l = maApiChannelListener ?: return
                     scope.launch {
-                        maApiChannelListener?.onMaApiChannelOpen(dc)
+                        l.onMaApiChannelOpen(dc)
                     }
                 }
                 DataChannel.State.CLOSED -> {
                     Log.d(TAG, "MA API DataChannel closed")
+                    val l = maApiChannelListener ?: return
                     scope.launch {
-                        maApiChannelListener?.onMaApiChannelClosed()
+                        l.onMaApiChannelClosed()
                     }
                 }
                 else -> {}
@@ -556,10 +613,13 @@ class WebRTCTransport(
         override fun onCreateFailure(p0: String?) {}
 
         override fun onSetSuccess() {
-            val localSdp = peerConnection?.localDescription
+            if (!isActive) return
+            val pc = peerConnection ?: return
+            val localSdp = pc.localDescription
             if (localSdp != null) {
                 Log.d(TAG, "Local description set, sending offer to signaling")
-                signalingClient?.sendOffer(localSdp.description)
+                val sc = signalingClient ?: return
+                sc.sendOffer(localSdp.description)
             }
         }
 

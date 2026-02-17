@@ -19,7 +19,6 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
 
@@ -49,7 +48,6 @@ fun ConnectionProgress(
         Text(
             text = stringResource(R.string.connecting_to, serverName),
             style = MaterialTheme.typography.bodyLarge,
-            fontSize = 16.sp,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.semantics {
                 liveRegion = LiveRegionMode.Polite

@@ -255,21 +255,19 @@ private fun DiscoveryStatusChip(
     discoveredCount: Int,
     modifier: Modifier = Modifier
 ) {
-    // Pulsing alpha for scanning state
-    val infiniteTransition = rememberInfiniteTransition(label = "scan_pulse")
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "scan_pulse_alpha"
-    )
-
     when {
         isScanning && discoveredCount == 0 -> {
-            // Still scanning, nothing found yet
+            // Still scanning, nothing found yet — pulsing alpha animation
+            val infiniteTransition = rememberInfiniteTransition(label = "scan_pulse")
+            val pulseAlpha by infiniteTransition.animateFloat(
+                initialValue = 0.5f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "scan_pulse_alpha"
+            )
             AssistChip(
                 onClick = { },
                 label = {

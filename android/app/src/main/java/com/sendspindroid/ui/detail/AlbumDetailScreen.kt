@@ -179,13 +179,14 @@ private fun AlbumHeroHeader(
         )
 
         // Tappable artist name
-        if (!album.artist.isNullOrEmpty()) {
+        val artistName = album.artist
+        if (!artistName.isNullOrEmpty()) {
             Text(
-                text = album.artist,
+                text = artistName,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
-                    .clickable { onArtistClick(album.artist) }
+                    .clickable { onArtistClick(artistName) }
                     .padding(horizontal = 16.dp, vertical = 4.dp)
             )
         }

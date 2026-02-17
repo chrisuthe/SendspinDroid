@@ -69,11 +69,11 @@ class RemoteConnection(private val context: Context) {
         fun parseRemoteId(input: String): String? {
             Log.d(TAG, "parseRemoteId input: $input")
 
-            // URL patterns for Music Assistant remote links
+            // URL patterns for Music Assistant remote links.
+            // Consolidated: removed redundant narrow pattern that didn't capture dashes.
             val urlPatterns = listOf(
-                Regex("""\?remote_id=([A-Za-z0-9]+)"""),                        // ?remote_id=ID (Music Assistant format)
                 Regex("""[?&]remote_id=([A-Za-z0-9-]+)"""),                     // ?remote_id=ID or &remote_id=ID
-                Regex("""app\.music-assistant\.io/[^/]*/([A-Za-z0-9-]+)"""),    // .../remote/ID or similar path
+                Regex("""app\.music-assistant\.io/[^/]*/([A-Za-z0-9-]+)"""),    // app.music-assistant.io/.../ID
                 Regex("""/remote/([A-Za-z0-9-]+)"""),                           // /remote/ID (generic path)
                 Regex("""[?&]id=([A-Za-z0-9-]+)"""),                            // ?id=ID or &id=ID (fallback)
             )
@@ -150,7 +150,7 @@ class RemoteConnection(private val context: Context) {
                 // Forwarded to whoever is using the transport
             }
 
-            override fun onMessage(bytes: okio.ByteString) {
+            override fun onMessage(bytes: ByteArray) {
                 // Forwarded to whoever is using the transport
             }
 
