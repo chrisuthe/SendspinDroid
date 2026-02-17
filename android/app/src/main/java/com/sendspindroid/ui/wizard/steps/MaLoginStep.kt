@@ -103,8 +103,9 @@ fun MaLoginStep(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Port field - use local string state so the user can freely clear/edit
-        var portText by remember { mutableStateOf(port.toString()) }
+        // Port field - use local string state so the user can freely clear/edit.
+        // Keyed on port so external changes (e.g. saved settings) are reflected.
+        var portText by remember(port) { mutableStateOf(port.toString()) }
         OutlinedTextField(
             value = portText,
             onValueChange = { value ->

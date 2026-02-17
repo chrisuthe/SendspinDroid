@@ -10,6 +10,9 @@ import java.util.UUID
 /**
  * Centralized access to user settings stored in SharedPreferences.
  * Uses the default SharedPreferences file for compatibility with PreferenceFragmentCompat.
+ *
+ * Thread-safety: Uses @Volatile + double-checked locking for initialization,
+ * matching the pattern in ServerRepository/UnifiedServerRepository.
  */
 object UserSettings {
 
@@ -42,15 +45,35 @@ object UserSettings {
     const val SYNC_OFFSET_MAX = 5000
     const val SYNC_OFFSET_DEFAULT = 0
 
+    @Volatile
     private var prefs: SharedPreferences? = null
+
+    // In-memory fallback for player ID generated before prefs is available.
+    // Ensures getPlayerId() always returns the same value even if called
+    // before initialize(), preventing silent UUID loss (C-16).
+    @Volatile
+    private var cachedPlayerId: String? = null
 
     /**
      * Initialize UserSettings with application context.
      * Must be called before accessing settings, typically in Application.onCreate() or MainActivity.onCreate().
+     * Thread-safe: uses double-checked locking so concurrent callers don't race.
      */
     fun initialize(context: Context) {
         if (prefs == null) {
-            prefs = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+            synchronized(this) {
+                if (prefs == null) {
+                    val p = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+                    // If a player ID was generated before prefs was available,
+                    // persist it now so it survives app restarts.
+                    cachedPlayerId?.let { id ->
+                        if (p.getString(KEY_PLAYER_ID, null).isNullOrBlank()) {
+                            p.edit().putString(KEY_PLAYER_ID, id).apply()
+                        }
+                    }
+                    prefs = p
+                }
+            }
         }
     }
 
@@ -78,15 +101,44 @@ object UserSettings {
      * Gets the persistent player ID, generating one if it doesn't exist.
      * This ID is stable across app launches and name changes, allowing the server
      * to consistently identify this player.
+     *
+     * Thread-safe: if called before initialize(), generates a UUID and caches it
+     * in memory. The cached ID is persisted when initialize() runs.
+     * Double-checked locking ensures only one UUID is ever generated.
      */
     fun getPlayerId(): String {
-        val saved = prefs?.getString(KEY_PLAYER_ID, null)
-        return if (saved.isNullOrBlank()) {
+        // Fast path: prefs available and ID already stored
+        val p = prefs
+        if (p != null) {
+            val saved = p.getString(KEY_PLAYER_ID, null)
+            if (!saved.isNullOrBlank()) return saved
+        }
+
+        // Check in-memory cache (covers pre-init calls)
+        cachedPlayerId?.let { return it }
+
+        // Slow path: generate under lock to prevent duplicate UUIDs
+        synchronized(this) {
+            // Re-check after acquiring lock
+            cachedPlayerId?.let { return it }
+
+            // Also re-check prefs (initialize() may have run while we waited)
+            val p2 = prefs
+            if (p2 != null) {
+                val saved = p2.getString(KEY_PLAYER_ID, null)
+                if (!saved.isNullOrBlank()) {
+                    cachedPlayerId = saved
+                    return saved
+                }
+            }
+
             val newId = UUID.randomUUID().toString()
-            setPlayerId(newId)
-            newId
-        } else {
-            saved
+            cachedPlayerId = newId
+
+            // Persist immediately if prefs is available
+            p2?.edit()?.putString(KEY_PLAYER_ID, newId)?.apply()
+
+            return newId
         }
     }
 
@@ -94,6 +146,7 @@ object UserSettings {
      * Sets the player ID (typically only called internally on first launch).
      */
     fun setPlayerId(id: String) {
+        cachedPlayerId = id
         prefs?.edit()?.putString(KEY_PLAYER_ID, id)?.apply()
     }
 
@@ -401,8 +454,20 @@ object UserSettings {
      * Gets all saved proxy servers with nicknames and tokens.
      * Format: "url::nickname::token::timestamp::username" separated by "|"
      *
-     * Note: Tokens are stored in plain text. For production, consider using
-     * EncryptedSharedPreferences for sensitive data. Passwords are NEVER stored.
+     * SECURITY NOTE (L-15): Auth tokens are stored in plain-text SharedPreferences.
+     * This means they are readable by any process with root access or via adb backup.
+     * Passwords are NEVER stored, but auth tokens should still be protected.
+     *
+     * TODO: Migrate to EncryptedSharedPreferences (androidx.security:security-crypto).
+     *   This requires:
+     *   1. Adding the androidx.security:security-crypto dependency
+     *   2. Creating a separate EncryptedSharedPreferences instance for sensitive data
+     *   3. Migration logic to move existing tokens from plain prefs to encrypted prefs
+     *   4. Fallback handling for KeyStoreException on devices with corrupt Android Keystore
+     *   5. Testing on API 23+ (EncryptedSharedPreferences minSdk)
+     *   Deferred because the migration path is non-trivial and risks data loss if not
+     *   implemented carefully. Current risk is low: tokens are short-lived session tokens
+     *   for reverse proxy auth, not long-lived credentials.
      *
      * @return List of saved proxy servers ordered by most recently used
      */
@@ -432,6 +497,7 @@ object UserSettings {
      * @param url The proxy server URL
      * @param nickname User-friendly name for the server
      * @param authToken The authentication token (never store password!)
+     *   See L-15 security note on [getSavedProxyServers] regarding plain-text storage.
      * @param username Optional username for re-login convenience
      */
     fun saveProxyServer(url: String, nickname: String, authToken: String, username: String? = null) {
@@ -525,5 +591,18 @@ object UserSettings {
                     else -> "Just now"
                 }
             }
+    }
+
+    // ========== Testing Support ==========
+
+    /**
+     * Reset all internal state. For unit tests only -- do not call in production.
+     */
+    @Suppress("unused") // Called via reflection or directly from tests
+    internal fun resetForTesting() {
+        synchronized(this) {
+            prefs = null
+            cachedPlayerId = null
+        }
     }
 }

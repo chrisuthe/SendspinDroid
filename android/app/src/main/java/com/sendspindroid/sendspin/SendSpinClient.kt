@@ -22,8 +22,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import okio.ByteString
-import org.json.JSONObject
+import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.sendspin.protocol.message.MessageBuilder
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketException
@@ -208,6 +211,14 @@ class SendSpinClient(
     override fun getClientId(): String = clientId
 
     override fun getDeviceName(): String = deviceName
+
+    override fun getManufacturer(): String = android.os.Build.MANUFACTURER
+
+    override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> =
+        MessageBuilder.buildSupportedFormats(
+            preferredCodec = UserSettings.getPreferredCodec(),
+            isCodecSupported = { AudioDecoderFactory.isCodecSupported(it) }
+        )
 
     override fun onHandshakeComplete(serverName: String, serverId: String) {
         this.serverName = serverName
@@ -596,6 +607,9 @@ class SendSpinClient(
         reconnecting.set(false)
         waitingForNetwork.set(false)
         sendGoodbye("user_request")
+        // Clear the transport listener BEFORE closing to prevent the async onClosed
+        // callback from firing a second onDisconnected after we fire one synchronously below.
+        transport?.setListener(null)
         transport?.close(1000, "User disconnect")
         transport = null
         handshakeComplete = false
@@ -833,10 +847,10 @@ class SendSpinClient(
                 // WebSocket message.
                 Log.d(TAG, "Sending proxy auth message (token ${authToken!!.length} chars)")
                 awaitingAuthResponse = true
-                val authMsg = JSONObject().apply {
-                    put("type", "auth")
-                    put("token", authToken)
-                    put("client_id", clientId)
+                val authMsg = kotlinx.serialization.json.buildJsonObject {
+                    put("type", kotlinx.serialization.json.JsonPrimitive("auth"))
+                    put("token", kotlinx.serialization.json.JsonPrimitive(authToken))
+                    put("client_id", kotlinx.serialization.json.JsonPrimitive(clientId))
                 }
                 val sent = transport?.send(authMsg.toString())
                 Log.d(TAG, "Auth message send result: $sent")
@@ -855,10 +869,10 @@ class SendSpinClient(
             // Check for auth failure (server may send error if token is invalid)
             if (connectionMode == ConnectionMode.PROXY && !handshakeComplete) {
                 try {
-                    val json = JSONObject(text)
-                    val msgType = json.optString("type")
+                    val json = kotlinx.serialization.json.Json.parseToJsonElement(text).jsonObject
+                    val msgType = json["type"]?.jsonPrimitive?.contentOrNull ?: ""
                     if (msgType == "auth_failed" || msgType == "error") {
-                        val msg = json.optString("message", "Authentication failed")
+                        val msg = json["message"]?.jsonPrimitive?.contentOrNull ?: "Authentication failed"
                         Log.e(TAG, "Proxy auth failed: $msg")
                         awaitingAuthResponse = false
                         callback.onError("Authentication failed: $msg")
@@ -872,16 +886,19 @@ class SendSpinClient(
 
             // After receiving first message post-auth, send client/hello
             if (awaitingAuthResponse) {
-                Log.d(TAG, "Received first message after auth, sending client/hello")
+                Log.d(TAG, "Received auth-ack, sending client/hello")
                 awaitingAuthResponse = false
                 sendClientHello()
-                // Don't return - still process this message normally
+                // Consume the auth-ack message; do NOT forward it to the protocol handler.
+                // If the auth-ack were forwarded, it could be misinterpreted as a protocol
+                // message (e.g., a server/hello arriving before client/hello is sent).
+                return
             }
 
             handleTextMessage(text)
         }
 
-        override fun onMessage(bytes: ByteString) {
+        override fun onMessage(bytes: ByteArray) {
             handleBinaryMessage(bytes)
         }
 

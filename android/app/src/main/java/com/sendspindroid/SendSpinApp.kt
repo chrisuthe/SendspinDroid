@@ -5,10 +5,13 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import com.google.android.material.color.DynamicColors
 import com.sendspindroid.musicassistant.MaProxyImageFetcher
+import com.sendspindroid.musicassistant.MaSettings
 
 class SendSpinApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
+        // Initialize MaSettings early so it is available before any Activity or Service.
+        MaSettings.initialize(this)
         // On Android 12+, applies wallpaper-derived colors to all activities.
         // On older devices, falls back to the static theme colors.
         DynamicColors.applyToActivitiesIfAvailable(this)

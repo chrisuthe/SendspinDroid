@@ -36,9 +36,15 @@ object DebugLogger {
 
     private const val TAG = "DebugLogger"
 
-    // Session tracking for log context
+    // Session tracking for log context.
+    // @Volatile ensures cross-thread visibility (L-16): startSession/endSession are
+    // called from the main handler, but logStats runs on a debug logging handler and
+    // createShareIntent/buildShareMessage can run from any UI thread.
+    @Volatile
     private var serverName: String = ""
+    @Volatile
     private var serverAddress: String = ""
+    @Volatile
     private var sessionStartTimeMs: Long = 0L
 
     /**

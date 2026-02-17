@@ -45,6 +45,7 @@ import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
 import com.sendspindroid.ui.navigation.search.components.SearchResultItem
@@ -245,7 +246,7 @@ private fun FilterChipsRow(
 
 @Composable
 private fun SearchResultsList(
-    results: MusicAssistantManager.SearchResults,
+    results: SearchResults,
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},

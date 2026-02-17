@@ -47,10 +47,11 @@ class NsdDiscoveryManager(
     private var nsdManager: NsdManager? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var multicastLock: WifiManager.MulticastLock? = null
-    private var isDiscovering = false
 
-    // Track if we need to restart discovery after it stops (for async stop handling)
-    private var pendingRestart = false
+    // These flags are accessed from both the main thread (start/stop calls) and the
+    // NSD binder thread (callbacks). @Volatile ensures cross-thread visibility (C-15).
+    @Volatile private var isDiscovering = false
+    @Volatile private var pendingRestart = false
 
     // Track services we're currently resolving to avoid duplicate resolutions
     private val resolvingServices = mutableSetOf<String>()
@@ -95,6 +96,17 @@ class NsdDiscoveryManager(
             override fun onDiscoveryStopped(serviceType: String) {
                 Log.d(TAG, "Discovery stopped for $serviceType")
                 isDiscovering = false
+
+                // Clear resolving services tracking set to avoid stale entries
+                // persisting across discovery sessions (M-09).
+                synchronized(resolvingServices) {
+                    resolvingServices.clear()
+                }
+
+                // Release multicast lock here (not in stopDiscovery()) so it stays
+                // held until discovery actually stops on the NSD binder thread (C-15).
+                releaseMulticastLock()
+
                 listener.onDiscoveryStopped()
 
                 // Check if we need to restart discovery
@@ -235,10 +247,12 @@ class NsdDiscoveryManager(
             Log.e(TAG, "Error stopping discovery", e)
             // On error, mark as not discovering so we can try again
             isDiscovering = false
+            // Release lock here since onDiscoveryStopped won't fire on error
+            releaseMulticastLock()
         }
-
-        releaseMulticastLock()
-        // Note: Don't set isDiscovering = false here - wait for onDiscoveryStopped callback
+        // Note: Don't set isDiscovering = false here - wait for onDiscoveryStopped callback.
+        // Multicast lock is released in onDiscoveryStopped to ensure it stays held
+        // until discovery actually stops on the NSD binder thread (C-15).
     }
 
     /**

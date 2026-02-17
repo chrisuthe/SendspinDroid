@@ -4,7 +4,9 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.telephony.TelephonyManager
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,11 +98,13 @@ class NetworkEvaluator(private val context: Context) {
      * Builds NetworkState from NetworkCapabilities.
      */
     private fun buildNetworkState(capabilities: NetworkCapabilities): NetworkState {
+        // Check VPN before WiFi/Cellular: Android reports multiple transports
+        // simultaneously (e.g., VPN + WiFi), so VPN must be checked first.
         val transportType = when {
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> TransportType.VPN
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> TransportType.WIFI
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> TransportType.CELLULAR
             capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> TransportType.ETHERNET
-            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> TransportType.VPN
             else -> TransportType.UNKNOWN
         }
 
@@ -110,7 +114,7 @@ class NetworkEvaluator(private val context: Context) {
 
         // Get WiFi details if on WiFi
         val (rssi, linkSpeed, frequency) = if (transportType == TransportType.WIFI) {
-            getWifiDetails()
+            getWifiDetails(capabilities)
         } else {
             Triple(null, null, null)
         }
@@ -138,14 +142,36 @@ class NetworkEvaluator(private val context: Context) {
         )
     }
 
-    @Suppress("DEPRECATION")
-    private fun getWifiDetails(): Triple<Int?, Int?, Int?> {
-        val info = wifiManager?.connectionInfo ?: return Triple(null, null, null)
+    /**
+     * Gets WiFi details (RSSI, link speed, frequency).
+     *
+     * On API 31+ (Android 12), retrieves WifiInfo from [NetworkCapabilities.getTransportInfo]
+     * which is the non-deprecated approach. On older APIs, falls back to
+     * [WifiManager.getConnectionInfo] which is deprecated but the only option.
+     */
+    private fun getWifiDetails(capabilities: NetworkCapabilities): Triple<Int?, Int?, Int?> {
+        val info = getWifiInfo(capabilities) ?: return Triple(null, null, null)
         return Triple(
             info.rssi.takeIf { it != -127 },  // -127 = unavailable
             info.linkSpeed.takeIf { it > 0 },
             info.frequency.takeIf { it > 0 }
         )
+    }
+
+    /**
+     * Retrieves [WifiInfo] using the appropriate API for the current Android version.
+     *
+     * - API 31+ (Android 12): Uses [NetworkCapabilities.getTransportInfo] which returns
+     *   [WifiInfo] directly from the active network's capabilities.
+     * - API < 31: Falls back to deprecated [WifiManager.getConnectionInfo].
+     */
+    private fun getWifiInfo(capabilities: NetworkCapabilities): WifiInfo? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            capabilities.transportInfo as? WifiInfo
+        } else {
+            @Suppress("DEPRECATION")
+            wifiManager?.connectionInfo
+        }
     }
 
     @Suppress("DEPRECATION")

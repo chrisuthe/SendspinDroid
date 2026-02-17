@@ -206,10 +206,16 @@ data class SyncStats(
                 serverAddress = bundle.getString("server_address"),
                 connectionState = bundle.getString("connection_state", "Unknown"),
 
-                // Playback state
-                playbackState = PlaybackState.valueOf(
-                    bundle.getString("playback_state", PlaybackState.INITIALIZING.name)
-                ),
+                // Playback state - guard against unknown enum values from
+                // newer app versions or corrupted MediaSession extras (C-17)
+                playbackState = try {
+                    PlaybackState.valueOf(
+                        bundle.getString("playback_state")
+                            ?: PlaybackState.INITIALIZING.name
+                    )
+                } catch (_: IllegalArgumentException) {
+                    PlaybackState.INITIALIZING
+                },
                 isPlaying = bundle.getBoolean("is_playing", false),
 
                 // Sync error

@@ -1,12 +1,11 @@
 package com.sendspindroid.network
 
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.sendspindroid.model.ConnectionType
 import com.sendspindroid.model.UnifiedServer
 import kotlinx.coroutines.*
+import kotlin.coroutines.coroutineContext
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -16,13 +15,23 @@ import java.util.concurrent.atomic.AtomicInteger
  * ## Design Philosophy
  * - Returns to ServerList UI immediately on connection loss
  * - Shows reconnection progress on the server card being reconnected
- * - Tries all connection methods (local → remote → proxy) to handle network transitions
+ * - Tries all connection methods (local -> remote -> proxy) to handle network transitions
  * - User can see status, tap other servers, or wait for auto-reconnect
+ *
+ * ## Architecture
+ * The entire retry loop (delay + attempt + loop-back) runs inside a **single coroutine**
+ * stored in [reconnectJob]. This makes [cancelReconnection] trivially correct: cancelling
+ * the one job terminates everything -- backoff delay, in-flight connection attempt, and
+ * any future iterations.
+ *
+ * When the network comes back mid-delay, [onNetworkAvailable] completes a
+ * [CompletableDeferred] that the loop is selecting on, skipping the remaining
+ * backoff without cancelling the coroutine.
  *
  * ## Backoff Strategy
  * ```
  * Phase 1: Quick Recovery (server hiccup)
- * ──────────────────────────────────────
+ * ----------------------------------------
  * Attempt  Delay    Cumulative
  * 1        500ms    0.5s
  * 2        1s       1.5s
@@ -31,13 +40,13 @@ import java.util.concurrent.atomic.AtomicInteger
  * 5        8s       15s
  *
  * Phase 2: Patient Recovery (server reboot / network change)
- * ──────────────────────────────────────
+ * ----------------------------------------
  * 6        15s      30s
  * 7        30s      1m
  * 8        60s      2m
  * 9        60s      3m
  * 10       60s      4m
- * 11       60s      5m      ← stop here
+ * 11       60s      5m      <- stop here
  * ```
  *
  * Each attempt tries ALL connection methods in priority order based on network type.
@@ -92,6 +101,20 @@ class AutoReconnectManager(
         )
 
         const val MAX_ATTEMPTS = 11
+
+        /**
+         * Minimum interval between network-triggered delay skips (ms).
+         * Prevents rapid network flapping from burning through all retry
+         * attempts in seconds. When the network toggles on/off faster than
+         * this window, subsequent onNetworkAvailable() calls are debounced.
+         */
+        internal const val NETWORK_DEBOUNCE_MS = 2_000L
+
+        /**
+         * Minimum delay (ms) imposed after a network-triggered skip so the
+         * loop does not fire attempts faster than the network can stabilize.
+         */
+        internal const val MIN_DELAY_AFTER_NETWORK_SKIP_MS = 500L
     }
 
     // State
@@ -100,9 +123,18 @@ class AutoReconnectManager(
     private val currentAttempt = AtomicInteger(0)
     private val isReconnecting = AtomicBoolean(false)
 
-    // Coroutine management
+    // Coroutine management -- single job owns the entire retry lifecycle
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var reconnectJob: Job? = null
+
+    // Signal to skip the current backoff delay (set by onNetworkAvailable)
+    @Volatile
+    private var skipDelay: CompletableDeferred<Unit>? = null
+
+    // Monotonic timestamp of the last accepted network skip (for debounce).
+    // Uses System.nanoTime() for monotonic guarantees.
+    @Volatile
+    private var lastNetworkSkipNanos: Long = 0L
 
     // Network evaluator for determining connection priority
     private val networkEvaluator = NetworkEvaluator(context)
@@ -121,17 +153,25 @@ class AutoReconnectManager(
         reconnectingServer = server
         currentAttempt.set(0)
         isReconnecting.set(true)
+        lastNetworkSkipNanos = 0L
 
         // Get initial network state
         networkEvaluator.evaluateCurrentNetwork()
 
-        // Start the reconnection loop
-        scheduleNextAttempt()
+        // Launch a single coroutine that owns the entire retry loop.
+        // Cancelling this one job stops everything: backoff delay, in-flight
+        // connection attempt, and any future loop iterations.
+        reconnectJob = scope.launch {
+            runReconnectLoop(server, server.id)
+        }
     }
 
     /**
      * Cancels any ongoing reconnection attempt.
      * Called when user selects a different server or explicitly disconnects.
+     *
+     * Because the entire retry loop lives in [reconnectJob], cancelling it
+     * is sufficient to stop all activity -- no orphaned coroutines possible.
      */
     fun cancelReconnection() {
         if (!isReconnecting.get()) return
@@ -140,10 +180,12 @@ class AutoReconnectManager(
 
         reconnectJob?.cancel()
         reconnectJob = null
+        skipDelay = null
         isReconnecting.set(false)
         reconnectingServerId = null
         reconnectingServer = null
         currentAttempt.set(0)
+        lastNetworkSkipNanos = 0L
     }
 
     /**
@@ -170,89 +212,106 @@ class AutoReconnectManager(
 
     /**
      * Called when network becomes available.
-     * If reconnecting, immediately triggers the next attempt (cancels backoff delay).
+     *
+     * If reconnecting, skips the remaining backoff delay so the next attempt
+     * fires sooner. Does NOT cancel the coroutine -- it simply signals the
+     * loop to wake up early.
+     *
+     * **Debounce**: On a flapping network (e.g. WiFi toggling), the OS may
+     * fire onAvailable() many times in quick succession. Without debounce,
+     * every call would skip a backoff delay, burning through all
+     * [MAX_ATTEMPTS] in seconds. We therefore ignore calls that arrive within
+     * [NETWORK_DEBOUNCE_MS] of the previous accepted skip.
+     *
+     * Network-triggered retries count toward [MAX_ATTEMPTS] -- the loop
+     * variable `attemptNumber` increments regardless of how the delay ended.
      */
     fun onNetworkAvailable() {
         if (!isReconnecting.get()) return
 
+        val now = System.nanoTime()
+        val elapsedMs = (now - lastNetworkSkipNanos) / 1_000_000
+        if (elapsedMs < NETWORK_DEBOUNCE_MS) {
+            Log.d(TAG, "Network available debounced (${elapsedMs}ms since last skip)")
+            return
+        }
+
+        lastNetworkSkipNanos = now
         Log.i(TAG, "Network available during reconnection - triggering immediate retry")
 
-        // Cancel pending backoff delay
-        reconnectJob?.cancel()
-
-        // Reset network state
+        // Re-evaluate network state so the next attempt picks the right methods
         networkEvaluator.evaluateCurrentNetwork()
 
-        // Immediately attempt reconnection
-        attemptReconnection()
+        // Complete the deferred to wake the loop from its delay
+        skipDelay?.complete(Unit)
     }
 
     /**
-     * Schedules the next reconnection attempt with backoff delay.
+     * The single coroutine that owns the entire retry lifecycle.
+     *
+     * Structure:
+     * ```
+     * for each attempt 1..MAX_ATTEMPTS:
+     *     wait backoff delay (skippable via onNetworkAvailable)
+     *     try all connection methods
+     *     if success -> return
+     * on exhaustion -> notify failure
+     * ```
+     *
+     * Cancellation of [reconnectJob] propagates into this function via
+     * [ensureActive] / [delay] / [CompletableDeferred.await], stopping
+     * execution at the earliest suspension point.
      */
-    private fun scheduleNextAttempt() {
-        val attempt = currentAttempt.incrementAndGet()
+    private suspend fun runReconnectLoop(server: UnifiedServer, serverId: String) {
+        for (attemptNumber in 1..MAX_ATTEMPTS) {
+            // Update attempt counter for UI reads
+            currentAttempt.set(attemptNumber)
 
-        if (attempt > MAX_ATTEMPTS) {
-            Log.w(TAG, "Max reconnection attempts ($MAX_ATTEMPTS) reached, giving up")
-            isReconnecting.set(false)
-            val serverId = reconnectingServerId ?: return
-            onFailure(serverId, "Connection lost after $MAX_ATTEMPTS reconnection attempts")
-            reconnectingServerId = null
-            reconnectingServer = null
-            return
-        }
+            val delayMs = BACKOFF_DELAYS.getOrElse(attemptNumber - 1) { BACKOFF_DELAYS.last() }
 
-        val delayMs = BACKOFF_DELAYS.getOrElse(attempt - 1) { BACKOFF_DELAYS.last() }
+            Log.i(TAG, "Scheduling reconnect attempt $attemptNumber/$MAX_ATTEMPTS in ${delayMs}ms")
 
-        Log.i(TAG, "Scheduling reconnect attempt $attempt/$MAX_ATTEMPTS in ${delayMs}ms")
+            // Notify UI of upcoming attempt
+            onAttempt(serverId, attemptNumber, MAX_ATTEMPTS, null)
 
-        // Notify UI of upcoming attempt
-        reconnectingServerId?.let { serverId ->
-            onAttempt(serverId, attempt, MAX_ATTEMPTS, null)
-        }
+            // Backoff delay -- cancellable via job cancellation, skippable via
+            // onNetworkAvailable completing the deferred.
+            val signal = CompletableDeferred<Unit>()
+            skipDelay = signal
+            var skippedByNetwork = false
+            try {
+                withTimeout(delayMs) {
+                    signal.await()
+                    skippedByNetwork = true
+                    Log.d(TAG, "Backoff delay skipped by network event")
+                }
+            } catch (_: TimeoutCancellationException) {
+                // Normal: the full delay elapsed without a skip signal
+            }
+            skipDelay = null
 
-        reconnectJob = scope.launch {
-            delay(delayMs)
-
-            if (!isReconnecting.get()) {
-                Log.d(TAG, "Reconnection cancelled during delay")
-                return@launch
+            // When the delay was skipped by a network event, insert a short
+            // stabilization pause so we don't hammer the server on flapping
+            // networks. This delay is still cancellable via job cancellation.
+            if (skippedByNetwork) {
+                delay(MIN_DELAY_AFTER_NETWORK_SKIP_MS)
             }
 
-            attemptReconnection()
-        }
-    }
+            // Check cancellation after waking from delay
+            coroutineContext.ensureActive()
 
-    /**
-     * Attempts to reconnect using all available connection methods.
-     */
-    private fun attemptReconnection() {
-        val server = reconnectingServer ?: return
-        val serverId = reconnectingServerId ?: return
-
-        if (!isReconnecting.get()) {
-            Log.d(TAG, "Reconnection cancelled before attempt")
-            return
-        }
-
-        reconnectJob = scope.launch {
-            // Get current network state
+            // -- Attempt reconnection using all available methods --
             networkEvaluator.evaluateCurrentNetwork()
             val networkState = networkEvaluator.networkState.value
-
-            // Get ordered connection methods based on network type
             val methods = ConnectionSelector.getPriorityOrder(networkState.transportType)
 
             Log.d(TAG, "Attempting reconnect with methods: ${methods.joinToString()} on ${networkState.transportType}")
 
-            for (method in methods) {
-                if (!isReconnecting.get()) {
-                    Log.d(TAG, "Reconnection cancelled during method iteration")
-                    return@launch
-                }
+            var succeeded = false
 
-                // Get the selected connection for this method
+            for (method in methods) {
+                coroutineContext.ensureActive()
+
                 val selectedConnection = when (method) {
                     ConnectionType.LOCAL -> server.local?.let {
                         ConnectionSelector.SelectedConnection.Local(it.address, it.path)
@@ -283,22 +342,30 @@ class AutoReconnectManager(
                         reconnectingServerId = null
                         reconnectingServer = null
                         currentAttempt.set(0)
-                        return@launch
+                        succeeded = true
+                        break
                     } else {
                         Log.d(TAG, "$method connection failed, trying next method")
                     }
+                } catch (e: CancellationException) {
+                    throw e // Always propagate cancellation
                 } catch (e: Exception) {
                     Log.w(TAG, "$method connection failed with exception: ${e.message}")
                     // Continue to next method
                 }
             }
 
-            // All methods failed for this attempt, schedule next attempt
-            Log.d(TAG, "All connection methods failed for attempt ${currentAttempt.get()}, scheduling next attempt")
-            if (isReconnecting.get()) {
-                scheduleNextAttempt()
-            }
+            if (succeeded) return
+
+            Log.d(TAG, "All connection methods failed for attempt $attemptNumber, will retry")
         }
+
+        // All attempts exhausted
+        Log.w(TAG, "Max reconnection attempts ($MAX_ATTEMPTS) reached, giving up")
+        isReconnecting.set(false)
+        onFailure(serverId, "Connection lost after $MAX_ATTEMPTS reconnection attempts")
+        reconnectingServerId = null
+        reconnectingServer = null
     }
 
     /**

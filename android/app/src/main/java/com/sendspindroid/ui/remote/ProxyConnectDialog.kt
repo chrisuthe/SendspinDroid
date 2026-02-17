@@ -14,13 +14,15 @@ import androidx.fragment.app.DialogFragment
 import androidx.lifecycle.lifecycleScope
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
-import com.sendspindroid.sendspin.MusicAssistantAuth
+import com.sendspindroid.musicassistant.MaAuthHelper
+import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.ui.dialogs.ProxyAuthModeDialog
 import com.sendspindroid.ui.dialogs.ProxyConnectDialog as ProxyConnectDialogContent
 import com.sendspindroid.ui.dialogs.ProxyCredentials
 import com.sendspindroid.ui.dialogs.SavedProxyServer
 import com.sendspindroid.ui.theme.SendSpinTheme
 import kotlinx.coroutines.launch
+import com.sendspindroid.musicassistant.transport.MaTransportException
 import java.io.IOException
 
 /**
@@ -66,6 +68,7 @@ class ProxyConnectDialog : DialogFragment() {
 
     // Compose state
     private var isLoading by mutableStateOf(false)
+    private var errorMessage by mutableStateOf<String?>(null)
     private var savedServers by mutableStateOf<List<SavedProxyServer>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,6 +90,7 @@ class ProxyConnectDialog : DialogFragment() {
                     ProxyConnectDialogContent(
                         savedServers = savedServers,
                         isLoading = isLoading,
+                        errorMessage = errorMessage,
                         onConnect = { url, authMode, credentials ->
                             handleConnect(url, authMode, credentials)
                         },
@@ -118,7 +122,11 @@ class ProxyConnectDialog : DialogFragment() {
     private fun handleConnect(url: String, authMode: ProxyAuthModeDialog, credentials: ProxyCredentials) {
         if (isLoading) return
 
+        // Clear previous error on new attempt
+        errorMessage = null
+
         if (!isValidProxyUrl(url)) {
+            errorMessage = "Invalid proxy URL format"
             return
         }
 
@@ -173,7 +181,7 @@ class ProxyConnectDialog : DialogFragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 // Call the login API
-                val result = MusicAssistantAuth.login(url, credentials.username, credentials.password)
+                val result = MaAuthHelper.loginForToken(url, credentials.username, credentials.password)
 
                 // Determine nickname: user-provided > MA user name > URL
                 val serverNickname = credentials.nickname
@@ -194,15 +202,18 @@ class ProxyConnectDialog : DialogFragment() {
                 onConnect?.invoke(url, result.accessToken, serverNickname)
                 dismiss()
 
-            } catch (e: MusicAssistantAuth.AuthenticationException) {
+            } catch (e: MaApiTransport.AuthenticationException) {
                 isLoading = false
-                // Error is shown inline in Compose UI
-            } catch (e: MusicAssistantAuth.ServerException) {
+                errorMessage = "Authentication failed: invalid username or password"
+            } catch (e: MaTransportException) {
                 isLoading = false
+                errorMessage = "Connection error: ${e.message ?: "could not reach server"}"
             } catch (e: IOException) {
                 isLoading = false
+                errorMessage = "Network error: ${e.message ?: "check your connection"}"
             } catch (e: Exception) {
                 isLoading = false
+                errorMessage = "Unexpected error: ${e.message ?: "unknown failure"}"
             }
         }
     }

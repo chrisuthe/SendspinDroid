@@ -117,7 +117,6 @@ fun MediaCard(
                 text = item.name,
                 style = MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
                     lineHeight = 18.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
@@ -132,9 +131,7 @@ fun MediaCard(
             if (subtitle.isNotEmpty()) {
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = 12.sp
-                    ),
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

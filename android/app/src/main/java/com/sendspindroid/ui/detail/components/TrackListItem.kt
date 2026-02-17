@@ -111,9 +111,10 @@ fun TrackListItem(
                 overflow = TextOverflow.Ellipsis
             )
 
-            if (showArtist && !track.artist.isNullOrEmpty()) {
+            val trackArtist = track.artist
+            if (showArtist && !trackArtist.isNullOrEmpty()) {
                 Text(
-                    text = track.artist,
+                    text = trackArtist,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

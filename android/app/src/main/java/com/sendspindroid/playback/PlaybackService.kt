@@ -119,7 +119,7 @@ class PlaybackService : MediaLibraryService() {
     private var sendSpinPlayer: SendSpinPlayer? = null
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
-    private var syncAudioPlayer: SyncAudioPlayer? = null
+    @Volatile private var syncAudioPlayer: SyncAudioPlayer? = null
     private var audioDecoder: AudioDecoder? = null
     private var currentCodec: String = "pcm"  // Track current stream codec for stats
 
@@ -1069,12 +1069,21 @@ class PlaybackService : MediaLibraryService() {
                     audioDecoder = AudioDecoderFactory.create(codec)
                     audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
                     Log.i(TAG, "Audio decoder created: $codec")
+                    decoderReady = true
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
-                    audioDecoder = AudioDecoderFactory.create("pcm")
+                    try {
+                        val fallback = AudioDecoderFactory.create("pcm")
+                        fallback.configure(sampleRate, channels, bitDepth)
+                        audioDecoder = fallback
+                        Log.i(TAG, "PCM fallback decoder configured")
+                        decoderReady = true
+                    } catch (fallbackEx: Exception) {
+                        Log.e(TAG, "PCM fallback decoder also failed", fallbackEx)
+                        audioDecoder = null
+                        // decoderReady stays false -- onAudioChunk will drop chunks
+                    }
                 }
-                // Signal that the new decoder is ready for use by onAudioChunk
-                decoderReady = true
 
                 // Get the time filter from SendSpinClient
                 val timeFilter = sendSpinClient?.getTimeFilter()
@@ -2794,12 +2803,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun createSavedServerItem(server: UnifiedServer): MediaItem {
-        val subtitle = when {
-            server.local != null -> server.local.address
-            server.proxy != null -> "Proxy"
-            server.remote != null -> "Remote Access"
-            else -> ""
-        }
+        val subtitle = server.local?.address
+            ?: if (server.proxy != null) "Proxy"
+            else if (server.remote != null) "Remote Access"
+            else ""
         return MediaItem.Builder()
             .setMediaId("$MEDIA_ID_SAVED_SERVER_PREFIX${server.id}")
             .setMediaMetadata(
@@ -3114,8 +3121,9 @@ class PlaybackService : MediaLibraryService() {
                     Log.d(TAG, "Voice search: empty query, playing recent")
                     val recent = MusicAssistantManager.getRecentlyPlayed(limit = 1)
                     val firstTrack = recent.getOrNull()?.firstOrNull()
-                    if (firstTrack?.uri != null) {
-                        MusicAssistantManager.playMedia(firstTrack.uri, mediaType = "track")
+                    val recentUri = firstTrack?.uri
+                    if (recentUri != null) {
+                        MusicAssistantManager.playMedia(recentUri, mediaType = "track")
                     } else {
                         Log.w(TAG, "Voice search: no recent tracks to play")
                     }
@@ -3129,9 +3137,10 @@ class PlaybackService : MediaLibraryService() {
                     )
                     val searchResults = result.getOrNull()
                     val firstTrack = searchResults?.tracks?.firstOrNull()
-                    if (firstTrack?.uri != null) {
+                    val trackUri = firstTrack?.uri
+                    if (trackUri != null) {
                         Log.d(TAG, "Voice search: playing track '${firstTrack.name}'")
-                        MusicAssistantManager.playMedia(firstTrack.uri, mediaType = "track")
+                        MusicAssistantManager.playMedia(trackUri, mediaType = "track")
                     } else {
                         // Try playing first playlist or album if no tracks found
                         val firstPlaylist = searchResults?.playlists?.firstOrNull()

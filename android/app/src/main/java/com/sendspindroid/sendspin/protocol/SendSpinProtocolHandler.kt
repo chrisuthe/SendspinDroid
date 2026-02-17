@@ -5,10 +5,14 @@ import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
+import com.sendspindroid.sendspin.protocol.message.parse
 import com.sendspindroid.sendspin.protocol.timesync.TimeSyncManager
 import kotlinx.coroutines.CoroutineScope
-import okio.ByteString
-import org.json.JSONObject
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.nio.ByteBuffer
 
 /**
@@ -134,17 +138,28 @@ abstract class SendSpinProtocolHandler(
     // ========== Protocol Message Sending ==========
 
     /**
+     * Get the manufacturer name for device identification.
+     */
+    protected abstract fun getManufacturer(): String
+
+    /**
+     * Get the supported audio formats for the client/hello handshake.
+     */
+    protected abstract fun getSupportedFormats(): List<MessageBuilder.FormatEntry>
+
+    /**
      * Send client/hello message to start handshake.
      */
     protected fun sendClientHello() {
-        val message = MessageBuilder.buildClientHello(
+        val text = MessageBuilder.buildClientHello(
             clientId = getClientId(),
             deviceName = getDeviceName(),
-            bufferCapacity = getBufferCapacity()
+            bufferCapacity = getBufferCapacity(),
+            manufacturer = getManufacturer(),
+            supportedFormats = getSupportedFormats()
         )
-        sendMessage(message)
-        // Log full message for debugging protocol issues (helps identify field name mismatches)
-        Log.d(tag, "Sent client/hello: ${MessageBuilder.serialize(message).take(500)}")
+        sendTextMessage(text)
+        Log.d(tag, "Sent client/hello: ${text.take(500)}")
     }
 
     /**
@@ -152,8 +167,7 @@ abstract class SendSpinProtocolHandler(
      */
     protected fun sendClientTime() {
         val clientTransmitted = System.nanoTime() / 1000 // Convert to microseconds
-        val message = MessageBuilder.buildClientTime(clientTransmitted)
-        sendMessage(message)
+        sendTextMessage(MessageBuilder.buildClientTime(clientTransmitted))
     }
 
     /**
@@ -161,16 +175,14 @@ abstract class SendSpinProtocolHandler(
      */
     protected fun sendGoodbye(reason: String) {
         if (!handshakeComplete) return
-        val message = MessageBuilder.buildGoodbye(reason)
-        sendMessage(message)
+        sendTextMessage(MessageBuilder.buildGoodbye(reason))
     }
 
     /**
      * Send player state update (volume/muted/sync state).
      */
     protected fun sendPlayerStateUpdate() {
-        val message = MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState)
-        sendMessage(message)
+        sendTextMessage(MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState))
     }
 
     /**
@@ -199,21 +211,7 @@ abstract class SendSpinProtocolHandler(
      * Send a media command (play, pause, next, previous, switch).
      */
     fun sendCommand(command: String) {
-        val message = MessageBuilder.buildCommand(command)
-        sendMessage(message)
-    }
-
-    /**
-     * Send a JSON message, handling slash escaping.
-     */
-    protected fun sendMessage(message: JSONObject) {
-        val text = MessageBuilder.serialize(message)
-        sendTextMessage(text)
-        // Only log non-time-sync messages to avoid flooding logcat
-        val type = message.optString("type")
-        if (type != SendSpinProtocol.MessageType.CLIENT_TIME) {
-            Log.d(tag, "sendMessage: type=$type, length=${text.length}")
-        }
+        sendTextMessage(MessageBuilder.buildCommand(command))
     }
 
     // ========== Player State Methods ==========
@@ -288,13 +286,12 @@ abstract class SendSpinProtocolHandler(
      * Dispatches to appropriate handler based on message type.
      */
     protected fun handleTextMessage(text: String) {
-        // Trace all incoming messages for debugging (truncate for large payloads)
         Log.d(tag, "Received: ${text.take(500)}")
 
         try {
-            val json = JSONObject(text)
-            val type = json.getString("type")
-            val payload = json.optJSONObject("payload")
+            val json = Json.parseToJsonElement(text).jsonObject
+            val type = json["type"]?.jsonPrimitive?.contentOrNull ?: return
+            val payload = json["payload"]?.jsonObject
 
             when (type) {
                 SendSpinProtocol.MessageType.SERVER_HELLO -> handleServerHello(payload)
@@ -313,10 +310,7 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
-    /**
-     * Handle server/hello - handshake response.
-     */
-    protected open fun handleServerHello(payload: JSONObject?) {
+    protected open fun handleServerHello(payload: JsonObject?) {
         val result = MessageParser.parseServerHello(payload, "Unknown")
         if (result == null) {
             Log.e(tag, "Failed to parse server/hello")
@@ -329,15 +323,11 @@ abstract class SendSpinProtocolHandler(
         handshakeComplete = true
         onHandshakeComplete(result.serverName, result.serverId)
 
-        // Start time sync and send initial player state
         sendPlayerStateUpdate()
         startTimeSync()
     }
 
-    /**
-     * Handle server/time - clock sync response.
-     */
-    protected fun handleServerTime(payload: JSONObject?) {
+    protected fun handleServerTime(payload: JsonObject?) {
         val clientReceived = System.nanoTime() / 1000
         val measurement = MessageParser.parseServerTime(payload, clientReceived)
 
@@ -346,10 +336,7 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
-    /**
-     * Handle server/state - metadata and playback state.
-     */
-    protected fun handleServerState(payload: JSONObject?) {
+    protected fun handleServerState(payload: JsonObject?) {
         val (metadata, state) = MessageParser.parseServerState(payload)
 
         if (metadata != null) {
@@ -361,10 +348,7 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
-    /**
-     * Handle server/command - player control commands.
-     */
-    protected fun handleServerCommand(payload: JSONObject?) {
+    protected fun handleServerCommand(payload: JsonObject?) {
         when (val result = MessageParser.parseServerCommand(payload)) {
             is ServerCommandResult.Volume -> {
                 Log.d(tag, "Server command: set volume to ${result.volume}%")
@@ -385,10 +369,7 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
-    /**
-     * Handle group/update - group state changes.
-     */
-    protected fun handleGroupUpdate(payload: JSONObject?) {
+    protected fun handleGroupUpdate(payload: JsonObject?) {
         val info = MessageParser.parseGroupUpdate(payload)
         if (info != null) {
             Log.v(tag, "group/update: id=${info.groupId}, name=${info.groupName}, state=${info.playbackState}")
@@ -396,10 +377,7 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
-    /**
-     * Handle stream/start - audio stream configuration.
-     */
-    protected fun handleStreamStart(payload: JSONObject?) {
+    protected fun handleStreamStart(payload: JsonObject?) {
         val config = MessageParser.parseStreamStart(payload)
         if (config != null) {
             Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
@@ -407,26 +385,17 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
-    /**
-     * Handle stream/clear - flush audio buffers.
-     */
     protected fun handleStreamClear() {
         Log.v(tag, "Stream clear - flushing audio buffers")
         onStreamClear()
     }
 
-    /**
-     * Handle stream/end - server terminates playback.
-     */
     protected fun handleStreamEnd() {
         Log.i(tag, "Stream end - server terminated playback")
         onStreamEnd()
     }
 
-    /**
-     * Handle client/sync_offset - GroupSync calibration offset.
-     */
-    protected fun handleClientSyncOffset(payload: JSONObject?) {
+    protected fun handleClientSyncOffset(payload: JsonObject?) {
         val result = MessageParser.parseSyncOffset(payload)
         if (result == null) {
             Log.w(tag, "client/sync_offset: missing or invalid payload")
@@ -435,13 +404,11 @@ abstract class SendSpinProtocolHandler(
 
         Log.i(tag, "client/sync_offset: offset=${result.offsetMs}ms from ${result.source}")
 
-        // Clamp offset to reasonable range (-5000 to +5000 ms)
         val clampedOffset = result.offsetMs.coerceIn(-5000.0, 5000.0)
         if (clampedOffset != result.offsetMs) {
             Log.w(tag, "client/sync_offset: clamped from ${result.offsetMs}ms to ${clampedOffset}ms")
         }
 
-        // Apply to time filter
         getTimeFilter().staticDelayMs = clampedOffset
         Log.d(tag, "client/sync_offset: static delay set to ${clampedOffset}ms")
 
@@ -451,9 +418,9 @@ abstract class SendSpinProtocolHandler(
     // ========== Binary Message Handling ==========
 
     /**
-     * Handle binary message from OkHttp ByteString (SendSpinClient).
+     * Handle binary message from ByteArray (SendSpinClient via Ktor/WebRTC).
      */
-    protected fun handleBinaryMessage(bytes: ByteString) {
+    protected fun handleBinaryMessage(bytes: ByteArray) {
         val message = BinaryMessageParser.parse(bytes)
         if (message != null) {
             dispatchBinaryMessage(message)

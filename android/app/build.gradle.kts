@@ -77,7 +77,7 @@ android {
 
         // versionName: User-visible version string
         // Follows semantic versioning (major.minor.patch[-prerelease])
-        versionName = "2.0.0-alpha10"
+        versionName = "2.0.0-Beta1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -139,6 +139,14 @@ android {
         // Enable if you need BuildConfig.DEBUG or custom build config fields
     }
 
+    // Enable android.jar method stubs to return defaults instead of throwing
+    // Required for unit tests that use Android framework classes (e.g. Bundle)
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     // TODO: Add packaging options to handle native library conflicts
     // packaging {
     //     resources {
@@ -149,6 +157,12 @@ android {
 
 
 dependencies {
+    // Shared KMP module
+    implementation(project(":shared"))
+
+    // Kotlinx Serialization JSON - used for protocol message parsing in :app
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+
     // AndroidX Core KTX - Kotlin extensions for Android framework APIs
     implementation("androidx.core:core-ktx:1.17.0")
 
@@ -273,7 +287,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("io.mockk:mockk:1.13.16")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
-    testImplementation("org.json:json:20231013")  // Real JSONObject for JVM tests (Android stubs throw)
 
     // Instrumented tests (emulator-based)
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
