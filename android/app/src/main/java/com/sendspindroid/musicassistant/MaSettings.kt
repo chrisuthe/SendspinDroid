@@ -22,7 +22,7 @@ import android.content.SharedPreferences
  * val token = MaSettings.getTokenForServer(serverId)
  * ```
  */
-object MaSettings {
+object MaSettings : MaSettingsProvider {
 
     private const val PREFS_NAME = "ma_settings"
     private const val KEY_TOKEN_PREFIX = "token_"
@@ -57,7 +57,7 @@ object MaSettings {
      * @param serverId The UnifiedServer.id
      * @return The stored token, or null if not set
      */
-    fun getTokenForServer(serverId: String): String? {
+    override fun getTokenForServer(serverId: String): String? {
         return prefs?.getString("$KEY_TOKEN_PREFIX$serverId", null)
     }
 
@@ -67,7 +67,7 @@ object MaSettings {
      * @param serverId The UnifiedServer.id
      * @param token The MA API access token
      */
-    fun setTokenForServer(serverId: String, token: String) {
+    override fun setTokenForServer(serverId: String, token: String) {
         prefs?.edit()?.putString("$KEY_TOKEN_PREFIX$serverId", token)?.apply()
     }
 
@@ -77,7 +77,7 @@ object MaSettings {
      *
      * @param serverId The UnifiedServer.id
      */
-    fun clearTokenForServer(serverId: String) {
+    override fun clearTokenForServer(serverId: String) {
         prefs?.edit()?.remove("$KEY_TOKEN_PREFIX$serverId")?.apply()
     }
 
@@ -87,7 +87,7 @@ object MaSettings {
      *
      * @return The port number (default: 8095)
      */
-    fun getDefaultPort(): Int {
+    override fun getDefaultPort(): Int {
         return prefs?.getInt(KEY_DEFAULT_PORT, DEFAULT_MA_PORT) ?: DEFAULT_MA_PORT
     }
 
@@ -107,7 +107,7 @@ object MaSettings {
      * @param serverId The UnifiedServer.id
      * @return true if a token exists for this server
      */
-    fun hasTokenForServer(serverId: String): Boolean {
+    override fun hasTokenForServer(serverId: String): Boolean {
         return getTokenForServer(serverId) != null
     }
 
@@ -132,7 +132,7 @@ object MaSettings {
      * @param serverId The UnifiedServer.id
      * @return The stored player ID, or null if not set (will use auto-detection)
      */
-    fun getSelectedPlayerForServer(serverId: String): String? {
+    override fun getSelectedPlayerForServer(serverId: String): String? {
         return prefs?.getString("$KEY_SELECTED_PLAYER_PREFIX$serverId", null)
     }
 
@@ -143,7 +143,7 @@ object MaSettings {
      * @param serverId The UnifiedServer.id
      * @param playerId The MA player_id to use for playback
      */
-    fun setSelectedPlayerForServer(serverId: String, playerId: String) {
+    override fun setSelectedPlayerForServer(serverId: String, playerId: String) {
         prefs?.edit()?.putString("$KEY_SELECTED_PLAYER_PREFIX$serverId", playerId)?.apply()
     }
 
@@ -153,7 +153,7 @@ object MaSettings {
      *
      * @param serverId The UnifiedServer.id
      */
-    fun clearSelectedPlayerForServer(serverId: String) {
+    override fun clearSelectedPlayerForServer(serverId: String) {
         prefs?.edit()?.remove("$KEY_SELECTED_PLAYER_PREFIX$serverId")?.apply()
     }
 }
