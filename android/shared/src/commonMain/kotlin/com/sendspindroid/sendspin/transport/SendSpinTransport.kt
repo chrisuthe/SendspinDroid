@@ -1,7 +1,5 @@
 package com.sendspindroid.sendspin.transport
 
-import okio.ByteString
-
 /**
  * Transport abstraction for SendSpin communication.
  *
@@ -14,8 +12,8 @@ import okio.ByteString
  *
  * ## Transport Lifecycle
  * ```
- * [Created] → connect() → [Connecting] → [Connected] → close() → [Closed]
- *                              ↓              ↓
+ * [Created] -> connect() -> [Connecting] -> [Connected] -> close() -> [Closed]
+ *                              |              |
  *                           [Failed]     [Disconnected]
  * ```
  */
@@ -54,14 +52,6 @@ interface SendSpinTransport {
     fun send(bytes: ByteArray): Boolean
 
     /**
-     * Send binary data as ByteString (convenience for OkHttp compatibility).
-     *
-     * @param bytes The binary data to send
-     * @return true if the data was queued for sending, false if transport unavailable
-     */
-    fun send(bytes: ByteString): Boolean = send(bytes.toByteArray())
-
-    /**
      * Close the transport connection.
      *
      * @param code Close code (1000 = normal, others indicate errors)
@@ -98,7 +88,7 @@ interface SendSpinTransport {
         /**
          * Called when the transport receives binary data.
          */
-        fun onMessage(bytes: ByteString)
+        fun onMessage(bytes: ByteArray)
 
         /**
          * Called when the transport is closing (graceful shutdown).

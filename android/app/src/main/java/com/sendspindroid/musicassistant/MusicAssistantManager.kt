@@ -35,28 +35,8 @@ import java.net.URLEncoder
 
 // ============================================================================
 // Data Models for Music Assistant API responses
+// (MaTrack and MaAlbum are in :shared module)
 // ============================================================================
-
-/**
- * Represents a track from Music Assistant.
- *
- * Implements MaLibraryItem for use in unified adapters and generic lists.
- */
-data class MaTrack(
-    val itemId: String,
-    override val name: String,
-    val artist: String?,
-    val album: String?,
-    override val imageUri: String?,
-    override val uri: String?,
-    val duration: Long? = null,
-    // Album reference fields for grouping
-    val albumId: String? = null,
-    val albumType: String? = null  // "album", "single", "ep", "compilation"
-) : MaLibraryItem {
-    override val id: String get() = itemId
-    override val mediaType: MaMediaType = MaMediaType.TRACK
-}
 
 /**
  * Represents a playlist from Music Assistant.
@@ -73,26 +53,6 @@ data class MaPlaylist(
 ) : MaLibraryItem {
     override val id: String get() = playlistId
     override val mediaType: MaMediaType = MaMediaType.PLAYLIST
-}
-
-/**
- * Represents an album from Music Assistant.
- *
- * Implements MaLibraryItem for use in unified adapters.
- * Subtitle rendering: "Artist Name" or "Artist Name - 2024"
- */
-data class MaAlbum(
-    val albumId: String,
-    override val name: String,
-    override val imageUri: String?,
-    override val uri: String?,
-    val artist: String?,          // Primary artist name
-    val year: Int?,               // Release year
-    val trackCount: Int?,         // Number of tracks
-    val albumType: String?        // "album", "single", "ep", "compilation"
-) : MaLibraryItem {
-    override val id: String get() = albumId
-    override val mediaType: MaMediaType = MaMediaType.ALBUM
 }
 
 /**

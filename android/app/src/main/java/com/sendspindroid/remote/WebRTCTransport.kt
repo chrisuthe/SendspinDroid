@@ -8,8 +8,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import okio.ByteString
-import okio.ByteString.Companion.toByteString
 import org.webrtc.DataChannel
 import org.webrtc.DefaultVideoDecoderFactory
 import org.webrtc.DefaultVideoEncoderFactory
@@ -495,7 +493,7 @@ class WebRTCTransport(
             data.get(bytes)
 
             if (buffer.binary) {
-                listener?.onMessage(bytes.toByteString())
+                listener?.onMessage(bytes)
             } else {
                 val text = String(bytes, Charsets.UTF_8)
                 listener?.onMessage(text)

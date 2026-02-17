@@ -1,7 +1,7 @@
 package com.sendspindroid.network
 
-import android.util.Log
 import com.sendspindroid.model.*
+import com.sendspindroid.shared.log.Log
 
 /**
  * Selects the best connection method for a unified server based on network type.
@@ -10,10 +10,10 @@ import com.sendspindroid.model.*
  *
  * | Network       | Priority Order            | Rationale                          |
  * |---------------|---------------------------|------------------------------------|
- * | WiFi/Ethernet | Local → Proxy → Remote    | Local has lowest latency           |
- * | Cellular      | Proxy → Remote            | Skip local (not on LAN)            |
- * | VPN           | Proxy → Remote → Local    | VPN may route home, proxy preferred|
- * | Unknown       | Proxy → Remote → Local    | Can't determine network, proxy safest|
+ * | WiFi/Ethernet | Local -> Proxy -> Remote    | Local has lowest latency           |
+ * | Cellular      | Proxy -> Remote            | Skip local (not on LAN)            |
+ * | VPN           | Proxy -> Remote -> Local    | VPN may route home, proxy preferred|
+ * | Unknown       | Proxy -> Remote -> Local    | Can't determine network, proxy safest|
  *
  * ## Connection Preference Override
  * If the user has set a connection preference (LOCAL_ONLY, REMOTE_ONLY, PROXY_ONLY),

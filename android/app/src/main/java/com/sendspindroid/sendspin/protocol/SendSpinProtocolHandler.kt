@@ -13,7 +13,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okio.ByteString
 import java.nio.ByteBuffer
 
 /**
@@ -419,9 +418,9 @@ abstract class SendSpinProtocolHandler(
     // ========== Binary Message Handling ==========
 
     /**
-     * Handle binary message from OkHttp ByteString (SendSpinClient).
+     * Handle binary message from ByteArray (SendSpinClient via Ktor/WebRTC).
      */
-    protected fun handleBinaryMessage(bytes: ByteString) {
+    protected fun handleBinaryMessage(bytes: ByteArray) {
         val message = BinaryMessageParser.parse(bytes)
         if (message != null) {
             dispatchBinaryMessage(message)

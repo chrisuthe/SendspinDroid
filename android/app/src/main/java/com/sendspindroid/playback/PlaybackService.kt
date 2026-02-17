@@ -3112,8 +3112,9 @@ class PlaybackService : MediaLibraryService() {
                     Log.d(TAG, "Voice search: empty query, playing recent")
                     val recent = MusicAssistantManager.getRecentlyPlayed(limit = 1)
                     val firstTrack = recent.getOrNull()?.firstOrNull()
-                    if (firstTrack?.uri != null) {
-                        MusicAssistantManager.playMedia(firstTrack.uri, mediaType = "track")
+                    val recentUri = firstTrack?.uri
+                    if (recentUri != null) {
+                        MusicAssistantManager.playMedia(recentUri, mediaType = "track")
                     } else {
                         Log.w(TAG, "Voice search: no recent tracks to play")
                     }
@@ -3127,9 +3128,10 @@ class PlaybackService : MediaLibraryService() {
                     )
                     val searchResults = result.getOrNull()
                     val firstTrack = searchResults?.tracks?.firstOrNull()
-                    if (firstTrack?.uri != null) {
+                    val trackUri = firstTrack?.uri
+                    if (trackUri != null) {
                         Log.d(TAG, "Voice search: playing track '${firstTrack.name}'")
-                        MusicAssistantManager.playMedia(firstTrack.uri, mediaType = "track")
+                        MusicAssistantManager.playMedia(trackUri, mediaType = "track")
                     } else {
                         // Try playing first playlist or album if no tracks found
                         val firstPlaylist = searchResults?.playlists?.firstOrNull()
