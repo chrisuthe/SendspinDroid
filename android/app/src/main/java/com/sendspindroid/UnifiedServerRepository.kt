@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import java.util.UUID
 
 /**
@@ -241,35 +242,48 @@ object UnifiedServerRepository {
     }
 
     /**
+     * Get a server by its local network address from saved or discovered servers.
+     * Prefers saved servers over discovered when both match the same address.
+     *
+     * Used by Android Auto browse tree and PlaybackService media item handling,
+     * which identify servers by network address rather than UUID.
+     */
+    fun getServerByAddress(address: String): UnifiedServer? {
+        ensurePersistedDataLoaded()
+        return _savedServers.value.find { it.local?.address == address }
+            ?: _discoveredServers.value.find { it.local?.address == address }
+    }
+
+    /**
      * Add a discovered server from mDNS.
      * If a saved server exists with the same local address, it's not duplicated.
      */
     fun addDiscoveredServer(name: String, address: String, path: String = "/sendspin") {
-        val current = _discoveredServers.value.toMutableList()
-
-        // Check if already discovered
-        if (current.any { it.local?.address == address }) {
-            return
+        _discoveredServers.update { current ->
+            // Check if already discovered
+            if (current.any { it.local?.address == address }) {
+                current // already present -- no change
+            } else {
+                val server = UnifiedServer(
+                    id = "discovered-$address",
+                    name = name,
+                    local = LocalConnection(address, path),
+                    isDiscovered = true
+                )
+                Log.d(TAG, "Discovered server: $name at $address")
+                current + server
+            }
         }
-
-        // Create transient unified server
-        val server = UnifiedServer(
-            id = "discovered-$address",
-            name = name,
-            local = LocalConnection(address, path),
-            isDiscovered = true
-        )
-
-        current.add(server)
-        _discoveredServers.value = current
-        Log.d(TAG, "Discovered server: $name at $address")
     }
 
     /**
      * Remove a discovered server when it goes offline.
+     *
+     * Uses [MutableStateFlow.update] for atomic read-modify-write so
+     * concurrent mDNS callbacks cannot silently lose updates.
      */
     fun removeDiscoveredServer(address: String) {
-        _discoveredServers.value = _discoveredServers.value.filter { it.local?.address != address }
+        _discoveredServers.update { current -> current.filter { it.local?.address != address } }
     }
 
     /**

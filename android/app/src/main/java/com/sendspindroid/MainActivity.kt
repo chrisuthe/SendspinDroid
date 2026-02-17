@@ -118,7 +118,6 @@ class MainActivity : AppCompatActivity() {
 
     // ViewBinding provides type-safe access to views (legacy, being phased out)
     private lateinit var binding: ActivityMainBinding
-    private lateinit var serverAdapter: ServerAdapter
 
     // Compose shell overlay -- primary UI, renders on top of XML layout
     private var composeOverlay: ComposeView? = null
@@ -145,8 +144,6 @@ class MainActivity : AppCompatActivity() {
     // Unified server support - connector for handling server connections
     private var unifiedServerConnector: UnifiedServerConnector? = null
 
-    // List backing the RecyclerView - Consider moving to ViewModel with StateFlow for v2
-    private val servers = mutableListOf<ServerInfo>()
 
     // Connection state machine - starts with ServerList (shows immediately on startup)
     private var connectionState: AppConnectionState = AppConnectionState.ServerList
@@ -494,11 +491,8 @@ class MainActivity : AppCompatActivity() {
 
         FileLogger.i(TAG, "MainActivity onCreate (debug logging: ${DebugLogger.isEnabled})")
 
-        // Initialize ServerRepository for sharing server state with PlaybackService
-        // This enables Android Auto to see discovered servers
-        ServerRepository.initialize(this)
-
         // Initialize UnifiedServerRepository for unified server management
+        // Single source of truth for all server state (discovered + saved)
         UnifiedServerRepository.initialize(this)
 
         // Initialize UserSettings for accessing user preferences
@@ -709,16 +703,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Setup legacy RecyclerView for servers (kept for compatibility)
-        serverAdapter = ServerAdapter { server ->
-            onServerSelected(server)
-        }
-
-        // Load previously saved manual servers (legacy)
-        loadPersistedServers()
-
-        // Server list is now Compose-based (ServerListScreen in AppShell)
-
+        // Server list is Compose-based (ServerListScreen in AppShell)
         // Setup unified server support (connector, observers)
         setupUnifiedServers()
 
@@ -1484,11 +1469,8 @@ class MainActivity : AppCompatActivity() {
                     override fun onServerDiscovered(name: String, address: String, path: String) {
                         runOnUiThread {
                             Log.d(TAG, "Server discovered: $name at $address path=$path")
-                            val server = ServerInfo(name, address, path)
-                            addServer(server)
-
-                            // Add to UnifiedServerRepository for unified server list
                             UnifiedServerRepository.addDiscoveredServer(name, address, path)
+                            updateServerListEmptyState()
 
                             // Check if this discovery should trigger auto-connect to default server
                             checkAutoConnectOnDiscovery(address)
@@ -1498,25 +1480,12 @@ class MainActivity : AppCompatActivity() {
                     override fun onServerLost(name: String) {
                         runOnUiThread {
                             Log.d(TAG, "Server lost: $name")
-                            // Look up address from legacy list (keyed by address on add)
-                            val address = servers.find { it.name == name }?.address
-
-                            // Remove from legacy list by address (matches addServer dedup key)
+                            val address = UnifiedServerRepository.discoveredServers.value
+                                .find { it.name == name }?.local?.address
                             if (address != null) {
-                                servers.removeAll { it.address == address }
-                            } else {
-                                // Fallback: remove by name if address not found
-                                servers.removeAll { it.name == name }
+                                UnifiedServerRepository.removeDiscoveredServer(address)
                             }
-                            serverAdapter.submitList(servers.toList())
-
-                            // Remove from UnifiedServerRepository by address
-                            val repoAddress = address
-                                ?: UnifiedServerRepository.discoveredServers.value
-                                    .find { it.name == name }?.local?.address
-                            if (repoAddress != null) {
-                                UnifiedServerRepository.removeDiscoveredServer(repoAddress)
-                            }
+                            updateServerListEmptyState()
                         }
                     }
 
@@ -2229,37 +2198,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAddServerDialog() {
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_add_server, null)
-        val serverNameInput = dialogView.findViewById<EditText>(R.id.serverNameInput)
-        val serverAddressInput = dialogView.findViewById<EditText>(R.id.serverAddressInput)
-
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.add_server_manually))
-            .setView(dialogView)
-            .setPositiveButton(android.R.string.ok) { dialog, _ ->
-                val name = serverNameInput.text.toString().trim()
-                val address = serverAddressInput.text.toString().trim()
-
-                if (validateServerAddress(address)) {
-                    val serverName = if (name.isEmpty()) address else name
-                    // Use addManualServer for user-added servers (persisted)
-                    addManualServer(ServerInfo(serverName, address))
-                    showSuccessSnackbar(getString(R.string.server_added, serverName))
-                } else {
-                    showErrorSnackbar(
-                        message = getString(R.string.invalid_address),
-                        errorType = ErrorType.VALIDATION
-                    )
-                }
-                dialog.dismiss()
-            }
-            .setNegativeButton(android.R.string.cancel) { dialog, _ ->
-                dialog.dismiss()
-            }
-            .show()
-    }
-
     /**
      * Shows the Remote Connect dialog for connecting via Music Assistant Remote Access.
      * Uses WebRTC for NAT traversal, allowing connection from outside the local network.
@@ -2565,87 +2503,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     // updateUnifiedServerConnectionStatus() removed - server list is now Compose-based
-
-    /**
-     * Validates server address format (host:port).
-     *
-     * Current implementation: Basic validation only
-     * TODO: Add hostname/IP validation (regex for IP, DNS lookup for hostnames)
-     * TODO: Consider using Inet4Address.getByName() for proper validation
-     */
-    private fun validateServerAddress(address: String): Boolean {
-        if (address.isEmpty()) return false
-
-        // Check for host:port format
-        val parts = address.split(":")
-        if (parts.size != 2) return false
-
-        val host = parts[0]
-        val portStr = parts[1]
-
-        // Validate host is not empty (but doesn't validate if it's a valid IP/hostname)
-        if (host.isEmpty()) return false
-
-        // Validate port is a valid number in the valid port range
-        val port = portStr.toIntOrNull() ?: return false
-        if (port !in 1..65535) return false
-
-        return true
-    }
-
-    /**
-     * Handles user selecting a server from the manual entry list.
-     */
-    private fun onServerSelected(server: ServerInfo) {
-        Log.d(TAG, "Server selected: ${server.name}")
-
-        val controller = mediaController
-        if (controller == null) {
-            showErrorSnackbar(
-                message = getString(R.string.error_service_not_connected),
-                errorType = ErrorType.CONNECTION
-            )
-            return
-        }
-
-        // Update state to Connecting
-        connectionState = AppConnectionState.Connecting(server.name, server.address)
-
-        // Show connection loading UI
-        showConnectionLoading(server.name)
-
-        // Perform the actual connection
-        connectToServer(server, controller)
-    }
-
-    /**
-     * Shared connection logic used by both auto-connect and manual selection.
-     */
-    private fun connectToServer(server: ServerInfo, controller: MediaController) {
-        try {
-            // Add to recent servers for quick access (Android Auto shows these)
-            ServerRepository.addToRecent(server)
-
-            // Send CONNECT command to PlaybackService via MediaController
-            val args = Bundle().apply {
-                putString(PlaybackService.ARG_SERVER_ADDRESS, server.address)
-                putString(PlaybackService.ARG_SERVER_PATH, server.path)
-            }
-            val command = SessionCommand(PlaybackService.COMMAND_CONNECT, Bundle.EMPTY)
-
-            controller.sendCustomCommand(command, args)
-            Log.d(TAG, "Sent connect command to ${server.address} path=${server.path}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send connect command", e)
-            connectionState = AppConnectionState.Error("Connection failed")
-            hideConnectionLoading()
-            showErrorSnackbar(
-                message = getString(R.string.error_connection_failed),
-                errorType = ErrorType.CONNECTION,
-                retryAction = { onServerSelected(server) }
-            )
-        }
-    }
 
     /**
      * Handles previous button click.
@@ -2993,69 +2850,6 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Volume observer unregistered")
         }
     }
-
-    /**
-     * Adds a discovered server to the list if not already present.
-     *
-     * Deduplication: Uses address as unique key (not name, since multiple servers
-     * could have the same name but different addresses).
-     *
-     * Uses ListAdapter.submitList() which efficiently calculates the diff
-     * on a background thread and applies minimal changes to the RecyclerView.
-     */
-    private fun addServer(server: ServerInfo) {
-        // Add to ServerRepository so PlaybackService/Android Auto can see it
-        ServerRepository.addDiscoveredServer(server)
-
-        // Also add to local list for UI (deduplication by address)
-        if (!servers.any { it.address == server.address }) {
-            servers.add(server)
-            // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
-            serverAdapter.submitList(servers.toList())
-            // Update accessibility description for server list
-            updateServerListAccessibility()
-            updateServerListEmptyState()
-        }
-    }
-
-    /**
-     * Adds a manually entered server.
-     * These are persisted across app restarts.
-     */
-    private fun addManualServer(server: ServerInfo) {
-        // Add to ServerRepository (persisted)
-        ServerRepository.addManualServer(server)
-
-        // Also add to local list for UI (deduplication by address)
-        if (!servers.any { it.address == server.address }) {
-            servers.add(server)
-            // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
-            serverAdapter.submitList(servers.toList())
-            updateServerListAccessibility()
-            updateServerListEmptyState()
-        }
-    }
-
-    /**
-     * Loads previously saved manual servers from ServerRepository.
-     * Called on app startup to restore user's saved servers.
-     */
-    private fun loadPersistedServers() {
-        val manualServers = ServerRepository.manualServers.value
-        for (server in manualServers) {
-            if (!servers.any { it.address == server.address }) {
-                servers.add(server)
-            }
-        }
-        if (manualServers.isNotEmpty()) {
-            // Submit a new list copy - ListAdapter requires a new list instance for diff calculation
-            serverAdapter.submitList(servers.toList())
-            Log.d(TAG, "Loaded ${manualServers.size} saved servers")
-        }
-        // Update empty state after loading
-        updateServerListEmptyState()
-    }
-
 
     private fun enablePlaybackControls(enabled: Boolean) {
         binding.previousButton.isEnabled = enabled
