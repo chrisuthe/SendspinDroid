@@ -38,8 +38,7 @@ fun ServerSectionHeader(
             text = title,
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 14.sp
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         if (showScanning) {
@@ -57,8 +56,7 @@ fun ServerSectionHeader(
             Text(
                 text = emptyHint,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                fontSize = 12.sp
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         }
     }
