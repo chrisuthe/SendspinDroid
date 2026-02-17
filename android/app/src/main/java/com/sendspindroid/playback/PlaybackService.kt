@@ -47,7 +47,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.sendspindroid.R
 import com.sendspindroid.MainActivity
-import com.sendspindroid.ServerRepository
+
 import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.debug.DebugLogger
@@ -2235,9 +2235,9 @@ class PlaybackService : MediaLibraryService() {
 
                         connectToServer(serverAddress)
 
-                        val server = ServerRepository.getServer(serverAddress)
-                        if (server != null) {
-                            ServerRepository.addToRecent(server)
+                        // Update last-connected timestamp (replaces legacy addToRecent)
+                        if (unifiedServer != null) {
+                            UnifiedServerRepository.updateLastConnected(unifiedServer.id)
                         }
 
                         item.buildUpon()
@@ -2692,12 +2692,6 @@ class PlaybackService : MediaLibraryService() {
         browseDiscoveryManager = NsdDiscoveryManager(this, object : NsdDiscoveryManager.DiscoveryListener {
             override fun onServerDiscovered(name: String, address: String, path: String) {
                 Log.d(TAG, "Browse discovery: found $name at $address (path=$path)")
-                val server = com.sendspindroid.ServerInfo(
-                    name = name,
-                    address = address,
-                    path = path
-                )
-                ServerRepository.addDiscoveredServer(server)
                 UnifiedServerRepository.addDiscoveredServer(name, address, path)
                 // Notify subscribed browsers that children changed
                 mediaSession?.notifyChildrenChanged(MEDIA_ID_DISCOVERED, 0, null)
@@ -2706,10 +2700,9 @@ class PlaybackService : MediaLibraryService() {
             override fun onServerLost(name: String) {
                 Log.d(TAG, "Browse discovery: lost $name")
                 // Find the server by name to get its address for removal
-                val server = ServerRepository.discoveredServers.value.find { it.name == name }
-                server?.let {
-                    ServerRepository.removeDiscoveredServer(it.address)
-                    UnifiedServerRepository.removeDiscoveredServer(it.address)
+                val server = UnifiedServerRepository.discoveredServers.value.find { it.name == name }
+                server?.local?.address?.let { address ->
+                    UnifiedServerRepository.removeDiscoveredServer(address)
                     mediaSession?.notifyChildrenChanged(MEDIA_ID_DISCOVERED, 0, null)
                 }
             }
@@ -3259,8 +3252,8 @@ class PlaybackService : MediaLibraryService() {
             }
             mediaId.startsWith(MEDIA_ID_SERVER_PREFIX) -> {
                 val address = mediaId.removePrefix(MEDIA_ID_SERVER_PREFIX)
-                val server = ServerRepository.getServer(address)
-                server?.let { createPlayableServerItem(it.name, it.address) }
+                val server = UnifiedServerRepository.getServerByAddress(address)
+                server?.let { createPlayableServerItem(it.name, it.local?.address ?: address) }
             }
             // MA category folders (root-level tabs)
             mediaId == MEDIA_ID_MA_PLAYLISTS -> {

@@ -25,7 +25,7 @@ import java.util.UUID
  * The app must not crash due to Keystore issues.
  *
  * Thread-safety: Uses @Volatile + double-checked locking for initialization,
- * matching the pattern in ServerRepository/UnifiedServerRepository.
+ * matching the pattern in UnifiedServerRepository.
  */
 object UserSettings {
 
