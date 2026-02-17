@@ -935,9 +935,14 @@ class MainActivity : AppCompatActivity() {
                     onPlayPauseClicked()
                 }
 
-                onVolumeChange = { newVolume ->
-                    // Compose slider uses 0-1 range
-                    onVolumeChanged(newVolume)
+                onPreviousClick = {
+                    Log.d(TAG, "Mini player: Previous pressed")
+                    onPreviousClicked()
+                }
+
+                onNextClick = {
+                    Log.d(TAG, "Mini player: Next pressed")
+                    onNextClicked()
                 }
             }
         }

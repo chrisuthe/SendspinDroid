@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,16 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -56,10 +53,10 @@ fun MiniPlayer(
     metadata: TrackMetadata,
     artworkSource: ArtworkSource?,
     isPlaying: Boolean,
-    volume: Float,
     onCardClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
-    onVolumeChange: (Float) -> Unit,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
     positionMs: Long = 0,
     durationMs: Long = 0,
     modifier: Modifier = Modifier
@@ -133,59 +130,81 @@ fun MiniPlayer(
                 }
             }
 
-            // Right side content
-            Column(
+            // Right side content: track info (left) + controls (right)
+            Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(start = 12.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                    .padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                // Top row: Track info + controls
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                // Track info — fills available space, pushes controls to the right
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    // Track Info (not clickable -- only album art opens full player)
-                    Column(
-                        modifier = Modifier.weight(1f)
+                    // Track title with playing indicator
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Track title with playing indicator
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (isPlaying) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_audio_playing),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                            }
-                            Text(
-                                text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                        if (isPlaying) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_audio_playing),
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
                             )
+                            Spacer(modifier = Modifier.width(4.dp))
                         }
-
-                        // Artist
-                        if (metadata.artist.isNotEmpty()) {
-                            Text(
-                                text = metadata.artist,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                        Text(
+                            text = metadata.title.ifEmpty { stringResource(R.string.not_playing) },
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
-                    // Play/Pause Button
+                    // Artist
+                    if (metadata.artist.isNotEmpty()) {
+                        Text(
+                            text = metadata.artist,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    // Position / Duration time text
+                    if (durationMs > 0) {
+                        Text(
+                            text = "${formatTime(positionMs)} / ${formatTime(durationMs)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                // Controls: Previous / Play-Pause / Next
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onPreviousClick,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_skip_previous),
+                            contentDescription = stringResource(R.string.accessibility_previous_button),
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
                     FilledIconButton(
                         onClick = onPlayPauseClick,
                         modifier = Modifier.size(40.dp),
@@ -205,39 +224,18 @@ fun MiniPlayer(
                             modifier = Modifier.size(22.dp)
                         )
                     }
-                }
 
-                // Bottom row: Volume slider
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_volume_down),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Slider(
-                        value = volume,
-                        onValueChange = onVolumeChange,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 4.dp),
-                        valueRange = 0f..1f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = MaterialTheme.colorScheme.primary,
-                            activeTrackColor = MaterialTheme.colorScheme.primary
+                    IconButton(
+                        onClick = onNextClick,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_skip_next),
+                            contentDescription = stringResource(R.string.accessibility_next_button),
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
-                    )
-
-                    Icon(
-                        painter = painterResource(R.drawable.ic_volume_up),
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    }
                 }
             }
         }
@@ -434,10 +432,12 @@ private fun MiniPlayerPreview() {
             ),
             artworkSource = null,
             isPlaying = true,
-            volume = 0.75f,
             onCardClick = {},
             onPlayPauseClick = {},
-            onVolumeChange = {}
+            onPreviousClick = {},
+            onNextClick = {},
+            positionMs = 83000,
+            durationMs = 296000
         )
     }
 }
@@ -450,10 +450,10 @@ private fun MiniPlayerNotPlayingPreview() {
             metadata = TrackMetadata.EMPTY,
             artworkSource = null,
             isPlaying = false,
-            volume = 0.5f,
             onCardClick = {},
             onPlayPauseClick = {},
-            onVolumeChange = {}
+            onPreviousClick = {},
+            onNextClick = {}
         )
     }
 }
@@ -472,10 +472,12 @@ private fun MiniPlayerAllDevicesPreview() {
             ),
             artworkSource = null,
             isPlaying = true,
-            volume = 0.75f,
             onCardClick = {},
             onPlayPauseClick = {},
-            onVolumeChange = {}
+            onPreviousClick = {},
+            onNextClick = {},
+            positionMs = 83000,
+            durationMs = 296000
         )
     }
 }
