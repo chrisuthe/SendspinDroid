@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sendspindroid.R
 import com.sendspindroid.model.AppConnectionState
@@ -333,7 +334,9 @@ private fun ConnectedShell(
                 Column {
                     Text(
                         text = topBarTitle,
-                        style = MaterialTheme.typography.titleLarge
+                        style = MaterialTheme.typography.titleLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (currentDetail == null && serverName != null) {
                         Text(
