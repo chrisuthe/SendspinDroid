@@ -30,7 +30,8 @@ class MiniPlayerComposeView @JvmOverloads constructor(
 
     var onCardClick: (() -> Unit)? = null
     var onPlayPauseClick: (() -> Unit)? = null
-    var onVolumeChange: ((Float) -> Unit)? = null
+    var onPreviousClick: (() -> Unit)? = null
+    var onNextClick: (() -> Unit)? = null
 
     @Composable
     override fun Content() {
@@ -39,7 +40,6 @@ class MiniPlayerComposeView @JvmOverloads constructor(
         val metadata by vm.metadata.collectAsState()
         val artworkSource by vm.artworkSource.collectAsState()
         val isPlaying by vm.isPlaying.collectAsState()
-        val volume by vm.volume.collectAsState()
         val positionMs by vm.positionMs.collectAsState()
         val durationMs by vm.durationMs.collectAsState()
 
@@ -48,12 +48,10 @@ class MiniPlayerComposeView @JvmOverloads constructor(
                 metadata = metadata,
                 artworkSource = artworkSource,
                 isPlaying = isPlaying,
-                volume = volume,
                 onCardClick = { onCardClick?.invoke() },
                 onPlayPauseClick = { onPlayPauseClick?.invoke() },
-                onVolumeChange = { newVolume ->
-                    onVolumeChange?.invoke(newVolume) ?: vm.updateVolume(newVolume)
-                },
+                onPreviousClick = { onPreviousClick?.invoke() },
+                onNextClick = { onNextClick?.invoke() },
                 positionMs = positionMs,
                 durationMs = durationMs,
                 modifier = Modifier.fillMaxWidth()

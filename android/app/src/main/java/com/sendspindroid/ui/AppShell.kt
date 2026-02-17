@@ -549,7 +549,8 @@ private fun ConnectedShell(
                     MiniPlayerBar(
                         viewModel = viewModel,
                         onPlayPauseClick = onPlayPauseClick,
-                        onVolumeChange = onVolumeChange,
+                        onPreviousClick = onPreviousClick,
+                        onNextClick = onNextClick,
                         onReturnToNowPlaying = {
                             viewModel.clearDetailNavigation()
                             browseQueueVisible = false
@@ -1237,13 +1238,13 @@ private suspend fun bulkAddArtist(
 private fun MiniPlayerBar(
     viewModel: MainActivityViewModel,
     onPlayPauseClick: () -> Unit,
-    onVolumeChange: (Float) -> Unit,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
     onReturnToNowPlaying: () -> Unit
 ) {
     val metadata by viewModel.metadata.collectAsState()
     val artworkSource by viewModel.artworkSource.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
-    val volume by viewModel.volume.collectAsState()
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
 
@@ -1256,13 +1257,13 @@ private fun MiniPlayerBar(
             metadata = metadata,
             artworkSource = artworkSource,
             isPlaying = isPlaying,
-            volume = volume,
             onCardClick = {
                 Log.d(TAG, "Mini player tapped - returning to full player")
                 onReturnToNowPlaying()
             },
             onPlayPauseClick = onPlayPauseClick,
-            onVolumeChange = onVolumeChange,
+            onPreviousClick = onPreviousClick,
+            onNextClick = onNextClick,
             positionMs = positionMs,
             durationMs = durationMs,
             modifier = Modifier.fillMaxWidth()
