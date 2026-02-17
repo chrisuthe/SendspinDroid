@@ -8,8 +8,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import java.io.IOException
-import java.util.concurrent.ConcurrentHashMap
+import kotlin.random.Random
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -32,8 +31,10 @@ import kotlin.uuid.Uuid
  * ```
  *
  * ## Thread Safety
- * All collections are concurrent. Methods may be called from any thread
- * (WebSocket callback threads, WebRTC internal threads, coroutine dispatchers).
+ * All map accesses are guarded by [lock]. Methods may be called from any
+ * thread (WebSocket callback threads, WebRTC internal threads, coroutine
+ * dispatchers). Uses synchronized for KMP compatibility instead of
+ * java.util.concurrent.ConcurrentHashMap.
  */
 class MaCommandMultiplexer {
 
@@ -41,16 +42,19 @@ class MaCommandMultiplexer {
         private const val TAG = "MaCommandMultiplexer"
     }
 
+    // Lock object for synchronizing all map access
+    private val lock = Any()
+
     // Pending API commands: message_id -> CompletableDeferred<JsonObject>
-    private val pendingCommands = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
+    private val pendingCommands = HashMap<String, CompletableDeferred<JsonObject>>()
 
     // Accumulated partial results: message_id -> list of items received so far
     // MA server sends large results in 500-item batches with "partial": true
-    private val partialResults = ConcurrentHashMap<String, MutableList<JsonElement>>()
+    private val partialResults = HashMap<String, MutableList<JsonElement>>()
 
     // Pending HTTP proxy requests: request_id -> CompletableDeferred<HttpProxyResponse>
     private val pendingProxyRequests =
-        ConcurrentHashMap<String, CompletableDeferred<MaApiTransport.HttpProxyResponse>>()
+        HashMap<String, CompletableDeferred<MaApiTransport.HttpProxyResponse>>()
 
     // Event listener for server-push messages
     @Volatile
@@ -65,7 +69,9 @@ class MaCommandMultiplexer {
     fun registerCommand(): Pair<String, CompletableDeferred<JsonObject>> {
         val messageId = Uuid.random().toString()
         val deferred = CompletableDeferred<JsonObject>()
-        pendingCommands[messageId] = deferred
+        synchronized(lock) {
+            pendingCommands[messageId] = deferred
+        }
         return messageId to deferred
     }
 
@@ -74,10 +80,13 @@ class MaCommandMultiplexer {
      *
      * @return Pair of (request_id to include in outgoing message, deferred for the response)
      */
+    @OptIn(ExperimentalUuidApi::class)
     fun registerProxyRequest(): Pair<String, CompletableDeferred<MaApiTransport.HttpProxyResponse>> {
-        val requestId = "req_${System.currentTimeMillis()}_${(Math.random() * 10000).toInt()}"
+        val requestId = "req_${Uuid.random().toString().take(8)}_${Random.nextInt(10000)}"
         val deferred = CompletableDeferred<MaApiTransport.HttpProxyResponse>()
-        pendingProxyRequests[requestId] = deferred
+        synchronized(lock) {
+            pendingProxyRequests[requestId] = deferred
+        }
         return requestId to deferred
     }
 
@@ -111,29 +120,32 @@ class MaCommandMultiplexer {
                 val isPartial = json.optBoolean("partial")
 
                 // Handle partial result: accumulate and wait for more
-                if (isPartial && pendingCommands.containsKey(messageId)) {
+                val hasPending = synchronized(lock) { pendingCommands.containsKey(messageId) }
+                if (isPartial && hasPending) {
                     val resultArray = json.optJsonArray("result")
                     if (resultArray != null && resultArray.size > 0) {
-                        val accumulated = partialResults.getOrPut(messageId) { mutableListOf() }
-                        accumulated.addAll(resultArray)
-                        Log.d(TAG, "Partial result for $messageId: +${resultArray.size} items (total so far: ${accumulated.size})")
+                        synchronized(lock) {
+                            val accumulated = partialResults.getOrPut(messageId) { mutableListOf() }
+                            accumulated.addAll(resultArray)
+                            Log.d(TAG, "Partial result for $messageId: +${resultArray.size} items (total so far: ${accumulated.size})")
+                        }
                     }
                     return
                 }
 
-                val deferred = pendingCommands.remove(messageId)
+                val deferred = synchronized(lock) { pendingCommands.remove(messageId) }
                 if (deferred != null) {
                     if (json.has("error_code")) {
                         val errorCode = json.optString("error_code", "unknown")
                         val details = json.optString("details", "Command failed")
                         Log.w(TAG, "Command error: $errorCode - $details")
-                        partialResults.remove(messageId)
+                        synchronized(lock) { partialResults.remove(messageId) }
                         deferred.completeExceptionally(
                             MaApiTransport.MaCommandException(errorCode, details)
                         )
                     } else {
                         // Merge any accumulated partial results with this final batch
-                        val accumulated = partialResults.remove(messageId)
+                        val accumulated = synchronized(lock) { partialResults.remove(messageId) }
                         val finalJson = if (accumulated != null) {
                             val finalArray = json.optJsonArray("result")
                             if (finalArray != null) {
@@ -161,7 +173,7 @@ class MaCommandMultiplexer {
                 // message_id present but no matching pending command - might be
                 // an event or a response to something we already timed out on
                 // Also clean up any stale partial results
-                partialResults.remove(messageId)
+                synchronized(lock) { partialResults.remove(messageId) }
             }
 
             // Server-push event (no matching message_id)
@@ -176,7 +188,7 @@ class MaCommandMultiplexer {
      */
     private fun handleProxyResponse(json: JsonObject) {
         val requestId = json.optString("id")
-        val deferred = pendingProxyRequests.remove(requestId)
+        val deferred = synchronized(lock) { pendingProxyRequests.remove(requestId) }
 
         if (deferred == null) {
             Log.w(TAG, "Received proxy response for unknown request: $requestId")
@@ -210,31 +222,71 @@ class MaCommandMultiplexer {
      * @param reason Human-readable reason for the cancellation
      */
     fun cancelAll(reason: String) {
-        val error = IOException("Transport disconnected: $reason")
+        val error = MaTransportException("Transport disconnected: $reason")
 
-        pendingCommands.forEach { (_, deferred) ->
-            deferred.completeExceptionally(error)
-        }
-        pendingCommands.clear()
-        partialResults.clear()
+        synchronized(lock) {
+            pendingCommands.forEach { (_, deferred) ->
+                deferred.completeExceptionally(error)
+            }
+            pendingCommands.clear()
+            partialResults.clear()
 
-        pendingProxyRequests.forEach { (_, deferred) ->
-            deferred.completeExceptionally(error)
+            pendingProxyRequests.forEach { (_, deferred) ->
+                deferred.completeExceptionally(error)
+            }
+            pendingProxyRequests.clear()
         }
-        pendingProxyRequests.clear()
+    }
+
+    /**
+     * Unregister a pending command without completing it.
+     *
+     * Called by transports when a command times out, so the CompletableDeferred
+     * does not leak in [pendingCommands] indefinitely.
+     *
+     * @param messageId The message ID returned by [registerCommand]
+     * @return true if the command was found and removed, false if already completed/removed
+     */
+    fun unregisterCommand(messageId: String): Boolean {
+        val removed = synchronized(lock) {
+            val r = pendingCommands.remove(messageId) != null
+            partialResults.remove(messageId)
+            r
+        }
+        if (removed) {
+            Log.d(TAG, "Unregistered timed-out command: $messageId")
+        }
+        return removed
+    }
+
+    /**
+     * Unregister a pending HTTP proxy request without completing it.
+     *
+     * Called by transports when a proxy request times out, so the
+     * CompletableDeferred does not leak in [pendingProxyRequests] indefinitely.
+     *
+     * @param requestId The request ID returned by [registerProxyRequest]
+     * @return true if the request was found and removed, false if already completed/removed
+     */
+    fun unregisterProxyRequest(requestId: String): Boolean {
+        val removed = synchronized(lock) { pendingProxyRequests.remove(requestId) != null }
+        if (removed) {
+            Log.d(TAG, "Unregistered timed-out proxy request: $requestId")
+        }
+        return removed
     }
 
     /**
      * Number of pending commands (for diagnostics).
      */
     val pendingCommandCount: Int
-        get() = pendingCommands.size
+        get() = synchronized(lock) { pendingCommands.size }
 
     /**
      * Number of pending proxy requests (for diagnostics).
      */
     val pendingProxyRequestCount: Int
-        get() = pendingProxyRequests.size
+        get() = synchronized(lock) { pendingProxyRequests.size }
 
     /**
      * Decode a hex-encoded string to bytes.

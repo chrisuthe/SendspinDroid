@@ -21,7 +21,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
-import java.io.IOException
+import com.sendspindroid.musicassistant.transport.MaTransportException
 
 /**
  * Shared command client for the Music Assistant API.
@@ -88,13 +88,13 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
      * @param command The MA command (e.g., "players/all")
      * @param args Command arguments
      * @return The JSON response
-     * @throws IOException if transport is not connected
+     * @throws MaTransportException if transport is not connected
      */
     internal suspend fun sendCommand(
         command: String,
         args: Map<String, Any> = emptyMap()
     ): JsonObject {
-        val t = transport ?: throw IOException("MA API transport not connected")
+        val t = transport ?: throw MaTransportException("MA API transport not connected")
         return t.sendCommand(command, args, COMMAND_TIMEOUT_MS)
     }
 

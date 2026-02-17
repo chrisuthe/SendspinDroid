@@ -22,6 +22,7 @@ import com.sendspindroid.ui.dialogs.ProxyCredentials
 import com.sendspindroid.ui.dialogs.SavedProxyServer
 import com.sendspindroid.ui.theme.SendSpinTheme
 import kotlinx.coroutines.launch
+import com.sendspindroid.musicassistant.transport.MaTransportException
 import java.io.IOException
 
 /**
@@ -198,6 +199,8 @@ class ProxyConnectDialog : DialogFragment() {
             } catch (e: MaApiTransport.AuthenticationException) {
                 isLoading = false
                 // Error is shown inline in Compose UI
+            } catch (e: MaTransportException) {
+                isLoading = false
             } catch (e: IOException) {
                 isLoading = false
             } catch (e: Exception) {

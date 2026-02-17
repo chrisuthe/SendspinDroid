@@ -122,6 +122,12 @@ class MainActivity : AppCompatActivity() {
     // Compose shell overlay -- primary UI, renders on top of XML layout
     private var composeOverlay: ComposeView? = null
 
+    // Snackbar anchor -- always points to a view that is attached to the window.
+    // After setupComposeShell() removes the CoordinatorLayout, binding.coordinatorLayout
+    // becomes detached and cannot anchor Snackbars (causes IllegalArgumentException).
+    // This field is set to the rootFrame that replaces it in the view hierarchy.
+    private var snackbarAnchorView: View? = null
+
     // Server status tracking for Compose server list
     private val composeServerStatuses = mutableStateMapOf<String, ServerItemStatus>()
     private val composeReconnectInfo = mutableStateMapOf<String, Pair<Int, Int>>()
@@ -279,6 +285,21 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Returns a view suitable for anchoring Snackbars.
+     *
+     * After [setupComposeShell] runs, [binding.coordinatorLayout] is removed from
+     * its parent and is no longer attached to the window. [Snackbar.make] walks up
+     * the view's parent chain looking for a CoordinatorLayout or the window decor;
+     * a detached view causes IllegalArgumentException.
+     *
+     * This property returns [snackbarAnchorView] (the FrameLayout that replaced the
+     * CoordinatorLayout), falling back to [binding.coordinatorLayout] during the
+     * brief window before [setupComposeShell] runs (e.g. in [onCreate] / [setupUI]).
+     */
+    private val snackbarView: View
+        get() = snackbarAnchorView ?: binding.coordinatorLayout
+
+    /**
      * Snackbar error types for different error scenarios.
      * Used to determine appropriate duration, colors, and actions.
      */
@@ -314,7 +335,7 @@ class MainActivity : AppCompatActivity() {
         announceForAccessibility("Error: $message")
 
         val snackbar = Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             if (errorType == ErrorType.VALIDATION) Snackbar.LENGTH_SHORT else Snackbar.LENGTH_LONG
         )
@@ -344,7 +365,7 @@ class MainActivity : AppCompatActivity() {
      */
     fun showSuccessSnackbar(message: String) {
         val snackbar = Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             Snackbar.LENGTH_SHORT
         )
@@ -364,7 +385,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun showInfoSnackbar(message: String) {
         Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             Snackbar.LENGTH_SHORT
         ).show()
@@ -386,7 +407,7 @@ class MainActivity : AppCompatActivity() {
         onDismissed: () -> Unit = {}
     ) {
         val snackbar = Snackbar.make(
-            binding.coordinatorLayout,
+            snackbarView,
             message,
             Snackbar.LENGTH_LONG
         )
@@ -429,7 +450,7 @@ class MainActivity : AppCompatActivity() {
 
         try {
             reconnectingSnackbar = Snackbar.make(
-                binding.coordinatorLayout,
+                snackbarView,
                 message,
                 Snackbar.LENGTH_INDEFINITE
             ).apply {
@@ -517,6 +538,18 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         Log.d(TAG, "Configuration changed: orientation=${newConfig.orientation}")
+
+        // Dismiss any lingering Snackbar before tearing down the view hierarchy
+        reconnectingSnackbar?.dismiss()
+        reconnectingSnackbar = null
+
+        // Clear the old snackbar anchor -- it will be set again by setupComposeShell()
+        snackbarAnchorView = null
+
+        // Dispose the old Compose overlay cleanly before re-inflation.
+        // DisposeOnViewTreeLifecycleDestroyed handles this when the view is detached
+        // by setContentView(), but we null the reference to avoid stale usage.
+        composeOverlay = null
 
         // Re-inflate the layout to get the correct orientation-specific layout
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -796,6 +829,10 @@ class MainActivity : AppCompatActivity() {
 
         // Add the new FrameLayout as the content view
         contentParent?.addView(rootFrame)
+
+        // rootFrame is now the attached view in the hierarchy -- use it for Snackbar anchoring
+        // (binding.coordinatorLayout was just removed from its parent and is detached)
+        snackbarAnchorView = rootFrame
 
         composeOverlay = overlay
 
@@ -2625,7 +2662,7 @@ class MainActivity : AppCompatActivity() {
             val result = MusicAssistantManager.favoriteCurrentTrack()
             result.fold(
                 onSuccess = { message ->
-                    Snackbar.make(binding.coordinatorLayout, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
+                    Snackbar.make(snackbarView, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
                     announceForAccessibility(getString(R.string.favorite_added))
                 },
                 onFailure = { error ->
@@ -2633,7 +2670,7 @@ class MainActivity : AppCompatActivity() {
                         error.message?.contains("No track") == true -> R.string.favorite_no_track
                         else -> R.string.favorite_error
                     }
-                    Snackbar.make(binding.coordinatorLayout, errorMessage, Snackbar.LENGTH_SHORT).show()
+                    Snackbar.make(snackbarView, errorMessage, Snackbar.LENGTH_SHORT).show()
                     Log.e(TAG, "Favorite failed: ${error.message}")
                 }
             )

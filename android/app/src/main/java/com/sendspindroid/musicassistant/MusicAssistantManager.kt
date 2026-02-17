@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.sendspindroid.musicassistant.transport.MaTransportException
 import java.io.IOException
 
 /** Map app ConnectionMode to shared MaConnectionMode. */
@@ -286,6 +287,15 @@ object MusicAssistantManager {
                     message = "Authentication expired. Please log in again.",
                     isAuthError = true
                 )
+            } catch (e: MaTransportException) {
+                Log.e(TAG, "Network error connecting to MA API", e)
+                apiTransport?.disconnect()
+                apiTransport = null
+                commandClient.setTransport(null, null, false)
+                _connectionState.value = MaConnectionState.Error(
+                    message = "Network error: ${e.message}",
+                    isAuthError = false
+                )
             } catch (e: IOException) {
                 Log.e(TAG, "Network error connecting to MA API", e)
                 apiTransport?.disconnect()
@@ -394,6 +404,16 @@ object MusicAssistantManager {
                 isAuthError = true
             )
             false
+        } catch (e: MaTransportException) {
+            Log.e(TAG, "Login failed: network error", e)
+            apiTransport?.disconnect()
+            apiTransport = null
+            commandClient.setTransport(null, null, false)
+            _connectionState.value = MaConnectionState.Error(
+                message = "Network error: ${e.message}",
+                isAuthError = false
+            )
+            false
         } catch (e: IOException) {
             Log.e(TAG, "Login failed: network error", e)
             apiTransport?.disconnect()
@@ -458,6 +478,16 @@ object MusicAssistantManager {
             _connectionState.value = MaConnectionState.Error(
                 message = "Authentication expired. Please log in again.",
                 isAuthError = true
+            )
+            false
+        } catch (e: MaTransportException) {
+            Log.e(TAG, "Token auth network error", e)
+            apiTransport?.disconnect()
+            apiTransport = null
+            commandClient.setTransport(null, null, false)
+            _connectionState.value = MaConnectionState.Error(
+                message = "Network error: ${e.message}",
+                isAuthError = false
             )
             false
         } catch (e: IOException) {

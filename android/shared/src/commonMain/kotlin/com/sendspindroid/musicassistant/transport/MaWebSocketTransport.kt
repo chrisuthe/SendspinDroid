@@ -24,7 +24,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
-import java.io.IOException
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -144,7 +143,7 @@ class MaWebSocketTransport(
         password: String
     ): MaApiTransport.LoginResult {
         if (_state.value is MaApiTransport.State.Connected) {
-            throw IOException("Already connected - disconnect first")
+            throw MaTransportException("Already connected - disconnect first")
         }
 
         _state.value = MaApiTransport.State.Connecting
@@ -205,7 +204,7 @@ class MaWebSocketTransport(
         timeoutMs: Long
     ): JsonObject {
         if (_state.value !is MaApiTransport.State.Connected) {
-            throw IOException("MA API transport not in Connected state: ${_state.value}")
+            throw MaTransportException("MA API transport not in Connected state: ${_state.value}")
         }
 
         val (messageId, deferred) = multiplexer.registerCommand()
@@ -221,12 +220,19 @@ class MaWebSocketTransport(
         Log.d(TAG, "Sending command: $command (id=$messageId)")
         val sent = trySend(Json.encodeToString(JsonObject.serializer(), cmdMsg))
         if (!sent) {
-            deferred.completeExceptionally(IOException("Failed to send command"))
-            throw IOException("Failed to send command: send channel closed")
+            multiplexer.unregisterCommand(messageId)
+            throw MaTransportException("Failed to send command: send channel closed")
         }
 
-        return withTimeout(timeoutMs) {
-            deferred.await()
+        try {
+            return withTimeout(timeoutMs) {
+                deferred.await()
+            }
+        } catch (e: Exception) {
+            // Clean up the pending command on timeout (or any other failure)
+            // to prevent the CompletableDeferred from leaking in the multiplexer.
+            multiplexer.unregisterCommand(messageId)
+            throw e
         }
     }
 
@@ -249,7 +255,7 @@ class MaWebSocketTransport(
         Log.d(TAG, "Disconnecting")
 
         multiplexer.cancelAll("Transport disconnecting")
-        authResult?.completeExceptionally(IOException("Transport disconnecting"))
+        authResult?.completeExceptionally(MaTransportException("Transport disconnecting"))
         authResult = null
 
         connectionJob?.cancel()
@@ -380,7 +386,7 @@ class MaWebSocketTransport(
         val wasConnected = _state.value is MaApiTransport.State.Connected
         _state.value = MaApiTransport.State.Error(reason)
 
-        authResult?.completeExceptionally(IOException(reason))
+        authResult?.completeExceptionally(MaTransportException(reason))
         authResult = null
 
         if (wasConnected) {

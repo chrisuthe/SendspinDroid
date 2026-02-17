@@ -660,7 +660,9 @@ class SendspinTimeFilter {
         val innovation = measurement - offsetPredicted
 
         // === Track Innovation for Adaptive Process Noise ===
-        recordInnovation(innovation * innovation, variance)
+        // Use p00New (predicted covariance) so the normalization denominator is
+        // S = P_predicted[0,0] + R, matching standard Kalman innovation covariance.
+        recordInnovation(innovation * innovation, p00New, variance)
 
         // === Adaptive Forgetting (convergence-aware warmup) ===
         if (isWarmupComplete()) {
@@ -744,11 +746,15 @@ class SendspinTimeFilter {
     /**
      * Record a squared innovation and its associated measurement variance.
      * Used to compute the innovation variance ratio for adaptive process noise.
+     *
+     * @param innovationSquared The squared innovation (z - H*x_predicted)^2
+     * @param predictedP00 The predicted offset covariance P_predicted[0,0] (BEFORE the update step)
+     * @param measurementVariance The measurement noise variance R
      */
-    private fun recordInnovation(innovationSquared: Double, measurementVariance: Double) {
-        // Store the normalized innovation: innovation^2 / (p00 + R)
+    private fun recordInnovation(innovationSquared: Double, predictedP00: Double, measurementVariance: Double) {
+        // Store the normalized innovation: innovation^2 / S where S = P_predicted[0,0] + R
         // This ratio should be ~1.0 if the filter model matches reality
-        val expectedVariance = p00 + measurementVariance
+        val expectedVariance = predictedP00 + measurementVariance
         val normalizedInnovation = if (expectedVariance > 0) {
             innovationSquared / expectedVariance
         } else {

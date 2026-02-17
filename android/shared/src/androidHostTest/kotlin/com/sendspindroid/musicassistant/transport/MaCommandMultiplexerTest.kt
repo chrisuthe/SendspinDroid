@@ -4,6 +4,7 @@ import com.sendspindroid.shared.log.Log
 import io.mockk.every
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
@@ -245,5 +246,151 @@ class MaCommandMultiplexerTest {
         // Complete one
         multiplexer.onMessage("""{"message_id": "$id1", "result": {}}""")
         assertEquals(1, multiplexer.pendingCommandCount)
+    }
+
+    // ========================================================================
+    // unregisterCommand / unregisterProxyRequest (C-11 fix)
+    // ========================================================================
+
+    @Test
+    fun `unregisterCommand removes pending command from map`() {
+        val (messageId, _) = multiplexer.registerCommand()
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        val removed = multiplexer.unregisterCommand(messageId)
+        assertTrue("Should return true when command was found", removed)
+        assertEquals(0, multiplexer.pendingCommandCount)
+    }
+
+    @Test
+    fun `unregisterCommand returns false for unknown messageId`() {
+        val removed = multiplexer.unregisterCommand("nonexistent-id")
+        assertFalse("Should return false when command was not found", removed)
+    }
+
+    @Test
+    fun `unregisterCommand returns false if command already completed`() = runBlocking {
+        val (messageId, deferred) = multiplexer.registerCommand()
+
+        // Complete the command normally
+        multiplexer.onMessage("""{"message_id": "$messageId", "result": {}}""")
+        assertTrue(deferred.isCompleted)
+
+        // Now try to unregister -- should return false since already removed
+        val removed = multiplexer.unregisterCommand(messageId)
+        assertFalse("Should return false when command already completed", removed)
+        assertEquals(0, multiplexer.pendingCommandCount)
+    }
+
+    @Test
+    fun `unregisterCommand cleans up partial results`() {
+        val (messageId, _) = multiplexer.registerCommand()
+
+        // Accumulate some partial results
+        multiplexer.onMessage("""
+            {"message_id": "$messageId", "partial": true, "result": ["item1", "item2"]}
+        """)
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        // Unregister (simulating timeout) -- should clean up partials too
+        val removed = multiplexer.unregisterCommand(messageId)
+        assertTrue(removed)
+        assertEquals(0, multiplexer.pendingCommandCount)
+
+        // A late-arriving response for this messageId should not crash
+        // and should be forwarded to the event listener instead
+        multiplexer.onMessage("""{"message_id": "$messageId", "result": ["item3"]}""")
+        assertEquals(1, receivedEvents.size)
+    }
+
+    @Test
+    fun `unregisterProxyRequest removes pending proxy request from map`() {
+        val (requestId, _) = multiplexer.registerProxyRequest()
+        assertEquals(1, multiplexer.pendingProxyRequestCount)
+
+        val removed = multiplexer.unregisterProxyRequest(requestId)
+        assertTrue("Should return true when proxy request was found", removed)
+        assertEquals(0, multiplexer.pendingProxyRequestCount)
+    }
+
+    @Test
+    fun `unregisterProxyRequest returns false for unknown requestId`() {
+        val removed = multiplexer.unregisterProxyRequest("nonexistent-id")
+        assertFalse("Should return false when proxy request was not found", removed)
+    }
+
+    @Test
+    fun `simulated timeout cleans up pending command`() = runBlocking {
+        // This simulates the exact pattern used in sendCommand():
+        // register -> timeout -> unregister
+        val (messageId, deferred) = multiplexer.registerCommand()
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        // Simulate the timeout path: withTimeout throws, then we clean up
+        try {
+            withTimeout(50) {
+                deferred.await()  // Will never complete -> times out
+            }
+            fail("Should have timed out")
+        } catch (_: TimeoutCancellationException) {
+            // This is what the transport's catch block does:
+            multiplexer.unregisterCommand(messageId)
+        }
+
+        assertEquals(
+            "Pending command should be cleaned up after timeout",
+            0,
+            multiplexer.pendingCommandCount
+        )
+    }
+
+    @Test
+    fun `simulated timeout with partial results cleans up everything`() = runBlocking {
+        val (messageId, deferred) = multiplexer.registerCommand()
+
+        // Receive some partial results before timeout
+        multiplexer.onMessage("""
+            {"message_id": "$messageId", "partial": true, "result": ["item1"]}
+        """)
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        // Simulate timeout
+        try {
+            withTimeout(50) {
+                deferred.await()
+            }
+            fail("Should have timed out")
+        } catch (_: TimeoutCancellationException) {
+            multiplexer.unregisterCommand(messageId)
+        }
+
+        assertEquals(0, multiplexer.pendingCommandCount)
+
+        // Late-arriving final response should not crash and goes to event listener
+        multiplexer.onMessage("""{"message_id": "$messageId", "result": ["item2"]}""")
+        assertEquals(1, receivedEvents.size)
+    }
+
+    @Test
+    fun `multiple commands with one timeout only cleans up timed-out command`() = runBlocking {
+        val (id1, d1) = multiplexer.registerCommand()
+        val (id2, d2) = multiplexer.registerCommand()
+        assertEquals(2, multiplexer.pendingCommandCount)
+
+        // Command 1 times out
+        try {
+            withTimeout(50) { d1.await() }
+            fail("Should have timed out")
+        } catch (_: TimeoutCancellationException) {
+            multiplexer.unregisterCommand(id1)
+        }
+
+        // Only command 1 removed; command 2 still pending
+        assertEquals(1, multiplexer.pendingCommandCount)
+
+        // Command 2 completes normally
+        multiplexer.onMessage("""{"message_id": "$id2", "result": {"ok": true}}""")
+        assertTrue(d2.isCompleted)
+        assertEquals(0, multiplexer.pendingCommandCount)
     }
 }
