@@ -2794,12 +2794,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun createSavedServerItem(server: UnifiedServer): MediaItem {
-        val subtitle = when {
-            server.local != null -> server.local.address
-            server.proxy != null -> "Proxy"
-            server.remote != null -> "Remote Access"
-            else -> ""
-        }
+        val subtitle = server.local?.address
+            ?: if (server.proxy != null) "Proxy"
+            else if (server.remote != null) "Remote Access"
+            else ""
         return MediaItem.Builder()
             .setMediaId("$MEDIA_ID_SAVED_SERVER_PREFIX${server.id}")
             .setMediaMetadata(

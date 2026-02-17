@@ -149,6 +149,12 @@ android {
 
 
 dependencies {
+    // Shared KMP module
+    implementation(project(":shared"))
+
+    // Kotlinx Serialization JSON - used for protocol message parsing in :app
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+
     // AndroidX Core KTX - Kotlin extensions for Android framework APIs
     implementation("androidx.core:core-ktx:1.17.0")
 
