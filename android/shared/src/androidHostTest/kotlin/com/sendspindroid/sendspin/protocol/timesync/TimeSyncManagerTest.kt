@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.protocol.timesync
 
 import com.sendspindroid.sendspin.SendspinTimeFilter
+import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.TimeMeasurement
 import com.sendspindroid.shared.log.Log
 import io.mockk.every
@@ -254,5 +255,172 @@ class TimeSyncManagerTest {
         )
         val result = manager.onServerTime(measurement)
         assertFalse("onServerTime should return false after stop", result)
+    }
+
+    // --- H-03: stop() resets all mutable state inside synchronized block ---
+
+    @Test
+    fun stop_resetsRttHistoryCount() = runTest {
+        manager.start(this)
+
+        // Advance a small amount so the coroutine starts and enters burst mode
+        advanceTimeBy(10)
+
+        // Feed measurements during the burst so processBurstResults accumulates RTT history
+        for (i in 1..10) {
+            manager.onServerTime(
+                TimeMeasurement(offset = 10_000L, rtt = 5_000L + i, clientReceived = 1_000_000L + i)
+            )
+        }
+
+        // Advance past the burst so processBurstResults runs and records RTT history
+        advanceTimeBy(700)
+
+        // rttHistoryCount should be > 0 after a completed burst with measurements
+        assertTrue(
+            "RTT history should have entries after burst, got ${manager.testRttHistoryCount}",
+            manager.testRttHistoryCount > 0
+        )
+
+        // Stop should reset it
+        manager.stop()
+
+        assertEquals(
+            "RTT history count should be 0 after stop",
+            0,
+            manager.testRttHistoryCount
+        )
+    }
+
+    @Test
+    fun stop_resetsBurstStrategyToDefaults() = runTest {
+        manager.start(this)
+
+        // Feed many measurements during bursts to build RTT history and trigger strategy adaptation
+        for (burst in 1..8) {
+            // Advance a bit so coroutine enters burst mode
+            advanceTimeBy(10)
+            // Feed measurements during each burst
+            for (i in 1..10) {
+                manager.onServerTime(
+                    TimeMeasurement(
+                        offset = 10_000L,
+                        rtt = 1_000L + i, // Low, consistent RTT -> low jitter
+                        clientReceived = (burst * 1_000_000L) + i
+                    )
+                )
+            }
+            // Advance past each burst + interval
+            advanceTimeBy(700)
+        }
+
+        // After enough bursts, strategy may have adapted from defaults
+        // (with low jitter RTTs, it may switch to low-jitter strategy)
+        // Either way, stop() must reset to defaults
+
+        manager.stop()
+
+        assertEquals(
+            "Burst count should be reset to default after stop",
+            SendSpinProtocol.TimeSync.BURST_COUNT,
+            manager.testCurrentBurstCount
+        )
+        assertEquals(
+            "Interval should be reset to default after stop",
+            SendSpinProtocol.TimeSync.INTERVAL_MS,
+            manager.testCurrentIntervalMs
+        )
+    }
+
+    @Test
+    fun stop_thenRestart_usesDefaultBurstStrategy() = runTest {
+        manager.start(this)
+
+        // Advance so coroutine enters burst mode
+        advanceTimeBy(10)
+
+        // Feed measurements during burst
+        for (i in 1..10) {
+            manager.onServerTime(
+                TimeMeasurement(offset = 10_000L, rtt = 2_000L + i, clientReceived = 1_000_000L + i)
+            )
+        }
+        advanceTimeBy(700)
+
+        manager.stop()
+
+        // Restart -- should be using defaults, not stale strategy
+        manager.start(this)
+
+        assertEquals(
+            "After restart, burst count should be default",
+            SendSpinProtocol.TimeSync.BURST_COUNT,
+            manager.testCurrentBurstCount
+        )
+        assertEquals(
+            "After restart, interval should be default",
+            SendSpinProtocol.TimeSync.INTERVAL_MS,
+            manager.testCurrentIntervalMs
+        )
+        assertEquals(
+            "After restart, RTT history should be empty",
+            0,
+            manager.testRttHistoryCount
+        )
+
+        manager.stop()
+    }
+
+    @Test
+    fun stop_thenRestart_rttHistoryDoesNotContaminateNewSession() = runTest {
+        manager.start(this)
+
+        // Build up RTT history in the first session
+        for (burst in 1..6) {
+            // Advance so coroutine enters burst mode
+            advanceTimeBy(10)
+            for (i in 1..10) {
+                manager.onServerTime(
+                    TimeMeasurement(
+                        offset = 10_000L,
+                        rtt = 3_000L + i,
+                        clientReceived = (burst * 1_000_000L) + i
+                    )
+                )
+            }
+            advanceTimeBy(700)
+        }
+
+        val historyCountBeforeStop = manager.testRttHistoryCount
+        assertTrue("Should have RTT history from first session", historyCountBeforeStop > 0)
+
+        manager.stop()
+
+        // Restart -- RTT history must be fresh
+        manager.start(this)
+        assertEquals(
+            "RTT history should be empty after stop+restart",
+            0,
+            manager.testRttHistoryCount
+        )
+
+        // Advance so coroutine enters burst mode
+        advanceTimeBy(10)
+
+        // Feed one burst of measurements
+        for (i in 1..10) {
+            manager.onServerTime(
+                TimeMeasurement(offset = 10_000L, rtt = 4_000L + i, clientReceived = 10_000_000L + i)
+            )
+        }
+        advanceTimeBy(700)
+
+        // RTT history should only reflect the new session
+        assertTrue(
+            "RTT history should have at most 1 entry from new session (not $historyCountBeforeStop from old)",
+            manager.testRttHistoryCount <= 1
+        )
+
+        manager.stop()
     }
 }

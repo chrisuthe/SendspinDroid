@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Singleton repository for managing server state across the app.
@@ -132,12 +133,17 @@ object ServerRepository {
     /**
      * Add a discovered server (from mDNS).
      * Does not persist - discovered servers are transient.
+     *
+     * Uses [MutableStateFlow.update] for atomic read-modify-write so
+     * concurrent mDNS callbacks cannot silently lose updates.
      */
     fun addDiscoveredServer(server: ServerInfo) {
-        val current = _discoveredServers.value.toMutableList()
-        if (!current.any { it.address == server.address }) {
-            current.add(server)
-            _discoveredServers.value = current
+        _discoveredServers.update { current ->
+            if (current.any { it.address == server.address }) {
+                current // already present -- no change
+            } else {
+                current + server
+            }
         }
     }
 
@@ -145,7 +151,7 @@ object ServerRepository {
      * Remove a discovered server (e.g., when it goes offline).
      */
     fun removeDiscoveredServer(address: String) {
-        _discoveredServers.value = _discoveredServers.value.filter { it.address != address }
+        _discoveredServers.update { current -> current.filter { it.address != address } }
     }
 
     /**
@@ -157,13 +163,22 @@ object ServerRepository {
 
     /**
      * Add a manually entered server. Persists to SharedPreferences.
+     *
+     * Uses [MutableStateFlow.update] for atomic read-modify-write.
      */
     fun addManualServer(server: ServerInfo) {
         ensurePersistedDataLoaded()
-        val current = _manualServers.value.toMutableList()
-        if (!current.any { it.address == server.address }) {
-            current.add(server)
-            _manualServers.value = current
+        var added = false
+        _manualServers.update { current ->
+            if (current.any { it.address == server.address }) {
+                added = false
+                current
+            } else {
+                added = true
+                current + server
+            }
+        }
+        if (added) {
             persistManualServers()
         }
     }
@@ -173,30 +188,27 @@ object ServerRepository {
      */
     fun removeManualServer(address: String) {
         ensurePersistedDataLoaded()
-        _manualServers.value = _manualServers.value.filter { it.address != address }
+        _manualServers.update { current -> current.filter { it.address != address } }
         persistManualServers()
     }
 
     /**
      * Record a server connection for recent history.
      * Moves the server to the front if already in history.
+     *
+     * Uses [MutableStateFlow.update] for atomic read-modify-write.
      */
     fun addToRecent(server: ServerInfo) {
         ensurePersistedDataLoaded()
-        val current = _recentServers.value.toMutableList()
-
-        // Remove existing entry for this address
-        current.removeIf { it.address == server.address }
-
-        // Add to front
-        current.add(0, RecentServer(
-            name = server.name,
-            address = server.address,
-            lastConnectedMs = System.currentTimeMillis()
-        ))
-
-        // Keep only most recent 10
-        _recentServers.value = current.take(10)
+        _recentServers.update { current ->
+            val filtered = current.filter { it.address != server.address }
+            val entry = RecentServer(
+                name = server.name,
+                address = server.address,
+                lastConnectedMs = System.currentTimeMillis()
+            )
+            (listOf(entry) + filtered).take(10)
+        }
         persistRecentServers()
     }
 

@@ -49,6 +49,11 @@ class TimeSyncManager(
     val isRunning: Boolean
         get() = running
 
+    // Visible for testing: burst strategy and RTT history state
+    internal val testCurrentBurstCount: Int get() = synchronized(pendingBurstMeasurements) { currentBurstCount }
+    internal val testCurrentIntervalMs: Long get() = synchronized(pendingBurstMeasurements) { currentIntervalMs }
+    internal val testRttHistoryCount: Int get() = synchronized(pendingBurstMeasurements) { rttHistoryCount }
+
     fun start(scope: CoroutineScope) {
         if (running) return
         running = true
@@ -72,11 +77,11 @@ class TimeSyncManager(
         synchronized(pendingBurstMeasurements) {
             pendingBurstMeasurements.clear()
             burstInProgress = false
+            rttHistoryIndex = 0
+            rttHistoryCount = 0
+            currentBurstCount = SendSpinProtocol.TimeSync.BURST_COUNT
+            currentIntervalMs = SendSpinProtocol.TimeSync.INTERVAL_MS
         }
-        rttHistoryIndex = 0
-        rttHistoryCount = 0
-        currentBurstCount = SendSpinProtocol.TimeSync.BURST_COUNT
-        currentIntervalMs = SendSpinProtocol.TimeSync.INTERVAL_MS
     }
 
     fun onServerTime(measurement: TimeMeasurement): Boolean {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -89,7 +92,15 @@ class MaWebSocketTransport(
         private set
 
     private val multiplexer = MaCommandMultiplexer()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Mutex guards all state transitions: connect(), connectWithCredentials(),
+    // disconnect(), and startConnection(). Prevents concurrent connect/disconnect
+    // races that could orphan authResult deferreds or leak connections.
+    private val stateMutex = Mutex()
+
+    // CoroutineScope is created fresh for each connection and cancelled on disconnect.
+    // This prevents SupervisorJob leaks under repeated connect/disconnect cycles.
+    private var scope: CoroutineScope? = null
     private var connectionJob: Job? = null
 
     // Channel for outgoing text messages
@@ -105,7 +116,7 @@ class MaWebSocketTransport(
     @Volatile
     private var isLoginMode = false
 
-    // Deferred for auth completion — used to signal connect()/connectWithCredentials() callers
+    // Deferred for auth completion -- used to signal connect()/connectWithCredentials() callers
     @Volatile
     private var authResult: kotlinx.coroutines.CompletableDeferred<JsonObject>? = null
 
@@ -114,19 +125,22 @@ class MaWebSocketTransport(
     // ========================================================================
 
     override suspend fun connect(token: String) {
-        if (_state.value is MaApiTransport.State.Connected) {
-            Log.d(TAG, "Already connected")
-            return
+        val deferred = stateMutex.withLock {
+            if (_state.value is MaApiTransport.State.Connected) {
+                Log.d(TAG, "Already connected")
+                return
+            }
+
+            _state.value = MaApiTransport.State.Connecting
+            authToken = token
+            isLoginMode = false
+
+            val d = kotlinx.coroutines.CompletableDeferred<JsonObject>()
+            authResult = d
+
+            startConnection()
+            d
         }
-
-        _state.value = MaApiTransport.State.Connecting
-        authToken = token
-        isLoginMode = false
-
-        val deferred = kotlinx.coroutines.CompletableDeferred<JsonObject>()
-        authResult = deferred
-
-        startConnection()
 
         try {
             withTimeout(AUTH_TIMEOUT_MS) {
@@ -142,19 +156,22 @@ class MaWebSocketTransport(
         username: String,
         password: String
     ): MaApiTransport.LoginResult {
-        if (_state.value is MaApiTransport.State.Connected) {
-            throw MaTransportException("Already connected - disconnect first")
+        val deferred = stateMutex.withLock {
+            if (_state.value is MaApiTransport.State.Connected) {
+                throw MaTransportException("Already connected - disconnect first")
+            }
+
+            _state.value = MaApiTransport.State.Connecting
+            isLoginMode = true
+            loginUsername = username
+            loginPassword = password
+
+            val d = kotlinx.coroutines.CompletableDeferred<JsonObject>()
+            authResult = d
+
+            startConnection()
+            d
         }
-
-        _state.value = MaApiTransport.State.Connecting
-        isLoginMode = true
-        loginUsername = username
-        loginPassword = password
-
-        val deferred = kotlinx.coroutines.CompletableDeferred<JsonObject>()
-        authResult = deferred
-
-        startConnection()
 
         try {
             val response = withTimeout(AUTH_TIMEOUT_MS) {
@@ -254,25 +271,43 @@ class MaWebSocketTransport(
     override fun disconnect() {
         Log.d(TAG, "Disconnecting")
 
-        multiplexer.cancelAll("Transport disconnecting")
-        authResult?.completeExceptionally(MaTransportException("Transport disconnecting"))
-        authResult = null
+        // Use tryLock for the non-suspend disconnect() contract.
+        // If the mutex is held (e.g., connect() is in progress), we still
+        // proceed -- the connect() caller will observe the state change
+        // and the deferred completion. This is safe because all individual
+        // operations below are themselves thread-safe or idempotent.
+        val acquired = stateMutex.tryLock()
+        try {
+            multiplexer.cancelAll("Transport disconnecting")
+            authResult?.completeExceptionally(MaTransportException("Transport disconnecting"))
+            authResult = null
 
-        connectionJob?.cancel()
-        connectionJob = null
+            connectionJob?.cancel()
+            connectionJob = null
 
-        sendChannel?.close()
-        sendChannel = null
+            sendChannel?.close()
+            sendChannel = null
 
-        serverVersion = null
-        maServerId = null
-        baseUrl = null
-        authToken = null
-        loginUsername = null
-        loginPassword = null
-        isLoginMode = false
+            // Cancel the entire scope to clean up any lingering coroutines
+            // and prevent SupervisorJob leaks (H-21). A new scope is created
+            // in startConnection() on the next connect().
+            scope?.cancel()
+            scope = null
 
-        _state.value = MaApiTransport.State.Disconnected
+            serverVersion = null
+            maServerId = null
+            baseUrl = null
+            authToken = null
+            loginUsername = null
+            loginPassword = null
+            isLoginMode = false
+
+            _state.value = MaApiTransport.State.Disconnected
+        } finally {
+            if (acquired) {
+                stateMutex.unlock()
+            }
+        }
     }
 
     // ========================================================================
@@ -286,7 +321,12 @@ class MaWebSocketTransport(
         val channel = Channel<String>(Channel.BUFFERED)
         sendChannel = channel
 
-        connectionJob = scope.launch {
+        // Create a fresh scope for this connection. The previous scope (if any)
+        // was cancelled in disconnect(). This ensures no leaked SupervisorJobs.
+        val newScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        scope = newScope
+
+        connectionJob = newScope.launch {
             try {
                 httpClient.webSocket(urlString = wsUrl) {
                     Log.d(TAG, "WebSocket connected, waiting for server info...")

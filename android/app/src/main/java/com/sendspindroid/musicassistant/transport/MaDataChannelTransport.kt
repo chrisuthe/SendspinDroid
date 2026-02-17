@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import org.json.JSONArray
 import org.json.JSONObject
 import org.webrtc.DataChannel
 import java.io.IOException
@@ -55,9 +56,13 @@ class MaDataChannelTransport(
 
     private val multiplexer = MaCommandMultiplexer()
 
-    // Auth handshake state
+    // Auth handshake state -- all accessed from both coroutine callers and
+    // WebRTC internal callback threads, so must be @Volatile.
+    @Volatile
     private var authDeferred: CompletableDeferred<JSONObject>? = null
+    @Volatile
     private var authMessageId: String? = null
+    @Volatile
     private var serverInfoReceived = false
 
     // Token stored during connect() for use in the auth handshake callback
@@ -69,8 +74,10 @@ class MaDataChannelTransport(
     private var pendingUsername: String? = null
     @Volatile
     private var pendingPassword: String? = null
+    @Volatile
     private var isLoginMode = false
-    // Saved login response (for two-step auth: login → get token → auth with token)
+    // Saved login response (for two-step auth: login -> get token -> auth with token)
+    @Volatile
     private var loginResponse: JSONObject? = null
 
     // Eagerly register observer to capture ServerInfoMessage even before connect() is called.
@@ -215,7 +222,7 @@ class MaDataChannelTransport(
             put("message_id", messageId)
             put("command", command)
             if (args.isNotEmpty()) {
-                put("args", JSONObject(args))
+                put("args", mapToJSONObject(args))
             }
         }
 
@@ -392,16 +399,14 @@ class MaDataChannelTransport(
                         )
                     } else {
                         Log.d(TAG, "Login returned token, now authenticating session...")
-                        // Store the token and response, then send auth command
+                        // Store the token and response, then send token-auth command.
+                        // Use sendAuthCommand(forceTokenMode=true) instead of temporarily
+                        // flipping isLoginMode, which was not thread-safe (H-19).
                         pendingAuthToken = token
                         loginResponse = json  // Save for later completion
                         val newMsgId = java.util.UUID.randomUUID().toString()
                         authMessageId = newMsgId
-                        // Temporarily switch out of login mode for sendAuthCommand
-                        val wasLoginMode = isLoginMode
-                        isLoginMode = false
-                        sendAuthCommand(newMsgId)
-                        isLoginMode = wasLoginMode
+                        sendAuthCommand(newMsgId, forceTokenMode = true)
                     }
                 } else {
                     Log.i(TAG, "Authenticated successfully via DataChannel")
@@ -427,9 +432,13 @@ class MaDataChannelTransport(
      *
      * In token mode: sends `{command: "auth", args: {token: "..."}}`
      * In login mode: sends `{command: "auth/login", args: {username, password, device_name}}`
+     *
+     * @param forceTokenMode If true, always send token auth regardless of [isLoginMode].
+     *   Used during two-step login when we already have the token from the login response
+     *   and need to authenticate the session without unsafely flipping [isLoginMode].
      */
-    private fun sendAuthCommand(messageId: String) {
-        val authMsg = if (isLoginMode) {
+    private fun sendAuthCommand(messageId: String, forceTokenMode: Boolean = false) {
+        val authMsg = if (isLoginMode && !forceTokenMode) {
             val username = pendingUsername
             val password = pendingPassword
             if (username == null || password == null) {
@@ -501,5 +510,47 @@ class MaDataChannelTransport(
         val buffer = ByteBuffer.wrap(text.toByteArray(Charsets.UTF_8))
         val dataBuffer = DataChannel.Buffer(buffer, false) // false = text
         return dataChannel.send(dataBuffer)
+    }
+
+    /**
+     * Convert a Map<String, Any> to an org.json.JSONObject, properly handling
+     * List, Map, and primitive value types.
+     *
+     * Unlike [JSONObject]'s Map constructor which calls toString() on List values
+     * (producing Java "[a, b]" instead of JSON ["a","b"]), this recursively converts
+     * Lists to JSONArray and nested Maps to JSONObject.
+     */
+    private fun mapToJSONObject(map: Map<String, Any>): JSONObject {
+        val obj = JSONObject()
+        for ((key, value) in map) {
+            obj.put(key, convertValue(value))
+        }
+        return obj
+    }
+
+    /**
+     * Recursively convert a value to its org.json equivalent.
+     */
+    private fun convertValue(value: Any): Any = when (value) {
+        is String, is Int, is Long, is Double, is Float, is Boolean -> value
+        is Map<*, *> -> {
+            val obj = JSONObject()
+            for ((k, v) in value) {
+                if (k is String && v != null) {
+                    obj.put(k, convertValue(v))
+                }
+            }
+            obj
+        }
+        is List<*> -> {
+            val arr = JSONArray()
+            for (item in value) {
+                if (item != null) {
+                    arr.put(convertValue(item))
+                }
+            }
+            arr
+        }
+        else -> value.toString()
     }
 }

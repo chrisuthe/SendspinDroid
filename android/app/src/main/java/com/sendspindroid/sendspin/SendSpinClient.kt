@@ -607,6 +607,9 @@ class SendSpinClient(
         reconnecting.set(false)
         waitingForNetwork.set(false)
         sendGoodbye("user_request")
+        // Clear the transport listener BEFORE closing to prevent the async onClosed
+        // callback from firing a second onDisconnected after we fire one synchronously below.
+        transport?.setListener(null)
         transport?.close(1000, "User disconnect")
         transport = null
         handshakeComplete = false
@@ -883,10 +886,13 @@ class SendSpinClient(
 
             // After receiving first message post-auth, send client/hello
             if (awaitingAuthResponse) {
-                Log.d(TAG, "Received first message after auth, sending client/hello")
+                Log.d(TAG, "Received auth-ack, sending client/hello")
                 awaitingAuthResponse = false
                 sendClientHello()
-                // Don't return - still process this message normally
+                // Consume the auth-ack message; do NOT forward it to the protocol handler.
+                // If the auth-ack were forwarded, it could be misinterpreted as a protocol
+                // message (e.g., a server/hello arriving before client/hello is sent).
+                return
             }
 
             handleTextMessage(text)

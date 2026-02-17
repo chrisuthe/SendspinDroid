@@ -1471,15 +1471,24 @@ class MainActivity : AppCompatActivity() {
                     override fun onServerLost(name: String) {
                         runOnUiThread {
                             Log.d(TAG, "Server lost: $name")
-                            // Remove from legacy list
-                            servers.removeAll { it.name == name }
+                            // Look up address from legacy list (keyed by address on add)
+                            val address = servers.find { it.name == name }?.address
+
+                            // Remove from legacy list by address (matches addServer dedup key)
+                            if (address != null) {
+                                servers.removeAll { it.address == address }
+                            } else {
+                                // Fallback: remove by name if address not found
+                                servers.removeAll { it.name == name }
+                            }
                             serverAdapter.submitList(servers.toList())
 
-                            // Remove from UnifiedServerRepository discovered servers
-                            val serverToRemove = UnifiedServerRepository.discoveredServers.value
-                                .find { it.name == name }
-                            serverToRemove?.local?.address?.let { address ->
-                                UnifiedServerRepository.removeDiscoveredServer(address)
+                            // Remove from UnifiedServerRepository by address
+                            val repoAddress = address
+                                ?: UnifiedServerRepository.discoveredServers.value
+                                    .find { it.name == name }?.local?.address
+                            if (repoAddress != null) {
+                                UnifiedServerRepository.removeDiscoveredServer(repoAddress)
                             }
                         }
                     }

@@ -16,6 +16,7 @@ import com.sendspindroid.musicassistant.transport.MaWebSocketTransport
 import org.webrtc.DataChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,6 +87,10 @@ object MusicAssistantManager {
     // Persistent MA API transport (replaces fire-and-forget WebSocket pattern)
     @Volatile
     private var apiTransport: MaApiTransport? = null
+
+    // Tracked coroutine for connectWithToken; cancelled on re-entry to prevent races (H-22)
+    @Volatile
+    private var connectJob: Job? = null
 
     /**
      * Returns the active API transport, if connected.
@@ -212,6 +217,10 @@ object MusicAssistantManager {
     fun onServerDisconnected() {
         Log.d(TAG, "Server disconnected")
 
+        // Cancel any in-flight connect attempt (H-22)
+        connectJob?.cancel()
+        connectJob = null
+
         // Disconnect the persistent transport
         apiTransport?.disconnect()
         apiTransport = null
@@ -239,7 +248,9 @@ object MusicAssistantManager {
     private fun connectWithToken(apiUrl: String, token: String, serverId: String) {
         _connectionState.value = MaConnectionState.Connecting
 
-        scope.launch {
+        // Cancel any in-flight connect attempt to prevent racing on apiTransport (H-22)
+        connectJob?.cancel()
+        connectJob = scope.launch {
             try {
                 // Disconnect any existing transport
                 apiTransport?.disconnect()
