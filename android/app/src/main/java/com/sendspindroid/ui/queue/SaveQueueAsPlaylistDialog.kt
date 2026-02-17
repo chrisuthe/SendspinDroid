@@ -103,7 +103,7 @@ fun SaveQueueAsPlaylistDialog(
         loadError = null
         MusicAssistantManager.getPlaylists().fold(
             onSuccess = { playlists = it },
-            onFailure = { loadError = it.message ?: "Failed to load playlists" }
+            onFailure = { loadError = it.message ?: "" }
         )
     }
 
@@ -234,7 +234,7 @@ private fun PickerDialog(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             TextButton(onClick = onRetryLoad) {
-                                Text("Retry")
+                                Text(stringResource(R.string.action_retry))
                             }
                         }
                     }
@@ -279,7 +279,7 @@ private fun PickerDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -332,7 +332,7 @@ private fun PlaylistActionRow(
             )
             if (playlist.trackCount > 0) {
                 Text(
-                    text = if (playlist.trackCount == 1) "1 track" else "${playlist.trackCount} tracks",
+                    text = if (playlist.trackCount == 1) stringResource(R.string.track_count_one) else stringResource(R.string.track_count_other, playlist.trackCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -346,7 +346,7 @@ private fun PlaylistActionRow(
         ) {
             Icon(
                 imageVector = Icons.Filled.Add,
-                contentDescription = "Add to playlist",
+                contentDescription = stringResource(R.string.accessibility_add_to_playlist),
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -363,7 +363,7 @@ private fun PlaylistActionRow(
         ) {
             Icon(
                 imageVector = Icons.Filled.Refresh,
-                contentDescription = "Replace playlist",
+                contentDescription = stringResource(R.string.accessibility_replace_playlist),
                 modifier = Modifier.size(20.dp)
             )
         }
@@ -405,7 +405,7 @@ private fun ConfirmOverwriteDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -429,7 +429,7 @@ private fun CreateNewDialog(
             OutlinedTextField(
                 value = name,
                 onValueChange = onNameChange,
-                label = { Text("Playlist name") },
+                label = { Text(stringResource(R.string.playlist_create_hint)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -439,12 +439,12 @@ private fun CreateNewDialog(
                 onClick = onConfirm,
                 enabled = name.isNotBlank()
             ) {
-                Text("Create")
+                Text(stringResource(R.string.action_create))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.action_cancel))
             }
         }
     )
@@ -534,10 +534,10 @@ private fun OperationDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 TextButton(onClick = onDismiss) {
-                                    Text("Cancel")
+                                    Text(stringResource(R.string.action_cancel))
                                 }
                                 TextButton(onClick = onRetry) {
-                                    Text("Retry")
+                                    Text(stringResource(R.string.action_retry))
                                 }
                             }
                         }
@@ -555,7 +555,7 @@ private fun OperationDialog(
         dismissButton = {
             if (operationState !is BulkAddState.Loading && operationState !is BulkAddState.Success) {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.action_cancel))
                 }
             }
         }
