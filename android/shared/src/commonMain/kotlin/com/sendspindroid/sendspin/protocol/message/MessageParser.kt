@@ -18,6 +18,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.longOrNull
 
 object MessageParser {
@@ -196,8 +197,6 @@ object MessageParser {
     private fun JsonObject.doubleOrDefault(key: String, default: Double): Double =
         this[key]?.jsonPrimitive?.doubleOrNull ?: default
 
-    private fun JsonObject.booleanOrDefault(key: String, default: Boolean): Boolean {
-        val value = this[key]?.jsonPrimitive?.contentOrNull ?: return default
-        return value.equals("true", ignoreCase = true)
-    }
+    private fun JsonObject.booleanOrDefault(key: String, default: Boolean): Boolean =
+        this[key]?.jsonPrimitive?.booleanOrNull ?: default
 }

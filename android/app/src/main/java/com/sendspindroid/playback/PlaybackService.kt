@@ -119,7 +119,7 @@ class PlaybackService : MediaLibraryService() {
     private var sendSpinPlayer: SendSpinPlayer? = null
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
-    private var syncAudioPlayer: SyncAudioPlayer? = null
+    @Volatile private var syncAudioPlayer: SyncAudioPlayer? = null
     private var audioDecoder: AudioDecoder? = null
     private var currentCodec: String = "pcm"  // Track current stream codec for stats
 

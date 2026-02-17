@@ -289,6 +289,32 @@ class MessageParserTest {
     }
 
     @Test
+    fun parseServerCommand_muteExplicitFalse_returnsFalse() {
+        val payload = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "mute")
+                put("mute", false)
+            })
+        }
+        val result = MessageParser.parseServerCommand(payload)
+        assertTrue(result is ServerCommandResult.Mute)
+        assertFalse((result as ServerCommandResult.Mute).muted)
+    }
+
+    @Test
+    fun parseServerCommand_muteMissing_usesDefault() {
+        // When "mute" key is absent, booleanOrDefault should return the default (false)
+        val payload = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "mute")
+            })
+        }
+        val result = MessageParser.parseServerCommand(payload)
+        assertTrue(result is ServerCommandResult.Mute)
+        assertFalse((result as ServerCommandResult.Mute).muted)
+    }
+
+    @Test
     fun parseServerCommand_unknownCommand_returnsUnknown() {
         val payload = buildJsonObject {
             put("player", buildJsonObject {
