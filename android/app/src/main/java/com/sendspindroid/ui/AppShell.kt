@@ -324,7 +324,7 @@ private fun ConnectedShell(
                     IconButton(onClick = { viewModel.navigateDetailBack() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = stringResource(R.string.action_back)
                         )
                     }
                 }
@@ -384,7 +384,7 @@ private fun ConnectedShell(
                         IconButton(onClick = { showOverflowMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
-                                contentDescription = "Menu"
+                                contentDescription = stringResource(R.string.action_menu)
                             )
                         }
                         DropdownMenu(
@@ -683,7 +683,7 @@ private fun BrowseContent(
             val uri = item.uri
             if (uri.isNullOrBlank()) {
                 Log.w(TAG, "Item ${item.name} has no URI, cannot play")
-                Toast.makeText(currentContext, "Cannot play: no URI available", Toast.LENGTH_SHORT).show()
+                Toast.makeText(currentContext, currentContext.getString(R.string.error_no_uri_play), Toast.LENGTH_SHORT).show()
             } else {
                 Log.d(TAG, "Playing ${item.mediaType}: ${item.name} (uri=$uri)")
                 scope.launch {
@@ -693,7 +693,7 @@ private fun BrowseContent(
                             Log.e(TAG, "Failed to play ${item.name}", error)
                             Toast.makeText(
                                 currentContext,
-                                "Failed to play: ${error.message}",
+                                currentContext.getString(R.string.error_play_failed, error.message ?: ""),
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -709,7 +709,7 @@ private fun BrowseContent(
             val uri = item.uri
             if (uri.isNullOrBlank()) {
                 Log.w(TAG, "Item ${item.name} has no URI, cannot add to queue")
-                Toast.makeText(currentContext, "Cannot add to queue: no URI available", Toast.LENGTH_SHORT)
+                Toast.makeText(currentContext, currentContext.getString(R.string.error_no_uri_queue), Toast.LENGTH_SHORT)
                     .show()
             } else {
                 Log.d(TAG, "Adding to queue: ${item.name} (uri=$uri)")
@@ -721,13 +721,13 @@ private fun BrowseContent(
                     ).fold(
                         onSuccess = {
                             Log.d(TAG, "Added to queue: ${item.name}")
-                            onShowSuccess("Added to queue: ${item.name}")
+                            onShowSuccess(currentContext.getString(R.string.success_added_to_queue, item.name))
                         },
                         onFailure = { error ->
                             Log.e(TAG, "Failed to add to queue: ${item.name}", error)
                             Toast.makeText(
                                 currentContext,
-                                "Failed to add to queue: ${error.message}",
+                                currentContext.getString(R.string.error_queue_failed, error.message ?: ""),
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -743,7 +743,7 @@ private fun BrowseContent(
             val uri = item.uri
             if (uri.isNullOrBlank()) {
                 Log.w(TAG, "Item ${item.name} has no URI, cannot play next")
-                Toast.makeText(currentContext, "Cannot play next: no URI available", Toast.LENGTH_SHORT)
+                Toast.makeText(currentContext, currentContext.getString(R.string.error_no_uri_play_next), Toast.LENGTH_SHORT)
                     .show()
             } else {
                 Log.d(TAG, "Play next: ${item.name} (uri=$uri)")
@@ -755,13 +755,13 @@ private fun BrowseContent(
                     ).fold(
                         onSuccess = {
                             Log.d(TAG, "Playing next: ${item.name}")
-                            onShowSuccess("Playing next: ${item.name}")
+                            onShowSuccess(currentContext.getString(R.string.success_playing_next, item.name))
                         },
                         onFailure = { error ->
                             Log.e(TAG, "Failed to play next: ${item.name}", error)
                             Toast.makeText(
                                 currentContext,
-                                "Failed to play next: ${error.message}",
+                                currentContext.getString(R.string.error_play_next_failed, error.message ?: ""),
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
@@ -847,7 +847,7 @@ private fun BrowseContent(
                     val action = playlistsViewModel.deletePlaylist(playlist.playlistId)
                     if (action != null) {
                         onShowUndoSnackbar(
-                            "Deleted ${playlist.name}",
+                            currentContext.getString(R.string.snackbar_deleted, playlist.name),
                             { action.undoDelete() },
                             { action.executeDelete() }
                         )
@@ -947,6 +947,7 @@ private fun DetailContent(
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val detailContext = LocalContext.current
 
     // Shared playlist picker state for detail screens
     var trackForPlaylist by remember { mutableStateOf<MaTrack?>(null) }
@@ -1001,7 +1002,7 @@ private fun DetailContent(
                 playlistId = detail.playlistId,
                 onTrackRemoved = { action ->
                     onShowUndoSnackbar(
-                        "Track removed",
+                        detailContext.getString(R.string.snackbar_track_removed),
                         { action.undoRemove() },
                         { action.executeRemove() }
                     )
@@ -1122,7 +1123,8 @@ private suspend fun addTrackToPlaylist(
     track: MaTrack,
     playlist: MaPlaylist,
     onShowSuccess: (String) -> Unit,
-    onShowError: (String) -> Unit
+    onShowError: (String) -> Unit,
+    context: android.content.Context? = null
 ) {
     val uri = track.uri ?: return
     Log.d(TAG, "Adding track '${track.name}' to playlist '${playlist.name}'")
@@ -1132,11 +1134,11 @@ private suspend fun addTrackToPlaylist(
     ).fold(
         onSuccess = {
             Log.d(TAG, "Track added to playlist")
-            onShowSuccess("Added to ${playlist.name}")
+            onShowSuccess(context?.getString(R.string.success_added_to_playlist, playlist.name) ?: "Added to ${playlist.name}")
         },
         onFailure = { error ->
             Log.e(TAG, "Failed to add track to playlist", error)
-            onShowError("Failed to add track")
+            onShowError(context?.getString(R.string.error_add_track_failed) ?: "Failed to add track")
         }
     )
 }
@@ -1149,36 +1151,37 @@ private suspend fun bulkAddAlbum(
     albumName: String,
     playlist: MaPlaylist,
     onShowSuccess: (String) -> Unit,
-    onStateChange: (BulkAddState) -> Unit
+    context: android.content.Context? = null,
+    onStateChange: (BulkAddState) -> Unit,
 ) {
-    onStateChange(BulkAddState.Loading("Fetching tracks..."))
+    onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_fetching_tracks) ?: "Fetching tracks..."))
 
     MusicAssistantManager.getAlbumTracks(albumId).fold(
         onSuccess = { tracks ->
             val uris = tracks.mapNotNull { it.uri }
             if (uris.isEmpty()) {
-                onStateChange(BulkAddState.Error("No tracks found"))
+                onStateChange(BulkAddState.Error(context?.getString(R.string.bulk_no_tracks_found) ?: "No tracks found"))
                 return
             }
 
-            onStateChange(BulkAddState.Loading("Adding ${uris.size} tracks..."))
+            onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_adding_tracks, uris.size) ?: "Adding ${uris.size} tracks..."))
 
             MusicAssistantManager.addPlaylistTracks(playlist.playlistId, uris).fold(
                 onSuccess = {
-                    val message = "Added $albumName to ${playlist.name}"
+                    val message = context?.getString(R.string.bulk_added_to_playlist, albumName, playlist.name) ?: "Added $albumName to ${playlist.name}"
                     Log.d(TAG, message)
                     onStateChange(BulkAddState.Success(message))
                     onShowSuccess(message)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to add album to playlist", error)
-                    onStateChange(BulkAddState.Error("Failed to add to playlist"))
+                    onStateChange(BulkAddState.Error(context?.getString(R.string.bulk_failed_add_playlist) ?: "Failed to add to playlist"))
                 }
             )
         },
         onFailure = { error ->
             Log.e(TAG, "Failed to fetch album tracks", error)
-            onStateChange(BulkAddState.Error("Failed to fetch tracks"))
+            onStateChange(BulkAddState.Error(context?.getString(R.string.bulk_failed_fetch_tracks) ?: "Failed to fetch tracks"))
         }
     )
 }
@@ -1191,36 +1194,37 @@ private suspend fun bulkAddArtist(
     artistName: String,
     playlist: MaPlaylist,
     onShowSuccess: (String) -> Unit,
-    onStateChange: (BulkAddState) -> Unit
+    context: android.content.Context? = null,
+    onStateChange: (BulkAddState) -> Unit,
 ) {
-    onStateChange(BulkAddState.Loading("Fetching tracks..."))
+    onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_fetching_tracks) ?: "Fetching tracks..."))
 
     MusicAssistantManager.getArtistTracks(artistId).fold(
         onSuccess = { tracks ->
             val uris = tracks.mapNotNull { it.uri }
             if (uris.isEmpty()) {
-                onStateChange(BulkAddState.Error("No tracks found"))
+                onStateChange(BulkAddState.Error(context?.getString(R.string.bulk_no_tracks_found) ?: "No tracks found"))
                 return
             }
 
-            onStateChange(BulkAddState.Loading("Adding ${uris.size} tracks..."))
+            onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_adding_tracks, uris.size) ?: "Adding ${uris.size} tracks..."))
 
             MusicAssistantManager.addPlaylistTracks(playlist.playlistId, uris).fold(
                 onSuccess = {
-                    val message = "Added $artistName to ${playlist.name}"
+                    val message = context?.getString(R.string.bulk_added_to_playlist, artistName, playlist.name) ?: "Added $artistName to ${playlist.name}"
                     Log.d(TAG, message)
                     onStateChange(BulkAddState.Success(message))
                     onShowSuccess(message)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to add artist to playlist", error)
-                    onStateChange(BulkAddState.Error("Failed to add to playlist"))
+                    onStateChange(BulkAddState.Error(context?.getString(R.string.bulk_failed_add_playlist) ?: "Failed to add to playlist"))
                 }
             )
         },
         onFailure = { error ->
             Log.e(TAG, "Failed to fetch artist tracks", error)
-            onStateChange(BulkAddState.Error("Failed to fetch tracks"))
+            onStateChange(BulkAddState.Error(context?.getString(R.string.bulk_failed_fetch_tracks) ?: "Failed to fetch tracks"))
         }
     )
 }
