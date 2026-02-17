@@ -248,9 +248,10 @@ private fun AddTrackItem(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            if (!track.artist.isNullOrEmpty()) {
+            val trackArtist = track.artist
+            if (!trackArtist.isNullOrEmpty()) {
                 Text(
-                    text = track.artist,
+                    text = trackArtist,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

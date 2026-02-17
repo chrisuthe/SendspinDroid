@@ -150,7 +150,7 @@ class RemoteConnection(private val context: Context) {
                 // Forwarded to whoever is using the transport
             }
 
-            override fun onMessage(bytes: okio.ByteString) {
+            override fun onMessage(bytes: ByteArray) {
                 // Forwarded to whoever is using the transport
             }
 

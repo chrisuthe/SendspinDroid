@@ -279,7 +279,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("io.mockk:mockk:1.13.16")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
-    testImplementation("org.json:json:20231013")  // Real JSONObject for JVM tests (Android stubs throw)
 
     // Instrumented tests (emulator-based)
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

@@ -27,7 +27,6 @@ import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okio.ByteString
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketException
@@ -893,7 +892,7 @@ class SendSpinClient(
             handleTextMessage(text)
         }
 
-        override fun onMessage(bytes: ByteString) {
+        override fun onMessage(bytes: ByteArray) {
             handleBinaryMessage(bytes)
         }
 
