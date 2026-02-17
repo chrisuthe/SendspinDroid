@@ -13,6 +13,8 @@ import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
+@OptIn(ExperimentalCoroutinesApi::class)
+
 /**
  * Tests for AutoReconnectManager debounce fix (H-24).
  *
@@ -59,8 +61,12 @@ class AutoReconnectManagerDebounceTest {
         local = LocalConnection("192.168.1.100:8927", "/sendspin")
     )
 
+    private val testDispatcher = UnconfinedTestDispatcher()
+
     @Before
     fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+
         attemptCount.set(0)
         methodAttemptCount.set(0)
         successCount.set(0)
@@ -80,6 +86,7 @@ class AutoReconnectManagerDebounceTest {
 
     @After
     fun tearDown() {
+        Dispatchers.resetMain()
         unmockkAll()
     }
 

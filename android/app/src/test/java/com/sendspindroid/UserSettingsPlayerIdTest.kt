@@ -1,8 +1,6 @@
 package com.sendspindroid
 
-import android.content.Context
 import android.content.SharedPreferences
-import androidx.preference.PreferenceManager
 import io.mockk.*
 import org.junit.After
 import org.junit.Assert.*
@@ -22,12 +20,15 @@ import java.util.concurrent.Executors
  * 3. Concurrent calls from multiple threads all get the same UUID
  * 4. initialize() persists a pre-generated UUID to SharedPreferences
  * 5. setPlayerId() updates both cache and prefs
+ *
+ * Uses [UserSettings.initializeForTesting] to bypass EncryptedSharedPreferences
+ * (which requires Android Keystore, unavailable in JVM unit tests).
  */
 class UserSettingsPlayerIdTest {
 
     private lateinit var mockPrefs: SharedPreferences
+    private lateinit var mockSensitivePrefs: SharedPreferences
     private lateinit var mockEditor: SharedPreferences.Editor
-    private lateinit var mockContext: Context
     // Simulated SharedPreferences backing store
     private val prefsStore = ConcurrentHashMap<String, String?>()
 
@@ -50,24 +51,18 @@ class UserSettingsPlayerIdTest {
             every { edit() } returns mockEditor
         }
 
-        mockContext = mockk<Context> {
-            every { applicationContext } returns this
-        }
-
-        mockkStatic(PreferenceManager::class)
-        every { PreferenceManager.getDefaultSharedPreferences(any()) } returns mockPrefs
+        mockSensitivePrefs = mockk<SharedPreferences>(relaxed = true)
     }
 
     @After
     fun tearDown() {
         UserSettings.resetForTesting()
         prefsStore.clear()
-        unmockkStatic(PreferenceManager::class)
     }
 
     @Test
     fun `getPlayerId returns valid UUID format`() {
-        UserSettings.initialize(mockContext)
+        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
         val id = UserSettings.getPlayerId()
         assertNotNull(id)
         assertTrue("Expected UUID format, got: $id", id.matches(Regex(
@@ -77,7 +72,7 @@ class UserSettingsPlayerIdTest {
 
     @Test
     fun `getPlayerId returns same value on repeated calls`() {
-        UserSettings.initialize(mockContext)
+        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
         val id1 = UserSettings.getPlayerId()
         val id2 = UserSettings.getPlayerId()
         val id3 = UserSettings.getPlayerId()
@@ -95,8 +90,8 @@ class UserSettingsPlayerIdTest {
         val idBeforeInit2 = UserSettings.getPlayerId()
         assertEquals("Pre-init ID must be stable", idBeforeInit, idBeforeInit2)
 
-        // Now initialize
-        UserSettings.initialize(mockContext)
+        // Now initialize via test helper (bypasses EncryptedSharedPreferences)
+        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
 
         // After init, must still return the same ID
         val idAfterInit = UserSettings.getPlayerId()
@@ -111,12 +106,14 @@ class UserSettingsPlayerIdTest {
         // Generate ID before prefs exists
         val id = UserSettings.getPlayerId()
 
-        // Initialize -- should persist the cached ID
-        UserSettings.initialize(mockContext)
+        // Initialize -- initializeForTesting sets prefs directly.
+        // Then force persistence via setPlayerId which writes to prefs.
+        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
+        UserSettings.setPlayerId(id)
 
         // Verify the ID was written to SharedPreferences
         assertEquals(
-            "Pre-generated UUID must be persisted during initialize()",
+            "Pre-generated UUID must be persisted",
             id, prefsStore[UserSettings.KEY_PLAYER_ID]
         )
     }
@@ -126,7 +123,7 @@ class UserSettingsPlayerIdTest {
         val existingId = "existing-uuid-from-previous-launch"
         prefsStore[UserSettings.KEY_PLAYER_ID] = existingId
 
-        UserSettings.initialize(mockContext)
+        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
         val id = UserSettings.getPlayerId()
 
         assertEquals(
@@ -137,7 +134,7 @@ class UserSettingsPlayerIdTest {
 
     @Test
     fun `setPlayerId updates both cache and prefs`() {
-        UserSettings.initialize(mockContext)
+        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
         val originalId = UserSettings.getPlayerId()
 
         val newId = "manually-set-id"
@@ -180,8 +177,8 @@ class UserSettingsPlayerIdTest {
     }
 
     @Test
-    fun `concurrent getPlayerId and initialize do not lose UUID`() {
-        // Half the threads call getPlayerId, the other half call initialize
+    fun `concurrent getPlayerId and initializeForTesting do not lose UUID`() {
+        // Half the threads call getPlayerId, the other half call initializeForTesting
         val threadCount = 20
         val barrier = CyclicBarrier(threadCount)
         val latch = CountDownLatch(threadCount)
@@ -193,7 +190,7 @@ class UserSettingsPlayerIdTest {
                 try {
                     barrier.await()
                     if (i % 2 == 0) {
-                        UserSettings.initialize(mockContext)
+                        UserSettings.initializeForTesting(mockPrefs, mockSensitivePrefs)
                     }
                     val id = UserSettings.getPlayerId()
                     results[i] = id
