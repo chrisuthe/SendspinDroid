@@ -1788,8 +1788,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 .ifEmpty { mediaItem?.optString("uri") ?: "" }
                 .ifEmpty { null }
 
-            val isCurrentItem = (i == currentIndex) ||
-                (currentItemId.isNotEmpty() && queueItemId == currentItemId)
+            val isCurrentItem = currentItemId.isNotEmpty() && queueItemId == currentItemId
 
             items.add(MaQueueItem(
                 queueItemId = queueItemId,
@@ -2039,31 +2038,46 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Extract image URL from metadata.images array.
+     *
+     * Prefers image types in this order: thumb > cover > front > any valid image.
      */
     private fun extractImageFromMetadata(metadata: JsonObject, baseUrl: String): String {
         val images = metadata.optJsonArray("images")
         if (images == null || images.size == 0) return ""
 
+        // Preference order for image types (lower index = higher priority)
+        val typePreference = listOf("thumb", "cover", "front")
+
+        var bestImage: JsonObject? = null
+        var bestPriority = Int.MAX_VALUE
+
         for (i in 0 until images.size) {
             val img = (images[i] as? JsonObject) ?: continue
-            val imgType = img.optString("type")
             val path = img.optString("path")
-            val provider = img.optString("provider")
+            if (path.isEmpty()) continue
 
-            if (path.isNotEmpty() && (imgType == "thumb" || i == images.size - 1)) {
-                if (path.startsWith("http")) {
-                    val encodedPath = path.encodeURLParameter()
-                    return "$baseUrl/imageproxy?size=300&fmt=jpeg&path=$encodedPath" +
-                            if (provider.isNotEmpty()) "&provider=$provider" else ""
+            val imgType = img.optString("type").lowercase()
+            val priority = typePreference.indexOf(imgType)
+
+            when {
+                // Known preferred type -- track the best
+                priority >= 0 && priority < bestPriority -> {
+                    bestImage = img
+                    bestPriority = priority
                 }
-
-                if (provider.isNotEmpty()) {
-                    val encodedPath = path.encodeURLParameter()
-                    return "$baseUrl/imageproxy?provider=$provider&size=300&fmt=jpeg&path=$encodedPath"
+                // First fallback image (no preferred type matched yet and no fallback stored)
+                bestImage == null -> {
+                    bestImage = img
+                    // Keep bestPriority at MAX_VALUE so any preferred type can replace it
                 }
             }
+
+            // Short-circuit: "thumb" is highest priority, no need to keep looking
+            if (bestPriority == 0) break
         }
 
-        return ""
+        if (bestImage == null) return ""
+
+        return buildImageProxyUrl(bestImage, baseUrl)
     }
 }

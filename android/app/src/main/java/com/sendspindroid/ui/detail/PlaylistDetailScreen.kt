@@ -44,14 +44,20 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * Playlist Detail screen displaying playlist info and track listing.
  * Back navigation is handled by the Activity toolbar.
  *
+ * Track removal is handled internally via the ViewModel's removeTrack().
+ * The [onTrackRemoved] callback reports the [PlaylistDetailViewModel.RemoveAction]
+ * so the parent can show an undo snackbar.
+ *
  * @param playlistId The MA playlist item_id to display
+ * @param onTrackRemoved Called with the RemoveAction after a track is optimistically removed,
+ *        allowing the parent to show undo UI. Defaults to auto-executing the removal immediately.
  * @param viewModel The ViewModel managing playlist state
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistDetailScreen(
     playlistId: String,
-    onRemoveTrack: (position: Int, trackName: String) -> Unit = { _, _ -> },
+    onTrackRemoved: (PlaylistDetailViewModel.RemoveAction) -> Unit = { it.executeRemove() },
     viewModel: PlaylistDetailViewModel = viewModel()
 ) {
     LaunchedEffect(playlistId) {
@@ -80,7 +86,12 @@ fun PlaylistDetailScreen(
                     onTrackClick = { viewModel.playTrack(it) },
                     onShuffle = { viewModel.shuffleAll() },
                     onAddTracks = { showAddTracks = true },
-                    onRemoveTrack = onRemoveTrack
+                    onRemoveTrack = { position, _ ->
+                        val action = viewModel.removeTrack(position)
+                        if (action != null) {
+                            onTrackRemoved(action)
+                        }
+                    }
                 )
             }
         }

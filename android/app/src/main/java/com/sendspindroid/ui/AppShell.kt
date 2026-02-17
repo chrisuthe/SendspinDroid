@@ -40,11 +40,13 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffoldDefaults
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -238,20 +240,20 @@ private fun ConnectedShell(
     // Starts as HOME when MA is connected, null otherwise.
     var selectedNavTab by remember { mutableStateOf<NavTab?>(if (isMaConnected) NavTab.HOME else null) }
 
-    // Track previous MA state to detect transitions (not every recomposition)
-    var wasMaConnected by remember { mutableStateOf(isMaConnected) }
-    if (isMaConnected && !wasMaConnected) {
-        // MA just connected -- switch to Home tab
-        selectedNavTab = NavTab.HOME
-        viewModel.setCurrentNavTab(NavTab.HOME)
-        viewModel.setNavigationContentVisible(true)
+    // M-22: React to MA connection state transitions via LaunchedEffect
+    // (replaces composition-phase side effects that violated Compose rules)
+    LaunchedEffect(isMaConnected) {
+        if (isMaConnected) {
+            // MA just connected -- switch to Home tab
+            selectedNavTab = NavTab.HOME
+            viewModel.setCurrentNavTab(NavTab.HOME)
+            viewModel.setNavigationContentVisible(true)
+        } else {
+            // MA disconnected (or initial state) -- return to Now Playing
+            selectedNavTab = null
+            viewModel.setNavigationContentVisible(false)
+        }
     }
-    if (!isMaConnected && wasMaConnected) {
-        // MA just disconnected -- return to Now Playing
-        selectedNavTab = null
-        viewModel.setNavigationContentVisible(false)
-    }
-    wasMaConnected = isMaConnected
 
     // Overflow menu state
     var showOverflowMenu by remember { mutableStateOf(false) }
@@ -264,7 +266,8 @@ private fun ConnectedShell(
 
     // Player / Speaker Group bottom sheet state
     var showPlayerSheet by remember { mutableStateOf(false) }
-    val playerViewModel: PlayerViewModel? = if (isMaConnected) viewModel() else null
+    // M-24: Always call viewModel() unconditionally (Compose rule: composable calls must not be conditional)
+    val playerViewModel: PlayerViewModel = viewModel()
 
     // Detail navigation state
     val currentDetail by viewModel.currentDetail.collectAsState()
@@ -427,15 +430,11 @@ private fun ConnectedShell(
     }
 
     // QueueViewModel for tablet inline queue panel, TV queue sidebar, and browse queue sidebar
-    val queueViewModel: QueueViewModel? = if (
-        (AdaptiveDefaults.showInlineQueuePanel(formFactor) ||
+    // M-24: Always call viewModel() unconditionally; gate usage on the condition instead
+    val queueViewModel: QueueViewModel = viewModel()
+    val showQueueViewModel = (AdaptiveDefaults.showInlineQueuePanel(formFactor) ||
          AdaptiveDefaults.hasTvQueueSidebar(formFactor) ||
          AdaptiveDefaults.showBrowseQueueSidebar(formFactor)) && isMaConnected
-    ) {
-        viewModel()
-    } else {
-        null
-    }
 
     // Content composable shared between both layouts
     val contentArea: @Composable (PaddingValues) -> Unit = { innerPadding ->
@@ -450,7 +449,7 @@ private fun ConnectedShell(
                 onFavoriteClick = onFavoriteClick,
                 onVolumeChange = onVolumeChange,
                 onQueueClick = onQueueClick,
-                queueViewModel = queueViewModel,
+                queueViewModel = if (showQueueViewModel) queueViewModel else null,
                 showPlayerButton = isMaConnected,
                 onPlayerClick = { showPlayerSheet = true },
                 onBrowseLibrary = {
@@ -502,7 +501,7 @@ private fun ConnectedShell(
                     }
 
                     // Queue sidebar (tablet/TV, toggleable)
-                    if (AdaptiveDefaults.showBrowseQueueSidebar(formFactor) && queueViewModel != null) {
+                    if (AdaptiveDefaults.showBrowseQueueSidebar(formFactor) && showQueueViewModel) {
                         AnimatedVisibility(
                             visible = browseQueueVisible,
                             enter = slideInHorizontally { it },
@@ -519,7 +518,7 @@ private fun ConnectedShell(
                                     QueueSheetContent(
                                         viewModel = queueViewModel,
                                         onBrowseLibrary = {
-                                            // Already on a browse screen — close the sidebar
+                                            // Already on a browse screen -- close the sidebar
                                             browseQueueVisible = false
                                         },
                                         modifier = Modifier.fillMaxSize(),
@@ -640,7 +639,7 @@ private fun ConnectedShell(
     }
 
     // Player / Speaker Group bottom sheet
-    if (showPlayerSheet && playerViewModel != null) {
+    if (showPlayerSheet && isMaConnected) {
         PlayerBottomSheet(
             viewModel = playerViewModel,
             onDismiss = { showPlayerSheet = false }
@@ -668,7 +667,9 @@ private fun BrowseContent(
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
 ) {
-    val context = LocalContext.current
+    // M-36: Use rememberUpdatedState so remembered lambdas always see the current context
+    // after configuration changes (e.g., rotation), not a stale captured reference.
+    val currentContext by rememberUpdatedState(LocalContext.current)
     val scope = rememberCoroutineScope()
 
     // Shared playlist picker state
@@ -682,7 +683,7 @@ private fun BrowseContent(
             val uri = item.uri
             if (uri.isNullOrBlank()) {
                 Log.w(TAG, "Item ${item.name} has no URI, cannot play")
-                Toast.makeText(context, "Cannot play: no URI available", Toast.LENGTH_SHORT).show()
+                Toast.makeText(currentContext, "Cannot play: no URI available", Toast.LENGTH_SHORT).show()
             } else {
                 Log.d(TAG, "Playing ${item.mediaType}: ${item.name} (uri=$uri)")
                 scope.launch {
@@ -691,7 +692,7 @@ private fun BrowseContent(
                         onFailure = { error ->
                             Log.e(TAG, "Failed to play ${item.name}", error)
                             Toast.makeText(
-                                context,
+                                currentContext,
                                 "Failed to play: ${error.message}",
                                 Toast.LENGTH_SHORT
                             ).show()
@@ -708,7 +709,7 @@ private fun BrowseContent(
             val uri = item.uri
             if (uri.isNullOrBlank()) {
                 Log.w(TAG, "Item ${item.name} has no URI, cannot add to queue")
-                Toast.makeText(context, "Cannot add to queue: no URI available", Toast.LENGTH_SHORT)
+                Toast.makeText(currentContext, "Cannot add to queue: no URI available", Toast.LENGTH_SHORT)
                     .show()
             } else {
                 Log.d(TAG, "Adding to queue: ${item.name} (uri=$uri)")
@@ -725,7 +726,7 @@ private fun BrowseContent(
                         onFailure = { error ->
                             Log.e(TAG, "Failed to add to queue: ${item.name}", error)
                             Toast.makeText(
-                                context,
+                                currentContext,
                                 "Failed to add to queue: ${error.message}",
                                 Toast.LENGTH_SHORT
                             ).show()
@@ -742,7 +743,7 @@ private fun BrowseContent(
             val uri = item.uri
             if (uri.isNullOrBlank()) {
                 Log.w(TAG, "Item ${item.name} has no URI, cannot play next")
-                Toast.makeText(context, "Cannot play next: no URI available", Toast.LENGTH_SHORT)
+                Toast.makeText(currentContext, "Cannot play next: no URI available", Toast.LENGTH_SHORT)
                     .show()
             } else {
                 Log.d(TAG, "Play next: ${item.name} (uri=$uri)")
@@ -759,7 +760,7 @@ private fun BrowseContent(
                         onFailure = { error ->
                             Log.e(TAG, "Failed to play next: ${item.name}", error)
                             Toast.makeText(
-                                context,
+                                currentContext,
                                 "Failed to play next: ${error.message}",
                                 Toast.LENGTH_SHORT
                             ).show()
@@ -998,15 +999,12 @@ private fun DetailContent(
             val playlistViewModel: PlaylistDetailViewModel = viewModel()
             PlaylistDetailScreen(
                 playlistId = detail.playlistId,
-                onRemoveTrack = { position, trackName ->
-                    val action = playlistViewModel.removeTrack(position)
-                    if (action != null) {
-                        onShowUndoSnackbar(
-                            "Track removed",
-                            { action.undoRemove() },
-                            { action.executeRemove() }
-                        )
-                    }
+                onTrackRemoved = { action ->
+                    onShowUndoSnackbar(
+                        "Track removed",
+                        { action.undoRemove() },
+                        { action.executeRemove() }
+                    )
                 },
                 viewModel = playlistViewModel
             )

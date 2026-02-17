@@ -183,6 +183,57 @@ class LibraryItemGrouperTest {
         assertEquals("real-album-id", result[0].id)
     }
 
+    // --- Synthetic album IDs are collision-free strings ---
+
+    @Test
+    fun groupTracks_syntheticIds_areDistinctForDifferentAlbums() {
+        // Two different albums, each with 2 tracks, no albumId -> synthetic IDs
+        val tracks = listOf(
+            track(id = "t1", album = "Album X", artist = "Artist A"),
+            track(id = "t2", album = "Album X", artist = "Artist A"),
+            track(id = "t3", album = "Album Y", artist = "Artist B"),
+            track(id = "t4", album = "Album Y", artist = "Artist B")
+        )
+        val result = LibraryItemGrouper.groupTracks(tracks)
+
+        assertEquals(2, result.size)
+        // Both are synthetic albums; their IDs must be different
+        assertNotEquals(result[0].id, result[1].id)
+    }
+
+    @Test
+    fun groupTracks_syntheticId_usesReadableStringNotHashCode() {
+        val tracks = listOf(
+            track(id = "t1", album = "Test Album", artist = "Test Artist"),
+            track(id = "t2", album = "Test Album", artist = "Test Artist")
+        )
+        val result = LibraryItemGrouper.groupTracks(tracks)
+
+        assertEquals(1, result.size)
+        // Synthetic ID should contain the album and artist names as readable text
+        assertTrue(
+            "Synthetic ID should contain album name, got: ${result[0].id}",
+            result[0].id.contains("Test Album")
+        )
+        assertTrue(
+            "Synthetic ID should contain artist name, got: ${result[0].id}",
+            result[0].id.contains("Test Artist")
+        )
+    }
+
+    @Test
+    fun groupTracks_withAlbumId_usesRealIdOverSynthetic() {
+        // When track has a real albumId, it should be used instead of synthetic
+        val tracks = listOf(
+            track(id = "t1", album = "Album Z", artist = "Artist C", albumId = "real-123"),
+            track(id = "t2", album = "Album Z", artist = "Artist C", albumId = "real-123")
+        )
+        val result = LibraryItemGrouper.groupTracks(tracks)
+
+        assertEquals(1, result.size)
+        assertEquals("real-123", result[0].id)
+    }
+
     // --- Mixed scenario ---
 
     @Test

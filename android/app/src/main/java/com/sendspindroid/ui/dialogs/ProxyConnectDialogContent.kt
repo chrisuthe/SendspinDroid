@@ -67,6 +67,7 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 fun ProxyConnectDialog(
     savedServers: List<SavedProxyServer>,
     isLoading: Boolean,
+    errorMessage: String? = null,
     onConnect: (url: String, authMode: ProxyAuthModeDialog, credentials: ProxyCredentials) -> Unit,
     onDeleteSavedServer: (SavedProxyServer) -> Unit,
     onDismiss: () -> Unit
@@ -232,6 +233,16 @@ fun ProxyConnectDialog(
                             )
                         }
                     }
+                }
+
+                // Inline error message
+                if (errorMessage != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
                 }
             }
         },

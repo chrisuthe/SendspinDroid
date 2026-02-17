@@ -9,8 +9,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -53,13 +53,13 @@ fun HomeScreen(
         viewModel.loadHomeData()
     }
 
-    // Observe all section states
-    val recentlyPlayedState by viewModel.recentlyPlayed.observeAsState(SectionState.Loading)
-    val recentlyAddedState by viewModel.recentlyAdded.observeAsState(SectionState.Loading)
-    val albumsState by viewModel.albums.observeAsState(SectionState.Loading)
-    val artistsState by viewModel.artists.observeAsState(SectionState.Loading)
-    val playlistsState by viewModel.playlists.observeAsState(SectionState.Loading)
-    val radioState by viewModel.radioStations.observeAsState(SectionState.Loading)
+    // Observe all section states via StateFlow
+    val recentlyPlayedState by viewModel.recentlyPlayed.collectAsState()
+    val recentlyAddedState by viewModel.recentlyAdded.collectAsState()
+    val albumsState by viewModel.albums.collectAsState()
+    val artistsState by viewModel.artists.collectAsState()
+    val playlistsState by viewModel.playlists.collectAsState()
+    val radioState by viewModel.radioStations.collectAsState()
 
     HomeScreenContent(
         recentlyPlayedState = recentlyPlayedState,

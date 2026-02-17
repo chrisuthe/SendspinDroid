@@ -87,6 +87,7 @@ import androidx.fragment.app.Fragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.sendspindroid.ui.main.MainActivityViewModel
@@ -132,6 +133,11 @@ class MainActivity : AppCompatActivity() {
     private val composeServerStatuses = mutableStateMapOf<String, ServerItemStatus>()
     private val composeReconnectInfo = mutableStateMapOf<String, Pair<Int, Int>>()
     private val composeIsScanning = mutableStateOf(false)
+
+    // Job references for coroutines that must be cancelled on config change
+    // (to avoid duplicates since Activity handles configChanges manually)
+    private var scanningPollJob: Job? = null
+    private var maConnectionObserverJob: Job? = null
 
     // ViewModel for managing UI state (survives configuration changes)
     private val viewModel: MainActivityViewModel by viewModels()
@@ -898,8 +904,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Sync scanning state with discovery manager
-        lifecycleScope.launch {
+        // Sync scanning state with discovery manager.
+        // Cancel any previous poll job to prevent duplicates on config change.
+        scanningPollJob?.cancel()
+        scanningPollJob = lifecycleScope.launch {
             // Update scanning state when discovery starts/stops
             while (true) {
                 composeIsScanning.value = discoveryManager?.isDiscovering() == true
@@ -1344,24 +1352,43 @@ class MainActivity : AppCompatActivity() {
                 delay(DEFAULT_SERVER_AUTO_CONNECT_DELAY_MS)
 
                 // Only auto-connect if still in ServerList state and user hasn't manually disconnected.
-                // Wait for MediaController to be ready (avoids "Service not connected" snackbar at startup).
-                if (connectionState == AppConnectionState.ServerList && !userManuallyDisconnected) {
-                    // MediaController may still be initializing -- wait up to 5 more seconds
-                    var waited = 0
-                    while (mediaController == null && waited < 5000) {
-                        delay(250)
-                        waited += 250
-                    }
-                    if (mediaController != null &&
-                        connectionState == AppConnectionState.ServerList &&
-                        !userManuallyDisconnected) {
-                        Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
-                        onUnifiedServerSelected(defaultServer)
-                    } else {
-                        Log.d(TAG, "Auto-connect skipped: controller=${mediaController != null}, state=$connectionState")
-                    }
+                if (connectionState != AppConnectionState.ServerList || userManuallyDisconnected) {
+                    return@launch
+                }
+
+                // If MediaController is already available, connect immediately.
+                // Otherwise, gate auto-connect on the mediaControllerFuture listener
+                // instead of busy-polling (avoids wasting CPU on 250ms poll iterations).
+                if (mediaController != null) {
+                    attemptAutoConnect(defaultServer)
+                } else {
+                    Log.d(TAG, "MediaController not ready yet - waiting for future callback")
+                    mediaControllerFuture?.addListener(
+                        {
+                            runOnUiThread {
+                                attemptAutoConnect(defaultServer)
+                            }
+                        },
+                        MoreExecutors.directExecutor()
+                    )
                 }
             }
+        }
+    }
+
+    /**
+     * Attempts auto-connection to the default server if conditions are still valid.
+     * Called either immediately (if MediaController is ready) or from the
+     * mediaControllerFuture listener callback.
+     */
+    private fun attemptAutoConnect(defaultServer: UnifiedServer) {
+        if (mediaController != null &&
+            connectionState == AppConnectionState.ServerList &&
+            !userManuallyDisconnected) {
+            Log.d(TAG, "Auto-connecting to default server: ${defaultServer.name}")
+            onUnifiedServerSelected(defaultServer)
+        } else {
+            Log.d(TAG, "Auto-connect skipped: controller=${mediaController != null}, state=$connectionState")
         }
     }
 
@@ -1883,11 +1910,16 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                // Get address from current connecting state or reconnecting state
+                // Get address from current connecting state or reconnecting state.
+                // Fall back to currentConnectedServerId when state has moved past
+                // Connecting/Reconnecting (e.g., stale broadcast or race condition).
                 val address = when (val currentState = connectionState) {
                     is AppConnectionState.Connecting -> currentState.serverAddress
                     is AppConnectionState.Reconnecting -> currentState.serverAddress
-                    else -> ""
+                    else -> {
+                        Log.w(TAG, "STATE_CONNECTED received in unexpected state: $currentState, using serverId fallback")
+                        currentConnectedServerId ?: ""
+                    }
                 }
 
                 // Cancel any auto-reconnect in progress (we're now connected)
@@ -1921,11 +1953,15 @@ class MainActivity : AppCompatActivity() {
                 val bufferMs = extras.getLong("buffer_remaining_ms", 0)
                 Log.d(TAG, "Reconnecting to: $serverName (attempt $attempt, buffer ${bufferMs}ms)")
 
-                // Preserve server address from previous state
+                // Preserve server address from previous state.
+                // Fall back to currentConnectedServerId for robustness.
                 val address = when (val currentState = connectionState) {
                     is AppConnectionState.Connected -> currentState.serverAddress
                     is AppConnectionState.Reconnecting -> currentState.serverAddress
-                    else -> ""
+                    else -> {
+                        Log.w(TAG, "STATE_RECONNECTING received in unexpected state: $currentState, using serverId fallback")
+                        currentConnectedServerId ?: ""
+                    }
                 }
 
                 connectionState = AppConnectionState.Reconnecting(
@@ -2726,7 +2762,10 @@ class MainActivity : AppCompatActivity() {
     private var maLoginDialogShowing = false
 
     private fun observeMaConnectionState() {
-        lifecycleScope.launch {
+        // Cancel any previous observer to prevent duplicates on config change
+        // (setupUI() is called again in onConfigurationChanged)
+        maConnectionObserverJob?.cancel()
+        maConnectionObserverJob = lifecycleScope.launch {
             MusicAssistantManager.connectionState.collectLatest { state ->
                 val isMaConnected = state is MaConnectionState.Connected
 

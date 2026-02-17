@@ -7,9 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.model.UnifiedServer
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 
 /**
  * ViewModel for MainActivity.
@@ -97,14 +99,14 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _detailBackStack = MutableStateFlow<List<DetailDestination>>(emptyList())
     val detailBackStack: StateFlow<List<DetailDestination>> = _detailBackStack.asStateFlow()
 
+    // M-23: Derive via map + stateIn instead of a leaked coroutine with stale-read risk.
+    // The previous pattern used MutableStateFlow + viewModelScope.launch { collect {} }
+    // which could read stale values during rapid updates. The map/stateIn approach is
+    // declarative and guaranteed to stay in sync.
     /** The currently visible detail destination, or null if browsing. */
-    val currentDetail: StateFlow<DetailDestination?> = MutableStateFlow<DetailDestination?>(null).also { flow ->
-        viewModelScope.launch {
-            _detailBackStack.collect { stack ->
-                flow.value = stack.lastOrNull()
-            }
-        }
-    }.asStateFlow()
+    val currentDetail: StateFlow<DetailDestination?> = _detailBackStack
+        .map { it.lastOrNull() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, _detailBackStack.value.lastOrNull())
 
     // ========================================================================
     // Reconnection State

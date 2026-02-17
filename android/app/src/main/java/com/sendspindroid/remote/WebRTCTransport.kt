@@ -243,8 +243,22 @@ class WebRTCTransport(
     }
 
     override fun destroy() {
+        // Capture listener and active state before cleanup, since cleanup() nulls
+        // the dataChannel reference which prevents the async DataChannel.close()
+        // callback from reaching the listener (M-10).
+        val previousListener = listener
+        val wasActive = isActive
         close(1000, "Transport destroyed")
-        _state.set(TransportState.Closed)
+        // Transition to Closed. Use CAS so that if an async WebRTC callback
+        // already set the state to Closed and fired onClosed, we skip the
+        // duplicate callback.
+        val transitioned = _state.compareAndSet(TransportState.Connecting, TransportState.Closed) ||
+            _state.compareAndSet(TransportState.Connected, TransportState.Closed) ||
+            _state.compareAndSet(TransportState.Failed, TransportState.Closed) ||
+            _state.compareAndSet(TransportState.Disconnected, TransportState.Closed)
+        if (transitioned && wasActive) {
+            previousListener?.onClosed(1000, "Transport destroyed")
+        }
     }
 
     private fun cleanup() {

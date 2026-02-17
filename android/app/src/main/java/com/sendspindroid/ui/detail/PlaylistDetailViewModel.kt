@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,8 +60,12 @@ class PlaylistDetailViewModel : ViewModel() {
         viewModelScope.launch {
             Log.d(TAG, "Loading playlist details: $playlistId")
 
-            val playlistResult = MusicAssistantManager.getPlaylist(playlistId)
-            val tracksResult = MusicAssistantManager.getPlaylistTracks(playlistId)
+            // Load playlist metadata and tracks in parallel
+            val playlistDeferred = async { MusicAssistantManager.getPlaylist(playlistId) }
+            val tracksDeferred = async { MusicAssistantManager.getPlaylistTracks(playlistId) }
+
+            val playlistResult = playlistDeferred.await()
+            val tracksResult = tracksDeferred.await()
 
             when {
                 playlistResult.isFailure -> {

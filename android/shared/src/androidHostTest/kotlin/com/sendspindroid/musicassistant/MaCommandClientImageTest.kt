@@ -175,6 +175,134 @@ class MaCommandClientImageTest {
     }
 
     // ========================================================================
+    // extractImageFromMetadata — Image type preference (M-03)
+    // ========================================================================
+
+    @Test
+    fun `extractImageUri metadata prefers thumb over other types`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "metadata": {
+                "images": [
+                    {"path": "https://img.server.com/landscape.jpg", "provider": "url", "type": "landscape"},
+                    {"path": "https://img.server.com/thumb.jpg", "provider": "url", "type": "thumb"},
+                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "type": "banner"}
+                ]
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        assertTrue("Expected thumb image URL", result.contains("thumb.jpg"))
+    }
+
+    @Test
+    fun `extractImageUri metadata prefers cover over non-preferred types`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "metadata": {
+                "images": [
+                    {"path": "https://img.server.com/landscape.jpg", "provider": "url", "type": "landscape"},
+                    {"path": "https://img.server.com/cover.jpg", "provider": "url", "type": "cover"},
+                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "type": "banner"}
+                ]
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        assertTrue("Expected cover image URL", result.contains("cover.jpg"))
+    }
+
+    @Test
+    fun `extractImageUri metadata prefers front over non-preferred types`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "metadata": {
+                "images": [
+                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "type": "banner"},
+                    {"path": "https://img.server.com/front.jpg", "provider": "url", "type": "front"}
+                ]
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        assertTrue("Expected front image URL", result.contains("front.jpg"))
+    }
+
+    @Test
+    fun `extractImageUri metadata thumb beats cover and front`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "metadata": {
+                "images": [
+                    {"path": "https://img.server.com/cover.jpg", "provider": "url", "type": "cover"},
+                    {"path": "https://img.server.com/front.jpg", "provider": "url", "type": "front"},
+                    {"path": "https://img.server.com/thumb.jpg", "provider": "url", "type": "thumb"}
+                ]
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        assertTrue("Expected thumb image URL", result.contains("thumb.jpg"))
+    }
+
+    @Test
+    fun `extractImageUri metadata falls back to first valid image when no preferred type`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "metadata": {
+                "images": [
+                    {"path": "https://img.server.com/first.jpg", "provider": "url", "type": "landscape"},
+                    {"path": "https://img.server.com/second.jpg", "provider": "url", "type": "banner"}
+                ]
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        // Should pick the first image with a valid path, not blindly the last one
+        assertTrue("Expected first image URL", result.contains("first.jpg"))
+    }
+
+    @Test
+    fun `extractImageUri metadata skips images with empty path`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "metadata": {
+                "images": [
+                    {"path": "", "provider": "url", "type": "thumb"},
+                    {"path": "https://img.server.com/valid.jpg", "provider": "url", "type": "banner"}
+                ]
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        assertTrue("Expected valid image URL", result.contains("valid.jpg"))
+    }
+
+    // ========================================================================
     // extractImageUri — Album image fallback
     // ========================================================================
 

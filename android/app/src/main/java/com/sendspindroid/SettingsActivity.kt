@@ -10,7 +10,6 @@ import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.ui.settings.SettingsScreen
 import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.ui.theme.SendSpinTheme
-import kotlin.system.exitProcess
 
 /**
  * Activity hosting the Compose-based settings screen.
@@ -58,6 +57,6 @@ class SettingsActivity : AppCompatActivity() {
         val intent = packageManager.getLaunchIntentForPackage(packageName)
         intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
-        exitProcess(0)
+        finishAffinity()
     }
 }

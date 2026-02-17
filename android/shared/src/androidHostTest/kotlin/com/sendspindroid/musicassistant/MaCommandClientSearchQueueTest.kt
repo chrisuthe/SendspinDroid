@@ -160,7 +160,7 @@ class MaCommandClientSearchQueueTest {
         assertFalse(state.items[0].isCurrentItem)
 
         assertEquals("qi_2", state.items[1].queueItemId)
-        assertTrue(state.items[1].isCurrentItem)  // matches both index and current_item
+        assertTrue(state.items[1].isCurrentItem)  // matches current_item "qi_2"
     }
 
     @Test
@@ -266,6 +266,69 @@ class MaCommandClientSearchQueueTest {
         assertTrue(state.items.isEmpty())
         assertFalse(state.shuffleEnabled)
         assertEquals("off", state.repeatMode)
+    }
+
+    @Test
+    fun `parseQueueState isCurrentItem uses item ID not page-local index`() {
+        // Simulate offset > 0: current_index is 5 (global), but items start at offset 4
+        // so page-local index 1 holds the current item (qi_6), NOT index 5
+        val queueJson = parseJson("""
+        {
+            "result": {
+                "current_index": 5,
+                "current_item": "qi_6"
+            }
+        }
+        """)
+
+        val itemsJson = parseJson("""
+        {
+            "result": [
+                {"queue_item_id": "qi_5", "name": "Track 5"},
+                {"queue_item_id": "qi_6", "name": "Track 6"},
+                {"queue_item_id": "qi_7", "name": "Track 7"}
+            ]
+        }
+        """)
+
+        val state = client.parseQueueState(queueJson, itemsJson)
+        assertEquals(3, state.items.size)
+
+        // qi_5 is at page-local index 0 -- should NOT be current
+        assertFalse(state.items[0].isCurrentItem)
+
+        // qi_6 matches current_item -- should be current
+        assertTrue(state.items[1].isCurrentItem)
+
+        // qi_7 is at page-local index 2 -- should NOT be current
+        assertFalse(state.items[2].isCurrentItem)
+    }
+
+    @Test
+    fun `parseQueueState isCurrentItem false when no current_item set`() {
+        // When current_item is empty, no item should be marked as current
+        // even if page-local index happens to match current_index
+        val queueJson = parseJson("""
+        {
+            "result": {
+                "current_index": 0
+            }
+        }
+        """)
+
+        val itemsJson = parseJson("""
+        {
+            "result": [
+                {"queue_item_id": "qi_1", "name": "Track 1"},
+                {"queue_item_id": "qi_2", "name": "Track 2"}
+            ]
+        }
+        """)
+
+        val state = client.parseQueueState(queueJson, itemsJson)
+        // Without current_item, nothing should be flagged as current
+        assertFalse(state.items[0].isCurrentItem)
+        assertFalse(state.items[1].isCurrentItem)
     }
 
     // ========================================================================
