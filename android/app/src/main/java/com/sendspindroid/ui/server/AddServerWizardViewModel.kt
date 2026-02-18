@@ -774,7 +774,7 @@ class AddServerWizardViewModel : ViewModel() {
 
             // Remote ID
             is WizardStepAction.UpdateRemoteId -> {
-                remoteId = action.id.uppercase().take(26)
+                remoteId = action.id.filter { it.isLetterOrDigit() }.uppercase().take(26)
                 false
             }
             WizardStepAction.ScanQrCode -> {
