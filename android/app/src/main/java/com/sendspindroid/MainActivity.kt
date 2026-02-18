@@ -879,6 +879,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                         },
+                        onExitAppClick = { onExitAppClicked() },
                         onShowSuccess = { message -> showSuccessSnackbar(message) },
                         onShowError = { message -> showErrorSnackbar(message) },
                         onShowUndoSnackbar = { message, onUndo, onDismissed ->
@@ -2783,6 +2784,47 @@ class MainActivity : AppCompatActivity() {
                 errorType = ErrorType.CONNECTION
             )
         }
+    }
+
+    /**
+     * Handles exit app button click.
+     * Shows confirmation dialog before exiting.
+     */
+    private fun onExitAppClicked() {
+        Log.d(TAG, "Exit app clicked")
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.exit_app_dialog_title)
+            .setMessage(R.string.exit_app_dialog_message)
+            .setPositiveButton(R.string.exit_app_dialog_positive) { _, _ ->
+                performExitApp()
+            }
+            .setNegativeButton(R.string.disconnect_dialog_negative, null)
+            .show()
+    }
+
+    /**
+     * Performs full app exit: disconnects from server, stops PlaybackService,
+     * and finishes all activities.
+     */
+    private fun performExitApp() {
+        Log.d(TAG, "Performing app exit")
+
+        // Disconnect from server if connected
+        try {
+            mediaController?.let { controller ->
+                val command = SessionCommand(PlaybackService.COMMAND_DISCONNECT, Bundle.EMPTY)
+                controller.sendCustomCommand(command, Bundle.EMPTY)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to disconnect during exit", e)
+        }
+
+        // Stop the PlaybackService
+        stopService(android.content.Intent(this, PlaybackService::class.java))
+
+        // Close all activities
+        finishAffinity()
     }
 
     /**

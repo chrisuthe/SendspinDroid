@@ -73,6 +73,7 @@
     <string name="action_switch_server">Switch Server</string>
     <string name="action_edit_server">Edit Server</string>
     <string name="action_app_settings">App Settings</string>
+    <string name="action_exit_app">Exit App</string>
 
     <!-- Success messages -->
     <string name="server_added">Server added: %s</string>
@@ -190,6 +191,11 @@
     <string name="disconnect_dialog_message">This will disconnect from the current server and return to the server list.</string>
     <string name="disconnect_dialog_positive">Switch</string>
     <string name="disconnect_dialog_negative">Cancel</string>
+
+    <!-- Exit App dialog -->
+    <string name="exit_app_dialog_title">Exit App?</string>
+    <string name="exit_app_dialog_message">This will stop playback and close the app.</string>
+    <string name="exit_app_dialog_positive">Exit</string>
 
     <!-- Permission strings -->
     <string name="permission_bind_playback_service_label">Bind to SendSpin Playback Service</string>

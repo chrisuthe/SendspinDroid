@@ -138,6 +138,7 @@ fun AppShell(
     onStatsClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onEditServerClick: () -> Unit,
+    onExitAppClick: () -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit,
@@ -170,6 +171,7 @@ fun AppShell(
                 onStatsClick = onStatsClick,
                 onSettingsClick = onSettingsClick,
                 onEditServerClick = onEditServerClick,
+                onExitAppClick = onExitAppClick,
                 onShowSuccess = onShowSuccess,
                 onShowError = onShowError,
                 onShowUndoSnackbar = onShowUndoSnackbar,
@@ -228,6 +230,7 @@ private fun ConnectedShell(
     onStatsClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onEditServerClick: () -> Unit,
+    onExitAppClick: () -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit,
@@ -420,6 +423,14 @@ private fun ConnectedShell(
                                 onClick = {
                                     showOverflowMenu = false
                                     onSettingsClick()
+                                }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_exit_app)) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    onExitAppClick()
                                 }
                             )
                         }
