@@ -72,7 +72,7 @@ fun RemoteConnectDialog(
                 // Remote ID input
                 OutlinedTextField(
                     value = remoteId,
-                    onValueChange = { remoteId = it.uppercase().take(26) },
+                    onValueChange = { remoteId = it.filter { c -> c.isLetterOrDigit() }.uppercase().take(26) },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.remote_id)) },
                     placeholder = { Text(stringResource(R.string.remote_id_hint)) },
