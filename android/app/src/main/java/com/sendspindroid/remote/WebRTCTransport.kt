@@ -15,6 +15,8 @@ import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
+import android.os.Handler
+import android.os.Looper
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
@@ -62,6 +64,7 @@ class WebRTCTransport(
         private const val TAG = "WebRTCTransport"
         private const val DATA_CHANNEL_NAME = "sendspin"
         private const val MA_API_CHANNEL_NAME = "ma-api"
+        private const val ICE_DISCONNECTED_TIMEOUT_MS = 15_000L
 
         // Singleton initialization flag
         @Volatile
@@ -141,6 +144,15 @@ class WebRTCTransport(
     @Volatile private var maApiDataChannel: DataChannel? = null
     @Volatile private var listener: SendSpinTransport.Listener? = null
     @Volatile private var maApiChannelListener: MaApiChannelListener? = null
+
+    // ICE disconnected recovery timer - escalates to failure if ICE doesn't recover
+    private val iceRecoveryHandler = Handler(Looper.getMainLooper())
+    private val iceRecoveryRunnable = Runnable {
+        if (isActive) {
+            Log.w(TAG, "ICE did not recover within ${ICE_DISCONNECTED_TIMEOUT_MS}ms - failing")
+            handleError("ICE recovery timeout")
+        }
+    }
 
     // Queue ICE candidates until remote description is set
     private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
@@ -262,6 +274,8 @@ class WebRTCTransport(
     }
 
     private fun cleanup() {
+        iceRecoveryHandler.removeCallbacks(iceRecoveryRunnable)
+
         dataChannel?.close()
         dataChannel = null
 
@@ -355,7 +369,7 @@ class WebRTCTransport(
 
     private fun createPeerConnection(iceServers: List<IceServerConfig>) {
         val factory = peerConnectionFactory ?: run {
-            handleError("PeerConnectionFactory not initialized")
+            handleError("PeerConnectionFactory not initialized", isRecoverable = false)
             return
         }
 
@@ -383,7 +397,7 @@ class WebRTCTransport(
         peerConnection = factory.createPeerConnection(rtcConfig, PeerConnectionObserver())
 
         if (peerConnection == null) {
-            handleError("Failed to create PeerConnection")
+            handleError("Failed to create PeerConnection", isRecoverable = false)
             return
         }
 
@@ -434,11 +448,11 @@ class WebRTCTransport(
         }, constraints)
     }
 
-    private fun handleError(message: String) {
-        Log.e(TAG, "WebRTC error: $message")
+    private fun handleError(message: String, isRecoverable: Boolean = true) {
+        Log.e(TAG, "WebRTC error: $message (recoverable=$isRecoverable)")
         _state.set(TransportState.Failed)
         cleanup()
-        listener?.onFailure(Exception(message), false)
+        listener?.onFailure(Exception(message), isRecoverable)
     }
 
     // ========== WebRTC Observers ==========
@@ -465,18 +479,21 @@ class WebRTCTransport(
                 PeerConnection.IceConnectionState.CONNECTED,
                 PeerConnection.IceConnectionState.COMPLETED -> {
                     Log.i(TAG, "ICE connection established")
+                    iceRecoveryHandler.removeCallbacks(iceRecoveryRunnable)
                 }
                 PeerConnection.IceConnectionState.FAILED -> {
+                    iceRecoveryHandler.removeCallbacks(iceRecoveryRunnable)
                     handleError("ICE connection failed")
                 }
                 PeerConnection.IceConnectionState.DISCONNECTED -> {
-                    Log.w(TAG, "ICE connection disconnected")
-                    // Don't immediately fail - ICE might reconnect
+                    Log.w(TAG, "ICE connection disconnected - starting ${ICE_DISCONNECTED_TIMEOUT_MS}ms recovery timer")
+                    iceRecoveryHandler.removeCallbacks(iceRecoveryRunnable)
+                    iceRecoveryHandler.postDelayed(iceRecoveryRunnable, ICE_DISCONNECTED_TIMEOUT_MS)
                 }
                 PeerConnection.IceConnectionState.CLOSED -> {
                     if (state != TransportState.Closed) {
                         _state.set(TransportState.Closed)
-                        listener?.onClosed(1000, "ICE connection closed")
+                        listener?.onClosed(1006, "ICE connection closed")
                     }
                 }
                 else -> {}
@@ -493,7 +510,7 @@ class WebRTCTransport(
                 PeerConnection.PeerConnectionState.CLOSED -> {
                     if (state != TransportState.Closed) {
                         _state.set(TransportState.Closed)
-                        listener?.onClosed(1000, "Peer connection closed")
+                        listener?.onClosed(1006, "Peer connection closed")
                     }
                 }
                 else -> {}
@@ -533,11 +550,11 @@ class WebRTCTransport(
                 DataChannel.State.CLOSED -> {
                     if (state != TransportState.Closed) {
                         _state.set(TransportState.Closed)
-                        listener?.onClosed(1000, "DataChannel closed")
+                        listener?.onClosed(1006, "DataChannel closed")
                     }
                 }
                 DataChannel.State.CLOSING -> {
-                    listener?.onClosing(1000, "DataChannel closing")
+                    listener?.onClosing(1006, "DataChannel closing")
                 }
                 else -> {}
             }
