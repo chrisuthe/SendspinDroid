@@ -154,8 +154,14 @@ class SendspinTimeFilter {
         //             Filter perpetually reports "not converged".
         // If too high: Reports convergence even when sync quality is poor.
         //              Playback may have audible glitches despite "converged" status.
+        //
+        // The threshold is adaptive: on high-jitter networks (stabilityScore >> 1.0)
+        // it widens linearly toward MAX_ERROR_FOR_CONVERGENCE_HIGH_JITTER_US.
+        // This lets the filter report convergence on cellular where the steady-state
+        // error is higher but still perfectly usable for audio sync.
         // ----------------------------------------------------------------------------
         private const val MAX_ERROR_FOR_CONVERGENCE_US = 10_000L
+        private const val MAX_ERROR_FOR_CONVERGENCE_HIGH_JITTER_US = 20_000L
 
         // ----------------------------------------------------------------------------
         // FORGETTING_THRESHOLD: Absolute residual threshold for step change detection
@@ -335,11 +341,22 @@ class SendspinTimeFilter {
      * Whether the filter has converged to a high-quality sync.
      * This is stricter than isReady - requires more measurements and lower uncertainty.
      * When true, sync corrections should be minimal.
+     *
+     * The convergence threshold adapts to network conditions using [stabilityScore]:
+     * - On low-jitter networks (stabilityScore ~1.0): threshold stays at 10ms
+     * - On high-jitter networks (stabilityScore -> 5.0): threshold widens to 20ms
+     * This prevents cellular networks from being stuck in "not converged" indefinitely
+     * when the error has stabilised at a level that is still fine for audio sync.
      */
     val isConverged: Boolean
-        get() = measurementCount >= MIN_MEASUREMENTS_FOR_CONVERGENCE &&
-                p00.isFinite() &&
-                errorMicros < MAX_ERROR_FOR_CONVERGENCE_US
+        get() {
+            if (measurementCount < MIN_MEASUREMENTS_FOR_CONVERGENCE || !p00.isFinite()) return false
+            // Scale threshold from 10ms to 20ms as stabilityScore rises from 1.0 to ADAPTIVE_Q_MAX
+            val jitterFactor = ((stabilityScore - 1.0) / (ADAPTIVE_Q_MAX - 1.0)).coerceIn(0.0, 1.0)
+            val threshold = MAX_ERROR_FOR_CONVERGENCE_US +
+                (jitterFactor * (MAX_ERROR_FOR_CONVERGENCE_HIGH_JITTER_US - MAX_ERROR_FOR_CONVERGENCE_US)).toLong()
+            return errorMicros < threshold
+        }
 
     /**
      * Current estimated offset in microseconds.
