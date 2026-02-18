@@ -105,6 +105,7 @@ fun NowPlayingScreen(
     val playerColors by viewModel.playerColors.collectAsState()
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
+    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
 
     val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty
     val controlsEnabled = playbackState == PlaybackState.READY || playbackState == PlaybackState.BUFFERING
@@ -153,6 +154,7 @@ fun NowPlayingScreen(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -178,6 +180,7 @@ fun NowPlayingScreen(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -204,6 +207,7 @@ fun NowPlayingScreen(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -230,6 +234,7 @@ fun NowPlayingScreen(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -254,6 +259,7 @@ fun NowPlayingScreen(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -295,6 +301,7 @@ private fun NowPlayingPortrait(
     isMaConnected: Boolean,
     positionMs: Long,
     durationMs: Long,
+    positionUpdatedAt: Long = 0L,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -380,7 +387,8 @@ private fun NowPlayingPortrait(
             positionMs = positionMs,
             durationMs = durationMs,
             isPlaying = isPlaying,
-            accentColor = accentColor
+            accentColor = accentColor,
+            positionUpdatedAt = positionUpdatedAt
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -440,6 +448,7 @@ private fun NowPlayingLandscape(
     isMaConnected: Boolean,
     positionMs: Long,
     durationMs: Long,
+    positionUpdatedAt: Long = 0L,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -527,7 +536,8 @@ private fun NowPlayingLandscape(
                 positionMs = positionMs,
                 durationMs = durationMs,
                 isPlaying = isPlaying,
-                accentColor = accentColor
+                accentColor = accentColor,
+                positionUpdatedAt = positionUpdatedAt
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -586,6 +596,7 @@ private fun NowPlayingWithQueuePanel(
     isMaConnected: Boolean,
     positionMs: Long,
     durationMs: Long,
+    positionUpdatedAt: Long = 0L,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -624,6 +635,7 @@ private fun NowPlayingWithQueuePanel(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -650,6 +662,7 @@ private fun NowPlayingWithQueuePanel(
                     isMaConnected = isMaConnected,
                     positionMs = positionMs,
                     durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
@@ -716,6 +729,7 @@ private fun NowPlayingTv(
     isMaConnected: Boolean,
     positionMs: Long,
     durationMs: Long,
+    positionUpdatedAt: Long = 0L,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -822,7 +836,8 @@ private fun NowPlayingTv(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     isPlaying = isPlaying,
-                    accentColor = accentColor
+                    accentColor = accentColor,
+                    positionUpdatedAt = positionUpdatedAt
                 )
 
                 Spacer(modifier = Modifier.height(24.dp))

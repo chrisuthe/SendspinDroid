@@ -41,19 +41,23 @@ fun TrackProgressBar(
     durationMs: Long,
     isPlaying: Boolean,
     accentColor: Color?,
+    positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
 
-    // Anchor point for interpolation
+    // Anchor point for interpolation.
+    // Uses positionUpdatedAt (the monotonic time the server position was received) so that
+    // if this composable is destroyed and recreated (e.g. navigating away from Now Playing
+    // and back), the elapsed time since the last server update is correctly accounted for.
     var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
-    var anchorTime by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var anchorTime by remember { mutableLongStateOf(positionUpdatedAt) }
     var displayPositionMs by remember { mutableLongStateOf(positionMs) }
 
     // When the server sends a new position, reset the anchor
     LaunchedEffect(positionMs) {
         anchorPositionMs = positionMs
-        anchorTime = SystemClock.elapsedRealtime()
+        anchorTime = positionUpdatedAt
         displayPositionMs = positionMs
     }
 
@@ -93,18 +97,19 @@ fun TvTrackProgressBar(
     durationMs: Long,
     isPlaying: Boolean,
     accentColor: Color?,
+    positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
 
     // Same interpolation logic as TrackProgressBar
     var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
-    var anchorTime by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    var anchorTime by remember { mutableLongStateOf(positionUpdatedAt) }
     var displayPositionMs by remember { mutableLongStateOf(positionMs) }
 
     LaunchedEffect(positionMs) {
         anchorPositionMs = positionMs
-        anchorTime = SystemClock.elapsedRealtime()
+        anchorTime = positionUpdatedAt
         displayPositionMs = positionMs
     }
 

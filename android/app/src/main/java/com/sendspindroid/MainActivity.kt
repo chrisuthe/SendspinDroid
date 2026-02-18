@@ -1829,9 +1829,14 @@ class MainActivity : AppCompatActivity() {
         val durationMs = extras.getLong(PlaybackService.EXTRA_DURATION_MS, -1)
         val positionMs = extras.getLong(PlaybackService.EXTRA_POSITION_MS, -1)
         if (durationMs >= 0 || positionMs >= 0) {
+            val positionUpdatedAt = extras.getLong(
+                PlaybackService.EXTRA_POSITION_UPDATED_AT,
+                android.os.SystemClock.elapsedRealtime()
+            )
             viewModel.updateTrackProgress(
                 positionMs = if (positionMs >= 0) positionMs else 0,
-                durationMs = if (durationMs >= 0) durationMs else 0
+                durationMs = if (durationMs >= 0) durationMs else 0,
+                positionUpdatedAt = positionUpdatedAt
             )
         }
 

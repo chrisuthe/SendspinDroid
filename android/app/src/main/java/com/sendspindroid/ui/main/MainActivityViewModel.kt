@@ -68,6 +68,11 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
+    // Monotonic timestamp (SystemClock.elapsedRealtime()) when position was last updated.
+    // Used by TrackProgressBar to correctly interpolate from a stale position after recomposition.
+    private val _positionUpdatedAt = MutableStateFlow(0L)
+    val positionUpdatedAt: StateFlow<Long> = _positionUpdatedAt.asStateFlow()
+
     // ========================================================================
     // Artwork State
     // ========================================================================
@@ -170,9 +175,10 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _groupName.value = name
     }
 
-    fun updateTrackProgress(positionMs: Long, durationMs: Long) {
+    fun updateTrackProgress(positionMs: Long, durationMs: Long, positionUpdatedAt: Long) {
         _positionMs.value = positionMs
         _durationMs.value = durationMs
+        _positionUpdatedAt.value = positionUpdatedAt
     }
 
     // ========================================================================
@@ -275,6 +281,7 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _playerColors.value = null
         _positionMs.value = 0
         _durationMs.value = 0
+        _positionUpdatedAt.value = 0L
         _isBuffering.value = false
         _isMaConnected.value = false
     }
