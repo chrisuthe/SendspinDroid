@@ -9,8 +9,8 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.core.view.WindowCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -111,8 +111,8 @@ class AddServerWizardActivity : FragmentActivity() {
             viewModel.setNetworkHint(hint)
         }
 
-        // Let Compose handle IME insets so keyboard doesn't cover text fields
-        WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Edge-to-edge: transparent system bars with proper inset handling
+        enableEdgeToEdge()
 
         setContent {
             SendSpinTheme {
