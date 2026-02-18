@@ -2172,18 +2172,21 @@ class MainActivity : AppCompatActivity() {
                     }
                     enablePlaybackControls(true)
                 } else {
-                    enablePlaybackControls(false)
-
-                    // If we were showing connected/connecting state but player is now disconnected,
-                    // transition back to server list view to prevent stale UI state
+                    // Don't tear down the UI on transient STATE_IDLE during activity resume.
+                    // The authoritative disconnect comes from PlayerStateListener.onPlaybackStateChanged(STATE_IDLE),
+                    // not from polling the controller state at resume time.
                     if (connectionState is AppConnectionState.Connected ||
-                        connectionState is AppConnectionState.Reconnecting ||
-                        connectionState is AppConnectionState.Connecting) {
-                        Log.d(TAG, "Player disconnected but UI shows connected - resetting to server list")
-                        connectionState = AppConnectionState.ServerList
-                        viewModel.updateConnectionState(connectionState)
-                        showServerListView()
-                        invalidateOptionsMenu()
+                        connectionState is AppConnectionState.Reconnecting) {
+                        Log.d(TAG, "syncUIWithPlayerState: player reports idle/ended but connectionState=$connectionState -- keeping UI (transient)")
+                    } else {
+                        enablePlaybackControls(false)
+                        if (connectionState is AppConnectionState.Connecting) {
+                            Log.d(TAG, "Player not ready while connecting - resetting to server list")
+                            connectionState = AppConnectionState.ServerList
+                            viewModel.updateConnectionState(connectionState)
+                            showServerListView()
+                            invalidateOptionsMenu()
+                        }
                     }
                 }
 
