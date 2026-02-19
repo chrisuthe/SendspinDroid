@@ -5,5 +5,5 @@
 -->
 <paths>
     <!-- Debug logs in app cache directory -->
-    <cache-path name="debug_logs" path="debug_logs/" />
+    <cache-path name="debug_logs" path="." />
 </paths>
