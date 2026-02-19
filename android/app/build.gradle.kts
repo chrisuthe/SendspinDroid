@@ -73,7 +73,8 @@ android {
         // Formula: MAJOR * 10000 + MINOR * 100 + PATCH
         // Ranges: MAJOR 0-9999, MINOR 0-99, PATCH 0-99
         // Example: 2.0.0 = 20000, 2.1.3 = 20103, 10.5.22 = 100522
-        versionCode = 20000
+        // Beta releases: increment by 1 from base (20001 = Beta2, 20002 = Beta3, etc.)
+        versionCode = 20001
 
         // versionName: User-visible version string
         // Follows semantic versioning (major.minor.patch[-prerelease])
