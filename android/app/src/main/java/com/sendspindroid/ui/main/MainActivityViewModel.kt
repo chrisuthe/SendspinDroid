@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.sendspindroid.UserSettings
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.model.UnifiedServer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -137,6 +138,10 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _isMaConnected = MutableStateFlow(false)
     val isMaConnected: StateFlow<Boolean> = _isMaConnected.asStateFlow()
 
+    // Mini player position (top/bottom)
+    private val _miniPlayerPosition = MutableStateFlow(UserSettings.miniPlayerPosition)
+    val miniPlayerPosition: StateFlow<UserSettings.MiniPlayerPosition> = _miniPlayerPosition.asStateFlow()
+
     // ========================================================================
     // Connection State Updates
     // ========================================================================
@@ -263,6 +268,10 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
 
     fun setMaConnected(connected: Boolean) {
         _isMaConnected.value = connected
+    }
+
+    fun setMiniPlayerPosition(position: UserSettings.MiniPlayerPosition) {
+        _miniPlayerPosition.value = position
     }
 
     // ========================================================================
