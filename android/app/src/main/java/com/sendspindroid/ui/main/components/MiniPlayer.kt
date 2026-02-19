@@ -246,7 +246,7 @@ fun MiniPlayer(
                 progress = { (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(2.dp)
+                    .height(3.dp)
                     .align(Alignment.BottomCenter),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
@@ -410,7 +410,7 @@ fun MiniPlayerSide(
                     progress = { (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(2.dp)
+                        .height(3.dp)
                         .align(Alignment.BottomCenter),
                     color = MaterialTheme.colorScheme.primary,
                     trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
