@@ -1,5 +1,6 @@
 package com.sendspindroid.ui.navigation.home.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ fun MediaCarousel(
     title: String,
     state: SectionState<MaLibraryItem>,
     onItemClick: (MaLibraryItem) -> Unit,
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -78,7 +80,7 @@ fun MediaCarousel(
             }
 
             is SectionState.Error -> {
-                EmptyState(message = "Failed to load")
+                ErrorState(onRetry = onRetry)
             }
         }
     }
@@ -138,6 +140,38 @@ private fun EmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             textAlign = TextAlign.Center
         )
+    }
+}
+
+@Composable
+private fun ErrorState(
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(100.dp)
+            .padding(horizontal = 16.dp)
+            .then(if (onRetry != null) Modifier.clickable { onRetry() } else Modifier),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "Failed to load",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+            if (onRetry != null) {
+                Text(
+                    text = "Tap to retry",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
     }
 }
 
