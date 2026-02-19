@@ -1261,6 +1261,7 @@ private fun MiniPlayerBar(
     val isPlaying by viewModel.isPlaying.collectAsState()
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
+    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
 
     AnimatedVisibility(
         visible = !metadata.isEmpty,
@@ -1280,6 +1281,7 @@ private fun MiniPlayerBar(
             onNextClick = onNextClick,
             positionMs = positionMs,
             durationMs = durationMs,
+            positionUpdatedAt = positionUpdatedAt,
             modifier = Modifier.fillMaxWidth()
         )
     }
@@ -1300,6 +1302,7 @@ private fun SideMiniPlayerBar(
     val isPlaying by viewModel.isPlaying.collectAsState()
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
+    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
 
     AnimatedVisibility(
         visible = !metadata.isEmpty,
@@ -1319,6 +1322,7 @@ private fun SideMiniPlayerBar(
                 onPlayPauseClick = onPlayPauseClick,
                 positionMs = positionMs,
                 durationMs = durationMs,
+                positionUpdatedAt = positionUpdatedAt,
                 modifier = Modifier.width(AdaptiveDefaults.sideMiniPlayerWidth())
             )
         }
