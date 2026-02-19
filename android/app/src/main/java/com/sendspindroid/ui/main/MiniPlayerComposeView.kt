@@ -42,6 +42,7 @@ class MiniPlayerComposeView @JvmOverloads constructor(
         val isPlaying by vm.isPlaying.collectAsState()
         val positionMs by vm.positionMs.collectAsState()
         val durationMs by vm.durationMs.collectAsState()
+        val positionUpdatedAt by vm.positionUpdatedAt.collectAsState()
 
         SendSpinTheme {
             MiniPlayer(
@@ -54,6 +55,7 @@ class MiniPlayerComposeView @JvmOverloads constructor(
                 onNextClick = { onNextClick?.invoke() },
                 positionMs = positionMs,
                 durationMs = durationMs,
+                positionUpdatedAt = positionUpdatedAt,
                 modifier = Modifier.fillMaxWidth()
             )
         }

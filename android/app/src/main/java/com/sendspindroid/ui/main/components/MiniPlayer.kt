@@ -1,5 +1,6 @@
 package com.sendspindroid.ui.main.components
 
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -41,6 +47,8 @@ import com.sendspindroid.ui.main.ArtworkSource
 import com.sendspindroid.ui.main.TrackMetadata
 import com.sendspindroid.ui.preview.AllDevicePreviews
 import com.sendspindroid.ui.theme.SendSpinTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
  * Mini player card shown when navigating to Home/Search/Library tabs.
@@ -59,8 +67,32 @@ fun MiniPlayer(
     onNextClick: () -> Unit,
     positionMs: Long = 0,
     durationMs: Long = 0,
+    positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
     modifier: Modifier = Modifier
 ) {
+    // Interpolate position forward between server updates
+    var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
+    var anchorTime by remember { mutableLongStateOf(positionUpdatedAt) }
+    var displayPositionMs by remember { mutableLongStateOf(positionMs) }
+
+    LaunchedEffect(positionMs) {
+        anchorPositionMs = positionMs
+        anchorTime = positionUpdatedAt
+        displayPositionMs = positionMs
+    }
+
+    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
+        if (!isPlaying) {
+            displayPositionMs = anchorPositionMs
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            delay(250)
+            val elapsed = SystemClock.elapsedRealtime() - anchorTime
+            displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
+        }
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -180,7 +212,7 @@ fun MiniPlayer(
                     // Position / Duration time text
                     if (durationMs > 0) {
                         Text(
-                            text = "${formatTime(positionMs)} / ${formatTime(durationMs)}",
+                            text = "${formatTime(displayPositionMs)} / ${formatTime(durationMs)}",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -243,7 +275,7 @@ fun MiniPlayer(
         // Thin progress bar at bottom edge
         if (durationMs > 0) {
             LinearProgressIndicator(
-                progress = { (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
+                progress = { (displayPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp)
@@ -270,8 +302,32 @@ fun MiniPlayerSide(
     onPlayPauseClick: () -> Unit,
     positionMs: Long = 0,
     durationMs: Long = 0,
+    positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
     modifier: Modifier = Modifier
 ) {
+    // Interpolate position forward between server updates
+    var anchorPositionMs by remember { mutableLongStateOf(positionMs) }
+    var anchorTime by remember { mutableLongStateOf(positionUpdatedAt) }
+    var displayPositionMs by remember { mutableLongStateOf(positionMs) }
+
+    LaunchedEffect(positionMs) {
+        anchorPositionMs = positionMs
+        anchorTime = positionUpdatedAt
+        displayPositionMs = positionMs
+    }
+
+    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
+        if (!isPlaying) {
+            displayPositionMs = anchorPositionMs
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            delay(250)
+            val elapsed = SystemClock.elapsedRealtime() - anchorTime
+            displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
+        }
+    }
+
     Surface(
         modifier = modifier.fillMaxHeight(),
         color = MaterialTheme.colorScheme.surfaceVariant
@@ -407,7 +463,7 @@ fun MiniPlayerSide(
             // Progress bar at bottom edge
             if (durationMs > 0) {
                 LinearProgressIndicator(
-                    progress = { (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
+                    progress = { (displayPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(3.dp)
