@@ -69,8 +69,20 @@ class HomeViewModel : ViewModel() {
     private val _radioStations = MutableStateFlow<SectionState<MaLibraryItem>>(SectionState.Loading)
     val radioStations: StateFlow<SectionState<MaLibraryItem>> = _radioStations.asStateFlow()
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
     // Track if initial load has been done
     private var hasLoadedData = false
+
+    private fun hasAnyError(): Boolean {
+        return _recentlyPlayed.value is SectionState.Error ||
+               _recentlyAdded.value is SectionState.Error ||
+               _albums.value is SectionState.Error ||
+               _artists.value is SectionState.Error ||
+               _playlists.value is SectionState.Error ||
+               _radioStations.value is SectionState.Error
+    }
 
     // ========================================================================
     // Data Loading
@@ -85,7 +97,7 @@ class HomeViewModel : ViewModel() {
      * @param forceRefresh If true, reloads even if data was already loaded
      */
     fun loadHomeData(forceRefresh: Boolean = false) {
-        if (hasLoadedData && !forceRefresh) {
+        if (hasLoadedData && !forceRefresh && !hasAnyError()) {
             Log.d(TAG, "Home data already loaded, skipping")
             return
         }
@@ -118,6 +130,7 @@ class HomeViewModel : ViewModel() {
             radioDeferred.await()
 
             hasLoadedData = true
+            _isRefreshing.value = false
             Log.d(TAG, "Home screen data load complete")
         }
     }
@@ -315,6 +328,7 @@ class HomeViewModel : ViewModel() {
      * Alias for loadHomeData(forceRefresh = true).
      */
     fun refresh() {
+        _isRefreshing.value = true
         loadHomeData(forceRefresh = true)
     }
 }

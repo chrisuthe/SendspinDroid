@@ -5,8 +5,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -60,6 +63,7 @@ fun HomeScreen(
     val artistsState by viewModel.artists.collectAsState()
     val playlistsState by viewModel.playlists.collectAsState()
     val radioState by viewModel.radioStations.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
     HomeScreenContent(
         recentlyPlayedState = recentlyPlayedState,
@@ -68,6 +72,8 @@ fun HomeScreen(
         artistsState = artistsState,
         playlistsState = playlistsState,
         radioState = radioState,
+        isRefreshing = isRefreshing,
+        onRefresh = { viewModel.refresh() },
         onItemClick = { item ->
             handleItemClick(item, onAlbumClick, onArtistClick, onItemClick)
         }
@@ -99,6 +105,7 @@ private fun handleItemClick(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreenContent(
     recentlyPlayedState: SectionState<MaLibraryItem>,
@@ -107,70 +114,87 @@ private fun HomeScreenContent(
     artistsState: SectionState<MaLibraryItem>,
     playlistsState: SectionState<MaLibraryItem>,
     radioState: SectionState<MaLibraryItem>,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     onItemClick: (MaLibraryItem) -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.surface
     ) {
-        LazyColumn(
+        val pullToRefreshState = rememberPullToRefreshState()
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = onRefresh,
+            state = pullToRefreshState,
             modifier = Modifier.fillMaxSize()
         ) {
-            // Recently Played section
-            item(key = "recently_played") {
-                MediaCarousel(
-                    title = stringResource(R.string.home_recently_played),
-                    state = recentlyPlayedState,
-                    onItemClick = onItemClick,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Recently Played section
+                item(key = "recently_played") {
+                    MediaCarousel(
+                        title = stringResource(R.string.home_recently_played),
+                        state = recentlyPlayedState,
+                        onItemClick = onItemClick,
+                        onRetry = onRefresh,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
 
-            // Recently Added section
-            item(key = "recently_added") {
-                MediaCarousel(
-                    title = stringResource(R.string.home_recently_added),
-                    state = recentlyAddedState,
-                    onItemClick = onItemClick
-                )
-            }
+                // Recently Added section
+                item(key = "recently_added") {
+                    MediaCarousel(
+                        title = stringResource(R.string.home_recently_added),
+                        state = recentlyAddedState,
+                        onItemClick = onItemClick,
+                        onRetry = onRefresh
+                    )
+                }
 
-            // Albums section
-            item(key = "albums") {
-                MediaCarousel(
-                    title = stringResource(R.string.home_albums),
-                    state = albumsState,
-                    onItemClick = onItemClick
-                )
-            }
+                // Albums section
+                item(key = "albums") {
+                    MediaCarousel(
+                        title = stringResource(R.string.home_albums),
+                        state = albumsState,
+                        onItemClick = onItemClick,
+                        onRetry = onRefresh
+                    )
+                }
 
-            // Artists section
-            item(key = "artists") {
-                MediaCarousel(
-                    title = stringResource(R.string.home_artists),
-                    state = artistsState,
-                    onItemClick = onItemClick
-                )
-            }
+                // Artists section
+                item(key = "artists") {
+                    MediaCarousel(
+                        title = stringResource(R.string.home_artists),
+                        state = artistsState,
+                        onItemClick = onItemClick,
+                        onRetry = onRefresh
+                    )
+                }
 
-            // Playlists section
-            item(key = "playlists") {
-                MediaCarousel(
-                    title = stringResource(R.string.home_playlists),
-                    state = playlistsState,
-                    onItemClick = onItemClick
-                )
-            }
+                // Playlists section
+                item(key = "playlists") {
+                    MediaCarousel(
+                        title = stringResource(R.string.home_playlists),
+                        state = playlistsState,
+                        onItemClick = onItemClick,
+                        onRetry = onRefresh
+                    )
+                }
 
-            // Radio Stations section
-            item(key = "radio") {
-                MediaCarousel(
-                    title = stringResource(R.string.home_radio),
-                    state = radioState,
-                    onItemClick = onItemClick
-                )
-            }
+                // Radio Stations section
+                item(key = "radio") {
+                    MediaCarousel(
+                        title = stringResource(R.string.home_radio),
+                        state = radioState,
+                        onItemClick = onItemClick,
+                        onRetry = onRefresh
+                    )
+                }
 
+            }
         }
     }
 }
@@ -186,6 +210,8 @@ private fun HomeScreenPreview() {
             artistsState = SectionState.Loading,
             playlistsState = SectionState.Loading,
             radioState = SectionState.Loading,
+            isRefreshing = false,
+            onRefresh = {},
             onItemClick = {}
         )
     }
