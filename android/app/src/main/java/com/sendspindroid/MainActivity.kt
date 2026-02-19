@@ -1148,6 +1148,8 @@ class MainActivity : AppCompatActivity() {
         applyFullScreenMode()
         // Re-apply mini-player position (picks up changes made in Settings)
         updateMiniPlayerPosition()
+        // Re-sync Compose mini-player position (picks up changes made in Settings)
+        viewModel.setMiniPlayerPosition(UserSettings.miniPlayerPosition)
         // Re-evaluate keep screen on (picks up setting changes + current playback state)
         updateKeepScreenOn(mediaController?.isPlaying == true)
         // Re-sync UI state with MediaController

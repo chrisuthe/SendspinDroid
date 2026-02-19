@@ -57,6 +57,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sendspindroid.R
+import com.sendspindroid.UserSettings
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
@@ -483,11 +484,32 @@ private fun ConnectedShell(
             val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             val useSideMiniPlayer = AdaptiveDefaults.showSideMiniPlayer(configuration.smallestScreenWidthDp, isLandscape)
 
+            val miniPlayerPosition by viewModel.miniPlayerPosition.collectAsState()
+            val showBottomMiniPlayer = !useSideMiniPlayer && AdaptiveDefaults.showMiniPlayer(formFactor)
+            val miniPlayerReturnToNowPlaying: () -> Unit = {
+                viewModel.clearDetailNavigation()
+                browseQueueVisible = false
+                selectedNavTab = null
+                viewModel.setNavigationContentVisible(false)
+            }
+
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
+                // Top mini player
+                if (showBottomMiniPlayer && miniPlayerPosition == UserSettings.MiniPlayerPosition.TOP) {
+                    MiniPlayerBar(
+                        viewModel = viewModel,
+                        position = miniPlayerPosition,
+                        onPlayPauseClick = onPlayPauseClick,
+                        onPreviousClick = onPreviousClick,
+                        onNextClick = onNextClick,
+                        onReturnToNowPlaying = miniPlayerReturnToNowPlaying
+                    )
+                }
+
                 Row(modifier = Modifier.weight(1f)) {
                     // Main browse/detail content
                     Box(modifier = Modifier.weight(1f)) {
@@ -548,29 +570,20 @@ private fun ConnectedShell(
                         SideMiniPlayerBar(
                             viewModel = viewModel,
                             onPlayPauseClick = onPlayPauseClick,
-                            onReturnToNowPlaying = {
-                                viewModel.clearDetailNavigation()
-                                browseQueueVisible = false
-                                selectedNavTab = null
-                                viewModel.setNavigationContentVisible(false)
-                            }
+                            onReturnToNowPlaying = miniPlayerReturnToNowPlaying
                         )
                     }
                 }
 
-                // Bottom mini player (portrait only -- not shown when side mini player is active)
-                if (!useSideMiniPlayer && AdaptiveDefaults.showMiniPlayer(formFactor)) {
+                // Bottom mini player
+                if (showBottomMiniPlayer && miniPlayerPosition == UserSettings.MiniPlayerPosition.BOTTOM) {
                     MiniPlayerBar(
                         viewModel = viewModel,
+                        position = miniPlayerPosition,
                         onPlayPauseClick = onPlayPauseClick,
                         onPreviousClick = onPreviousClick,
                         onNextClick = onNextClick,
-                        onReturnToNowPlaying = {
-                            viewModel.clearDetailNavigation()
-                            browseQueueVisible = false
-                            selectedNavTab = null
-                            viewModel.setNavigationContentVisible(false)
-                        }
+                        onReturnToNowPlaying = miniPlayerReturnToNowPlaying
                     )
                 }
             }
@@ -1251,6 +1264,7 @@ private suspend fun bulkAddArtist(
 @Composable
 private fun MiniPlayerBar(
     viewModel: MainActivityViewModel,
+    position: UserSettings.MiniPlayerPosition,
     onPlayPauseClick: () -> Unit,
     onPreviousClick: () -> Unit,
     onNextClick: () -> Unit,
@@ -1263,10 +1277,12 @@ private fun MiniPlayerBar(
     val durationMs by viewModel.durationMs.collectAsState()
     val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
 
+    // Slide from top or bottom depending on position setting
+    val isTop = position == UserSettings.MiniPlayerPosition.TOP
     AnimatedVisibility(
         visible = !metadata.isEmpty,
-        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+        enter = slideInVertically(initialOffsetY = { if (isTop) -it else it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { if (isTop) -it else it }) + fadeOut()
     ) {
         MiniPlayer(
             metadata = metadata,
