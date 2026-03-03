@@ -131,4 +131,4 @@ SendSpin Player uses the following open-source libraries:
 | [Stream WebRTC Android](https://github.com/nicobatty/webrtc-android) | Apache 2.0 | Stream.io Inc. |
 | [Java-WebSocket](https://github.com/TooTallNate/Java-WebSocket) | MIT | Nathan Rajlich |
 
-This project also uses [Google ML Kit Barcode Scanning](https://developers.google.com/ml-kit/vision/barcode-scanning), which is governed by the [Google APIs Terms of Service](https://developers.google.com/terms).
+QR code scanning uses [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) (Apache 2.0).

@@ -14,18 +14,16 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.DialogFragment
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import com.sendspindroid.R
 import com.sendspindroid.databinding.DialogQrScannerBinding
 import com.sendspindroid.remote.RemoteConnection
+import zxingcpp.BarcodeReader
 import java.util.concurrent.Executors
 
 /**
  * Dialog fragment for scanning Music Assistant Remote ID QR codes.
  *
- * Uses CameraX for camera preview and ML Kit for barcode detection.
+ * Uses CameraX for camera preview and zxing-cpp for barcode detection.
  * Validates scanned codes match the expected 26-character Remote ID format.
  *
  * ## Usage
@@ -58,7 +56,9 @@ class QrScannerDialog : DialogFragment() {
     private var scanComplete = false
 
     private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private val barcodeScanner = BarcodeScanning.getClient()
+    private val barcodeReader = BarcodeReader().apply {
+        options.formats = setOf(BarcodeReader.Format.QR_CODE)
+    }
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -101,7 +101,6 @@ class QrScannerDialog : DialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         cameraExecutor.shutdown()
-        barcodeScanner.close()
         _binding = null
     }
 
@@ -151,14 +150,12 @@ class QrScannerDialog : DialogFragment() {
     }
 
     private fun bindCameraUseCases(cameraProvider: ProcessCameraProvider) {
-        // Preview use case
         val preview = Preview.Builder()
             .build()
             .also {
                 it.setSurfaceProvider(binding.cameraPreview.surfaceProvider)
             }
 
-        // Image analysis for barcode scanning
         val imageAnalysis = ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
@@ -169,36 +166,17 @@ class QrScannerDialog : DialogFragment() {
                         return@setAnalyzer
                     }
 
-                    @androidx.camera.core.ExperimentalGetImage
-                    val mediaImage = imageProxy.image
-                    if (mediaImage != null) {
-                        try {
-                            val inputImage = InputImage.fromMediaImage(
-                                mediaImage,
-                                imageProxy.imageInfo.rotationDegrees
-                            )
-
-                            barcodeScanner.process(inputImage)
-                                .addOnSuccessListener { barcodes ->
-                                    processBarcode(barcodes)
-                                }
-                                .addOnFailureListener { e ->
-                                    Log.w(TAG, "Barcode scanning failed", e)
-                                }
-                                .addOnCompleteListener {
-                                    imageProxy.close()
-                                }
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Failed to create input image", e)
-                            imageProxy.close()
-                        }
-                    } else {
+                    try {
+                        val barcodes = barcodeReader.read(imageProxy)
+                        imageProxy.close()
+                        processBarcodes(barcodes)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Barcode scanning failed", e)
                         imageProxy.close()
                     }
                 }
             }
 
-        // Use back camera
         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
         try {
@@ -215,26 +193,23 @@ class QrScannerDialog : DialogFragment() {
         }
     }
 
-    private fun processBarcode(barcodes: List<Barcode>) {
+    private fun processBarcodes(barcodes: List<BarcodeReader.Result>) {
         if (scanComplete) return
-        if (_binding == null) return  // Guard against stale callback after destroy
+        if (_binding == null) return
 
         for (barcode in barcodes) {
-            val rawValue = barcode.rawValue ?: continue
+            val rawValue = barcode.text ?: continue
             Log.d(TAG, "Barcode scanned: $rawValue")
 
-            // Try to parse as Remote ID (handles URLs and raw IDs)
             val remoteId = RemoteConnection.parseRemoteId(rawValue)
             if (remoteId != null) {
                 scanComplete = true
                 Log.i(TAG, "Valid Remote ID scanned: ${RemoteConnection.formatRemoteId(remoteId)}")
 
-                // Update UI on main thread
                 requireActivity().runOnUiThread {
                     binding.instructionText.text = getString(R.string.qr_scanner_success)
                     binding.scanProgress.visibility = View.VISIBLE
 
-                    // Brief delay to show success, then dismiss
                     binding.root.postDelayed({
                         onRemoteIdScanned?.invoke(remoteId)
                         dismiss()
