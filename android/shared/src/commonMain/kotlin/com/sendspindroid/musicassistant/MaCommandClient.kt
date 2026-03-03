@@ -476,7 +476,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     /**
      * Get playlists from the library.
      */
-    suspend fun getPlaylists(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaPlaylist>> {
+    suspend fun getPlaylists(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaPlaylist>> {
         return try {
             Log.d(TAG, "Fetching playlists (limit=$limit, offset=$offset, orderBy=$orderBy)")
             val response = sendCommand(
@@ -642,7 +642,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     /**
      * Get albums from the library.
      */
-    suspend fun getAlbums(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaAlbum>> {
+    suspend fun getAlbums(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaAlbum>> {
         return try {
             Log.d(TAG, "Fetching albums (limit=$limit, offset=$offset, orderBy=$orderBy)")
             val response = sendCommand(
@@ -705,7 +705,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
      * Get artists from the library.
      */
     suspend fun getArtists(
-        limit: Int = 15,
+        limit: Int = 25,
         offset: Int = 0,
         orderBy: String = "name",
         albumArtistsOnly: Boolean = false
@@ -819,7 +819,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     /**
      * Get radio stations from the library.
      */
-    suspend fun getRadioStations(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaRadio>> {
+    suspend fun getRadioStations(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaRadio>> {
         return try {
             Log.d(TAG, "Fetching radio stations (limit=$limit, offset=$offset, orderBy=$orderBy)")
             val response = sendCommand(
@@ -838,7 +838,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     /**
      * Get podcasts from the library.
      */
-    suspend fun getPodcasts(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaPodcast>> {
+    suspend fun getPodcasts(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaPodcast>> {
         return try {
             Log.d(TAG, "Fetching podcasts (limit=$limit, offset=$offset, orderBy=$orderBy)")
             val response = sendCommand(
