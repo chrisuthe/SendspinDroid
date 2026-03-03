@@ -1,0 +1,5 @@
+Bug fixes and improvements:
+- Fix playlists limited to 15 items on Playlists screen
+- Add album-artist filter toggle to Artists tab
+- Smooth progress interpolation on mini-player
+- Wire mini-player position setting into app shell
