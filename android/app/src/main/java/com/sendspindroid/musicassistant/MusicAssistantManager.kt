@@ -764,7 +764,7 @@ object MusicAssistantManager {
     /**
      * Get playlists from the library.
      */
-    suspend fun getPlaylists(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaPlaylist>> {
+    suspend fun getPlaylists(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaPlaylist>> {
         return withContext(Dispatchers.IO) {
             commandClient.getPlaylists(limit, offset, orderBy)
         }
@@ -827,7 +827,7 @@ object MusicAssistantManager {
     /**
      * Get albums from the library.
      */
-    suspend fun getAlbums(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaAlbum>> {
+    suspend fun getAlbums(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaAlbum>> {
         return withContext(Dispatchers.IO) {
             commandClient.getAlbums(limit, offset, orderBy)
         }
@@ -855,7 +855,7 @@ object MusicAssistantManager {
      * Get artists from the library.
      */
     suspend fun getArtists(
-        limit: Int = 15,
+        limit: Int = 25,
         offset: Int = 0,
         orderBy: String = "name",
         albumArtistsOnly: Boolean = false
@@ -895,7 +895,7 @@ object MusicAssistantManager {
     /**
      * Get radio stations from the library.
      */
-    suspend fun getRadioStations(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaRadio>> {
+    suspend fun getRadioStations(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaRadio>> {
         return withContext(Dispatchers.IO) {
             commandClient.getRadioStations(limit, offset, orderBy)
         }
@@ -904,7 +904,7 @@ object MusicAssistantManager {
     /**
      * Get podcasts from the library.
      */
-    suspend fun getPodcasts(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaPodcast>> {
+    suspend fun getPodcasts(limit: Int = 25, offset: Int = 0, orderBy: String = "name"): Result<List<MaPodcast>> {
         return withContext(Dispatchers.IO) {
             commandClient.getPodcasts(limit, offset, orderBy)
         }
