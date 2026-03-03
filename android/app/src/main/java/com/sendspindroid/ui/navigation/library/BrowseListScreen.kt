@@ -83,7 +83,8 @@ fun BrowseListScreen(
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},
-    onPlayNext: (MaLibraryItem) -> Unit = {}
+    onPlayNext: (MaLibraryItem) -> Unit = {},
+    onAlbumArtistsOnlyChange: ((Boolean) -> Unit)? = null
 ) {
     val state by stateFlow.collectAsState()
     val pullToRefreshState = rememberPullToRefreshState()
@@ -116,12 +117,14 @@ fun BrowseListScreen(
         color = MaterialTheme.colorScheme.surface
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Sort chips (only show if more than one option)
-            if (sortOptions.size > 1) {
-                SortChipsRow(
+            // Filter and sort chips
+            if (sortOptions.size > 1 || onAlbumArtistsOnlyChange != null) {
+                FilterAndSortChipsRow(
                     sortOptions = sortOptions,
                     selectedSort = state.sortOption,
-                    onSortChange = onSortChange
+                    onSortChange = onSortChange,
+                    albumArtistsOnly = state.albumArtistsOnly,
+                    onAlbumArtistsOnlyChange = onAlbumArtistsOnlyChange
                 )
             }
 
@@ -165,10 +168,12 @@ fun BrowseListScreen(
 }
 
 @Composable
-private fun SortChipsRow(
+private fun FilterAndSortChipsRow(
     sortOptions: List<LibraryViewModel.SortOption>,
     selectedSort: LibraryViewModel.SortOption,
     onSortChange: (LibraryViewModel.SortOption) -> Unit,
+    albumArtistsOnly: Boolean = false,
+    onAlbumArtistsOnlyChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     LazyRow(
@@ -176,12 +181,26 @@ private fun SortChipsRow(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(sortOptions) { sortOption ->
-            FilterChip(
-                selected = sortOption == selectedSort,
-                onClick = { onSortChange(sortOption) },
-                label = { Text(getSortLabel(sortOption)) }
-            )
+        // Album artists filter chip (only when callback is provided)
+        if (onAlbumArtistsOnlyChange != null) {
+            item {
+                FilterChip(
+                    selected = albumArtistsOnly,
+                    onClick = { onAlbumArtistsOnlyChange(!albumArtistsOnly) },
+                    label = { Text(stringResource(R.string.library_filter_album_artists)) }
+                )
+            }
+        }
+
+        // Sort chips (only when multiple options available)
+        if (sortOptions.size > 1) {
+            items(sortOptions) { sortOption ->
+                FilterChip(
+                    selected = sortOption == selectedSort,
+                    onClick = { onSortChange(sortOption) },
+                    label = { Text(getSortLabel(sortOption)) }
+                )
+            }
         }
     }
 }
