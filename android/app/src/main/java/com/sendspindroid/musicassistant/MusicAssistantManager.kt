@@ -920,6 +920,51 @@ object MusicAssistantManager {
     }
 
     /**
+     * Get audiobooks from the library.
+     */
+    suspend fun getAudiobooks(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaAudiobook>> {
+        return withContext(Dispatchers.IO) {
+            commandClient.getAudiobooks(limit, offset, orderBy)
+        }
+    }
+
+    /**
+     * Get a single audiobook by ID.
+     */
+    suspend fun getAudiobook(audiobookId: String): Result<MaAudiobook> {
+        return withContext(Dispatchers.IO) {
+            commandClient.getAudiobook(audiobookId)
+        }
+    }
+
+    /**
+     * Get in-progress audiobooks and podcast episodes.
+     */
+    suspend fun getInProgressItems(limit: Int = 20): Result<List<MaLibraryItem>> {
+        return withContext(Dispatchers.IO) {
+            commandClient.getInProgressItems(limit)
+        }
+    }
+
+    /**
+     * Mark a media item as fully played.
+     */
+    suspend fun markPlayed(itemUri: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            commandClient.markPlayed(itemUri)
+        }
+    }
+
+    /**
+     * Mark a media item as not played (reset progress).
+     */
+    suspend fun markUnplayed(itemUri: String): Result<Unit> {
+        return withContext(Dispatchers.IO) {
+            commandClient.markUnplayed(itemUri)
+        }
+    }
+
+    /**
      * Browse Music Assistant providers for folder-based content.
      */
     suspend fun browse(path: String? = null): Result<List<MaLibraryItem>> {

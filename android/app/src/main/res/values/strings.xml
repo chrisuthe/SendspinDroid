@@ -553,6 +553,7 @@
     <string name="library_tab_tracks">Tracks</string>
     <string name="library_tab_radio">Radio</string>
     <string name="library_tab_podcasts">Podcasts</string>
+    <string name="library_tab_audiobooks">Audiobooks</string>
     <string name="library_tab_browse">Browse</string>
     <string name="library_sort_name">Name</string>
     <string name="library_sort_date_added">Date Added</string>
@@ -575,12 +576,14 @@
     <string name="search_filter_playlists">Playlists</string>
     <string name="search_filter_radio">Radio</string>
     <string name="search_filter_podcasts">Podcasts</string>
+    <string name="search_filter_audiobooks">Audiobooks</string>
     <string name="search_section_artists">Artists</string>
     <string name="search_section_albums">Albums</string>
     <string name="search_section_tracks">Tracks</string>
     <string name="search_section_playlists">Playlists</string>
     <string name="search_section_radio">Radio</string>
     <string name="search_section_podcasts">Podcasts</string>
+    <string name="search_section_audiobooks">Audiobooks</string>
 
     <!-- Accessibility - Search -->
     <string name="accessibility_search_input">Search input field</string>

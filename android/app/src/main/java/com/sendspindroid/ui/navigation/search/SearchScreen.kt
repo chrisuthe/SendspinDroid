@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.SearchResults
@@ -73,6 +74,7 @@ fun SearchScreen(
     onAlbumClick: (MaAlbum) -> Unit = {},
     onArtistClick: (MaArtist) -> Unit = {},
     onPodcastClick: (MaPodcast) -> Unit = {},
+    onAudiobookClick: (MaAudiobook) -> Unit = {},
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},
     onPlayNext: (MaLibraryItem) -> Unit = {}
@@ -89,6 +91,7 @@ fun SearchScreen(
                 is MaAlbum -> onAlbumClick(item)
                 is MaArtist -> onArtistClick(item)
                 is MaPodcast -> onPodcastClick(item)
+                is MaAudiobook -> onAudiobookClick(item)
                 else -> onItemClick(item)
             }
         },
@@ -225,7 +228,8 @@ private fun FilterChipsRow(
             MaMediaType.TRACK to R.string.search_filter_tracks,
             MaMediaType.PLAYLIST to R.string.search_filter_playlists,
             MaMediaType.RADIO to R.string.search_filter_radio,
-            MaMediaType.PODCAST to R.string.search_filter_podcasts
+            MaMediaType.PODCAST to R.string.search_filter_podcasts,
+            MaMediaType.AUDIOBOOK to R.string.search_filter_audiobooks
         )
     }
 
@@ -357,6 +361,22 @@ private fun SearchResultsList(
                 SearchResultItem(
                     item = podcast,
                     onClick = { onItemClick(podcast) }
+                )
+            }
+        }
+
+        // Audiobooks section
+        if (results.audiobooks.isNotEmpty()) {
+            item(key = "header_audiobooks") {
+                SearchResultsHeader(title = stringResource(R.string.search_section_audiobooks))
+            }
+            items(
+                items = results.audiobooks,
+                key = { "audiobook_${it.id}" }
+            ) { audiobook ->
+                SearchResultItem(
+                    item = audiobook,
+                    onClick = { onItemClick(audiobook) }
                 )
             }
         }

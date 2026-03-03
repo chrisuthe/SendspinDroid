@@ -110,7 +110,8 @@ class SendSpinClient(
             album: String,
             artworkUrl: String,
             durationMs: Long,
-            positionMs: Long
+            positionMs: Long,
+            playbackSpeed: Int = 1000
         )
         fun onArtwork(imageData: ByteArray)
         fun onError(message: String)
@@ -251,7 +252,8 @@ class SendSpinClient(
             metadata.album,
             metadata.artworkUrl,
             metadata.durationMs,
-            metadata.positionMs
+            metadata.positionMs,
+            metadata.progress.playbackSpeed
         )
     }
 
