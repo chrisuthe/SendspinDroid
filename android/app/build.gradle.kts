@@ -261,8 +261,8 @@ dependencies {
     // Using Stream's maintained fork of Google WebRTC
     implementation("io.getstream:stream-webrtc-android:1.3.4")
 
-    // ML Kit Barcode Scanning - QR code scanning for Remote ID input
-    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // ZXing-C++ Barcode Scanning - FOSS QR code scanning for Remote ID input
+    implementation("io.github.zxing-cpp:android:2.3.0")
 
     // CameraX - Modern camera API for QR code scanner
     implementation("androidx.camera:camera-camera2:1.4.1")
