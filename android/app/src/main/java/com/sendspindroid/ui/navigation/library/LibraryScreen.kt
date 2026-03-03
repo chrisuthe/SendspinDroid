@@ -134,7 +134,10 @@ fun LibraryScreen(
                         },
                         onAddToPlaylist = onAddToPlaylist,
                         onAddToQueue = onAddToQueue,
-                        onPlayNext = onPlayNext
+                        onPlayNext = onPlayNext,
+                        onAlbumArtistsOnlyChange = if (contentType == LibraryViewModel.ContentType.ARTISTS) {
+                            { enabled -> viewModel.setAlbumArtistsOnly(enabled) }
+                        } else null
                     )
                 }
             }
