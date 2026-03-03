@@ -67,7 +67,7 @@ class PlaylistsViewModel : ViewModel() {
             }
 
             Log.d(TAG, "Loading playlists...")
-            val result = MusicAssistantManager.getPlaylists()
+            val result = MusicAssistantManager.getPlaylists(limit = 500)
 
             result.fold(
                 onSuccess = { playlists ->
