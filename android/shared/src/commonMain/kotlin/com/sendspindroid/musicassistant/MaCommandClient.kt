@@ -704,12 +704,22 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     /**
      * Get artists from the library.
      */
-    suspend fun getArtists(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaArtist>> {
+    suspend fun getArtists(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name",
+        albumArtistsOnly: Boolean = false
+    ): Result<List<MaArtist>> {
         return try {
-            Log.d(TAG, "Fetching artists (limit=$limit, offset=$offset, orderBy=$orderBy)")
+            Log.d(TAG, "Fetching artists (limit=$limit, offset=$offset, orderBy=$orderBy, albumArtistsOnly=$albumArtistsOnly)")
             val response = sendCommand(
                 "music/artists/library_items",
-                mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
+                mapOf(
+                    "limit" to limit,
+                    "offset" to offset,
+                    "order_by" to orderBy,
+                    "album_artists_only" to albumArtistsOnly
+                )
             )
             val artists = parseArtists(response)
             Log.d(TAG, "Got ${artists.size} artists")
