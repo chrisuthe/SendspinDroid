@@ -1843,6 +1843,12 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        // Handle playback speed updates
+        val playbackSpeed = extras.getInt(PlaybackService.EXTRA_PLAYBACK_SPEED, -1)
+        if (playbackSpeed > 0) {
+            viewModel.updatePlaybackSpeed(playbackSpeed)
+        }
+
         // Handle volume updates from server
         val volume = extras.getInt(PlaybackService.EXTRA_VOLUME, -1)
         if (volume in 0..100) {

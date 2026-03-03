@@ -61,6 +61,7 @@ import com.sendspindroid.UserSettings
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.EnqueueMode
@@ -74,6 +75,7 @@ import com.sendspindroid.ui.detail.AlbumDetailScreen
 import com.sendspindroid.ui.detail.ArtistDetailScreen
 import com.sendspindroid.ui.detail.PlaylistDetailScreen
 import com.sendspindroid.ui.detail.PlaylistDetailViewModel
+import com.sendspindroid.ui.detail.AudiobookDetailScreen
 import com.sendspindroid.ui.detail.PodcastDetailScreen
 import com.sendspindroid.ui.main.DetailDestination
 import com.sendspindroid.ui.main.MainActivityViewModel
@@ -298,6 +300,9 @@ private fun ConnectedShell(
     }
     val onPodcastDetailClick: (String, String, String?, String?, Int) -> Unit = { podcastId, podcastName, imageUri, publisher, totalEpisodes ->
         viewModel.navigateToDetail(DetailDestination.Podcast(podcastId, podcastName, imageUri, publisher, totalEpisodes))
+    }
+    val onAudiobookDetailClick: (String, String, String?, String?) -> Unit = { audiobookId, audiobookName, imageUri, author ->
+        viewModel.navigateToDetail(DetailDestination.Audiobook(audiobookId, audiobookName, imageUri, author))
     }
 
     // Server name for the toolbar subtitle
@@ -529,6 +534,7 @@ private fun ConnectedShell(
                                 onArtistClick = onArtistClick,
                                 onPlaylistDetailClick = onPlaylistDetailClick,
                                 onPodcastDetailClick = onPodcastDetailClick,
+                                onAudiobookDetailClick = onAudiobookDetailClick,
                                 onShowSuccess = onShowSuccess,
                                 onShowError = onShowError,
                                 onShowUndoSnackbar = onShowUndoSnackbar
@@ -691,6 +697,7 @@ private fun BrowseContent(
     onArtistClick: (artistId: String, artistName: String) -> Unit,
     onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
     onPodcastDetailClick: (podcastId: String, podcastName: String, imageUri: String?, publisher: String?, totalEpisodes: Int) -> Unit,
+    onAudiobookDetailClick: (audiobookId: String, audiobookName: String, imageUri: String?, author: String?) -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
@@ -838,6 +845,9 @@ private fun BrowseContent(
                 onPodcastClick = { podcast ->
                     onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes)
                 },
+                onAudiobookClick = { audiobook ->
+                    onAudiobookDetailClick(audiobook.audiobookId, audiobook.name, audiobook.imageUri, audiobook.primaryAuthor)
+                },
                 onAddToPlaylist = addToPlaylist,
                 onAddToQueue = addToQueue,
                 onPlayNext = playNext
@@ -856,6 +866,9 @@ private fun BrowseContent(
                 },
                 onPodcastClick = { podcast ->
                     onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes)
+                },
+                onAudiobookClick = { audiobook ->
+                    onAudiobookDetailClick(audiobook.audiobookId, audiobook.name, audiobook.imageUri, audiobook.primaryAuthor)
                 },
                 onItemClick = playItem,
                 onAddToPlaylist = addToPlaylist,
@@ -1046,6 +1059,15 @@ private fun DetailContent(
                 podcastImageUri = detail.podcastImageUri,
                 podcastPublisher = detail.podcastPublisher,
                 totalEpisodes = detail.totalEpisodes
+            )
+        }
+
+        is DetailDestination.Audiobook -> {
+            AudiobookDetailScreen(
+                audiobookId = detail.audiobookId,
+                audiobookName = detail.audiobookName,
+                audiobookImageUri = detail.audiobookImageUri,
+                audiobookAuthor = detail.audiobookAuthor
             )
         }
     }

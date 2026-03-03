@@ -14,7 +14,8 @@ data class PlaybackState(
     val positionMs: Long = 0,
     val positionUpdatedAt: Long = 0,
     val volume: Int = 100,
-    val muted: Boolean = false
+    val muted: Boolean = false,
+    val playbackSpeed: Int = 1000  // Speed multiplier (1000 = 1.0x normal speed)
 ) {
     val displayTitle: String
         get() = title ?: "Unknown Track"
@@ -47,7 +48,8 @@ data class PlaybackState(
         album: String?,
         artworkUrl: String?,
         durationMs: Long,
-        positionMs: Long
+        positionMs: Long,
+        playbackSpeed: Int = this.playbackSpeed
     ): PlaybackState = copy(
         title = when {
             title == null -> this.title
@@ -74,7 +76,8 @@ data class PlaybackState(
         // Only stamp positionUpdatedAt when position is non-zero. When positionMs is 0
         // (e.g., initial metadata for a new track before audio starts), keep existing
         // timestamp so interpolatedPositionMs doesn't phantom-count up from zero.
-        positionUpdatedAt = if (positionMs > 0) Platform.elapsedRealtimeMs() else this.positionUpdatedAt
+        positionUpdatedAt = if (positionMs > 0) Platform.elapsedRealtimeMs() else this.positionUpdatedAt,
+        playbackSpeed = playbackSpeed
     )
 
     fun withClearedMetadata(): PlaybackState = copy(
@@ -84,7 +87,8 @@ data class PlaybackState(
         artworkUrl = null,
         durationMs = 0,
         positionMs = 0,
-        positionUpdatedAt = 0
+        positionUpdatedAt = 0,
+        playbackSpeed = 1000
     )
 
     fun withGroupUpdate(

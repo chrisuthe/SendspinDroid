@@ -37,6 +37,7 @@ import coil.compose.AsyncImage
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaBrowseFolder
 import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.MaPlaylist
@@ -227,6 +228,7 @@ private fun getSubtitle(item: MaLibraryItem): String = when (item) {
     is MaArtist -> "" // No subtitle for artists
     is MaRadio -> item.provider ?: ""
     is MaPodcast -> item.publisher ?: ""
+    is MaAudiobook -> item.primaryAuthor ?: ""
     is MaBrowseFolder -> "" // No subtitle for folders
     else -> ""
 }

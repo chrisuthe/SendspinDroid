@@ -416,6 +416,7 @@ class PlaybackService : MediaLibraryService() {
         const val EXTRA_DURATION_MS = "duration_ms"
         const val EXTRA_POSITION_MS = "position_ms"
         const val EXTRA_POSITION_UPDATED_AT = "position_updated_at"
+        const val EXTRA_PLAYBACK_SPEED = "playback_speed"
         const val EXTRA_ARTWORK_DATA = "artwork_data"
 
         // Session extras keys for connection state
@@ -966,7 +967,8 @@ class PlaybackService : MediaLibraryService() {
             album: String,
             artworkUrl: String,
             durationMs: Long,
-            positionMs: Long
+            positionMs: Long,
+            playbackSpeed: Int
         ) {
             mainHandler.post {
                 Log.d(TAG, "Metadata update: $title / $artist / $album")
@@ -983,7 +985,8 @@ class PlaybackService : MediaLibraryService() {
                     album = album.ifEmpty { null },
                     artworkUrl = effectiveArtworkUrl.ifEmpty { null },
                     durationMs = durationMs,
-                    positionMs = positionMs
+                    positionMs = positionMs,
+                    playbackSpeed = playbackSpeed
                 )
 
                 // Update the player's media item for lock screen/notification
@@ -1432,6 +1435,7 @@ class PlaybackService : MediaLibraryService() {
             putLong(EXTRA_DURATION_MS, playbackState.durationMs)
             putLong(EXTRA_POSITION_MS, playbackState.positionMs)
             putLong(EXTRA_POSITION_UPDATED_AT, SystemClock.elapsedRealtime())
+            putInt(EXTRA_PLAYBACK_SPEED, playbackState.playbackSpeed)
 
             // Group info
             playbackState.groupName?.let { putString(EXTRA_GROUP_NAME, it) }

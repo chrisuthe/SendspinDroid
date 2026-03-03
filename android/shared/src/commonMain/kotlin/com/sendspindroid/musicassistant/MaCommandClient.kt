@@ -235,6 +235,29 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         }
     }
 
+    /**
+     * Set the playback speed for a player queue.
+     *
+     * Uses the same `player_queues/` pattern as repeat and shuffle.
+     * If the server doesn't support this command, it will return an error.
+     *
+     * @param queueId The target player/queue ID.
+     * @param speed Speed multiplier (e.g. 1.0 = normal, 1.5 = 1.5x, 0.5 = half speed).
+     */
+    suspend fun setPlaybackSpeed(queueId: String, speed: Float): Result<Unit> {
+        return try {
+            sendCommand(
+                "player_queues/speed",
+                mapOf("queue_id" to queueId, "speed" to speed)
+            )
+            Log.i(TAG, "Playback speed set to ${speed}x for $queueId")
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set playback speed", e)
+            Result.failure(e)
+        }
+    }
+
     // ========================================================================
     // Playback Commands
     // ========================================================================
@@ -873,6 +896,97 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         }
     }
 
+    // ========================================================================
+    // Audiobook Commands
+    // ========================================================================
+
+    /**
+     * Get audiobooks from the library.
+     */
+    suspend fun getAudiobooks(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaAudiobook>> {
+        return try {
+            Log.d(TAG, "Fetching audiobooks (limit=$limit, offset=$offset, orderBy=$orderBy)")
+            val response = sendCommand(
+                "music/audiobooks/library_items",
+                mapOf("limit" to limit, "offset" to offset, "order_by" to orderBy)
+            )
+            val audiobooks = parseAudiobooks(response)
+            Log.d(TAG, "Got ${audiobooks.size} audiobooks")
+            Result.success(audiobooks)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch audiobooks", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Get a single audiobook by ID.
+     */
+    suspend fun getAudiobook(audiobookId: String): Result<MaAudiobook> {
+        return try {
+            Log.d(TAG, "Fetching audiobook: $audiobookId")
+            val response = sendCommand(
+                "music/audiobooks/get",
+                mapOf("item_id" to audiobookId, "provider_instance_id_or_domain" to "library")
+            )
+            val audiobook = parseAudiobookFromResult(response)
+                ?: return Result.failure(Exception("Audiobook not found"))
+            Log.d(TAG, "Got audiobook: ${audiobook.name}")
+            Result.success(audiobook)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch audiobook: $audiobookId", e)
+            Result.failure(e)
+        }
+    }
+
+    // ========================================================================
+    // Progress Tracking Commands
+    // ========================================================================
+
+    /**
+     * Get items currently in progress (audiobooks and podcast episodes).
+     */
+    suspend fun getInProgressItems(limit: Int = 25): Result<List<MaLibraryItem>> {
+        return try {
+            Log.d(TAG, "Fetching in-progress items (limit=$limit)")
+            val response = sendCommand("music/in_progress_items", mapOf("limit" to limit))
+            val items = parseInProgressItems(response)
+            Log.d(TAG, "Got ${items.size} in-progress items")
+            Result.success(items)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch in-progress items", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Mark a media item as played.
+     */
+    suspend fun markPlayed(itemUri: String): Result<Unit> {
+        return try {
+            Log.d(TAG, "Marking item as played: $itemUri")
+            sendCommand("music/mark_item_played", mapOf("item" to itemUri))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to mark item as played: $itemUri", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Mark a media item as unplayed.
+     */
+    suspend fun markUnplayed(itemUri: String): Result<Unit> {
+        return try {
+            Log.d(TAG, "Marking item as unplayed: $itemUri")
+            sendCommand("music/mark_item_unplayed", mapOf("item" to itemUri))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to mark item as unplayed: $itemUri", e)
+            Result.failure(e)
+        }
+    }
+
     /**
      * Browse Music Assistant providers for folder-based content.
      */
@@ -921,6 +1035,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                         MaMediaType.PLAYLIST -> "playlist"
                         MaMediaType.RADIO -> "radio"
                         MaMediaType.PODCAST -> "podcast"
+                        MaMediaType.AUDIOBOOK -> "audiobook"
                         MaMediaType.FOLDER -> "folder"
                     }
                 }
@@ -933,7 +1048,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             Log.d(TAG, "Search returned ${results.totalCount()} results " +
                     "(${results.artists.size} artists, ${results.albums.size} albums, " +
                     "${results.tracks.size} tracks, ${results.playlists.size} playlists, " +
-                    "${results.radios.size} radios, ${results.podcasts.size} podcasts)")
+                    "${results.radios.size} radios, ${results.podcasts.size} podcasts, " +
+                    "${results.audiobooks.size} audiobooks)")
 
             Result.success(results)
         } catch (e: Exception) {
@@ -1591,6 +1707,150 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     }
 
     // ========================================================================
+    // JSON Parsing — Audiobooks
+    // ========================================================================
+
+    internal fun parseAudiobooks(response: JsonObject): List<MaAudiobook> {
+        val resultArray = response.optJsonArray("result")
+            ?: response.optJsonObject("result")?.optJsonArray("items")
+            ?: return emptyList()
+
+        return parseAudiobooksArray(resultArray)
+    }
+
+    internal fun parseAudiobooksArray(array: JsonArray?): List<MaAudiobook> {
+        if (array == null) return emptyList()
+        val audiobooks = mutableListOf<MaAudiobook>()
+
+        for (i in 0 until array.size) {
+            val item = (array[i] as? JsonObject) ?: continue
+            val audiobook = parseAudiobookItem(item) ?: continue
+            audiobooks.add(audiobook)
+        }
+
+        return audiobooks
+    }
+
+    private fun parseAudiobookItem(item: JsonObject): MaAudiobook? {
+        val audiobookId = item.optString("item_id")
+            .ifEmpty { item.optString("uri") }
+
+        if (audiobookId.isEmpty()) return null
+
+        val name = item.optString("name")
+        if (name.isEmpty()) return null
+
+        val imageUri = extractImageUri(item).ifEmpty { null }
+        val uri = item.optString("uri").ifEmpty { "library://audiobook/$audiobookId" }
+        val publisher = item.optString("publisher").ifEmpty { null }
+        val duration = item.optLong("duration", 0)
+        val fullyPlayed = if (item.has("fully_played")) item.optBoolean("fully_played") else null
+        val resumePositionMs = if (item.has("resume_position_ms")) item.optLong("resume_position_ms", 0) else null
+
+        val authors = parseStringList(item.optJsonArray("authors"))
+        val narrators = parseStringList(item.optJsonArray("narrators"))
+        val chapters = parseChapters(item.optJsonObject("metadata"))
+
+        return MaAudiobook(
+            audiobookId = audiobookId,
+            name = name,
+            imageUri = imageUri,
+            uri = uri,
+            authors = authors,
+            narrators = narrators,
+            publisher = publisher,
+            duration = duration,
+            fullyPlayed = fullyPlayed,
+            resumePositionMs = resumePositionMs,
+            chapters = chapters
+        )
+    }
+
+    internal fun parseAudiobookFromResult(response: JsonObject): MaAudiobook? {
+        val item = response.optJsonObject("result") ?: return null
+        return parseAudiobookItem(item)
+    }
+
+    private fun parseStringList(array: JsonArray?): List<String> {
+        if (array == null) return emptyList()
+        return (0 until array.size).mapNotNull { i ->
+            (array[i] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }
+        }
+    }
+
+    private fun parseChapters(metadata: JsonObject?): List<MaAudiobookChapter> {
+        if (metadata == null) return emptyList()
+        val chaptersArray = metadata.optJsonArray("chapters") ?: return emptyList()
+        val chapters = mutableListOf<MaAudiobookChapter>()
+
+        for (i in 0 until chaptersArray.size) {
+            val chapterJson = (chaptersArray[i] as? JsonObject) ?: continue
+            val position = chapterJson.optInt("position", i)
+            val chapterName = chapterJson.optString("name").ifEmpty { "Chapter ${position + 1}" }
+            val start = chapterJson.optDouble("start", 0.0)
+            val end = if (chapterJson.has("end")) chapterJson.optDouble("end", 0.0) else null
+
+            chapters.add(MaAudiobookChapter(
+                position = position,
+                name = chapterName,
+                start = start,
+                end = end
+            ))
+        }
+
+        return chapters
+    }
+
+    // ========================================================================
+    // JSON Parsing — In-Progress Items
+    // ========================================================================
+
+    internal fun parseInProgressItems(response: JsonObject): List<MaLibraryItem> {
+        val resultArray = response.optJsonArray("result")
+            ?: response.optJsonObject("result")?.optJsonArray("items")
+            ?: return emptyList()
+
+        val items = mutableListOf<MaLibraryItem>()
+
+        for (i in 0 until resultArray.size) {
+            val item = (resultArray[i] as? JsonObject) ?: continue
+            val mediaType = item.optString("media_type")
+
+            when (mediaType) {
+                "audiobook" -> {
+                    val audiobook = parseAudiobookItem(item)
+                    if (audiobook != null) items.add(audiobook)
+                }
+                "podcast_episode" -> {
+                    // Reuse podcast episode parsing
+                    val episodeId = item.optString("item_id").ifEmpty { item.optString("uri") }
+                    if (episodeId.isEmpty()) continue
+                    val name = item.optString("name")
+                    if (name.isEmpty()) continue
+                    val imgUri = extractImageUri(item).ifEmpty { null }
+                    val epUri = item.optString("uri").ifEmpty { null }
+                    val pos = item.optInt("position", 0)
+                    val dur = item.optLong("duration", 0)
+                    val fp = item.optBoolean("fully_played", false)
+                    val rp = item.optLong("resume_position_ms", 0)
+                    items.add(MaPodcastEpisode(
+                        episodeId = episodeId,
+                        name = name,
+                        imageUri = imgUri,
+                        uri = epUri,
+                        position = pos,
+                        duration = dur,
+                        fullyPlayed = fp,
+                        resumePositionMs = rp
+                    ))
+                }
+            }
+        }
+
+        return items
+    }
+
+    // ========================================================================
     // JSON Parsing — Search
     // ========================================================================
 
@@ -1603,7 +1863,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             tracks = parseTracksArray(result.optJsonArray("tracks")),
             playlists = parsePlaylistsArray(result.optJsonArray("playlists")),
             radios = parseRadiosArray(result.optJsonArray("radios")),
-            podcasts = parsePodcastsArray(result.optJsonArray("podcasts"))
+            podcasts = parsePodcastsArray(result.optJsonArray("podcasts")),
+            audiobooks = parseAudiobooksArray(result.optJsonArray("audiobooks"))
         )
     }
 
@@ -1748,6 +2009,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                         publisher = publisher,
                         totalEpisodes = totalEpisodes
                     ))
+                }
+                "audiobook" -> {
+                    val audiobook = parseAudiobookItem(item)
+                    if (audiobook != null) items.add(audiobook)
                 }
             }
         }
