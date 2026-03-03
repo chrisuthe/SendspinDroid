@@ -854,9 +854,14 @@ object MusicAssistantManager {
     /**
      * Get artists from the library.
      */
-    suspend fun getArtists(limit: Int = 15, offset: Int = 0, orderBy: String = "name"): Result<List<MaArtist>> {
+    suspend fun getArtists(
+        limit: Int = 15,
+        offset: Int = 0,
+        orderBy: String = "name",
+        albumArtistsOnly: Boolean = false
+    ): Result<List<MaArtist>> {
         return withContext(Dispatchers.IO) {
-            commandClient.getArtists(limit, offset, orderBy)
+            commandClient.getArtists(limit, offset, orderBy, albumArtistsOnly)
         }
     }
 

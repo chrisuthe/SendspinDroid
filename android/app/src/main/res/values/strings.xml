@@ -557,6 +557,7 @@
     <string name="library_sort_name">Name</string>
     <string name="library_sort_date_added">Date Added</string>
     <string name="library_sort_year">Year</string>
+    <string name="library_filter_album_artists">Album Artists Only</string>
     <string name="library_loading_more">Loading more...</string>
     <string name="library_empty">No items found</string>
     <string name="library_error">Failed to load library</string>

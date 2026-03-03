@@ -94,7 +94,8 @@ class LibraryViewModel : ViewModel() {
         val isLoadingMore: Boolean = false,
         val hasMore: Boolean = true,
         val error: String? = null,
-        val sortOption: SortOption = SortOption.NAME
+        val sortOption: SortOption = SortOption.NAME,
+        val albumArtistsOnly: Boolean = false
     )
 
     // Per-tab state flows
@@ -189,10 +190,11 @@ class LibraryViewModel : ViewModel() {
         val stateFlow = getMutableStateFor(type)
         val currentState = stateFlow.value
 
-        // Set loading state (preserve sort option)
+        // Set loading state (preserve sort option and filter)
         stateFlow.value = TabState(
             isLoading = true,
-            sortOption = currentState.sortOption
+            sortOption = currentState.sortOption,
+            albumArtistsOnly = currentState.albumArtistsOnly
         )
 
         viewModelScope.launch {
@@ -202,7 +204,8 @@ class LibraryViewModel : ViewModel() {
                     items = items,
                     isLoading = false,
                     hasMore = items.size >= PAGE_SIZE,
-                    sortOption = currentState.sortOption
+                    sortOption = currentState.sortOption,
+                    albumArtistsOnly = currentState.albumArtistsOnly
                 )
                 loadedTabs.add(type)
                 Log.d(TAG, "Loaded ${items.size} items for $type")
@@ -211,7 +214,8 @@ class LibraryViewModel : ViewModel() {
                 stateFlow.value = TabState(
                     isLoading = false,
                     error = e.message ?: "Failed to load",
-                    sortOption = currentState.sortOption
+                    sortOption = currentState.sortOption,
+                    albumArtistsOnly = currentState.albumArtistsOnly
                 )
             }
         }
@@ -276,6 +280,24 @@ class LibraryViewModel : ViewModel() {
         // Update sort option and trigger reload
         stateFlow.value = currentState.copy(sortOption = sort)
         loadItems(type, refresh = true)
+    }
+
+    /**
+     * Toggle album-artists-only filter for the Artists tab and reload.
+     *
+     * @param enabled Whether to show only album artists
+     */
+    fun setAlbumArtistsOnly(enabled: Boolean) {
+        val stateFlow = _artistsState
+        val currentState = stateFlow.value
+
+        if (currentState.albumArtistsOnly == enabled) return
+
+        Log.d(TAG, "Setting album artists only: $enabled")
+
+        loadedTabs.remove(ContentType.ARTISTS)
+        stateFlow.value = currentState.copy(albumArtistsOnly = enabled)
+        loadItems(ContentType.ARTISTS, refresh = true)
     }
 
     /**
@@ -370,7 +392,8 @@ class LibraryViewModel : ViewModel() {
             ContentType.ARTISTS -> MusicAssistantManager.getArtists(
                 limit = PAGE_SIZE,
                 offset = offset,
-                orderBy = sort.apiValue
+                orderBy = sort.apiValue,
+                albumArtistsOnly = _artistsState.value.albumArtistsOnly
             )
             ContentType.PLAYLISTS -> MusicAssistantManager.getPlaylists(
                 limit = PAGE_SIZE,
