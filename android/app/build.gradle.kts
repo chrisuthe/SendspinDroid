@@ -83,6 +83,12 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Disable dependency metadata for F-Droid/IzzyOnDroid compatibility
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
+
     buildTypes {
         // Release build configuration (for production APKs/AABs)
         release {
