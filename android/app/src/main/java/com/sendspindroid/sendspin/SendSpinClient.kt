@@ -218,7 +218,8 @@ class SendSpinClient(
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> =
         MessageBuilder.buildSupportedFormats(
             preferredCodec = UserSettings.getPreferredCodec(),
-            isCodecSupported = { AudioDecoderFactory.isCodecSupported(it) }
+            isCodecSupported = { AudioDecoderFactory.isCodecSupported(it) },
+            supportedBitDepths = AudioDecoderFactory.getSupportedPcmBitDepths()
         )
 
     override fun onHandshakeComplete(serverName: String, serverId: String) {
