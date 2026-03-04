@@ -237,9 +237,9 @@ class AddServerWizardActivity : FragmentActivity() {
     // ========================================================================
 
     private val discoveryListener = object : NsdDiscoveryManager.DiscoveryListener {
-        override fun onServerDiscovered(name: String, address: String, path: String) {
+        override fun onServerDiscovered(name: String, address: String, path: String, friendlyName: String) {
             runOnUiThread {
-                val server = DiscoveredServer(name, address, path)
+                val server = DiscoveredServer(friendlyName, address, path)
                 discoveredServers[name] = server
                 updateDiscoveredServersInViewModel()
             }
