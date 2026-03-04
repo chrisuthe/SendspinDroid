@@ -586,7 +586,11 @@ object MusicAssistantManager {
     // Helper to resolve the effective queue ID through the command client
     private suspend fun resolveQueueId(): String {
         val playerId = UserSettings.getPlayerId()
-        return commandClient.getEffectiveQueueId(playerId)
+        try {
+            return commandClient.getEffectiveQueueId(playerId)
+        } catch (e: PlayerUnavailableException) {
+            throw Exception("Player is not available. Try reconnecting to the server.")
+        }
     }
 
     /**
