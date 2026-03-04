@@ -3,6 +3,7 @@ package com.sendspindroid.sendspin.protocol.message
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -64,6 +65,24 @@ class MessageBuilderTest {
         val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
         val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
         assertEquals("synchronized", player["state"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun buildPlayerState_includesStaticDelayMs() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false, "synchronized", 12.5)
+        ).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(12.5, player["static_delay_ms"]?.jsonPrimitive?.double ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun buildPlayerState_staticDelayMsDefaultsToZero() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false)
+        ).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(0.0, player["static_delay_ms"]?.jsonPrimitive?.double ?: -1.0, 0.01)
     }
 
     // --- buildCommand ---

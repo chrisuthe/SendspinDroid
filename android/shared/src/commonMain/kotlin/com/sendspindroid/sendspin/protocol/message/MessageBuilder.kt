@@ -91,7 +91,7 @@ object MessageBuilder {
         return message.toString()
     }
 
-    fun buildPlayerState(volume: Int, muted: Boolean, syncState: String = "synchronized"): String {
+    fun buildPlayerState(volume: Int, muted: Boolean, syncState: String = "synchronized", staticDelayMs: Double = 0.0): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", buildJsonObject {
@@ -99,6 +99,7 @@ object MessageBuilder {
                     put("state", syncState)
                     put("volume", volume)
                     put("muted", muted)
+                    put("static_delay_ms", staticDelayMs)
                 })
             })
         }
