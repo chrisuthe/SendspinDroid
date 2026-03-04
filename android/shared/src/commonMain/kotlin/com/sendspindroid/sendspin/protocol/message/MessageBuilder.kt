@@ -120,7 +120,8 @@ object MessageBuilder {
 
     fun buildSupportedFormats(
         preferredCodec: String,
-        isCodecSupported: (String) -> Boolean
+        isCodecSupported: (String) -> Boolean,
+        supportedBitDepths: List<Int> = listOf(SendSpinProtocol.AudioFormat.BIT_DEPTH)
     ): List<FormatEntry> {
         val codecOrder = mutableListOf<String>()
 
@@ -140,20 +141,22 @@ object MessageBuilder {
 
         return buildList {
             for (codec in codecOrder) {
-                // Stereo
-                add(FormatEntry(
-                    codec = codec,
-                    sampleRate = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
-                    channels = SendSpinProtocol.AudioFormat.CHANNELS,
-                    bitDepth = SendSpinProtocol.AudioFormat.BIT_DEPTH
-                ))
-                // Mono
-                add(FormatEntry(
-                    codec = codec,
-                    sampleRate = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
-                    channels = 1,
-                    bitDepth = SendSpinProtocol.AudioFormat.BIT_DEPTH
-                ))
+                for (bitDepth in supportedBitDepths) {
+                    // Stereo
+                    add(FormatEntry(
+                        codec = codec,
+                        sampleRate = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
+                        channels = SendSpinProtocol.AudioFormat.CHANNELS,
+                        bitDepth = bitDepth
+                    ))
+                    // Mono
+                    add(FormatEntry(
+                        codec = codec,
+                        sampleRate = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
+                        channels = 1,
+                        bitDepth = bitDepth
+                    ))
+                }
             }
         }
     }
