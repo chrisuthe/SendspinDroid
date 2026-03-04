@@ -41,11 +41,17 @@ object SendSpinProtocol {
     }
 
     /**
-     * Buffer capacity constants.
+     * Buffer duration targets (seconds).
+     *
+     * The server's BufferTracker paces delivery by wire bytes; we calculate
+     * the byte cap from these durations using the highest-bitrate PCM format
+     * we advertise. This keeps decoded-PCM memory bounded regardless of codec:
+     * - PCM: ~DURATION seconds in memory
+     * - FLAC (~50% compression): ~2x DURATION seconds, still reasonable
      */
     object Buffer {
-        const val CAPACITY_NORMAL = 32_000_000    // 32MB (~2.8 min at 48kHz stereo)
-        const val CAPACITY_LOW_MEM = 8_000_000    // 8MB (~40 sec at 48kHz stereo)
+        const val DURATION_NORMAL_SEC = 35    // 30s target + 5s sync headroom
+        const val DURATION_LOW_MEM_SEC = 10
     }
 
     /**

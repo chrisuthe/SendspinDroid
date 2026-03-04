@@ -39,7 +39,7 @@ object MessageBuilder {
                     put("manufacturer", manufacturer)
                     put("software_version", "1.0.0")
                 })
-                put("player_support", buildJsonObject {
+                put("player@v1_support", buildJsonObject {
                     put("supported_formats", buildJsonArray {
                         for (fmt in supportedFormats) {
                             add(buildJsonObject {
@@ -56,7 +56,7 @@ object MessageBuilder {
                         add(kotlinx.serialization.json.JsonPrimitive("mute"))
                     })
                 })
-                put("artwork_support", buildJsonObject {
+                put("artwork@v1_support", buildJsonObject {
                     put("channels", buildJsonArray {
                         add(buildJsonObject {
                             put("source", "album")
@@ -116,6 +116,23 @@ object MessageBuilder {
             })
         }
         return message.toString()
+    }
+
+    /**
+     * Calculate buffer_capacity (wire bytes) from target duration and format list.
+     *
+     * Uses the highest-bitrate PCM entry we advertise as the basis, so the cap
+     * is tight for PCM and gives compressed codecs proportionally more seconds
+     * of look-ahead (but bounded decoded memory).
+     */
+    fun calculateBufferCapacity(formats: List<FormatEntry>, durationSec: Int): Int {
+        val maxPcmBytesPerSec = formats
+            .filter { it.codec == "pcm" }
+            .maxOfOrNull { it.sampleRate * it.channels * (it.bitDepth / 8) }
+            ?: (SendSpinProtocol.AudioFormat.SAMPLE_RATE
+                    * SendSpinProtocol.AudioFormat.CHANNELS
+                    * (SendSpinProtocol.AudioFormat.BIT_DEPTH / 8))
+        return durationSec * maxPcmBytesPerSec
     }
 
     fun buildSupportedFormats(

@@ -78,16 +78,6 @@ class SendSpinClient(
         private const val MAX_RECONNECT_DELAY_MS = 10000L // 10 seconds (was 30s)
         private const val HIGH_POWER_RECONNECT_DELAY_MS = 30_000L // 30s steady-state for high power mode
 
-        /**
-         * Gets the appropriate buffer capacity based on low memory mode setting.
-         */
-        fun getBufferCapacity(): Int {
-            return if (UserSettings.lowMemoryMode) {
-                SendSpinProtocol.Buffer.CAPACITY_LOW_MEM
-            } else {
-                SendSpinProtocol.Buffer.CAPACITY_NORMAL
-            }
-        }
     }
 
     /**
@@ -208,7 +198,7 @@ class SendSpinClient(
 
     override fun getTimeFilter(): SendspinTimeFilter = timeFilter
 
-    override fun getBufferCapacity(): Int = Companion.getBufferCapacity()
+    override fun isLowMemoryMode(): Boolean = UserSettings.lowMemoryMode
 
     override fun getClientId(): String = clientId
 
