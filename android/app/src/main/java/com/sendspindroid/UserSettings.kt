@@ -131,11 +131,12 @@ object UserSettings {
             isEncrypted = true
             Log.i(TAG, "Encrypted SharedPreferences initialized for sensitive data")
             encrypted
-        } catch (e: Exception) {
-            // Known to fail on some OEMs with broken Android Keystore (e.g., certain
-            // Samsung, Xiaomi, Huawei devices). Fall back to plain SharedPreferences
-            // so the app remains functional. Auth tokens will be unencrypted on these
-            // devices -- same as before this fix -- but the app won't crash.
+        } catch (e: Throwable) {
+            // Catch Throwable (not just Exception) because some MediaTek and other
+            // OEM devices throw Error subclasses from the Android Keystore JNI layer
+            // during MasterKeys.getOrCreate() -- especially on first-run key generation.
+            // Known to fail on Samsung, Xiaomi, Huawei, and some MediaTek devices.
+            // Fall back to plain SharedPreferences so the app remains functional.
             Log.w(TAG, "EncryptedSharedPreferences failed, falling back to plain prefs. " +
                     "Auth tokens will NOT be encrypted on this device.", e)
             isEncrypted = false
