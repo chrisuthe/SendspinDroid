@@ -966,7 +966,8 @@ class PlaybackService : MediaLibraryService() {
             album: String,
             artworkUrl: String,
             durationMs: Long,
-            positionMs: Long
+            positionMs: Long,
+            playbackSpeed: Int
         ) {
             mainHandler.post {
                 Log.d(TAG, "Metadata update: $title / $artist / $album")
@@ -983,7 +984,8 @@ class PlaybackService : MediaLibraryService() {
                     album = album.ifEmpty { null },
                     artworkUrl = effectiveArtworkUrl.ifEmpty { null },
                     durationMs = durationMs,
-                    positionMs = positionMs
+                    positionMs = positionMs,
+                    playbackSpeed = playbackSpeed
                 )
 
                 // Update the player's media item for lock screen/notification
