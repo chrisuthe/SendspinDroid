@@ -141,7 +141,14 @@ object MessageBuilder {
 
         return buildList {
             for (codec in codecOrder) {
-                for (bitDepth in supportedBitDepths.sortedDescending()) {
+                // Higher bit depths only apply to PCM; compressed codecs
+                // (FLAC, Opus) decode to 16-bit PCM regardless of source depth.
+                val depths = if (codec == "pcm") {
+                    supportedBitDepths.sortedDescending()
+                } else {
+                    listOf(SendSpinProtocol.AudioFormat.BIT_DEPTH)
+                }
+                for (bitDepth in depths) {
                     // Stereo
                     add(FormatEntry(
                         codec = codec,

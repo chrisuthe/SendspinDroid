@@ -163,20 +163,24 @@ class MessageBuilderTest {
     }
 
     @Test
-    fun buildSupportedFormats_multiBitDepthWithMultipleCodecs() {
+    fun buildSupportedFormats_multiBitDepthOnlyAppliesToPcm() {
         val formats = MessageBuilder.buildSupportedFormats(
             preferredCodec = "flac",
             isCodecSupported = { it in listOf("flac", "pcm") },
             supportedBitDepths = listOf(16, 32)
         )
-        // flac: 16-bit stereo/mono + 32-bit stereo/mono = 4
-        // pcm:  16-bit stereo/mono + 32-bit stereo/mono = 4
-        assertEquals(8, formats.size)
-        // First 4 are flac, last 4 are pcm
+        // flac: 16-bit only (stereo + mono) = 2
+        // pcm:  32-bit stereo/mono + 16-bit stereo/mono = 4
+        assertEquals(6, formats.size)
+        // First 2 are flac at 16-bit only
         assertEquals("flac", formats[0].codec)
-        assertEquals("flac", formats[3].codec)
+        assertEquals(16, formats[0].bitDepth)
+        assertEquals("flac", formats[1].codec)
+        // Last 4 are pcm with higher depths first
+        assertEquals("pcm", formats[2].codec)
+        assertEquals(32, formats[2].bitDepth)
         assertEquals("pcm", formats[4].codec)
-        assertEquals("pcm", formats[7].codec)
+        assertEquals(16, formats[4].bitDepth)
     }
 
     // --- No serialize needed (returns String directly) ---
