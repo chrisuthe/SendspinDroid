@@ -697,6 +697,8 @@
     <string name="action_yes">Yes</string>
     <string name="action_no">No</string>
     <string name="add_to_queue">Add to Queue</string>
+    <string name="append_to_queue">Append to Queue</string>
+    <string name="replace_queue">Replace Queue</string>
     <string name="unit_ms">ms</string>
 
     <!-- Accessibility - common -->

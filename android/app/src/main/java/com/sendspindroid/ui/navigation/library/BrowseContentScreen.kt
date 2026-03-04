@@ -16,12 +16,18 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +36,9 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -141,7 +150,9 @@ private fun BrowseItemsList(
             if (item is MaBrowseFolder) {
                 BrowseFolderItem(
                     folder = item,
-                    onClick = { onFolderClick(item) }
+                    onClick = { onFolderClick(item) },
+                    onAppendToQueue = { onAddToQueue(item) },
+                    onReplaceQueue = { onItemClick(item) }
                 )
             } else {
                 SearchResultItem(
@@ -157,19 +168,31 @@ private fun BrowseItemsList(
 }
 
 /**
- * A folder row item showing folder icon (or thumbnail), name, and chevron.
+ * A folder row item showing folder icon (or thumbnail), name, and overflow menu.
+ *
+ * Tapping the row navigates into the folder.
+ * The 3-dot menu offers queue actions for the folder's playable contents.
  */
 @Composable
 private fun BrowseFolderItem(
     folder: MaBrowseFolder,
     onClick: () -> Unit,
+    onAppendToQueue: () -> Unit,
+    onReplaceQueue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(
+                start = 16.dp,
+                end = 4.dp,
+                top = 12.dp,
+                bottom = 12.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Folder thumbnail or icon
@@ -203,13 +226,45 @@ private fun BrowseFolderItem(
             modifier = Modifier.weight(1f)
         )
 
-        // Chevron
-        Icon(
-            painter = painterResource(R.drawable.ic_chevron_right),
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        // Overflow menu
+        Box {
+            IconButton(
+                onClick = { showMenu = true },
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.MoreVert,
+                    contentDescription = "More options",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.append_to_queue)) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.Add, contentDescription = null)
+                    },
+                    onClick = {
+                        showMenu = false
+                        onAppendToQueue()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.replace_queue)) },
+                    leadingIcon = {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                    },
+                    onClick = {
+                        showMenu = false
+                        onReplaceQueue()
+                    }
+                )
+            }
+        }
     }
 }
 
