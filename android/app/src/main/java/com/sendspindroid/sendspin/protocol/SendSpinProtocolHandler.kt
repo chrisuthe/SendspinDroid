@@ -182,7 +182,8 @@ abstract class SendSpinProtocolHandler(
      * Send player state update (volume/muted/sync state).
      */
     protected fun sendPlayerStateUpdate() {
-        sendTextMessage(MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState))
+        val delayMs = getTimeFilter().staticDelayMs
+        sendTextMessage(MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState, delayMs))
     }
 
     /**
