@@ -114,6 +114,7 @@ class SendSpinClient(
             playbackSpeed: Int = 1000
         )
         fun onArtwork(imageData: ByteArray)
+        fun onArtworkCleared()
         fun onError(message: String)
         fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?)
         fun onStreamClear()
@@ -299,7 +300,11 @@ class SendSpinClient(
     }
 
     override fun onArtwork(channel: Int, payload: ByteArray) {
-        callback.onArtwork(payload)
+        if (payload.isEmpty()) {
+            callback.onArtworkCleared()
+        } else {
+            callback.onArtwork(payload)
+        }
     }
 
     override fun onSyncOffsetApplied(offsetMs: Double, source: String) {
