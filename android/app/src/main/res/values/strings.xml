@@ -809,6 +809,7 @@
     <string name="error_play_failed">Failed to play: %s</string>
     <string name="error_queue_failed">Failed to add to queue: %s</string>
     <string name="error_play_next_failed">Failed to play next: %s</string>
+    <string name="error_player_unavailable">Player is not available. Try reconnecting to the server.</string>
     <string name="success_added_to_queue">Added to queue: %s</string>
     <string name="success_playing_next">Playing next: %s</string>
     <string name="success_added_to_playlist">Added to %s</string>
