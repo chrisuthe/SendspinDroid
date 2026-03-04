@@ -106,7 +106,9 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
     val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
-    val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty
+    // Don't show buffering spinner when paused -- SendSpin's audio stream stops on
+    // pause, so Media3 reports STATE_BUFFERING even though the user intentionally paused.
+    val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty && isPlaying
     val controlsEnabled = playbackState == PlaybackState.READY || playbackState == PlaybackState.BUFFERING
 
     // Get server name from connection state
