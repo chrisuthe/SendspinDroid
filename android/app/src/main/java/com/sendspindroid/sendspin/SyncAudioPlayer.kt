@@ -474,7 +474,12 @@ class SyncAudioPlayer(
                 Log.e(TAG, "24-bit PCM requires API 31+, device is API ${android.os.Build.VERSION.SDK_INT}")
                 return
             }
-            32 -> AudioFormat.ENCODING_PCM_FLOAT
+            32 -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+                AudioFormat.ENCODING_PCM_32BIT
+            } else {
+                Log.e(TAG, "32-bit PCM requires API 31+, device is API ${android.os.Build.VERSION.SDK_INT}")
+                return
+            }
             else -> {
                 Log.e(TAG, "Unsupported bit depth: $bitDepth")
                 return

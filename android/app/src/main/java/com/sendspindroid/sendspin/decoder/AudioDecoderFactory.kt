@@ -75,22 +75,24 @@ object AudioDecoderFactory {
      * Get list of PCM bit depths supported by the device's AudioTrack hardware.
      *
      * Probes AudioTrack.getMinBufferSize for each encoding to detect support.
-     * 16-bit is always included. 32-bit float (ENCODING_PCM_FLOAT) requires API 21+.
-     * 24-bit packed (ENCODING_PCM_24BIT_PACKED) requires API 31+.
+     * 16-bit is always included. 24-bit packed (ENCODING_PCM_24BIT_PACKED) and
+     * 32-bit integer (ENCODING_PCM_32BIT) require API 31+.
      *
      * @return Sorted list of supported bit depths (e.g., [16, 24, 32])
      */
     fun getSupportedPcmBitDepths(): List<Int> {
         val depths = mutableListOf(16)
 
-        // 32-bit float (ENCODING_PCM_FLOAT) - API 21+
-        try {
-            val minBuf = AudioTrack.getMinBufferSize(
-                48000, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_FLOAT
-            )
-            if (minBuf > 0) depths.add(32)
-        } catch (e: Exception) {
-            Log.d(TAG, "32-bit float PCM not supported: ${e.message}")
+        // 32-bit integer PCM (ENCODING_PCM_32BIT) - API 31+
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            try {
+                val minBuf = AudioTrack.getMinBufferSize(
+                    48000, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_32BIT
+                )
+                if (minBuf > 0) depths.add(32)
+            } catch (e: Exception) {
+                Log.d(TAG, "32-bit integer PCM not supported: ${e.message}")
+            }
         }
 
         // 24-bit packed (ENCODING_PCM_24BIT_PACKED) - API 31+
