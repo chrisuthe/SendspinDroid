@@ -108,6 +108,9 @@ android {
                 "proguard-rules.pro"
             )
 
+            // Include native debug symbols in AAB for Google Play crash reporting
+            ndk.debugSymbolLevel = "FULL"
+
             // Sign release builds with debug key for testing (if keystore exists)
             // On CI, signing is handled via injected parameters
             if (hasDebugKeystore) {

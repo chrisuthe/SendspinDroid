@@ -123,6 +123,14 @@ jobs:
         AAB_FILE=$(ls app/build/outputs/bundle/release/*.aab | head -1)
         mv "$AAB_FILE" "app/build/outputs/bundle/release/SendSpinDroid-${VERSION}.aab"
 
+    - name: Package R8 mapping file
+      run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        MAPPING=app/build/outputs/mapping/release/mapping.txt
+        if [ -f "$MAPPING" ]; then
+          cp "$MAPPING" "app/build/outputs/mapping/release/SendSpinDroid-${VERSION}-mapping.txt"
+        fi
+
     - name: Create GitHub release
       uses: softprops/action-gh-release@v1
       with:
@@ -131,6 +139,7 @@ jobs:
         files: |
           android/app/build/outputs/apk/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.apk
           android/app/build/outputs/bundle/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}.aab
+          android/app/build/outputs/mapping/release/SendSpinDroid-${{ steps.get_version.outputs.VERSION }}-mapping.txt
         draft: false
         prerelease: ${{ steps.prerelease.outputs.IS_PRERELEASE == 'true' }}
         generate_release_notes: true
