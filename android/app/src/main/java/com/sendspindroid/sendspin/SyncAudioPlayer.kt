@@ -2340,7 +2340,7 @@ class SyncAudioPlayer(
      *
      * Performs frame-level insert (duplicate last frame) and drop (skip frame) without
      * sample-level crossfade or interpolation. This avoids needing format-specific
-     * sample blending code for 24-bit packed and 32-bit float encodings.
+     * sample blending code for 24-bit packed and 32-bit integer encodings.
      */
     private fun writeWithCorrectionSimple(track: AudioTrack, pcmData: ByteArray): Int {
         val inputFrameCount = pcmData.size / bytesPerFrame
