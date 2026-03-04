@@ -74,10 +74,6 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
     private val _positionUpdatedAt = MutableStateFlow(0L)
     val positionUpdatedAt: StateFlow<Long> = _positionUpdatedAt.asStateFlow()
 
-    // Playback speed multiplier (1000 = 1.0x normal speed)
-    private val _playbackSpeed = MutableStateFlow(1000)
-    val playbackSpeed: StateFlow<Int> = _playbackSpeed.asStateFlow()
-
     // ========================================================================
     // Artwork State
     // ========================================================================
@@ -190,10 +186,6 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _positionUpdatedAt.value = positionUpdatedAt
     }
 
-    fun updatePlaybackSpeed(speed: Int) {
-        _playbackSpeed.value = speed
-    }
-
     // ========================================================================
     // Artwork Updates
     // ========================================================================
@@ -299,7 +291,6 @@ class MainActivityViewModel(application: Application) : AndroidViewModel(applica
         _positionMs.value = 0
         _durationMs.value = 0
         _positionUpdatedAt.value = 0L
-        _playbackSpeed.value = 1000
         _isBuffering.value = false
         _isMaConnected.value = false
     }
