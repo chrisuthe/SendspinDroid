@@ -38,16 +38,29 @@ SendSpin Server ──WebSocket──► SendSpinClient ──AAudio──► Au
 
 ### Binary Messages
 ```
-Byte 0:     Message type (0-7 = audio slots, 8-11 = artwork)
-Bytes 1-8:  Timestamp (int64, microseconds since server start)
+Header format: struct ">Bq" (big-endian: 1 byte type + 8 byte int64 timestamp)
+Byte 0:     Message type
+Bytes 1-8:  Timestamp (big-endian int64, microseconds since server start)
 Bytes 9+:   Payload (PCM audio or image data)
+
+Types:
+  4:     Audio data
+  8-11:  Artwork channels 0-3 (empty payload = clear artwork)
+  16:    Visualizer data
 ```
 
 ### Audio Format
 - 48kHz sample rate
-- 16-bit signed PCM
-- Stereo (2 channels)
-- Little-endian byte order
+- 16-bit, 24-bit, or 32-bit signed PCM (negotiated via client hello)
+- Stereo (2 channels) or Mono (1 channel)
+- Audio sample data is little-endian; header timestamps are big-endian
+
+### Client State (`client/state`)
+Reports player state to server:
+- `state`: "synchronized" or "error"
+- `volume`: 0-100
+- `muted`: boolean
+- `static_delay_ms`: device audio output latency compensation (milliseconds)
 
 ## Implementation Phases
 
