@@ -42,7 +42,6 @@ fun TrackProgressBar(
     isPlaying: Boolean,
     accentColor: Color?,
     positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
-    playbackSpeed: Int = 1000,
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
@@ -62,15 +61,15 @@ fun TrackProgressBar(
         displayPositionMs = positionMs
     }
 
-    // Interpolation timer: advance position while playing, accounting for playback speed
-    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime, playbackSpeed) {
+    // Interpolation timer: advance position while playing
+    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
         if (!isPlaying) {
             displayPositionMs = anchorPositionMs
             return@LaunchedEffect
         }
         while (isActive) {
             delay(250)
-            val elapsed = (SystemClock.elapsedRealtime() - anchorTime) * playbackSpeed / 1000
+            val elapsed = SystemClock.elapsedRealtime() - anchorTime
             displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
         }
     }
@@ -99,7 +98,6 @@ fun TvTrackProgressBar(
     isPlaying: Boolean,
     accentColor: Color?,
     positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
-    playbackSpeed: Int = 1000,
     modifier: Modifier = Modifier
 ) {
     if (durationMs <= 0) return
@@ -115,14 +113,14 @@ fun TvTrackProgressBar(
         displayPositionMs = positionMs
     }
 
-    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime, playbackSpeed) {
+    LaunchedEffect(isPlaying, anchorPositionMs, anchorTime) {
         if (!isPlaying) {
             displayPositionMs = anchorPositionMs
             return@LaunchedEffect
         }
         while (isActive) {
             delay(250)
-            val elapsed = (SystemClock.elapsedRealtime() - anchorTime) * playbackSpeed / 1000
+            val elapsed = SystemClock.elapsedRealtime() - anchorTime
             displayPositionMs = minOf(durationMs, anchorPositionMs + elapsed)
         }
     }

@@ -235,29 +235,6 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         }
     }
 
-    /**
-     * Set the playback speed for a player queue.
-     *
-     * Uses the same `player_queues/` pattern as repeat and shuffle.
-     * If the server doesn't support this command, it will return an error.
-     *
-     * @param queueId The target player/queue ID.
-     * @param speed Speed multiplier (e.g. 1.0 = normal, 1.5 = 1.5x, 0.5 = half speed).
-     */
-    suspend fun setPlaybackSpeed(queueId: String, speed: Float): Result<Unit> {
-        return try {
-            sendCommand(
-                "player_queues/speed",
-                mapOf("queue_id" to queueId, "speed" to speed)
-            )
-            Log.i(TAG, "Playback speed set to ${speed}x for $queueId")
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to set playback speed", e)
-            Result.failure(e)
-        }
-    }
-
     // ========================================================================
     // Playback Commands
     // ========================================================================

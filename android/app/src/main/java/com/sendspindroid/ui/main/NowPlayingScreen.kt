@@ -60,7 +60,6 @@ import com.sendspindroid.ui.main.components.ConnectionProgress
 import com.sendspindroid.ui.main.components.PlaybackControls
 import com.sendspindroid.ui.main.components.QueueButton
 import com.sendspindroid.ui.main.components.ReconnectingBanner
-import com.sendspindroid.ui.main.components.SpeedControl
 import com.sendspindroid.ui.main.components.TrackProgressBar
 import com.sendspindroid.ui.main.components.TvTrackProgressBar
 import com.sendspindroid.ui.main.components.VolumeSlider
@@ -87,7 +86,6 @@ fun NowPlayingScreen(
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
-    onSpeedChange: (Float) -> Unit = {},
     queueViewModel: QueueViewModel? = null,
     onBrowseLibrary: () -> Unit = {},
     showPlayerButton: Boolean = false,
@@ -108,8 +106,6 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
     val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
-    val playbackSpeed by viewModel.playbackSpeed.collectAsState()
-
     val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty
     val controlsEnabled = playbackState == PlaybackState.READY || playbackState == PlaybackState.BUFFERING
 
@@ -158,13 +154,11 @@ fun NowPlayingScreen(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
-                    onSpeedChange = onSpeedChange,
                     queueViewModel = queueViewModel,
                     onBrowseLibrary = onBrowseLibrary,
                     showPlayerButton = showPlayerButton,
@@ -186,14 +180,12 @@ fun NowPlayingScreen(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onSpeedChange = onSpeedChange,
                     onQueueClick = onQueueClick,
                     showQueueButton = false,
                     showPlayerButton = showPlayerButton,
@@ -215,14 +207,12 @@ fun NowPlayingScreen(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onSpeedChange = onSpeedChange,
                     queueViewModel = inlineQueueViewModel,
                     onBrowseLibrary = onBrowseLibrary,
                     showPlayerButton = showPlayerButton,
@@ -244,14 +234,12 @@ fun NowPlayingScreen(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onSpeedChange = onSpeedChange,
                     onQueueClick = onQueueClick,
                     showPlayerButton = showPlayerButton,
                     onPlayerClick = onPlayerClick
@@ -271,14 +259,12 @@ fun NowPlayingScreen(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onSpeedChange = onSpeedChange,
                     onQueueClick = onQueueClick,
                     showPlayerButton = showPlayerButton,
                     onPlayerClick = onPlayerClick
@@ -315,14 +301,12 @@ private fun NowPlayingPortrait(
     positionMs: Long,
     durationMs: Long,
     positionUpdatedAt: Long = 0L,
-    playbackSpeed: Int = 1000,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
-    onSpeedChange: (Float) -> Unit = {},
     onQueueClick: () -> Unit,
     showQueueButton: Boolean = true,
     isQueueActive: Boolean = false,
@@ -408,17 +392,8 @@ private fun NowPlayingPortrait(
                 durationMs = durationMs,
                 isPlaying = isPlaying,
                 accentColor = accentColor,
-                positionUpdatedAt = positionUpdatedAt,
-                playbackSpeed = playbackSpeed
+                positionUpdatedAt = positionUpdatedAt
             )
-            if (playbackSpeed != 1000 || isMaConnected) {
-                Spacer(modifier = Modifier.width(8.dp))
-                SpeedControl(
-                    currentSpeed = playbackSpeed,
-                    onSpeedChange = onSpeedChange,
-                    enabled = controlsEnabled && isMaConnected
-                )
-            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -479,14 +454,12 @@ private fun NowPlayingLandscape(
     positionMs: Long,
     durationMs: Long,
     positionUpdatedAt: Long = 0L,
-    playbackSpeed: Int = 1000,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
-    onSpeedChange: (Float) -> Unit = {},
     onQueueClick: () -> Unit,
     showQueueButton: Boolean = true,
     showSecondaryRow: Boolean = false,
@@ -574,17 +547,8 @@ private fun NowPlayingLandscape(
                     durationMs = durationMs,
                     isPlaying = isPlaying,
                     accentColor = accentColor,
-                    positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed
+                    positionUpdatedAt = positionUpdatedAt
                 )
-                if (playbackSpeed != 1000 || isMaConnected) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    SpeedControl(
-                        currentSpeed = playbackSpeed,
-                        onSpeedChange = onSpeedChange,
-                        enabled = controlsEnabled && isMaConnected
-                    )
-                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -644,14 +608,12 @@ private fun NowPlayingWithQueuePanel(
     positionMs: Long,
     durationMs: Long,
     positionUpdatedAt: Long = 0L,
-    playbackSpeed: Int = 1000,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
     onVolumeChange: (Float) -> Unit,
-    onSpeedChange: (Float) -> Unit = {},
     queueViewModel: QueueViewModel,
     onBrowseLibrary: () -> Unit,
     showPlayerButton: Boolean = false,
@@ -685,14 +647,12 @@ private fun NowPlayingWithQueuePanel(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onSpeedChange = onSpeedChange,
                     onQueueClick = {},
                     showQueueButton = false,
                     showSecondaryRow = true,
@@ -714,14 +674,12 @@ private fun NowPlayingWithQueuePanel(
                     positionMs = positionMs,
                     durationMs = durationMs,
                     positionUpdatedAt = positionUpdatedAt,
-                    playbackSpeed = playbackSpeed,
                     onPreviousClick = onPreviousClick,
                     onPlayPauseClick = onPlayPauseClick,
                     onNextClick = onNextClick,
                     onSwitchGroupClick = onSwitchGroupClick,
                     onFavoriteClick = onFavoriteClick,
                     onVolumeChange = onVolumeChange,
-                    onSpeedChange = onSpeedChange,
                     onQueueClick = {},
                     showQueueButton = false,
                     albumArtFraction = 0.5f,
@@ -783,13 +741,11 @@ private fun NowPlayingTv(
     positionMs: Long,
     durationMs: Long,
     positionUpdatedAt: Long = 0L,
-    playbackSpeed: Int = 1000,
     onPreviousClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextClick: () -> Unit,
     onSwitchGroupClick: () -> Unit,
     onFavoriteClick: () -> Unit,
-    onSpeedChange: (Float) -> Unit = {},
     queueViewModel: QueueViewModel?,
     onBrowseLibrary: () -> Unit,
     showPlayerButton: Boolean = false,
