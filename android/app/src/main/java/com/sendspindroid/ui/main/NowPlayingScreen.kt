@@ -106,7 +106,6 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsState()
     val durationMs by viewModel.durationMs.collectAsState()
     val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
-
     val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty
     val controlsEnabled = playbackState == PlaybackState.READY || playbackState == PlaybackState.BUFFERING
 
@@ -382,14 +381,20 @@ private fun NowPlayingPortrait(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Track Progress
-        TrackProgressBar(
-            positionMs = positionMs,
-            durationMs = durationMs,
-            isPlaying = isPlaying,
-            accentColor = accentColor,
-            positionUpdatedAt = positionUpdatedAt
-        )
+        // Track Progress + Speed Control
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            TrackProgressBar(
+                positionMs = positionMs,
+                durationMs = durationMs,
+                isPlaying = isPlaying,
+                accentColor = accentColor,
+                positionUpdatedAt = positionUpdatedAt
+            )
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -531,14 +536,20 @@ private fun NowPlayingLandscape(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Track Progress
-            TrackProgressBar(
-                positionMs = positionMs,
-                durationMs = durationMs,
-                isPlaying = isPlaying,
-                accentColor = accentColor,
-                positionUpdatedAt = positionUpdatedAt
-            )
+            // Track Progress + Speed Control
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                TrackProgressBar(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    isPlaying = isPlaying,
+                    accentColor = accentColor,
+                    positionUpdatedAt = positionUpdatedAt
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 

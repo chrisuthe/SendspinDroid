@@ -12,18 +12,21 @@ data class SearchResults(
     val tracks: List<MaTrack> = emptyList(),
     val playlists: List<MaPlaylist> = emptyList(),
     val radios: List<MaRadio> = emptyList(),
-    val podcasts: List<MaPodcast> = emptyList()
+    val podcasts: List<MaPodcast> = emptyList(),
+    val audiobooks: List<MaAudiobook> = emptyList()
 ) {
     /**
      * Check if all result lists are empty.
      */
     fun isEmpty(): Boolean =
         artists.isEmpty() && albums.isEmpty() && tracks.isEmpty() &&
-        playlists.isEmpty() && radios.isEmpty() && podcasts.isEmpty()
+        playlists.isEmpty() && radios.isEmpty() && podcasts.isEmpty() &&
+        audiobooks.isEmpty()
 
     /**
      * Get total count of all results.
      */
     fun totalCount(): Int =
-        artists.size + albums.size + tracks.size + playlists.size + radios.size + podcasts.size
+        artists.size + albums.size + tracks.size + playlists.size + radios.size +
+        podcasts.size + audiobooks.size
 }

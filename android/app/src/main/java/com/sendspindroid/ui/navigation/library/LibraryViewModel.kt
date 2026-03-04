@@ -44,6 +44,7 @@ class LibraryViewModel : ViewModel() {
         TRACKS,
         RADIO,
         PODCASTS,
+        AUDIOBOOKS,
         BROWSE
     }
 
@@ -69,7 +70,7 @@ class LibraryViewModel : ViewModel() {
     fun getSortOptionsFor(type: ContentType): List<SortOption> {
         return when (type) {
             ContentType.ALBUMS -> listOf(SortOption.NAME, SortOption.DATE_ADDED, SortOption.YEAR)
-            ContentType.TRACKS, ContentType.PODCASTS -> listOf(SortOption.NAME, SortOption.DATE_ADDED)
+            ContentType.TRACKS, ContentType.PODCASTS, ContentType.AUDIOBOOKS -> listOf(SortOption.NAME, SortOption.DATE_ADDED)
             else -> listOf(SortOption.NAME)  // Artists, Playlists, Radio - only name sort
         }
     }
@@ -117,6 +118,9 @@ class LibraryViewModel : ViewModel() {
     private val _podcastsState = MutableStateFlow(TabState())
     val podcastsState: StateFlow<TabState> = _podcastsState.asStateFlow()
 
+    private val _audiobooksState = MutableStateFlow(TabState())
+    val audiobooksState: StateFlow<TabState> = _audiobooksState.asStateFlow()
+
     private val _browseState = MutableStateFlow(TabState())
     val browseState: StateFlow<TabState> = _browseState.asStateFlow()
 
@@ -131,6 +135,7 @@ class LibraryViewModel : ViewModel() {
             ContentType.TRACKS -> tracksState
             ContentType.RADIO -> radioState
             ContentType.PODCASTS -> podcastsState
+            ContentType.AUDIOBOOKS -> audiobooksState
             ContentType.BROWSE -> browseState
         }
     }
@@ -146,6 +151,7 @@ class LibraryViewModel : ViewModel() {
             ContentType.TRACKS -> _tracksState
             ContentType.RADIO -> _radioState
             ContentType.PODCASTS -> _podcastsState
+            ContentType.AUDIOBOOKS -> _audiobooksState
             ContentType.BROWSE -> _browseState
         }
     }
@@ -411,6 +417,11 @@ class LibraryViewModel : ViewModel() {
                 orderBy = sort.apiValue
             )
             ContentType.PODCASTS -> MusicAssistantManager.getPodcasts(
+                limit = PAGE_SIZE,
+                offset = offset,
+                orderBy = sort.apiValue
+            )
+            ContentType.AUDIOBOOKS -> MusicAssistantManager.getAudiobooks(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue

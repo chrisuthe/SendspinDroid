@@ -92,6 +92,15 @@ sealed class DetailDestination {
     ) : DetailDestination() {
         override val title: String get() = podcastName
     }
+
+    data class Audiobook(
+        val audiobookId: String,
+        val audiobookName: String,
+        val audiobookImageUri: String? = null,
+        val audiobookAuthor: String? = null
+    ) : DetailDestination() {
+        override val title: String get() = audiobookName
+    }
 }
 
 /**

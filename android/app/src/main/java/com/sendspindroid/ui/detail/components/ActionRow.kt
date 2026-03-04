@@ -20,16 +20,19 @@ import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
- * Row of action buttons for artist/album/playlist detail screens.
+ * Row of action buttons for artist/album/playlist/audiobook detail screens.
  *
- * Displays Shuffle and a second action button in an outlined style.
- * Defaults to "Add to Playlist" but the label and icon can be overridden
- * (e.g. PlaylistDetailScreen uses "Add Tracks").
+ * Displays two action buttons in an outlined style.
+ * First button defaults to "Shuffle" but can be overridden (e.g. "Play" / "Resume" for audiobooks).
+ * Second button defaults to "Add to Playlist" but can be overridden
+ * (e.g. PlaylistDetailScreen uses "Add Tracks", AudiobookDetailScreen uses "Add to Queue").
  *
- * @param onShuffle Called when Shuffle is tapped
+ * @param onShuffle Called when the first button is tapped
  * @param onAddToPlaylist Called when the second button is tapped
- * @param shuffleEnabled Whether the shuffle button is enabled
+ * @param shuffleEnabled Whether the first button is enabled
  * @param playlistEnabled Whether the second button is enabled
+ * @param firstButtonLabel Label for the first button (defaults to "Shuffle")
+ * @param firstButtonIcon Icon for the first button (defaults to Refresh/shuffle icon)
  * @param secondButtonLabel Label for the second button
  * @param secondButtonIcon Icon for the second button
  * @param modifier Optional modifier for the row
@@ -40,6 +43,8 @@ fun ActionRow(
     onAddToPlaylist: () -> Unit,
     shuffleEnabled: Boolean = true,
     playlistEnabled: Boolean = true,
+    firstButtonLabel: String? = null,
+    firstButtonIcon: ImageVector = Icons.Filled.Refresh,
     secondButtonLabel: String? = null,
     secondButtonIcon: ImageVector = Icons.Filled.Add,
     modifier: Modifier = Modifier
@@ -56,11 +61,11 @@ fun ActionRow(
             modifier = Modifier.weight(1f)
         ) {
             Icon(
-                imageVector = Icons.Filled.Refresh,
+                imageVector = firstButtonIcon,
                 contentDescription = null,
                 modifier = Modifier.padding(end = 8.dp)
             )
-            Text(text = stringResource(R.string.action_shuffle))
+            Text(text = firstButtonLabel ?: stringResource(R.string.action_shuffle))
         }
 
         OutlinedButton(

@@ -23,6 +23,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.ui.theme.SendSpinTheme
@@ -55,6 +56,7 @@ fun LibraryScreen(
     onAlbumClick: (MaAlbum) -> Unit,
     onArtistClick: (MaArtist) -> Unit,
     onPodcastClick: (MaPodcast) -> Unit = {},
+    onAudiobookClick: (MaAudiobook) -> Unit = {},
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit = {},
     onAddToQueue: (MaLibraryItem) -> Unit = {},
@@ -115,7 +117,7 @@ fun LibraryScreen(
                     BrowseContentScreen(
                         viewModel = viewModel,
                         onItemClick = { item ->
-                            handleItemClick(item, onAlbumClick, onArtistClick, onPodcastClick, onItemClick)
+                            handleItemClick(item, onAlbumClick, onArtistClick, onPodcastClick, onAudiobookClick, onItemClick)
                         },
                         onAddToPlaylist = onAddToPlaylist,
                         onAddToQueue = onAddToQueue,
@@ -130,7 +132,7 @@ fun LibraryScreen(
                         onLoadMore = { viewModel.loadMore(contentType) },
                         onRefresh = { viewModel.refresh(contentType) },
                         onItemClick = { item ->
-                            handleItemClick(item, onAlbumClick, onArtistClick, onPodcastClick, onItemClick)
+                            handleItemClick(item, onAlbumClick, onArtistClick, onPodcastClick, onAudiobookClick, onItemClick)
                         },
                         onAddToPlaylist = onAddToPlaylist,
                         onAddToQueue = onAddToQueue,
@@ -153,6 +155,7 @@ private fun handleItemClick(
     onAlbumClick: (MaAlbum) -> Unit,
     onArtistClick: (MaArtist) -> Unit,
     onPodcastClick: (MaPodcast) -> Unit,
+    onAudiobookClick: (MaAudiobook) -> Unit,
     onItemClick: (MaLibraryItem) -> Unit
 ) {
     when (item) {
@@ -167,6 +170,10 @@ private fun handleItemClick(
         is MaPodcast -> {
             Log.d(TAG, "Podcast clicked: ${item.name}")
             onPodcastClick(item)
+        }
+        is MaAudiobook -> {
+            Log.d(TAG, "Audiobook clicked: ${item.name}")
+            onAudiobookClick(item)
         }
         else -> {
             Log.d(TAG, "Item clicked: ${item.name} (${item.mediaType})")
@@ -184,6 +191,7 @@ private fun getTabTitle(contentType: LibraryViewModel.ContentType): String {
         LibraryViewModel.ContentType.TRACKS -> stringResource(R.string.library_tab_tracks)
         LibraryViewModel.ContentType.RADIO -> stringResource(R.string.library_tab_radio)
         LibraryViewModel.ContentType.PODCASTS -> stringResource(R.string.library_tab_podcasts)
+        LibraryViewModel.ContentType.AUDIOBOOKS -> stringResource(R.string.library_tab_audiobooks)
         LibraryViewModel.ContentType.BROWSE -> stringResource(R.string.library_tab_browse)
     }
 }
