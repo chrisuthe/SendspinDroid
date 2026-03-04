@@ -468,6 +468,18 @@ class SyncAudioPlayer(
 
         val encoding = when (bitDepth) {
             16 -> AudioFormat.ENCODING_PCM_16BIT
+            24 -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+                AudioFormat.ENCODING_PCM_24BIT_PACKED
+            } else {
+                Log.e(TAG, "24-bit PCM requires API 31+, device is API ${android.os.Build.VERSION.SDK_INT}")
+                return
+            }
+            32 -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+                AudioFormat.ENCODING_PCM_32BIT
+            } else {
+                Log.e(TAG, "32-bit PCM requires API 31+, device is API ${android.os.Build.VERSION.SDK_INT}")
+                return
+            }
             else -> {
                 Log.e(TAG, "Unsupported bit depth: $bitDepth")
                 return
@@ -2203,15 +2215,23 @@ class SyncAudioPlayer(
     /**
      * Write PCM data with sample insert/drop corrections applied.
      *
-     * Processes the audio frame-by-frame, using 3-point weighted interpolation
-     * for smooth waveform transitions at correction points, with symmetric
-     * crossfade windows to distribute energy changes over multiple frames.
+     * For 16-bit PCM, uses 3-point weighted interpolation and symmetric crossfade
+     * windows for smooth waveform transitions at correction points.
+     *
+     * For 24-bit and 32-bit PCM, sample-level crossfade is skipped because the
+     * blending helpers operate on 16-bit samples. Insert/drop corrections still
+     * work at the frame level (duplicate or skip whole frames).
      *
      * @param track The AudioTrack to write to
      * @param pcmData The raw PCM data
      * @return Total bytes written to AudioTrack
      */
     private fun writeWithCorrection(track: AudioTrack, pcmData: ByteArray): Int {
+        // For non-16-bit formats, use simplified insert/drop without sample-level crossfade
+        if (bitDepth != 16) {
+            return writeWithCorrectionSimple(track, pcmData)
+        }
+
         val inputFrameCount = pcmData.size / bytesPerFrame
         var totalWritten = 0
         var inputOffset = 0
@@ -2306,6 +2326,56 @@ class SyncAudioPlayer(
             if (written > 0) {
                 totalWritten += written
                 // Update frame history
+                System.arraycopy(lastOutputFrame, 0, secondLastOutputFrame, 0, bytesPerFrame)
+                System.arraycopy(pcmData, inputOffset, lastOutputFrame, 0, bytesPerFrame)
+            }
+            inputOffset += bytesPerFrame
+        }
+
+        return totalWritten
+    }
+
+    /**
+     * Simplified write with insert/drop corrections for non-16-bit PCM formats.
+     *
+     * Performs frame-level insert (duplicate last frame) and drop (skip frame) without
+     * sample-level crossfade or interpolation. This avoids needing format-specific
+     * sample blending code for 24-bit packed and 32-bit integer encodings.
+     */
+    private fun writeWithCorrectionSimple(track: AudioTrack, pcmData: ByteArray): Int {
+        val inputFrameCount = pcmData.size / bytesPerFrame
+        var totalWritten = 0
+        var inputOffset = 0
+
+        for (i in 0 until inputFrameCount) {
+            // --- DROP: skip this frame ---
+            if (dropEveryNFrames > 0) {
+                framesUntilNextDrop--
+                if (framesUntilNextDrop <= 0) {
+                    framesUntilNextDrop = dropEveryNFrames
+                    framesDropped++
+                    // Skip this input frame
+                    inputOffset += bytesPerFrame
+                    continue
+                }
+            }
+
+            // --- INSERT: duplicate last output frame ---
+            if (insertEveryNFrames > 0) {
+                framesUntilNextInsert--
+                if (framesUntilNextInsert <= 0 && lastOutputFrame.isNotEmpty()) {
+                    framesUntilNextInsert = insertEveryNFrames
+                    framesInserted++
+                    // Write a duplicate of the last output frame
+                    val insertWritten = track.write(lastOutputFrame, 0, bytesPerFrame)
+                    if (insertWritten > 0) totalWritten += insertWritten
+                }
+            }
+
+            // --- Normal frame output ---
+            val written = track.write(pcmData, inputOffset, bytesPerFrame)
+            if (written > 0) {
+                totalWritten += written
                 System.arraycopy(lastOutputFrame, 0, secondLastOutputFrame, 0, bytesPerFrame)
                 System.arraycopy(pcmData, inputOffset, lastOutputFrame, 0, bytesPerFrame)
             }

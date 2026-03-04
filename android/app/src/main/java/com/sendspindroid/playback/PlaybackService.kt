@@ -1045,6 +1045,18 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        override fun onArtworkCleared() {
+            mainHandler.post {
+                Log.d(TAG, "Artwork cleared by server (empty payload)")
+                currentArtwork = null
+                updateMediaMetadata(
+                    _playbackState.value.title ?: "",
+                    _playbackState.value.artist ?: "",
+                    _playbackState.value.album ?: ""
+                )
+            }
+        }
+
         override fun onError(message: String) {
             mainHandler.post {
                 Log.e(TAG, "SendSpinClient error: $message")
@@ -2695,9 +2707,9 @@ class PlaybackService : MediaLibraryService() {
 
         Log.i(TAG, "Starting mDNS discovery for browse tree")
         browseDiscoveryManager = NsdDiscoveryManager(this, object : NsdDiscoveryManager.DiscoveryListener {
-            override fun onServerDiscovered(name: String, address: String, path: String) {
-                Log.d(TAG, "Browse discovery: found $name at $address (path=$path)")
-                UnifiedServerRepository.addDiscoveredServer(name, address, path)
+            override fun onServerDiscovered(name: String, address: String, path: String, friendlyName: String) {
+                Log.d(TAG, "Browse discovery: found $name at $address (path=$path friendlyName=$friendlyName)")
+                UnifiedServerRepository.addDiscoveredServer(friendlyName, address, path)
                 // Notify subscribed browsers that children changed
                 mediaSession?.notifyChildrenChanged(MEDIA_ID_DISCOVERED, 0, null)
             }

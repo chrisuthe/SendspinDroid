@@ -3,6 +3,7 @@ package com.sendspindroid.sendspin.protocol.message
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -66,6 +67,24 @@ class MessageBuilderTest {
         assertEquals("synchronized", player["state"]?.jsonPrimitive?.content)
     }
 
+    @Test
+    fun buildPlayerState_includesStaticDelayMs() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false, "synchronized", 12.5)
+        ).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(12.5, player["static_delay_ms"]?.jsonPrimitive?.double ?: 0.0, 0.01)
+    }
+
+    @Test
+    fun buildPlayerState_staticDelayMsDefaultsToZero() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false)
+        ).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(0.0, player["static_delay_ms"]?.jsonPrimitive?.double ?: -1.0, 0.01)
+    }
+
     // --- buildCommand ---
 
     @Test
@@ -113,6 +132,51 @@ class MessageBuilderTest {
         assertEquals(2, formats.size)
         assertEquals(2, formats[0].channels)
         assertEquals(1, formats[1].channels)
+    }
+
+    @Test
+    fun buildSupportedFormats_includesMultipleBitDepths() {
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "pcm",
+            isCodecSupported = { it == "pcm" },
+            supportedBitDepths = listOf(16, 24, 32)
+        )
+        // pcm at 32-bit stereo/mono, 24-bit stereo/mono, 16-bit stereo/mono = 6
+        // Higher bit depths should come first (server picks first match)
+        assertEquals(6, formats.size)
+        assertEquals(32, formats[0].bitDepth)
+        assertEquals(32, formats[1].bitDepth)
+        assertEquals(24, formats[2].bitDepth)
+        assertEquals(24, formats[3].bitDepth)
+        assertEquals(16, formats[4].bitDepth)
+        assertEquals(16, formats[5].bitDepth)
+    }
+
+    @Test
+    fun buildSupportedFormats_defaultBitDepthIs16Only() {
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "pcm",
+            isCodecSupported = { it == "pcm" }
+        )
+        assertEquals(2, formats.size)
+        assertTrue(formats.all { it.bitDepth == 16 })
+    }
+
+    @Test
+    fun buildSupportedFormats_multiBitDepthWithMultipleCodecs() {
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "flac",
+            isCodecSupported = { it in listOf("flac", "pcm") },
+            supportedBitDepths = listOf(16, 32)
+        )
+        // flac: 16-bit stereo/mono + 32-bit stereo/mono = 4
+        // pcm:  16-bit stereo/mono + 32-bit stereo/mono = 4
+        assertEquals(8, formats.size)
+        // First 4 are flac, last 4 are pcm
+        assertEquals("flac", formats[0].codec)
+        assertEquals("flac", formats[3].codec)
+        assertEquals("pcm", formats[4].codec)
+        assertEquals("pcm", formats[7].codec)
     }
 
     // --- No serialize needed (returns String directly) ---

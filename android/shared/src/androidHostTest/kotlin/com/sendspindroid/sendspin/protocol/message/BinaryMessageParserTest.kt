@@ -120,6 +120,17 @@ class BinaryMessageParserTest {
         assertEquals(0, (message as BinaryMessageParser.BinaryMessage.Audio).payload.size)
     }
 
+    // --- Empty artwork payload (clear signal) ---
+
+    @Test
+    fun parse_emptyArtworkPayload_returnsArtworkWithEmptyPayload() {
+        val message = BinaryMessageParser.parse(buildBinaryMessage(8, 100L))
+        assertTrue(message is BinaryMessageParser.BinaryMessage.Artwork)
+        val artwork = message as BinaryMessageParser.BinaryMessage.Artwork
+        assertEquals(0, artwork.channel)
+        assertEquals(0, artwork.payload.size)
+    }
+
     // --- Timestamp parsing ---
 
     @Test
