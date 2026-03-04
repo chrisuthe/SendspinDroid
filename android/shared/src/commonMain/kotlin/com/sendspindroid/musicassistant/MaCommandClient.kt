@@ -171,11 +171,17 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             val players = parsePlayers(response)
             val thisPlayer = players.find { it.playerId == devicePlayerId }
 
+            if (thisPlayer != null && !thisPlayer.available) {
+                throw PlayerUnavailableException(devicePlayerId)
+            }
+
             val effectiveId = thisPlayer?.syncedTo ?: devicePlayerId
             if (effectiveId != devicePlayerId) {
-                Log.d(TAG, "Player is grouped — using leader queue: $effectiveId (our ID: $devicePlayerId)")
+                Log.d(TAG, "Player is grouped -- using leader queue: $effectiveId (our ID: $devicePlayerId)")
             }
             effectiveId
+        } catch (e: PlayerUnavailableException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "Failed to resolve group leader, using own player ID", e)
             devicePlayerId
