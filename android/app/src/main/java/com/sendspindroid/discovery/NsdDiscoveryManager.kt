@@ -33,11 +33,17 @@ class NsdDiscoveryManager(
     interface DiscoveryListener {
         /**
          * Called when a server is discovered.
-         * @param name Service name
+         * @param name Service name (mDNS service name, typically hostname)
          * @param address Host:port address
          * @param path WebSocket path from TXT records (default: /sendspin)
+         * @param friendlyName User-friendly server name from TXT "name" record (defaults to [name])
          */
-        fun onServerDiscovered(name: String, address: String, path: String = "/sendspin")
+        fun onServerDiscovered(
+            name: String,
+            address: String,
+            path: String = "/sendspin",
+            friendlyName: String = name
+        )
         fun onServerLost(name: String)
         fun onDiscoveryStarted()
         fun onDiscoveryStopped()
@@ -207,8 +213,12 @@ class NsdDiscoveryManager(
                         path = "/$path"
                     }
 
-                    Log.d(TAG, "Service resolved: ${serviceInfo.serviceName} at $address path=$path")
-                    listener.onServerDiscovered(serviceInfo.serviceName, address, path)
+                    // Extract friendly name from TXT "name" record, falling back to service name
+                    val friendlyName = attributes["name"]?.let { String(it, Charsets.UTF_8) }
+                        ?: serviceInfo.serviceName
+
+                    Log.d(TAG, "Service resolved: ${serviceInfo.serviceName} at $address path=$path friendlyName=$friendlyName")
+                    listener.onServerDiscovered(serviceInfo.serviceName, address, path, friendlyName)
                 } else {
                     Log.w(TAG, "Service resolved but missing host/port: ${serviceInfo.serviceName}")
                 }

@@ -1474,10 +1474,10 @@ class MainActivity : AppCompatActivity() {
             discoveryManager = NsdDiscoveryManager(
                 context = this,
                 listener = object : NsdDiscoveryManager.DiscoveryListener {
-                    override fun onServerDiscovered(name: String, address: String, path: String) {
+                    override fun onServerDiscovered(name: String, address: String, path: String, friendlyName: String) {
                         runOnUiThread {
-                            Log.d(TAG, "Server discovered: $name at $address path=$path")
-                            UnifiedServerRepository.addDiscoveredServer(name, address, path)
+                            Log.d(TAG, "Server discovered: $name at $address path=$path friendlyName=$friendlyName")
+                            UnifiedServerRepository.addDiscoveredServer(friendlyName, address, path)
                             updateServerListEmptyState()
 
                             // Check if this discovery should trigger auto-connect to default server
