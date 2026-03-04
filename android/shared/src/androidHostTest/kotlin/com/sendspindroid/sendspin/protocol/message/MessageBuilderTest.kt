@@ -183,6 +183,99 @@ class MessageBuilderTest {
         assertEquals(16, formats[4].bitDepth)
     }
 
+    // --- calculateBufferCapacity ---
+
+    @Test
+    fun calculateBufferCapacity_16bitStereo35sec() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 16),
+            MessageBuilder.FormatEntry("pcm", 48000, 1, 16)
+        )
+        // 35 * 48000 * 2 * 2 = 6,720,000
+        assertEquals(6_720_000, MessageBuilder.calculateBufferCapacity(formats, 35))
+    }
+
+    @Test
+    fun calculateBufferCapacity_32bitStereo35sec() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 32),
+            MessageBuilder.FormatEntry("pcm", 48000, 1, 32),
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 16),
+            MessageBuilder.FormatEntry("pcm", 48000, 1, 16)
+        )
+        // Uses max PCM entry: 35 * 48000 * 2 * 4 = 13,440,000
+        assertEquals(13_440_000, MessageBuilder.calculateBufferCapacity(formats, 35))
+    }
+
+    @Test
+    fun calculateBufferCapacity_lowMemory16bit() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 16),
+            MessageBuilder.FormatEntry("pcm", 48000, 1, 16)
+        )
+        // 10 * 48000 * 2 * 2 = 1,920,000
+        assertEquals(1_920_000, MessageBuilder.calculateBufferCapacity(formats, 10))
+    }
+
+    @Test
+    fun calculateBufferCapacity_ignoresCompressedCodecs() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("flac", 48000, 2, 16),
+            MessageBuilder.FormatEntry("opus", 48000, 2, 16),
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 16),
+            MessageBuilder.FormatEntry("pcm", 48000, 1, 16)
+        )
+        // Only PCM entries matter: 35 * 48000 * 2 * 2 = 6,720,000
+        assertEquals(6_720_000, MessageBuilder.calculateBufferCapacity(formats, 35))
+    }
+
+    @Test
+    fun calculateBufferCapacity_fallbackWhenNoPcm() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("flac", 48000, 2, 16)
+        )
+        // Fallback: 35 * 48000 * 2 * 2 = 6,720,000
+        assertEquals(6_720_000, MessageBuilder.calculateBufferCapacity(formats, 35))
+    }
+
+    // --- buildClientHello field names ---
+
+    @Test
+    fun buildClientHello_usesV1FieldNames() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 16)
+        )
+        val text = MessageBuilder.buildClientHello(
+            clientId = "test-id",
+            deviceName = "Test Device",
+            bufferCapacity = 6_720_000,
+            manufacturer = "Test",
+            supportedFormats = formats
+        )
+        val payload = Json.parseToJsonElement(text).jsonObject["payload"]!!.jsonObject
+        assertNotNull("player@v1_support should be present", payload["player@v1_support"])
+        assertNotNull("artwork@v1_support should be present", payload["artwork@v1_support"])
+        assertNull("legacy player_support should not be present", payload["player_support"])
+        assertNull("legacy artwork_support should not be present", payload["artwork_support"])
+    }
+
+    @Test
+    fun buildClientHello_hasCorrectBufferCapacity() {
+        val formats = listOf(
+            MessageBuilder.FormatEntry("pcm", 48000, 2, 16)
+        )
+        val text = MessageBuilder.buildClientHello(
+            clientId = "test-id",
+            deviceName = "Test Device",
+            bufferCapacity = 6_720_000,
+            manufacturer = "Test",
+            supportedFormats = formats
+        )
+        val payload = Json.parseToJsonElement(text).jsonObject["payload"]!!.jsonObject
+        val playerSupport = payload["player@v1_support"]!!.jsonObject
+        assertEquals(6_720_000, playerSupport["buffer_capacity"]?.jsonPrimitive?.int)
+    }
+
     // --- No serialize needed (returns String directly) ---
 
     @Test

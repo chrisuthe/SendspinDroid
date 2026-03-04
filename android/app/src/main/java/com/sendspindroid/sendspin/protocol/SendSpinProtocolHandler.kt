@@ -59,9 +59,9 @@ abstract class SendSpinProtocolHandler(
     abstract fun getTimeFilter(): SendspinTimeFilter
 
     /**
-     * Get the buffer capacity for this connection.
+     * Whether the device is in low-memory mode (smaller buffer target).
      */
-    protected abstract fun getBufferCapacity(): Int
+    protected abstract fun isLowMemoryMode(): Boolean
 
     /**
      * Get the client ID for this connection.
@@ -149,14 +149,24 @@ abstract class SendSpinProtocolHandler(
 
     /**
      * Send client/hello message to start handshake.
+     *
+     * Buffer capacity is computed from the format list and target duration
+     * so the wire-byte cap scales with the highest PCM bitrate we advertise.
      */
     protected fun sendClientHello() {
+        val formats = getSupportedFormats()
+        val bufferDuration = if (isLowMemoryMode()) {
+            SendSpinProtocol.Buffer.DURATION_LOW_MEM_SEC
+        } else {
+            SendSpinProtocol.Buffer.DURATION_NORMAL_SEC
+        }
+        val bufferCapacity = MessageBuilder.calculateBufferCapacity(formats, bufferDuration)
         val text = MessageBuilder.buildClientHello(
             clientId = getClientId(),
             deviceName = getDeviceName(),
-            bufferCapacity = getBufferCapacity(),
+            bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),
-            supportedFormats = getSupportedFormats()
+            supportedFormats = formats
         )
         sendTextMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
