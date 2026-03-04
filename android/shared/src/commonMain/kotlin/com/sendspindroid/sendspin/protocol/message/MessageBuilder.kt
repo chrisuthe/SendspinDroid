@@ -141,7 +141,7 @@ object MessageBuilder {
 
         return buildList {
             for (codec in codecOrder) {
-                for (bitDepth in supportedBitDepths) {
+                for (bitDepth in supportedBitDepths.sortedDescending()) {
                     // Stereo
                     add(FormatEntry(
                         codec = codec,
