@@ -160,30 +160,35 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     }
 
     /**
-     * Resolve the effective queue ID (handles group leader resolution).
+     * Resolve the effective queue ID using the server's active queue resolution.
+     *
+     * Uses the server's player_queues/get_active_queue API which properly handles
+     * synced_to, active_group, active_source, and protocol player fallbacks.
      *
      * @param devicePlayerId This device's player ID
      * @return The queue_id to use for queue operations
      */
     suspend fun getEffectiveQueueId(devicePlayerId: String): String {
         return try {
-            val response = sendCommand("players/all")
-            val players = parsePlayers(response)
-            val thisPlayer = players.find { it.playerId == devicePlayerId }
+            val response = sendCommand(
+                "player_queues/get_active_queue",
+                mapOf("player_id" to devicePlayerId)
+            )
+            val result = response.optJsonObject("result")
+            val queueId = result?.optString("queue_id")
 
-            if (thisPlayer != null && !thisPlayer.available) {
+            if (queueId.isNullOrEmpty()) {
                 throw PlayerUnavailableException(devicePlayerId)
             }
 
-            val effectiveId = thisPlayer?.syncedTo ?: devicePlayerId
-            if (effectiveId != devicePlayerId) {
-                Log.d(TAG, "Player is grouped -- using leader queue: $effectiveId (our ID: $devicePlayerId)")
+            if (queueId != devicePlayerId) {
+                Log.d(TAG, "Active queue resolved to: $queueId (our ID: $devicePlayerId)")
             }
-            effectiveId
+            queueId
         } catch (e: PlayerUnavailableException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to resolve group leader, using own player ID", e)
+            Log.w(TAG, "Failed to resolve active queue, using own player ID", e)
             devicePlayerId
         }
     }
@@ -282,7 +287,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             if (mediaType != null) {
                 args["media_type"] = mediaType
             }
-            enqueueMode.apiValue?.let { args["enqueue"] = it }
+            enqueueMode.apiValue?.let { args["option"] = it }
 
             sendCommand("player_queues/play_media", args)
             Log.i(TAG, "Successfully ${enqueueMode.name}: $uri")
