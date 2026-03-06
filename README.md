@@ -130,5 +130,6 @@ SendSpin Player uses the following open-source libraries:
 | [Coil](https://github.com/coil-kt/coil) | Apache 2.0 | Coil Contributors |
 | [Stream WebRTC Android](https://github.com/nicobatty/webrtc-android) | Apache 2.0 | Stream.io Inc. |
 | [Java-WebSocket](https://github.com/TooTallNate/Java-WebSocket) | MIT | Nathan Rajlich |
+| QR code scanning uses [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) | Apache 2.0 | |
 
-QR code scanning uses [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) (Apache 2.0).
+
