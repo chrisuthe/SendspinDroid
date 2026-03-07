@@ -44,6 +44,7 @@ object UserSettings {
     const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
     const val KEY_HIGH_POWER_MODE = "high_power_mode"
     const val KEY_MINI_PLAYER_POSITION = "mini_player_position"
+    const val KEY_ALBUM_ARTISTS_ONLY = "album_artists_only"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -277,6 +278,10 @@ object UserSettings {
      */
     val highPowerMode: Boolean
         get() = prefs?.getBoolean(KEY_HIGH_POWER_MODE, false) ?: false
+
+    var albumArtistsOnly: Boolean
+        get() = prefs?.getBoolean(KEY_ALBUM_ARTISTS_ONLY, false) ?: false
+        set(value) { prefs?.edit()?.putBoolean(KEY_ALBUM_ARTISTS_ONLY, value)?.apply() }
 
     /**
      * Position of the mini player in the navigation content area.

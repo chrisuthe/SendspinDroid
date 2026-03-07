@@ -3,6 +3,7 @@ package com.sendspindroid.ui.navigation.library
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sendspindroid.UserSettings
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
@@ -103,7 +104,7 @@ class LibraryViewModel : ViewModel() {
     private val _albumsState = MutableStateFlow(TabState())
     val albumsState: StateFlow<TabState> = _albumsState.asStateFlow()
 
-    private val _artistsState = MutableStateFlow(TabState())
+    private val _artistsState = MutableStateFlow(TabState(albumArtistsOnly = UserSettings.albumArtistsOnly))
     val artistsState: StateFlow<TabState> = _artistsState.asStateFlow()
 
     private val _playlistsState = MutableStateFlow(TabState())
@@ -300,6 +301,7 @@ class LibraryViewModel : ViewModel() {
         if (currentState.albumArtistsOnly == enabled) return
 
         Log.d(TAG, "Setting album artists only: $enabled")
+        UserSettings.albumArtistsOnly = enabled
 
         loadedTabs.remove(ContentType.ARTISTS)
         stateFlow.value = currentState.copy(albumArtistsOnly = enabled)
