@@ -142,7 +142,14 @@ class SendSpinPlayer : Player {
             }
             SyncPlaybackState.PLAYING,
             SyncPlaybackState.DRAINING -> {
-                // DRAINING is still actively playing from buffer, so STATE_READY
+                // DRAINING is still actively playing from buffer, so STATE_READY.
+                // Sync playWhenReady to true: audio is physically playing, so the UI
+                // must reflect that. This corrects any stale playWhenReady=false from
+                // a server "stopped" state that arrived before audio actually resumed.
+                if (!playWhenReady) {
+                    playWhenReady = true
+                    listeners.forEach { it.onPlayWhenReadyChanged(true, Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE) }
+                }
                 updatePlaybackStateInternal(Player.STATE_READY, true)
             }
             SyncPlaybackState.REANCHORING -> {
