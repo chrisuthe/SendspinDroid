@@ -596,12 +596,16 @@ class SyncAudioPlayer(
 
     /**
      * Pause playback.
+     *
+     * Flushes the AudioTrack hardware buffer so audio stops immediately.
+     * The chunk-level queue is preserved for seamless resume.
      */
     fun pause() {
         stateLock.withLock {
             isPaused.set(true)
             pausedAtUs = System.nanoTime() / 1000
             audioTrack?.pause()
+            audioTrack?.flush()
             Log.d(TAG, "Playback paused")
         }
     }
