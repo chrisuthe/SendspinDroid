@@ -86,7 +86,9 @@ import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -894,10 +896,13 @@ class MainActivity : AppCompatActivity() {
         // Cancel any previous poll job to prevent duplicates on config change.
         scanningPollJob?.cancel()
         scanningPollJob = lifecycleScope.launch {
-            // Update scanning state when discovery starts/stops
-            while (true) {
-                composeIsScanning.value = discoveryManager?.isDiscovering() == true
-                delay(1000)
+            // Update scanning state when discovery starts/stops.
+            // repeatOnLifecycle ensures polling stops when the activity is not visible.
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    composeIsScanning.value = discoveryManager?.isDiscovering() == true
+                    delay(1000)
+                }
             }
         }
     }
