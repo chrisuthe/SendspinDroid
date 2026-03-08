@@ -3,7 +3,9 @@ package com.sendspindroid.ui.main
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.FloatingActionButton
@@ -19,6 +21,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
+import com.sendspindroid.ui.adaptive.AdaptiveDefaults
+import com.sendspindroid.ui.adaptive.LocalFormFactor
 import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
@@ -121,20 +125,34 @@ private fun ServerListScreenContent(
     modifier: Modifier = Modifier
 ) {
     val hasSavedServers = savedServers.isNotEmpty()
+    val formFactor = LocalFormFactor.current
+    val maxWidth = AdaptiveDefaults.serverListMaxWidth(formFactor)
 
-    Box(modifier = modifier.fillMaxSize()) {
+    // On wider form factors, constrain list width and center it
+    val contentModifier = if (maxWidth != null) {
+        Modifier.widthIn(max = maxWidth).fillMaxWidth()
+    } else {
+        Modifier.fillMaxSize()
+    }
+
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = if (maxWidth != null) Alignment.TopCenter else Alignment.TopStart
+    ) {
         if (!hasSavedServers) {
             // Welcome / empty state — hero card with discovered servers inline
-            ServerListEmptyState(
-                isScanning = isScanning,
-                discoveredServers = discoveredServers,
-                onAddServerClick = onAddServerClick,
-                onQuickConnectClick = onQuickConnectClick
-            )
+            Box(modifier = contentModifier) {
+                ServerListEmptyState(
+                    isScanning = isScanning,
+                    discoveredServers = discoveredServers,
+                    onAddServerClick = onAddServerClick,
+                    onQuickConnectClick = onQuickConnectClick
+                )
+            }
         } else {
             // Normal server list with saved + discovered sections
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = contentModifier,
                 contentPadding = PaddingValues(bottom = 88.dp) // Space for FAB
             ) {
                 // Saved Servers Section
