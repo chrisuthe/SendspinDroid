@@ -5,8 +5,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaQueueItem
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
@@ -53,6 +56,11 @@ class QueueViewModel : ViewModel() {
     /** Tracks whether an action is in progress (for disabling UI) */
     private val _isActionInProgress = MutableStateFlow(false)
     val isActionInProgress: StateFlow<Boolean> = _isActionInProgress.asStateFlow()
+
+    /** Emits the metadata of a queue item when the user taps to play it,
+     *  enabling optimistic UI updates before the server confirms. */
+    private val _playedItem = MutableSharedFlow<MaQueueItem>(extraBufferCapacity = 1)
+    val playedItem: SharedFlow<MaQueueItem> = _playedItem.asSharedFlow()
 
     companion object {
         private const val TAG = "QueueViewModel"
@@ -121,6 +129,14 @@ class QueueViewModel : ViewModel() {
      * Jump to and play a specific item in the queue.
      */
     fun playItem(queueItemId: String) {
+        // Emit the tapped item for optimistic UI update before the server round-trip
+        val state = _uiState.value as? QueueUiState.Success
+        val item = state?.upNextItems?.find { it.queueItemId == queueItemId }
+            ?: state?.currentItem?.takeIf { it.queueItemId == queueItemId }
+        if (item != null) {
+            _playedItem.tryEmit(item)
+        }
+
         viewModelScope.launch {
             _isActionInProgress.value = true
             Log.d(TAG, "Playing queue item: $queueItemId")
