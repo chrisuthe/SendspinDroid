@@ -85,6 +85,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Background playback service for SendSpinDroid.
@@ -1046,12 +1047,14 @@ class PlaybackService : MediaLibraryService() {
                 return
             }
 
-            mainHandler.post {
+            serviceScope.launch {
                 Log.d(TAG, "Artwork received: ${imageData.size} bytes")
                 try {
-                    val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
-                    if (bitmap != null) {
-                        val scaled = scaleArtwork(bitmap)
+                    val scaled = withContext(Dispatchers.IO) {
+                        val bitmap = BitmapFactory.decodeByteArray(imageData, 0, imageData.size)
+                        bitmap?.let { scaleArtwork(it) }
+                    }
+                    if (scaled != null) {
                         currentArtwork = scaled
                         updateMediaSessionArtwork(scaled)
                     }
