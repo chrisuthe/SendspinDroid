@@ -1366,13 +1366,12 @@ class PlaybackService : MediaLibraryService() {
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun updateMediaSessionArtwork(bitmap: Bitmap) {
         val state = _playbackState.value
-        val scaled = scaleArtwork(bitmap)
 
         forwardingPlayer?.updateMetadata(
             title = state.title,
             artist = state.artist,
             album = state.album,
-            artwork = scaled,
+            artwork = bitmap,
             artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
         )
 
