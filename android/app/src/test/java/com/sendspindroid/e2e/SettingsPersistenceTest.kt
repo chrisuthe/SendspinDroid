@@ -208,7 +208,10 @@ class SettingsPersistenceTest {
             isDiscovered = true
         )
 
-        UnifiedServerRepository.updateDiscoveredServer(discovered)
+        UnifiedServerRepository.addDiscoveredServer(
+            name = "Found Server",
+            address = "192.168.1.50:8927"
+        )
 
         // Should appear in discovered list
         val disc = UnifiedServerRepository.discoveredServers.value
@@ -216,7 +219,7 @@ class SettingsPersistenceTest {
 
         // Should NOT appear in saved list
         val saved = UnifiedServerRepository.savedServers.value
-        assertTrue(saved.none { it.id == "disc-1" })
+        assertTrue(saved.none { it.local?.address == "192.168.1.50:8927" })
     }
 
     @Test
@@ -228,10 +231,9 @@ class SettingsPersistenceTest {
         )
 
         // Add a discovered server
-        UnifiedServerRepository.updateDiscoveredServer(
-            UnifiedServer("disc-1", "Discovered",
-                local = LocalConnection("192.168.1.50:8927"),
-                isDiscovered = true)
+        UnifiedServerRepository.addDiscoveredServer(
+            name = "Discovered",
+            address = "192.168.1.50:8927"
         )
 
         // Clear discovered

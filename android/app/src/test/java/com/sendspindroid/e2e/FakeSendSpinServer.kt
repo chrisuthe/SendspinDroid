@@ -99,6 +99,10 @@ class FakeSendSpinServer(
 
     /**
      * Send a server/state message with track metadata and playback state.
+     *
+     * Protocol format: payload contains "state" (string) and "metadata" (object).
+     * The metadata object contains track info and a "progress" sub-object.
+     * See MessageParser.parseServerState() for the expected structure.
      */
     fun sendServerState(
         playbackState: String = "playing",
@@ -113,13 +117,18 @@ class FakeSendSpinServer(
             put("type", "server/state")
             put("payload", buildJsonObject {
                 put("state", playbackState)
-                put("title", title)
-                put("artist", artist)
-                put("album", album)
-                put("duration_ms", durationMs)
-                put("position_ms", positionMs)
-                put("artwork_url", artworkUrl)
-                put("playback_speed", 1000)
+                put("metadata", buildJsonObject {
+                    put("title", title)
+                    put("artist", artist)
+                    put("album", album)
+                    put("artwork_url", artworkUrl)
+                    put("timestamp", 0)
+                    put("progress", buildJsonObject {
+                        put("track_progress", positionMs)
+                        put("track_duration", durationMs)
+                        put("playback_speed", 1000)
+                    })
+                })
             })
         }
         transport.simulateTextMessage(msg.toString())
@@ -138,7 +147,7 @@ class FakeSendSpinServer(
             put("payload", buildJsonObject {
                 put("group_id", groupId)
                 put("group_name", groupName)
-                put("state", playbackState)
+                put("playback_state", playbackState)
             })
         }
         transport.simulateTextMessage(msg.toString())
@@ -146,6 +155,9 @@ class FakeSendSpinServer(
 
     /**
      * Send a stream/start message to configure the audio stream.
+     *
+     * Protocol format: payload contains a "player" sub-object with audio format.
+     * See MessageParser.parseStreamStart() for the expected structure.
      */
     fun sendStreamStart(
         codec: String = DEFAULT_CODEC,
@@ -156,10 +168,12 @@ class FakeSendSpinServer(
         val msg = buildJsonObject {
             put("type", "stream/start")
             put("payload", buildJsonObject {
-                put("codec", codec)
-                put("sample_rate", sampleRate)
-                put("channels", channels)
-                put("bit_depth", bitDepth)
+                put("player", buildJsonObject {
+                    put("codec", codec)
+                    put("sample_rate", sampleRate)
+                    put("channels", channels)
+                    put("bit_depth", bitDepth)
+                })
             })
         }
         transport.simulateTextMessage(msg.toString())
@@ -168,9 +182,9 @@ class FakeSendSpinServer(
     /**
      * Send a stream/stop message.
      */
-    fun sendStreamStop() {
+    fun sendStreamEnd() {
         val msg = buildJsonObject {
-            put("type", "stream/stop")
+            put("type", "stream/end")
         }
         transport.simulateTextMessage(msg.toString())
     }

@@ -113,12 +113,10 @@ abstract class E2ETestBase {
         remoteId: String? = null,
         authToken: String? = null
     ) {
-        // Set connection state to Connecting
-        setField(client, "_connectionState",
-            kotlinx.coroutines.flow.MutableStateFlow<SendSpinClient.ConnectionState>(
-                SendSpinClient.ConnectionState.Connecting
-            )
-        )
+        // Set connection state to Connecting via the existing MutableStateFlow
+        val stateFlow: kotlinx.coroutines.flow.MutableStateFlow<SendSpinClient.ConnectionState> =
+            getField(client, "_connectionState")
+        stateFlow.value = SendSpinClient.ConnectionState.Connecting
 
         // Set connection mode
         setField(client, "connectionMode", mode)
