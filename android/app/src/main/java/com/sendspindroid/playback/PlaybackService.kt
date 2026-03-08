@@ -445,10 +445,12 @@ class PlaybackService : MediaLibraryService() {
         const val STATE_ERROR = "error"
 
         // Android Auto browse tree media IDs
-        // Max artwork bitmap dimension (px) for MediaMetadata.
-        // Framework enforces 320dp; at tvdpi (~1.33x) that's ~426px.
-        // 480px covers xhdpi (2x) and looks sharp on TV.
-        private const val MAX_ARTWORK_SIZE = 480
+        // Max artwork bitmap dimension (px) for MediaMetadata / notifications.
+        // Notifications only display small thumbnails; 300px is more than
+        // sufficient and avoids wasting memory on full-resolution bitmaps.
+        // The UI loads artwork independently via URL so this does not affect
+        // in-app display quality.
+        private const val MAX_ARTWORK_SIZE = 300
 
         private const val MEDIA_ID_ROOT = "root"
         private const val MEDIA_ID_DISCOVERED = "discovered_servers"
