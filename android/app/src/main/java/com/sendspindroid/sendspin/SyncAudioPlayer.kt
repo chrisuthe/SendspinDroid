@@ -1046,6 +1046,7 @@ class SyncAudioPlayer(
      * @param pcmData Raw PCM audio data
      */
     fun queueChunk(serverTimeMicros: Long, pcmData: ByteArray) {
+        if (isReleased.get()) return
         chunksReceived++
 
         // Buffer chunks until time sync is ready
@@ -2770,6 +2771,10 @@ class SyncAudioPlayer(
      * @return true if successfully entered draining, false if not applicable
      */
     fun enterDraining(): Boolean {
+        if (isReleased.get()) {
+            Log.w(TAG, "Cannot enter DRAINING - player has been released")
+            return false
+        }
         stateLock.withLock {
             // Only enter draining if we're currently playing or have buffer
             if (playbackState != PlaybackState.PLAYING && playbackState != PlaybackState.WAITING_FOR_START) {
