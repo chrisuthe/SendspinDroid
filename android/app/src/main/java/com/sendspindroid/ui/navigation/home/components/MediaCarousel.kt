@@ -94,7 +94,7 @@ private fun CarouselContent(
 ) {
     LazyRow(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         items(
