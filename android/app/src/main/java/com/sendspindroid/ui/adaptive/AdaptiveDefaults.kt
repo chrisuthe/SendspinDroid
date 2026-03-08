@@ -207,4 +207,19 @@ object AdaptiveDefaults {
         FormFactor.PHONE -> 0.dp  // Not shown
         FormFactor.HEADUNIT -> 0.dp  // Not shown
     }
+
+    // -- Server List --
+
+    /**
+     * Maximum width for the server list on wider form factors.
+     * Returns null for PHONE where no constraint is needed (list fills available width).
+     * On tablets and TV, constrains the list to avoid overly wide cards.
+     */
+    fun serverListMaxWidth(formFactor: FormFactor): Dp? = when (formFactor) {
+        FormFactor.PHONE -> null
+        FormFactor.HEADUNIT -> null
+        FormFactor.TABLET_7 -> 600.dp
+        FormFactor.TABLET_10 -> 600.dp
+        FormFactor.TV -> 600.dp
+    }
 }
