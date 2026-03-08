@@ -4,9 +4,11 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import java.util.concurrent.Executors
 
 /**
  * Manages mDNS service discovery using Android's native NsdManager.
@@ -161,6 +163,9 @@ class NsdDiscoveryManager(
      *
      * Note: NsdManager can only resolve one service at a time on older Android versions.
      * We use a tracking set to avoid duplicate resolution attempts.
+     *
+     * On API 34+ (Android 14), uses registerServiceInfoCallback which replaces the
+     * deprecated resolveService/ResolveListener API.
      */
     private fun resolveService(serviceInfo: NsdServiceInfo) {
         val serviceName = serviceInfo.serviceName
@@ -174,6 +179,72 @@ class NsdDiscoveryManager(
             resolvingServices.add(serviceName)
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            resolveServiceApi34(serviceInfo, serviceName)
+        } else {
+            resolveServiceLegacy(serviceInfo, serviceName)
+        }
+    }
+
+    /**
+     * Resolves a service using the API 34+ registerServiceInfoCallback approach.
+     */
+    @android.annotation.TargetApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun resolveServiceApi34(serviceInfo: NsdServiceInfo, serviceName: String) {
+        val executor = Executors.newSingleThreadExecutor()
+        val callback = object : NsdManager.ServiceInfoCallback {
+            override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
+                val errorMsg = nsdErrorToString(errorCode)
+                Log.e(TAG, "ServiceInfoCallback registration failed for $serviceName: $errorMsg")
+                synchronized(resolvingServices) {
+                    resolvingServices.remove(serviceName)
+                }
+            }
+
+            override fun onServiceUpdated(resolvedInfo: NsdServiceInfo) {
+                synchronized(resolvingServices) {
+                    resolvingServices.remove(serviceName)
+                }
+
+                // Unregister after first successful resolution -- we only need one result
+                try {
+                    nsdManager?.unregisterServiceInfoCallback(this)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to unregister ServiceInfoCallback", e)
+                }
+
+                val host = resolvedInfo.hostAddresses.firstOrNull()?.hostAddress
+                val port = resolvedInfo.port
+                handleResolvedService(resolvedInfo, host, port)
+            }
+
+            override fun onServiceLost() {
+                Log.d(TAG, "Service lost during resolution: $serviceName")
+                synchronized(resolvingServices) {
+                    resolvingServices.remove(serviceName)
+                }
+            }
+
+            override fun onServiceInfoCallbackUnregistered() {
+                // No-op; cleanup already handled in onServiceUpdated
+            }
+        }
+
+        try {
+            nsdManager?.registerServiceInfoCallback(serviceInfo, executor, callback)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register ServiceInfoCallback", e)
+            synchronized(resolvingServices) {
+                resolvingServices.remove(serviceName)
+            }
+        }
+    }
+
+    /**
+     * Resolves a service using the legacy resolveService API (pre-API 34).
+     */
+    @Suppress("DEPRECATION")
+    private fun resolveServiceLegacy(serviceInfo: NsdServiceInfo, serviceName: String) {
         val resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
                 val errorMsg = nsdErrorToString(errorCode)
@@ -190,40 +261,7 @@ class NsdDiscoveryManager(
 
                 val host = serviceInfo.host?.hostAddress
                 val port = serviceInfo.port
-
-                if (host != null && port > 0) {
-                    val address = "$host:$port"
-
-                    // Extract path from TXT records (key: "path")
-                    // Android API 21+ has getAttributes() for TXT records
-                    val attributes = try {
-                        serviceInfo.attributes
-                    } catch (e: Exception) {
-                        emptyMap<String, ByteArray>()
-                    }
-
-                    // Log all TXT records for debugging
-                    Log.d(TAG, "TXT records for ${serviceInfo.serviceName}:")
-                    attributes.forEach { (key, value) ->
-                        val valueStr = value?.let { String(it, Charsets.UTF_8) } ?: "(null)"
-                        Log.d(TAG, "  $key = $valueStr")
-                    }
-
-                    // Get path with default
-                    var path = attributes["path"]?.let { String(it, Charsets.UTF_8) } ?: "/sendspin"
-                    if (!path.startsWith("/")) {
-                        path = "/$path"
-                    }
-
-                    // Extract friendly name from TXT "name" record, falling back to service name
-                    val friendlyName = attributes["name"]?.let { String(it, Charsets.UTF_8) }
-                        ?: serviceInfo.serviceName
-
-                    Log.d(TAG, "Service resolved: ${serviceInfo.serviceName} at $address path=$path friendlyName=$friendlyName")
-                    listener.onServerDiscovered(serviceInfo.serviceName, address, path, friendlyName)
-                } else {
-                    Log.w(TAG, "Service resolved but missing host/port: ${serviceInfo.serviceName}")
-                }
+                handleResolvedService(serviceInfo, host, port)
             }
         }
 
@@ -234,6 +272,45 @@ class NsdDiscoveryManager(
             synchronized(resolvingServices) {
                 resolvingServices.remove(serviceName)
             }
+        }
+    }
+
+    /**
+     * Processes a resolved service, extracting TXT records and notifying the listener.
+     */
+    private fun handleResolvedService(serviceInfo: NsdServiceInfo, host: String?, port: Int) {
+        if (host != null && port > 0) {
+            val address = "$host:$port"
+
+            // Extract path from TXT records (key: "path")
+            // Android API 21+ has getAttributes() for TXT records
+            val attributes = try {
+                serviceInfo.attributes
+            } catch (e: Exception) {
+                emptyMap<String, ByteArray>()
+            }
+
+            // Log all TXT records for debugging
+            Log.d(TAG, "TXT records for ${serviceInfo.serviceName}:")
+            attributes.forEach { (key, value) ->
+                val valueStr = value?.let { String(it, Charsets.UTF_8) } ?: "(null)"
+                Log.d(TAG, "  $key = $valueStr")
+            }
+
+            // Get path with default
+            var path = attributes["path"]?.let { String(it, Charsets.UTF_8) } ?: "/sendspin"
+            if (!path.startsWith("/")) {
+                path = "/$path"
+            }
+
+            // Extract friendly name from TXT "name" record, falling back to service name
+            val friendlyName = attributes["name"]?.let { String(it, Charsets.UTF_8) }
+                ?: serviceInfo.serviceName
+
+            Log.d(TAG, "Service resolved: ${serviceInfo.serviceName} at $address path=$path friendlyName=$friendlyName")
+            listener.onServerDiscovered(serviceInfo.serviceName, address, path, friendlyName)
+        } else {
+            Log.w(TAG, "Service resolved but missing host/port: ${serviceInfo.serviceName}")
         }
     }
 
