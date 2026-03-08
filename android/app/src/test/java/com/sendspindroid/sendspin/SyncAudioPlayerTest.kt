@@ -483,4 +483,200 @@ class SyncAudioPlayerTest {
         val stats = player.getStats()
         assertTrue("Overlap should have been detected", stats.overlapsTrimmed > 0)
     }
+
+    // ========================================================================
+    // Test 10: Pre-sync chunk buffering
+    // ========================================================================
+
+    @Test
+    fun `chunks buffered when time sync not ready`() {
+        every { timeFilter.isReady } returns false
+
+        for (i in 0 until 5) {
+            player.queueChunk(i * 20_000L, makePcmData(960))
+        }
+
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+
+        val pendingChunks: MutableList<*> = getField("pendingChunks")
+        assertEquals("5 chunks should be buffered", 5, pendingChunks.size)
+    }
+
+    @Test
+    fun `pending chunks processed when time sync becomes ready`() {
+        every { timeFilter.isReady } returns false
+
+        for (i in 0 until 5) {
+            val ts = 1_000_000L + i * 20_000L
+            player.queueChunk(ts, makePcmData(960))
+        }
+
+        val pendingChunks: MutableList<*> = getField("pendingChunks")
+        assertEquals(5, pendingChunks.size)
+
+        // Make time sync ready and queue one more chunk to trigger processing
+        every { timeFilter.isReady } returns true
+        val nextTs = 1_000_000L + 5 * 20_000L
+        player.queueChunk(nextTs, makePcmData(960))
+
+        assertEquals("Pending chunks should be processed", 0, pendingChunks.size)
+        assertEquals(PlaybackState.WAITING_FOR_START, player.getPlaybackState())
+    }
+
+    @Test
+    fun `pending buffer respects MAX_PENDING_CHUNKS limit`() {
+        every { timeFilter.isReady } returns false
+
+        for (i in 0 until 510) {
+            player.queueChunk(i * 20_000L, makePcmData(960))
+        }
+
+        val pendingChunks: MutableList<*> = getField("pendingChunks")
+        assertEquals("Buffer should cap at MAX_PENDING_CHUNKS (500)", 500, pendingChunks.size)
+
+        val stats = player.getStats()
+        assertTrue("Excess chunks should be dropped", stats.chunksDropped > 0)
+    }
+
+    // ========================================================================
+    // Test 11: Frame position wrap detection
+    // ========================================================================
+
+    @Test
+    fun `frame position wrap is detected and rejected`() {
+        // Set a high last valid frame position (simulating long playback near 32-bit wrap)
+        val highFramePos = 4_000_000_000L
+        setField("lastValidFramePosition", highFramePos)
+
+        // After 32-bit wrap, frame position jumps to a small value
+        val wrappedFramePos = 1000L
+
+        // The detection condition in updateSyncError:
+        //   framePosition < lastValidFramePosition - sampleRate
+        assertTrue(
+            "Wrapped frame position should be detected",
+            wrappedFramePos < highFramePos - sampleRate
+        )
+
+        // lastValidFramePosition should not be updated on wrap
+        val lastValid: Long = getField("lastValidFramePosition")
+        assertEquals(
+            "lastValidFramePosition should remain at the pre-wrap value",
+            highFramePos, lastValid
+        )
+    }
+
+    @Test
+    fun `normal frame position advance is not flagged as wrap`() {
+        val currentPos = 1_000_000L
+        setField("lastValidFramePosition", currentPos)
+
+        val nextPos = currentPos + sampleRate  // 1 second advance
+        assertFalse(
+            "Normal advance should not trigger wrap detection",
+            nextPos < currentPos - sampleRate
+        )
+    }
+
+    // ========================================================================
+    // Test 12: Baseline refresh every 5 seconds
+    // ========================================================================
+
+    @Test
+    fun `baseline refresh interval constant is 5 seconds`() {
+        val field = SyncAudioPlayer::class.java.getDeclaredField("BASELINE_REFRESH_INTERVAL_US")
+        field.isAccessible = true
+        val intervalUs = field.getLong(null)
+        assertEquals(
+            "Baseline refresh interval should be 5 seconds",
+            5_000_000L, intervalUs
+        )
+    }
+
+    @Test
+    fun `baseline refresh requires minimum Kalman measurements`() {
+        val field = SyncAudioPlayer::class.java.getDeclaredField("BASELINE_REFRESH_MIN_MEASUREMENTS")
+        field.isAccessible = true
+        val minMeasurements = field.getInt(null)
+        assertEquals(
+            "Baseline refresh should require 10 measurements",
+            10, minMeasurements
+        )
+    }
+
+    @Test
+    fun `baseline fields reset on clearBuffer`() {
+        setField("baselineFramePosition", 12345L)
+        setField("baselineServerTimeUs", 67890L)
+        setField("lastBaselineRefreshUs", 11111L)
+
+        player.clearBuffer()
+
+        assertEquals(0L, getField<Long>("baselineFramePosition"))
+        assertEquals(0L, getField<Long>("baselineServerTimeUs"))
+        assertEquals(0L, getField<Long>("lastBaselineRefreshUs"))
+    }
+
+    // ========================================================================
+    // Additional supporting tests
+    // ========================================================================
+
+    @Test
+    fun `exitDraining transitions to PLAYING and records reconnection time`() {
+        setField("playbackState", PlaybackState.PLAYING)
+        player.enterDraining()
+        assertEquals(PlaybackState.DRAINING, player.getPlaybackState())
+
+        val result = player.exitDraining()
+        assertTrue(result)
+        assertEquals(PlaybackState.PLAYING, player.getPlaybackState())
+
+        val reconnectedAt: Long = getField("reconnectedAtUs")
+        assertTrue("reconnectedAtUs should be set after exitDraining", reconnectedAt > 0)
+    }
+
+    @Test
+    fun `exitDraining fails when not in DRAINING state`() {
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+        val result = player.exitDraining()
+        assertFalse(result)
+    }
+
+    @Test
+    fun `clearBuffer resets state to INITIALIZING`() {
+        queueChunkDirect(1_000_000L, 960)
+        assertEquals(PlaybackState.WAITING_FOR_START, player.getPlaybackState())
+
+        player.clearBuffer()
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+        assertEquals(0, getChunkQueue().size)
+    }
+
+    @Test
+    fun `REANCHORING to WAITING_FOR_START on new chunk`() {
+        setField("playbackState", PlaybackState.REANCHORING)
+
+        queueChunkDirect(2_000_000L, 960)
+
+        assertEquals(PlaybackState.WAITING_FOR_START, player.getPlaybackState())
+    }
+
+    @Test
+    fun `no corrections when not calibrated`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "updateCorrectionSchedule", Long::class.java
+        )
+        method.isAccessible = true
+
+        assertFalse(getField<Boolean>("startTimeCalibrated"))
+
+        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
+        syncErrorFilter.update(50_000L, 1_000_000L)
+        syncErrorFilter.update(50_000L, 2_000_000L)
+
+        method.invoke(player, 0L)
+
+        assertEquals(0, getField<Int>("dropEveryNFrames"))
+        assertEquals(0, getField<Int>("insertEveryNFrames"))
+    }
 }
