@@ -36,7 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,21 +71,21 @@ fun SettingsScreen(
     onExportLogs: () -> Unit,
     onRestartApp: () -> Unit
 ) {
-    val playerName by viewModel.playerName.collectAsState()
-    val fullscreenMode by viewModel.fullscreenMode.collectAsState()
-    val keepScreenOn by viewModel.keepScreenOn.collectAsState()
-    val miniPlayerPosition by viewModel.miniPlayerPosition.collectAsState()
-    val layoutMode by viewModel.layoutMode.collectAsState()
-    val syncOffset by viewModel.syncOffset.collectAsState()
-    val preferredCodec by viewModel.preferredCodec.collectAsState()
-    val wifiCodec by viewModel.wifiCodec.collectAsState()
-    val cellularCodec by viewModel.cellularCodec.collectAsState()
-    val lowMemoryMode by viewModel.lowMemoryMode.collectAsState()
-    val highPowerMode by viewModel.highPowerMode.collectAsState()
-    val batteryOptExempt by viewModel.batteryOptExempt.collectAsState()
-    val debugLogging by viewModel.debugLogging.collectAsState()
-    val debugSampleCount by viewModel.debugSampleCount.collectAsState()
-    val appVersion by viewModel.appVersion.collectAsState()
+    val playerName by viewModel.playerName.collectAsStateWithLifecycle()
+    val fullscreenMode by viewModel.fullscreenMode.collectAsStateWithLifecycle()
+    val keepScreenOn by viewModel.keepScreenOn.collectAsStateWithLifecycle()
+    val miniPlayerPosition by viewModel.miniPlayerPosition.collectAsStateWithLifecycle()
+    val layoutMode by viewModel.layoutMode.collectAsStateWithLifecycle()
+    val syncOffset by viewModel.syncOffset.collectAsStateWithLifecycle()
+    val preferredCodec by viewModel.preferredCodec.collectAsStateWithLifecycle()
+    val wifiCodec by viewModel.wifiCodec.collectAsStateWithLifecycle()
+    val cellularCodec by viewModel.cellularCodec.collectAsStateWithLifecycle()
+    val lowMemoryMode by viewModel.lowMemoryMode.collectAsStateWithLifecycle()
+    val highPowerMode by viewModel.highPowerMode.collectAsStateWithLifecycle()
+    val batteryOptExempt by viewModel.batteryOptExempt.collectAsStateWithLifecycle()
+    val debugLogging by viewModel.debugLogging.collectAsStateWithLifecycle()
+    val debugSampleCount by viewModel.debugSampleCount.collectAsStateWithLifecycle()
+    val appVersion by viewModel.appVersion.collectAsStateWithLifecycle()
 
     var showPlayerNameDialog by remember { mutableStateOf(false) }
     var showSyncOffsetDialog by remember { mutableStateOf(false) }

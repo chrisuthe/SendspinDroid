@@ -25,7 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,19 +93,19 @@ fun NowPlayingScreen(
     inlineQueueVisible: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val connectionState by viewModel.connectionState.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val playbackState by viewModel.playbackState.collectAsState()
-    val metadata by viewModel.metadata.collectAsState()
-    val groupName by viewModel.groupName.collectAsState()
-    val artworkSource by viewModel.artworkSource.collectAsState()
-    val volume by viewModel.volume.collectAsState()
-    val reconnectingState by viewModel.reconnectingState.collectAsState()
-    val isMaConnected by viewModel.isMaConnected.collectAsState()
-    val playerColors by viewModel.playerColors.collectAsState()
-    val positionMs by viewModel.positionMs.collectAsState()
-    val durationMs by viewModel.durationMs.collectAsState()
-    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
+    val metadata by viewModel.metadata.collectAsStateWithLifecycle()
+    val groupName by viewModel.groupName.collectAsStateWithLifecycle()
+    val artworkSource by viewModel.artworkSource.collectAsStateWithLifecycle()
+    val volume by viewModel.volume.collectAsStateWithLifecycle()
+    val reconnectingState by viewModel.reconnectingState.collectAsStateWithLifecycle()
+    val isMaConnected by viewModel.isMaConnected.collectAsStateWithLifecycle()
+    val playerColors by viewModel.playerColors.collectAsStateWithLifecycle()
+    val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
+    val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
+    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsStateWithLifecycle()
     // Don't show buffering spinner when paused -- SendSpin's audio stream stops on
     // pause, so Media3 reports STATE_BUFFERING even though the user intentionally paused.
     val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty && isPlaying

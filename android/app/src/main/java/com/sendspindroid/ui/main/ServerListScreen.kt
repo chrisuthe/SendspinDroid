@@ -10,7 +10,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,9 +52,9 @@ fun ServerListScreen(
     onAddServerClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val saved by savedServers.collectAsState()
-    val discovered by discoveredServers.collectAsState()
-    val onlineIds by onlineSavedServerIds.collectAsState()
+    val saved by savedServers.collectAsStateWithLifecycle()
+    val discovered by discoveredServers.collectAsStateWithLifecycle()
+    val onlineIds by onlineSavedServerIds.collectAsStateWithLifecycle()
 
     ServerListScreenContent(
         savedServers = saved,

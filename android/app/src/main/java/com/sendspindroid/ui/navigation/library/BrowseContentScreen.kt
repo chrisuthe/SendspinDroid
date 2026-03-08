@@ -34,7 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,7 +73,7 @@ fun BrowseContentScreen(
     onAddToQueue: (MaLibraryItem) -> Unit = {},
     onPlayNext: (MaLibraryItem) -> Unit = {}
 ) {
-    val state by viewModel.browseState.collectAsState()
+    val state by viewModel.browseState.collectAsStateWithLifecycle()
     val pullToRefreshState = rememberPullToRefreshState()
 
     // Intercept back button when not at root

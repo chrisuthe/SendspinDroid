@@ -12,7 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.fragment.app.FragmentActivity
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
 import com.sendspindroid.R
@@ -116,7 +116,7 @@ class AddServerWizardActivity : FragmentActivity() {
 
         setContent {
             SendSpinTheme {
-                val state by viewModel.wizardState.collectAsState()
+                val state by viewModel.wizardState.collectAsStateWithLifecycle()
 
                 // Auto-start discovery when entering a FindServer step
                 androidx.compose.runtime.LaunchedEffect(state.currentStep) {

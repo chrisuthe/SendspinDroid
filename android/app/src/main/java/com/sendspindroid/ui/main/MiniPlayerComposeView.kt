@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.AttributeSet
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.AbstractComposeView
@@ -37,12 +37,12 @@ class MiniPlayerComposeView @JvmOverloads constructor(
     override fun Content() {
         val vm = viewModel ?: return
 
-        val metadata by vm.metadata.collectAsState()
-        val artworkSource by vm.artworkSource.collectAsState()
-        val isPlaying by vm.isPlaying.collectAsState()
-        val positionMs by vm.positionMs.collectAsState()
-        val durationMs by vm.durationMs.collectAsState()
-        val positionUpdatedAt by vm.positionUpdatedAt.collectAsState()
+        val metadata by vm.metadata.collectAsStateWithLifecycle()
+        val artworkSource by vm.artworkSource.collectAsStateWithLifecycle()
+        val isPlaying by vm.isPlaying.collectAsStateWithLifecycle()
+        val positionMs by vm.positionMs.collectAsStateWithLifecycle()
+        val durationMs by vm.durationMs.collectAsStateWithLifecycle()
+        val positionUpdatedAt by vm.positionUpdatedAt.collectAsStateWithLifecycle()
 
         SendSpinTheme {
             MiniPlayer(
