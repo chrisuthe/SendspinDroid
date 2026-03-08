@@ -56,6 +56,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _miniPlayerPosition = MutableStateFlow(UserSettings.miniPlayerPosition)
     val miniPlayerPosition: StateFlow<UserSettings.MiniPlayerPosition> = _miniPlayerPosition.asStateFlow()
 
+    private val _layoutMode = MutableStateFlow(UserSettings.layoutMode)
+    val layoutMode: StateFlow<UserSettings.LayoutMode> = _layoutMode.asStateFlow()
+
     // Audio settings
     private val _syncOffset = MutableStateFlow(UserSettings.getSyncOffsetMs())
     val syncOffset: StateFlow<Int> = _syncOffset.asStateFlow()
@@ -136,6 +139,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setMiniPlayerPosition(position: UserSettings.MiniPlayerPosition) {
         UserSettings.setMiniPlayerPosition(position)
         _miniPlayerPosition.value = position
+    }
+
+    fun setLayoutMode(mode: UserSettings.LayoutMode) {
+        UserSettings.layoutMode = mode
+        _layoutMode.value = mode
     }
 
     // Audio settings

@@ -22,6 +22,7 @@
     <string name="album_art">Album artwork</string>
     <string name="now_playing">Now Playing</string>
     <string name="not_playing">Not Playing</string>
+    <string name="headunit_up_next">UP NEXT</string>
     <string name="available_servers">Available Servers</string>
     <string name="connecting">Connecting…</string>
     <string name="connected_to">Connected to %s</string>
@@ -155,6 +156,10 @@
     <string name="pref_mini_player_position_summary">Where the mini player appears when browsing</string>
     <string name="pref_mini_player_position_top">Top</string>
     <string name="pref_mini_player_position_bottom">Bottom</string>
+    <string name="pref_layout_mode_title">Layout Mode</string>
+    <string name="pref_layout_mode_summary">Override automatic layout detection for specialized displays</string>
+    <string name="pref_layout_mode_auto">Auto</string>
+    <string name="pref_layout_mode_headunit">Head Unit</string>
     <string name="pref_player_name_title">Player Name</string>
     <string name="pref_player_name_summary">Name shown to SendSpin server</string>
     <string name="pref_category_audio">Audio Sync</string>

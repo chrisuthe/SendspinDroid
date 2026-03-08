@@ -24,7 +24,10 @@ enum class FormFactor {
     TABLET_10,
 
     /** Android TV / Fire TV - 10-foot UI with D-pad navigation */
-    TV
+    TV,
+
+    /** Car head unit - large portrait touchscreen with oversized touch targets */
+    HEADUNIT
 }
 
 /**

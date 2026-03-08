@@ -831,10 +831,31 @@ class MainActivity : AppCompatActivity() {
 
         overlay.setContent {
             val windowSizeClass = androidx.compose.material3.windowsizeclass.calculateWindowSizeClass(this)
-            val formFactor = com.sendspindroid.ui.adaptive.determineFormFactor(
+            val detectedFormFactor = com.sendspindroid.ui.adaptive.determineFormFactor(
                 windowSizeClass = windowSizeClass,
                 isTv = isTvDevice
             )
+            // Observe layout mode reactively so changes in Settings take effect immediately
+            val layoutModeState = androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(UserSettings.layoutMode)
+            }
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                    if (key == UserSettings.KEY_LAYOUT_MODE) {
+                        layoutModeState.value = UserSettings.layoutMode
+                    }
+                }
+                androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@MainActivity)
+                    .registerOnSharedPreferenceChangeListener(listener)
+                onDispose {
+                    androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@MainActivity)
+                        .unregisterOnSharedPreferenceChangeListener(listener)
+                }
+            }
+            val formFactor = when (layoutModeState.value) {
+                UserSettings.LayoutMode.HEADUNIT -> FormFactor.HEADUNIT
+                UserSettings.LayoutMode.AUTO -> detectedFormFactor
+            }
 
             SendSpinTheme {
                 CompositionLocalProvider(LocalFormFactor provides formFactor) {
