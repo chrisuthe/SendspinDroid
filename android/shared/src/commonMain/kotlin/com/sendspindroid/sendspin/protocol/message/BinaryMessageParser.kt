@@ -5,7 +5,7 @@ import com.sendspindroid.shared.log.Log
 
 object BinaryMessageParser {
     private const val TAG = "BinaryMessageParser"
-    private const val HEADER_SIZE = 9 // 1 byte type + 8 bytes timestamp
+    private const val HEADER_SIZE = SendSpinProtocol.BINARY_HEADER_SIZE_BYTES
 
     sealed class BinaryMessage {
         data class Audio(

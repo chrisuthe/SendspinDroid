@@ -5,6 +5,7 @@ import android.media.AudioTrack
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
+import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 
 /**
  * Factory for creating audio decoders based on codec type.
@@ -87,7 +88,7 @@ object AudioDecoderFactory {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             try {
                 val minBuf = AudioTrack.getMinBufferSize(
-                    48000, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_32BIT
+                    SendSpinProtocol.AudioFormat.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_32BIT
                 )
                 if (minBuf > 0) depths.add(32)
             } catch (e: Exception) {
@@ -99,7 +100,7 @@ object AudioDecoderFactory {
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             try {
                 val minBuf = AudioTrack.getMinBufferSize(
-                    48000, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_24BIT_PACKED
+                    SendSpinProtocol.AudioFormat.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_24BIT_PACKED
                 )
                 if (minBuf > 0) depths.add(24)
             } catch (e: Exception) {

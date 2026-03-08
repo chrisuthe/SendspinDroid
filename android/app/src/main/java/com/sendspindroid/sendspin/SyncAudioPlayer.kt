@@ -6,6 +6,7 @@ import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.util.Log
 import com.sendspindroid.debug.FileLogger
+import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -189,9 +190,9 @@ interface SyncAudioPlayerCallback {
  */
 class SyncAudioPlayer(
     private val timeFilter: SendspinTimeFilter,
-    private val sampleRate: Int = 48000,
-    private val channels: Int = 2,
-    private val bitDepth: Int = 16
+    private val sampleRate: Int = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
+    private val channels: Int = SendSpinProtocol.AudioFormat.CHANNELS,
+    private val bitDepth: Int = SendSpinProtocol.AudioFormat.BIT_DEPTH
 ) {
     companion object {
         private const val TAG = "SyncAudioPlayer"

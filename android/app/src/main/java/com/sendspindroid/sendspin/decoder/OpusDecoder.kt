@@ -25,6 +25,9 @@ class OpusDecoder : MediaCodecDecoder(MediaFormat.MIMETYPE_AUDIO_OPUS) {
 
         // Default seek pre-roll in nanoseconds (80ms)
         private const val DEFAULT_SEEK_PRE_ROLL_NS: Long = 80_000_000
+
+        // Size of a minimal OpusHead structure (RFC 7845) without channel mapping table
+        private const val OPUS_HEAD_SIZE = 19
     }
 
     override fun configureFormat(
@@ -81,7 +84,7 @@ class OpusDecoder : MediaCodecDecoder(MediaFormat.MIMETYPE_AUDIO_OPUS) {
      * Create a minimal OpusHead structure for the given parameters.
      */
     private fun createDefaultOpusHead(channels: Int, sampleRate: Int): ByteArray {
-        val buffer = ByteBuffer.allocate(19)
+        val buffer = ByteBuffer.allocate(OPUS_HEAD_SIZE)
             .order(ByteOrder.LITTLE_ENDIAN)
 
         // Magic signature

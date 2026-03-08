@@ -10,6 +10,11 @@ object SendSpinProtocol {
     const val ENDPOINT_PATH = "/sendspin"
 
     /**
+     * Binary message header: 1 byte type + 8 bytes big-endian int64 timestamp.
+     */
+    const val BINARY_HEADER_SIZE_BYTES = 9
+
+    /**
      * Binary message type identifiers.
      */
     object BinaryType {
@@ -24,8 +29,16 @@ object SendSpinProtocol {
     object AudioFormat {
         const val SAMPLE_RATE = 48000
         const val CHANNELS = 2
+        const val CHANNELS_MONO = 1
         const val BIT_DEPTH = 16
         const val DEFAULT_CODEC = "pcm"
+    }
+
+    /**
+     * Artwork request constants for client/hello handshake.
+     */
+    object Artwork {
+        const val REQUEST_SIZE = 500  // Requested artwork width/height in pixels
     }
 
     /**
