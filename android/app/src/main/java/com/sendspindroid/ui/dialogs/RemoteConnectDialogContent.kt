@@ -211,7 +211,7 @@ private fun SavedRemoteServerItem(
             // Delete button
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(48.dp)
             ) {
                 Icon(
                     painter = painterResource(R.drawable.ic_close),
