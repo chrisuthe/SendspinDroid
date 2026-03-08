@@ -70,6 +70,7 @@ class SendSpinClientTimeFilterFreezeTest {
 
     @After
     fun tearDown() {
+        client.destroy()
         Dispatchers.resetMain()
         unmockkAll()
     }

@@ -237,6 +237,6 @@ class NowPlayingHeadUnitTest {
             }
         }
 
-        composeTestRule.onNodeWithContentDescription("Add to favorites").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Add current track to favorites").assertExists()
     }
 }

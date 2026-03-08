@@ -85,6 +85,7 @@ abstract class E2ETestBase {
 
     @After
     open fun tearDown() {
+        client.destroy()
         Dispatchers.resetMain()
         unmockkAll()
     }

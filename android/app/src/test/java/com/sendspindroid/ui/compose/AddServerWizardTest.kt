@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import com.sendspindroid.ui.theme.SendSpinTheme
 import com.sendspindroid.ui.wizard.AddServerWizardScreen
@@ -64,7 +65,7 @@ class AddServerWizardTest {
         }
 
         // The top bar shows "Find Server" title
-        composeTestRule.onNodeWithText("Find Server").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Find Your Server")[0].assertIsDisplayed()
     }
 
     @Test
@@ -131,7 +132,7 @@ class AddServerWizardTest {
         state = state.copy(currentStep = WizardStep.SS_FindServer)
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithText("Find Server").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Find Your Server")[0].assertIsDisplayed()
     }
 
     @Test
@@ -152,14 +153,14 @@ class AddServerWizardTest {
             }
         }
 
-        // Initially on Finish
-        composeTestRule.onNodeWithText("Save Server").assertIsDisplayed()
+        // Initially on Finish -- "Save Server" appears in both the top bar and step heading
+        composeTestRule.onAllNodesWithText("Save Server")[0].assertIsDisplayed()
 
         // Navigate backward to FindServer
         state = state.copy(currentStep = WizardStep.SS_FindServer)
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithText("Find Server").assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Find Your Server")[0].assertIsDisplayed()
     }
 
     @Test

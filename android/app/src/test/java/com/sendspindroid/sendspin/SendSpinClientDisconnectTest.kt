@@ -81,6 +81,7 @@ class SendSpinClientDisconnectTest {
 
     @After
     fun tearDown() {
+        client.destroy()
         Dispatchers.resetMain()
         unmockkAll()
     }
