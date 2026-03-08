@@ -7,7 +7,9 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.concurrent.thread
 
 /**
  * Unit tests for SyncAudioPlayer.
@@ -182,5 +184,160 @@ class SyncAudioPlayerTest {
         val result = method.invoke(player) as Boolean
         assertTrue("Reanchor should succeed after cooldown", result)
         assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+    }
+
+    // ========================================================================
+    // Test 4: enterDraining/exitDraining thread safety
+    // ========================================================================
+
+    @Test
+    fun `concurrent enterDraining and exitDraining do not corrupt state`() {
+        val iterations = 100
+        val errors = mutableListOf<String>()
+        val latch = CountDownLatch(2)
+
+        setField("playbackState", PlaybackState.PLAYING)
+
+        val thread1 = thread {
+            try {
+                for (i in 0 until iterations) {
+                    setField("playbackState", PlaybackState.PLAYING)
+                    player.enterDraining()
+                }
+            } catch (e: Exception) {
+                synchronized(errors) {
+                    errors.add("Thread1: ${e.message}")
+                }
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        val thread2 = thread {
+            try {
+                for (i in 0 until iterations) {
+                    player.exitDraining()
+                    setField("playbackState", PlaybackState.PLAYING)
+                }
+            } catch (e: Exception) {
+                synchronized(errors) {
+                    errors.add("Thread2: ${e.message}")
+                }
+            } finally {
+                latch.countDown()
+            }
+        }
+
+        latch.await()
+
+        assertTrue(
+            "Concurrent enterDraining/exitDraining should not throw: $errors",
+            errors.isEmpty()
+        )
+
+        val finalState = player.getPlaybackState()
+        assertNotNull("Final state should not be null", finalState)
+        assertTrue(
+            "Final state should be a valid PlaybackState",
+            finalState in PlaybackState.entries
+        )
+    }
+
+    // ========================================================================
+    // Test 5: Correction clamps to MAX_SPEED_CORRECTION (+/-2%)
+    // ========================================================================
+
+    @Test
+    fun `correction rate clamped to MAX_SPEED_CORRECTION for large positive error`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "updateCorrectionSchedule", Long::class.java
+        )
+        method.isAccessible = true
+
+        setField("startTimeCalibrated", true)
+        setField("playingStateEnteredAtUs", 1L)
+        setField("reconnectedAtUs", 0L)
+
+        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
+        syncErrorFilter.update(100_000L, 1_000_000L)
+        syncErrorFilter.update(100_000L, 2_000_000L)
+        syncErrorFilter.update(100_000L, 3_000_000L)
+
+        method.invoke(player, 0L)
+
+        val dropEvery: Int = getField("dropEveryNFrames")
+        val insertEvery: Int = getField("insertEveryNFrames")
+
+        assertTrue("Should be dropping for positive error", dropEvery > 0)
+        assertEquals("Should not be inserting for positive error", 0, insertEvery)
+
+        // At MAX_SPEED_CORRECTION (2%), min interval = 48000 / 960 = 50 frames
+        val minInterval = (sampleRate / (sampleRate * 0.02)).toInt()
+        assertTrue(
+            "Drop interval ($dropEvery) should be >= min interval ($minInterval)",
+            dropEvery >= minInterval
+        )
+    }
+
+    @Test
+    fun `correction rate clamped to MAX_SPEED_CORRECTION for large negative error`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "updateCorrectionSchedule", Long::class.java
+        )
+        method.isAccessible = true
+
+        setField("startTimeCalibrated", true)
+        setField("playingStateEnteredAtUs", 1L)
+        setField("reconnectedAtUs", 0L)
+
+        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
+        syncErrorFilter.update(-100_000L, 1_000_000L)
+        syncErrorFilter.update(-100_000L, 2_000_000L)
+        syncErrorFilter.update(-100_000L, 3_000_000L)
+
+        method.invoke(player, 0L)
+
+        val dropEvery: Int = getField("dropEveryNFrames")
+        val insertEvery: Int = getField("insertEveryNFrames")
+
+        assertEquals("Should not be dropping for negative error", 0, dropEvery)
+        assertTrue("Should be inserting for negative error", insertEvery > 0)
+
+        val minInterval = (sampleRate / (sampleRate * 0.02)).toInt()
+        assertTrue(
+            "Insert interval ($insertEvery) should be >= min interval ($minInterval)",
+            insertEvery >= minInterval
+        )
+    }
+
+    // ========================================================================
+    // Test 6: No corrections during STARTUP_GRACE_PERIOD
+    // ========================================================================
+
+    @Test
+    fun `no corrections during startup grace period`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "updateCorrectionSchedule", Long::class.java
+        )
+        method.isAccessible = true
+
+        setField("startTimeCalibrated", true)
+        setField("reconnectedAtUs", 0L)
+
+        // Set playingStateEnteredAtUs to "now" (within grace period)
+        val nowUs = System.nanoTime() / 1000
+        setField("playingStateEnteredAtUs", nowUs)
+
+        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
+        syncErrorFilter.update(50_000L, 1_000_000L)
+        syncErrorFilter.update(50_000L, 2_000_000L)
+
+        method.invoke(player, 0L)
+
+        val dropEvery: Int = getField("dropEveryNFrames")
+        val insertEvery: Int = getField("insertEveryNFrames")
+
+        assertEquals("No drop corrections during grace period", 0, dropEvery)
+        assertEquals("No insert corrections during grace period", 0, insertEvery)
     }
 }
