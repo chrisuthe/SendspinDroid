@@ -38,6 +38,11 @@ abstract class SendSpinProtocolHandler(
     protected var currentMuted: Boolean = false
     protected var currentSyncState: String = "synchronized"  // "synchronized" or "error"
 
+    // Last received values for change detection (avoids unnecessary UI recomposition)
+    private var lastMetadata: TrackMetadata? = null
+    private var lastPlaybackState: String? = null
+    private var lastGroupInfo: GroupInfo? = null
+
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
 
@@ -332,6 +337,12 @@ abstract class SendSpinProtocolHandler(
         Log.d(tag, "Active roles: ${result.activeRoles}")
 
         handshakeComplete = true
+
+        // Clear cached values so the first post-handshake messages always propagate
+        lastMetadata = null
+        lastPlaybackState = null
+        lastGroupInfo = null
+
         onHandshakeComplete(result.serverName, result.serverId)
 
         sendPlayerStateUpdate()
@@ -350,11 +361,13 @@ abstract class SendSpinProtocolHandler(
     protected fun handleServerState(payload: JsonObject?) {
         val (metadata, state) = MessageParser.parseServerState(payload)
 
-        if (metadata != null) {
+        if (metadata != null && metadata != lastMetadata) {
+            lastMetadata = metadata
             onMetadataUpdate(metadata)
         }
 
-        if (state != null) {
+        if (state != null && state != lastPlaybackState) {
+            lastPlaybackState = state
             onPlaybackStateChanged(state)
         }
     }
@@ -382,7 +395,8 @@ abstract class SendSpinProtocolHandler(
 
     protected fun handleGroupUpdate(payload: JsonObject?) {
         val info = MessageParser.parseGroupUpdate(payload)
-        if (info != null) {
+        if (info != null && info != lastGroupInfo) {
+            lastGroupInfo = info
             Log.v(tag, "group/update: id=${info.groupId}, name=${info.groupName}, state=${info.playbackState}")
             onGroupUpdate(info)
         }
