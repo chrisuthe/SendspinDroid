@@ -1248,12 +1248,13 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onReconnecting(attempt: Int, serverName: String) {
             android.util.Log.i(TAG, "Reconnecting to $serverName (attempt $attempt) - entering DRAINING mode")
-            // Enter draining mode SYNCHRONOUSLY before any mainHandler posts
-            // This ensures disconnect handlers see DRAINING state when they check
-            // DRAINING state allows playback to continue from buffer during reconnection
-            pendingExitDraining = false  // Clear any stale flag
+            // enterDraining() is thread-safe (guarded by stateLock) so it is safe to call
+            // from the WebSocket IO thread. We call it here rather than inside mainHandler.post
+            // so that the state change is visible immediately -- any disconnect handler that
+            // subsequently runs on the main thread will already see DRAINING state.
             syncAudioPlayer?.enterDraining()
             mainHandler.post {
+                pendingExitDraining = false  // Clear any stale flag (main-thread only)
 
                 // Update connection state for UI (shows "Reconnecting..." indicator)
                 _connectionState.value = ConnectionState.Reconnecting(serverName, attempt)
