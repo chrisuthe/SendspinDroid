@@ -595,6 +595,7 @@ private fun ConnectedShell(
                         SideMiniPlayerBar(
                             viewModel = viewModel,
                             onPlayPauseClick = onPlayPauseClick,
+                            onNextClick = onNextClick,
                             onReturnToNowPlaying = miniPlayerReturnToNowPlaying
                         )
                     }
@@ -1361,6 +1362,7 @@ private fun MiniPlayerBar(
 private fun SideMiniPlayerBar(
     viewModel: MainActivityViewModel,
     onPlayPauseClick: () -> Unit,
+    onNextClick: () -> Unit,
     onReturnToNowPlaying: () -> Unit
 ) {
     val metadata by viewModel.metadata.collectAsStateWithLifecycle()
@@ -1386,6 +1388,7 @@ private fun SideMiniPlayerBar(
                     onReturnToNowPlaying()
                 },
                 onPlayPauseClick = onPlayPauseClick,
+                onNextClick = onNextClick,
                 positionMs = positionMs,
                 durationMs = durationMs,
                 positionUpdatedAt = positionUpdatedAt,
