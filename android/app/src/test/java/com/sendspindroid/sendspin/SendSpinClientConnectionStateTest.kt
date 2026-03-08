@@ -68,6 +68,7 @@ class SendSpinClientConnectionStateTest {
 
     @After
     fun tearDown() {
+        client.destroy()
         Dispatchers.resetMain()
         unmockkAll()
     }
