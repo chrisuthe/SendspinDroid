@@ -177,7 +177,7 @@ private fun PlaylistDetailContent(
                     showArtist = true,
                     onClick = { onTrackClick(track) },
                     onRemoveFromPlaylist = {
-                        onRemoveTrack(index, track.name ?: "Track")
+                        onRemoveTrack(index, track.name)
                     }
                 )
             }
