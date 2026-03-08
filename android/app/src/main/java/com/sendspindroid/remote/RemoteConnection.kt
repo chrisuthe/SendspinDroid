@@ -40,7 +40,7 @@ class RemoteConnection(private val context: Context) {
          */
         fun isValidRemoteId(remoteId: String): Boolean {
             // Must be 26 chars, all alphanumeric, no lowercase letters
-            return remoteId.length == 26 && remoteId.all { it.isDigit() || (it.isLetter() && it.isUpperCase()) }
+            return remoteId.length == 26 && remoteId.all { it in '0'..'9' || it in 'A'..'Z' }
         }
 
         /**
