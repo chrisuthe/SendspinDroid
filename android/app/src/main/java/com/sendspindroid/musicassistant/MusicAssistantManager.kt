@@ -229,6 +229,81 @@ object MusicAssistantManager {
     }
 
     /**
+     * Handle a connection/auth failure by tearing down the transport and
+     * updating [_connectionState].
+     *
+     * @param e The exception that caused the failure
+     * @param logPrefix Label for the log message (e.g. "Token auth", "Login")
+     * @param clearTokenForServer If non-null, clears the stored token for this server ID
+     */
+    private fun handleConnectionFailure(
+        e: Exception,
+        logPrefix: String,
+        clearTokenForServer: String? = null
+    ) {
+        Log.e(TAG, "$logPrefix failed", e)
+        apiTransport?.disconnect()
+        apiTransport = null
+        commandClient.setTransport(null, null, false)
+        clearTokenForServer?.let { MaSettings.clearTokenForServer(it) }
+
+        val isAuthError = e is MaApiTransport.AuthenticationException
+        val message = when (e) {
+            is MaApiTransport.AuthenticationException ->
+                if (clearTokenForServer != null) "Authentication expired. Please log in again."
+                else "Invalid username or password"
+            is MaTransportException, is IOException -> "Network error: ${e.message}"
+            else -> e.message ?: "Unknown error"
+        }
+        _connectionState.value = MaConnectionState.Error(
+            message = message,
+            isAuthError = isAuthError
+        )
+    }
+
+    /**
+     * Connect a transport and store it for subsequent API calls.
+     *
+     * Shared setup used by [connectWithToken], [login], and [authWithToken].
+     *
+     * @return The server info on success
+     */
+    private suspend fun connectTransport(
+        apiUrl: String,
+        serverId: String,
+        authenticate: suspend (MaApiTransport) -> Unit
+    ): MaServerInfo {
+        apiTransport?.disconnect()
+        apiTransport = null
+
+        val transport = createTransport(apiUrl)
+            ?: throw IOException("Cannot create MA API transport for mode $currentConnectionMode")
+
+        authenticate(transport)
+
+        apiTransport = transport
+        val isRemote = apiUrl == MaApiEndpoint.WEBRTC_SENTINEL_URL
+        commandClient.setTransport(transport, apiUrl, isRemote)
+
+        val serverInfo = MaServerInfo(
+            serverId = serverId,
+            serverVersion = transport.serverVersion ?: "unknown",
+            apiUrl = apiUrl,
+            maServerId = transport.maServerId
+        )
+
+        Log.i(TAG, "MA API connected successfully (server ${transport.serverVersion})")
+        _connectionState.value = MaConnectionState.Connected(serverInfo)
+
+        commandClient.autoSelectPlayer(serverId).fold(
+            onSuccess = { playerId -> Log.i(TAG, "Auto-selected player for playback: $playerId") },
+            onFailure = { error -> Log.w(TAG, "No players available for auto-selection: ${error.message}") }
+        )
+
+        return serverInfo
+    }
+
+    /**
      * Attempt to authenticate with a stored token.
      *
      * Establishes a persistent transport connection (WebSocket for LOCAL/PROXY,
@@ -241,79 +316,13 @@ object MusicAssistantManager {
         // Cancel any in-flight connect attempt to prevent racing on apiTransport (H-22)
         connectJob?.cancel()
         connectJob = scope.launch {
-            try {
-                // Disconnect any existing transport
-                apiTransport?.disconnect()
-                apiTransport = null
-
-                // Create the appropriate transport for this connection mode
-                val transport = createTransport(apiUrl)
-                    ?: throw IOException("Cannot create MA API transport for mode $currentConnectionMode")
-
-                // Connect and authenticate (handles ServerInfoMessage + auth handshake)
-                transport.connect(token)
-
-                // Store the transport for all future commands
-                apiTransport = transport
-                val isRemote = apiUrl == MaApiEndpoint.WEBRTC_SENTINEL_URL
-                commandClient.setTransport(transport, apiUrl, isRemote)
-
-                val serverInfo = MaServerInfo(
-                    serverId = serverId,
-                    serverVersion = transport.serverVersion ?: "unknown",
-                    apiUrl = apiUrl,
-                    maServerId = transport.maServerId
-                )
-
-                Log.i(TAG, "MA API connected successfully (server ${transport.serverVersion})")
-                _connectionState.value = MaConnectionState.Connected(serverInfo)
-
-                // Auto-select a player for playback commands
-                commandClient.autoSelectPlayer(serverId).fold(
-                    onSuccess = { playerId ->
-                        Log.i(TAG, "Auto-selected player for playback: $playerId")
-                    },
-                    onFailure = { error ->
-                        Log.w(TAG, "No players available for auto-selection: ${error.message}")
-                    }
-                )
-
-            } catch (e: MaApiTransport.AuthenticationException) {
-                Log.e(TAG, "Token authentication failed", e)
-                apiTransport?.disconnect()
-                apiTransport = null
-                commandClient.setTransport(null, null, false)
-                MaSettings.clearTokenForServer(serverId)
-                _connectionState.value = MaConnectionState.Error(
-                    message = "Authentication expired. Please log in again.",
-                    isAuthError = true
-                )
-            } catch (e: MaTransportException) {
-                Log.e(TAG, "Network error connecting to MA API", e)
-                apiTransport?.disconnect()
-                apiTransport = null
-                commandClient.setTransport(null, null, false)
-                _connectionState.value = MaConnectionState.Error(
-                    message = "Network error: ${e.message}",
-                    isAuthError = false
-                )
-            } catch (e: IOException) {
-                Log.e(TAG, "Network error connecting to MA API", e)
-                apiTransport?.disconnect()
-                apiTransport = null
-                commandClient.setTransport(null, null, false)
-                _connectionState.value = MaConnectionState.Error(
-                    message = "Network error: ${e.message}",
-                    isAuthError = false
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Error connecting to MA API", e)
-                apiTransport?.disconnect()
-                apiTransport = null
-                commandClient.setTransport(null, null, false)
-                _connectionState.value = MaConnectionState.Error(
-                    message = e.message ?: "Unknown error",
-                    isAuthError = false
+            runCatching {
+                connectTransport(apiUrl, serverId) { transport -> transport.connect(token) }
+            }.onFailure { e ->
+                handleConnectionFailure(
+                    e as? Exception ?: Exception(e),
+                    "Token authentication",
+                    clearTokenForServer = serverId
                 )
             }
         }
@@ -357,160 +366,50 @@ object MusicAssistantManager {
     /**
      * Perform fresh login with username/password credentials.
      */
-    suspend fun login(username: String, password: String): Boolean {
-        val server = currentServer ?: return false
-        val apiUrl = currentApiUrl ?: return false
+    suspend fun login(username: String, password: String): Result<Unit> {
+        val server = currentServer
+            ?: return Result.failure(IllegalStateException("No server connected"))
+        val apiUrl = currentApiUrl
+            ?: return Result.failure(IllegalStateException("No MA API URL available"))
 
         _connectionState.value = MaConnectionState.Connecting
 
-        return try {
-            apiTransport?.disconnect()
-            apiTransport = null
-
-            val transport = createTransport(apiUrl)
-                ?: throw IOException("Cannot create MA API transport for mode $currentConnectionMode")
-
-            val loginResult = transport.connectWithCredentials(username, password)
-
-            apiTransport = transport
-            val isRemote = apiUrl == MaApiEndpoint.WEBRTC_SENTINEL_URL
-            commandClient.setTransport(transport, apiUrl, isRemote)
-
-            MaSettings.setTokenForServer(server.id, loginResult.accessToken)
-
-            val serverInfo = MaServerInfo(
-                serverId = server.id,
-                serverVersion = transport.serverVersion ?: "unknown",
-                apiUrl = apiUrl,
-                maServerId = transport.maServerId
-            )
-
-            Log.i(TAG, "MA login successful for user: ${loginResult.userName} (server ${transport.serverVersion})")
-            _connectionState.value = MaConnectionState.Connected(serverInfo)
-
-            commandClient.autoSelectPlayer(server.id).fold(
-                onSuccess = { playerId -> Log.i(TAG, "Auto-selected player for playback: $playerId") },
-                onFailure = { error -> Log.w(TAG, "No players available for auto-selection: ${error.message}") }
-            )
-
-            true
-
-        } catch (e: MaApiTransport.AuthenticationException) {
-            Log.e(TAG, "Login failed: invalid credentials", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Invalid username or password",
-                isAuthError = true
-            )
-            false
-        } catch (e: MaTransportException) {
-            Log.e(TAG, "Login failed: network error", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Network error: ${e.message}",
-                isAuthError = false
-            )
-            false
-        } catch (e: IOException) {
-            Log.e(TAG, "Login failed: network error", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Network error: ${e.message}",
-                isAuthError = false
-            )
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Login failed", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = e.message ?: "Login failed",
-                isAuthError = false
-            )
-            false
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                connectTransport(apiUrl, server.id) { transport ->
+                    val loginResult = transport.connectWithCredentials(username, password)
+                    MaSettings.setTokenForServer(server.id, loginResult.accessToken)
+                    Log.i(TAG, "MA login successful for user: ${loginResult.userName}")
+                }
+            }.map { }.onFailure { e ->
+                handleConnectionFailure(e as? Exception ?: Exception(e), "Login")
+            }
         }
     }
 
     /**
      * Authenticate with an existing token.
      */
-    suspend fun authWithToken(token: String): Boolean {
-        val server = currentServer ?: return false
-        val apiUrl = currentApiUrl ?: return false
+    suspend fun authWithToken(token: String): Result<Unit> {
+        val server = currentServer
+            ?: return Result.failure(IllegalStateException("No server connected"))
+        val apiUrl = currentApiUrl
+            ?: return Result.failure(IllegalStateException("No MA API URL available"))
 
         _connectionState.value = MaConnectionState.Connecting
 
-        return try {
-            apiTransport?.disconnect()
-            apiTransport = null
-
-            val transport = createTransport(apiUrl)
-                ?: throw IOException("Cannot create MA API transport")
-
-            transport.connect(token)
-            apiTransport = transport
-            val isRemote = apiUrl == MaApiEndpoint.WEBRTC_SENTINEL_URL
-            commandClient.setTransport(transport, apiUrl, isRemote)
-
-            val serverInfo = MaServerInfo(
-                serverId = server.id,
-                serverVersion = transport.serverVersion ?: "unknown",
-                apiUrl = apiUrl,
-                maServerId = transport.maServerId
-            )
-
-            Log.i(TAG, "MA token auth successful (server ${transport.serverVersion})")
-            _connectionState.value = MaConnectionState.Connected(serverInfo)
-            true
-
-        } catch (e: MaApiTransport.AuthenticationException) {
-            Log.e(TAG, "Token auth failed: invalid/expired token", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            MaSettings.clearTokenForServer(server.id)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Authentication expired. Please log in again.",
-                isAuthError = true
-            )
-            false
-        } catch (e: MaTransportException) {
-            Log.e(TAG, "Token auth network error", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Network error: ${e.message}",
-                isAuthError = false
-            )
-            false
-        } catch (e: IOException) {
-            Log.e(TAG, "Token auth network error", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Network error: ${e.message}",
-                isAuthError = false
-            )
-            false
-        } catch (e: Exception) {
-            Log.e(TAG, "Token auth failed", e)
-            apiTransport?.disconnect()
-            apiTransport = null
-            commandClient.setTransport(null, null, false)
-            _connectionState.value = MaConnectionState.Error(
-                message = "Authentication failed: ${e.message}",
-                isAuthError = true
-            )
-            false
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                connectTransport(apiUrl, server.id) { transport ->
+                    transport.connect(token)
+                }
+            }.map { }.onFailure { e ->
+                handleConnectionFailure(
+                    e as? Exception ?: Exception(e),
+                    "Token auth",
+                    clearTokenForServer = server.id
+                )
+            }
         }
     }
 
