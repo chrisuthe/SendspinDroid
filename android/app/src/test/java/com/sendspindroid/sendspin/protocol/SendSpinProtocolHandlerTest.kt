@@ -1,0 +1,210 @@
+package com.sendspindroid.sendspin.protocol
+
+import com.sendspindroid.sendspin.SendspinTimeFilter
+import com.sendspindroid.sendspin.protocol.message.MessageBuilder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.test.TestScope
+import org.junit.Assert.assertEquals
+import org.junit.Before
+import org.junit.Test
+
+/**
+ * Unit tests for SendSpinProtocolHandler.
+ *
+ * Uses a concrete test subclass to exercise the abstract handler's
+ * volume clamping, metadata deduplication, and sync state validation.
+ */
+class SendSpinProtocolHandlerTest {
+
+    private lateinit var handler: TestProtocolHandler
+
+    @Before
+    fun setUp() {
+        handler = TestProtocolHandler()
+        // Mark handshake complete so sendPlayerStateUpdate doesn't short-circuit
+        handler.setHandshakeCompleteForTest()
+    }
+
+    // ========== Volume Clamping Tests ==========
+
+    @Test
+    fun `setVolume clamps values above 1_0 to 100 percent`() {
+        handler.setVolume(1.5)
+        assertEquals(100, handler.exposedVolume())
+    }
+
+    @Test
+    fun `setVolume clamps negative values to 0 percent`() {
+        handler.setVolume(-0.1)
+        assertEquals(0, handler.exposedVolume())
+    }
+
+    @Test
+    fun `setVolume converts 0_5 to 50 percent`() {
+        handler.setVolume(0.5)
+        assertEquals(50, handler.exposedVolume())
+    }
+
+    @Test
+    fun `setVolume converts 0_0 to 0 percent`() {
+        handler.setVolume(0.0)
+        assertEquals(0, handler.exposedVolume())
+    }
+
+    @Test
+    fun `setVolume converts 1_0 to 100 percent`() {
+        handler.setVolume(1.0)
+        assertEquals(100, handler.exposedVolume())
+    }
+
+    // ========== Metadata Deduplication Tests ==========
+
+    @Test
+    fun `duplicate metadata only fires onMetadataUpdate once`() {
+        val metadata = buildServerStateJson(
+            title = "Test Song",
+            artist = "Test Artist",
+            album = "Test Album"
+        )
+
+        // Send the same metadata twice
+        handler.handleTextMessageForTest(metadata)
+        handler.handleTextMessageForTest(metadata)
+
+        assertEquals(
+            "Duplicate metadata should only fire callback once",
+            1,
+            handler.metadataUpdates.size
+        )
+    }
+
+    @Test
+    fun `different metadata fires onMetadataUpdate for each`() {
+        val metadata1 = buildServerStateJson(
+            title = "Song A",
+            artist = "Artist A",
+            album = "Album A"
+        )
+        val metadata2 = buildServerStateJson(
+            title = "Song B",
+            artist = "Artist B",
+            album = "Album B"
+        )
+
+        handler.handleTextMessageForTest(metadata1)
+        handler.handleTextMessageForTest(metadata2)
+
+        assertEquals(
+            "Different metadata should fire callback for each",
+            2,
+            handler.metadataUpdates.size
+        )
+        assertEquals("Song A", handler.metadataUpdates[0].title)
+        assertEquals("Song B", handler.metadataUpdates[1].title)
+    }
+
+    // ========== Helpers ==========
+
+    private fun buildServerStateJson(
+        title: String,
+        artist: String,
+        album: String
+    ): String {
+        return """
+            {
+                "type": "server/state",
+                "payload": {
+                    "metadata": {
+                        "timestamp": 1000000,
+                        "title": "$title",
+                        "artist": "$artist",
+                        "album_artist": "$artist",
+                        "album": "$album",
+                        "artwork_url": "",
+                        "year": 2024,
+                        "track": 1,
+                        "progress": {
+                            "track_progress": 0,
+                            "track_duration": 180000,
+                            "playback_speed": 1000
+                        }
+                    },
+                    "state": "playing"
+                }
+            }
+        """.trimIndent()
+    }
+}
+
+/**
+ * Concrete test implementation of SendSpinProtocolHandler.
+ * Records all callback invocations for assertion.
+ */
+class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
+
+    private val testScope = TestScope()
+    private val timeFilter = SendspinTimeFilter()
+    val sentMessages = mutableListOf<String>()
+    val metadataUpdates = mutableListOf<TrackMetadata>()
+    val playbackStateChanges = mutableListOf<String>()
+    val groupUpdates = mutableListOf<GroupInfo>()
+
+    fun setHandshakeCompleteForTest() {
+        handshakeComplete = true
+    }
+
+    fun exposedVolume(): Int = currentVolume
+    fun exposedSyncState(): String = currentSyncState
+
+    fun handleTextMessageForTest(text: String) {
+        handleTextMessage(text)
+    }
+
+    override fun sendTextMessage(text: String) {
+        sentMessages.add(text)
+    }
+
+    override fun getCoroutineScope(): CoroutineScope = testScope
+
+    override fun getTimeFilter(): SendspinTimeFilter = timeFilter
+
+    override fun isLowMemoryMode(): Boolean = false
+
+    override fun getClientId(): String = "test-client-id"
+
+    override fun getDeviceName(): String = "Test Device"
+
+    override fun getManufacturer(): String = "TestManufacturer"
+
+    override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> = emptyList()
+
+    override fun onHandshakeComplete(serverName: String, serverId: String) {}
+
+    override fun onMetadataUpdate(metadata: TrackMetadata) {
+        metadataUpdates.add(metadata)
+    }
+
+    override fun onPlaybackStateChanged(state: String) {
+        playbackStateChanges.add(state)
+    }
+
+    override fun onVolumeCommand(volume: Int) {}
+
+    override fun onMuteCommand(muted: Boolean) {}
+
+    override fun onGroupUpdate(info: GroupInfo) {
+        groupUpdates.add(info)
+    }
+
+    override fun onStreamStart(config: StreamConfig) {}
+
+    override fun onStreamClear() {}
+
+    override fun onStreamEnd() {}
+
+    override fun onAudioChunk(timestampMicros: Long, audioData: ByteArray) {}
+
+    override fun onArtwork(channel: Int, payload: ByteArray) {}
+
+    override fun onSyncOffsetApplied(offsetMs: Double, source: String) {}
+}
