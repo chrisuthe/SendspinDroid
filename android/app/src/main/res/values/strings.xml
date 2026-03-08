@@ -10,6 +10,7 @@
     <string name="next">Next</string>
     <string name="switch_group">Switch Group</string>
     <string name="volume">Volume</string>
+    <string name="device_volume">Device Volume</string>
     <string name="group_label">Group: %s</string>
     <string name="not_connected">Not Connected</string>
     <string name="connected">Connected</string>
