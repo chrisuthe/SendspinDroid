@@ -2,6 +2,7 @@ package com.sendspindroid.sendspin.decoder
 
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Build
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.util.Log
@@ -85,7 +86,7 @@ object AudioDecoderFactory {
         val depths = mutableListOf(16)
 
         // 32-bit integer PCM (ENCODING_PCM_32BIT) - API 31+
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
+        if (Build.VERSION.SDK_INT >= 31) {
             try {
                 val minBuf = AudioTrack.getMinBufferSize(
                     SendSpinProtocol.AudioFormat.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_32BIT
@@ -97,7 +98,7 @@ object AudioDecoderFactory {
         }
 
         // 24-bit packed (ENCODING_PCM_24BIT_PACKED) - API 31+
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
+        if (Build.VERSION.SDK_INT >= 31) {
             try {
                 val minBuf = AudioTrack.getMinBufferSize(
                     SendSpinProtocol.AudioFormat.SAMPLE_RATE, AudioFormat.CHANNEL_OUT_STEREO, AudioFormat.ENCODING_PCM_24BIT_PACKED

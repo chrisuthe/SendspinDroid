@@ -31,6 +31,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService
@@ -76,6 +77,8 @@ import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.NetworkState
 import com.sendspindroid.network.TransportType
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -114,7 +117,7 @@ import kotlinx.coroutines.withContext
  * 3. AAudio/Oboe playback with sync correction
  * 4. Remove ExoPlayer dependency
  */
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
 
     private var mediaSession: MediaLibrarySession? = null
@@ -508,7 +511,7 @@ class PlaybackService : MediaLibraryService() {
         data class Error(val message: String) : ConnectionState()
     }
 
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackService.onCreate() started")
@@ -681,7 +684,7 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Initializes the native Kotlin SendSpin client.
      */
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     private fun initializeSendSpinClient() {
         try {
             // Use user-configured player name, falls back to device model
@@ -704,7 +707,7 @@ class PlaybackService : MediaLibraryService() {
      * Updates SendSpinPlayer when playback state changes so MediaSession notifies controllers.
      */
     private inner class SyncAudioPlayerStateCallback : SyncAudioPlayerCallback {
-        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        @OptIn(UnstableApi::class)
         override fun onPlaybackStateChanged(state: SyncPlaybackState) {
             mainHandler.post {
                 Log.d(TAG, "SyncAudioPlayer state changed: $state")
@@ -721,7 +724,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        @OptIn(UnstableApi::class)
         override fun onBufferExhausted() {
             Log.e(TAG, "Buffer exhausted during reconnection - stopping playback")
             mainHandler.post {
@@ -754,7 +757,7 @@ class PlaybackService : MediaLibraryService() {
             Log.d(TAG, "Server discovered (ignored in service): $name at $address")
         }
 
-        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        @OptIn(UnstableApi::class)
         override fun onConnected(serverName: String) {
             mainHandler.post {
                 Log.d(TAG, "Connected to: $serverName")
@@ -798,7 +801,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        @OptIn(UnstableApi::class)
         override fun onDisconnected(wasUserInitiated: Boolean, wasReconnectExhausted: Boolean) {
             mainHandler.post {
                 Log.d(TAG, "Disconnected from server (userInitiated=$wasUserInitiated, reconnectExhausted=$wasReconnectExhausted)")
@@ -902,7 +905,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        @OptIn(UnstableApi::class)
         override fun onGroupUpdate(groupId: String, groupName: String, playbackState: String) {
             mainHandler.post {
                 Log.d(TAG, "Group update: id=$groupId name=$groupName state=$playbackState")
@@ -978,7 +981,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+        @OptIn(UnstableApi::class)
         override fun onMetadataUpdate(
             title: String,
             artist: String,
@@ -1373,7 +1376,7 @@ class PlaybackService : MediaLibraryService() {
         return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
 
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     private fun updateMediaSessionArtwork(bitmap: Bitmap) {
         val state = _playbackState.value
 
@@ -1382,7 +1385,7 @@ class PlaybackService : MediaLibraryService() {
             artist = state.artist,
             album = state.album,
             artwork = bitmap,
-            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
+            artworkUri = state.artworkUrl?.let { Uri.parse(it) }
         )
 
         broadcastMetadataToControllers(
@@ -1395,7 +1398,7 @@ class PlaybackService : MediaLibraryService() {
         )
     }
 
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     private fun updateMediaMetadata(title: String, artist: String, album: String) {
         val state = _playbackState.value
 
@@ -1404,7 +1407,7 @@ class PlaybackService : MediaLibraryService() {
             artist = state.artist,
             album = state.album,
             artwork = currentArtwork,
-            artworkUri = state.artworkUrl?.let { android.net.Uri.parse(it) }
+            artworkUri = state.artworkUrl?.let { Uri.parse(it) }
         )
 
         broadcastMetadataToControllers(
@@ -2090,7 +2093,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     private fun initializeMediaSession() {
         val player = sendSpinPlayer ?: run {
             Log.e(TAG, "Cannot create MediaSession: sendSpinPlayer is null")
@@ -2419,8 +2422,8 @@ class PlaybackService : MediaLibraryService() {
             // Player commands must include SET_MEDIA_ITEM so the legacy compat bridge
             // can translate playFromMediaId -> onAddMediaItems for Android Auto.
             val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                .add(androidx.media3.common.Player.COMMAND_SET_MEDIA_ITEM)
-                .add(androidx.media3.common.Player.COMMAND_PREPARE)
+                .add(Player.COMMAND_SET_MEDIA_ITEM)
+                .add(Player.COMMAND_PREPARE)
                 .build()
 
             return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -3119,7 +3122,7 @@ class PlaybackService : MediaLibraryService() {
      * Fetches the MA queue in the background and populates the player's timeline.
      * This makes the native queue button in Android Auto show all queue items.
      */
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     private fun populatePlayerQueue() {
         if (!MusicAssistantManager.connectionState.value.isAvailable) return
 
@@ -3367,7 +3370,7 @@ class PlaybackService : MediaLibraryService() {
         return null
     }
 
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     private fun initializePlayer() {
         sendSpinPlayer = SendSpinPlayer()
         sendSpinPlayer?.onQueueItemSelected = { mediaId ->
@@ -3437,7 +3440,7 @@ class PlaybackService : MediaLibraryService() {
         super.onTaskRemoved(rootIntent)
     }
 
-    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @OptIn(UnstableApi::class)
     override fun onDestroy() {
         Log.d(TAG, "PlaybackService destroyed")
 

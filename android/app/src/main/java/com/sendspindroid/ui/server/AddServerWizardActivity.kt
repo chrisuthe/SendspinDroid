@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.fragment.app.FragmentActivity
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.lifecycleScope
@@ -42,6 +43,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 
 /**
  * Full-screen wizard Activity for adding or editing unified servers.
@@ -119,7 +127,7 @@ class AddServerWizardActivity : FragmentActivity() {
                 val state by viewModel.wizardState.collectAsStateWithLifecycle()
 
                 // Auto-start discovery when entering a FindServer step
-                androidx.compose.runtime.LaunchedEffect(state.currentStep) {
+                LaunchedEffect(state.currentStep) {
                     if ((state.currentStep == WizardStep.SS_FindServer ||
                          state.currentStep == WizardStep.MA_FindServer) && !state.isSearching) {
                         startDiscovery()
@@ -351,22 +359,22 @@ class AddServerWizardActivity : FragmentActivity() {
 
                 Log.d(TAG, "Testing WebSocket connection to: $wsUrl")
 
-                val client = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
                     .build()
 
-                val request = okhttp3.Request.Builder()
+                val request = Request.Builder()
                     .url(wsUrl)
                     .build()
 
                 var resultCode = 0
                 var connectionSuccess = false
                 var errorMessage: String? = null
-                val latch = java.util.concurrent.CountDownLatch(1)
+                val latch = CountDownLatch(1)
 
-                val listener = object : okhttp3.WebSocketListener() {
-                    override fun onOpen(webSocket: okhttp3.WebSocket, response: okhttp3.Response) {
+                val listener = object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
                         Log.d(TAG, "WebSocket connection opened, code: ${response.code}")
                         resultCode = response.code
                         connectionSuccess = true
@@ -374,7 +382,7 @@ class AddServerWizardActivity : FragmentActivity() {
                         latch.countDown()
                     }
 
-                    override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         Log.d(TAG, "WebSocket connection failed: ${t.message}, response code: ${response?.code}")
                         resultCode = response?.code ?: 0
                         errorMessage = t.message
@@ -384,7 +392,7 @@ class AddServerWizardActivity : FragmentActivity() {
                 }
 
                 client.newWebSocket(request, listener)
-                latch.await(6, java.util.concurrent.TimeUnit.SECONDS)
+                latch.await(6, TimeUnit.SECONDS)
                 client.dispatcher.executorService.shutdown()
 
                 if (connectionSuccess) {
@@ -518,13 +526,13 @@ class AddServerWizardActivity : FragmentActivity() {
 
                 Log.d(TAG, "Testing WebSocket proxy connection to: $wsUrl")
 
-                val clientBuilder = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                val clientBuilder = OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
 
                 val client = clientBuilder.build()
 
-                val requestBuilder = okhttp3.Request.Builder()
+                val requestBuilder = Request.Builder()
                     .url(wsUrl)
 
                 if (viewModel.proxyToken.isNotBlank()) {
@@ -533,17 +541,17 @@ class AddServerWizardActivity : FragmentActivity() {
 
                 var connectionSuccess = false
                 var errorMessage: String? = null
-                val latch = java.util.concurrent.CountDownLatch(1)
+                val latch = CountDownLatch(1)
 
-                val listener = object : okhttp3.WebSocketListener() {
-                    override fun onOpen(webSocket: okhttp3.WebSocket, response: okhttp3.Response) {
+                val listener = object : WebSocketListener() {
+                    override fun onOpen(webSocket: WebSocket, response: Response) {
                         Log.d(TAG, "Proxy WebSocket connection opened, code: ${response.code}")
                         connectionSuccess = true
                         webSocket.close(1000, "Test complete")
                         latch.countDown()
                     }
 
-                    override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                         Log.d(TAG, "Proxy WebSocket connection failed: ${t.message}, response code: ${response?.code}")
                         errorMessage = t.message
                         connectionSuccess = response != null
@@ -552,7 +560,7 @@ class AddServerWizardActivity : FragmentActivity() {
                 }
 
                 client.newWebSocket(requestBuilder.build(), listener)
-                latch.await(11, java.util.concurrent.TimeUnit.SECONDS)
+                latch.await(11, TimeUnit.SECONDS)
                 client.dispatcher.executorService.shutdown()
 
                 if (connectionSuccess) {

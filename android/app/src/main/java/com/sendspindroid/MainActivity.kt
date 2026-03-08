@@ -15,19 +15,25 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import android.os.Build.VERSION_CODES
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.debug.FileLogger
 import android.app.UiModeManager
+import android.annotation.TargetApi
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -39,6 +45,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityManager
 import android.view.animation.AnimationUtils
 import android.widget.EditText
+import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -97,14 +104,19 @@ import com.sendspindroid.ui.main.PlaybackState
 import com.sendspindroid.ui.main.ArtworkSource
 import com.sendspindroid.ui.main.ServerListScreen
 import com.sendspindroid.ui.main.components.ServerItemStatus
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.sendspindroid.ui.AppShell
 import com.sendspindroid.ui.adaptive.FormFactor
 import com.sendspindroid.ui.adaptive.LocalFormFactor
+import com.sendspindroid.ui.adaptive.determineFormFactor
 import com.sendspindroid.ui.adaptive.isTvDevice
 import com.sendspindroid.ui.theme.SendSpinTheme
 import com.sendspindroid.ui.main.NavTab
@@ -790,7 +802,7 @@ class MainActivity : AppCompatActivity() {
      * media controller) continue to work and update the ViewModel, which
      * the Compose UI observes.
      */
-    @OptIn(androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi::class)
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     private fun setupComposeShell() {
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -804,7 +816,7 @@ class MainActivity : AppCompatActivity() {
         contentParent?.removeView(binding.coordinatorLayout)
 
         // Create a FrameLayout wrapper for Compose + detail fragments
-        val rootFrame = android.widget.FrameLayout(this).apply {
+        val rootFrame = FrameLayout(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
@@ -830,25 +842,25 @@ class MainActivity : AppCompatActivity() {
         composeOverlay = overlay
 
         overlay.setContent {
-            val windowSizeClass = androidx.compose.material3.windowsizeclass.calculateWindowSizeClass(this)
-            val detectedFormFactor = com.sendspindroid.ui.adaptive.determineFormFactor(
+            val windowSizeClass = calculateWindowSizeClass(this)
+            val detectedFormFactor = determineFormFactor(
                 windowSizeClass = windowSizeClass,
                 isTv = isTvDevice
             )
             // Observe layout mode reactively so changes in Settings take effect immediately
-            val layoutModeState = androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(UserSettings.layoutMode)
+            val layoutModeState = remember {
+                mutableStateOf(UserSettings.layoutMode)
             }
-            androidx.compose.runtime.DisposableEffect(Unit) {
+            DisposableEffect(Unit) {
                 val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
                     if (key == UserSettings.KEY_LAYOUT_MODE) {
                         layoutModeState.value = UserSettings.layoutMode
                     }
                 }
-                androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@MainActivity)
+                PreferenceManager.getDefaultSharedPreferences(this@MainActivity)
                     .registerOnSharedPreferenceChangeListener(listener)
                 onDispose {
-                    androidx.preference.PreferenceManager.getDefaultSharedPreferences(this@MainActivity)
+                    PreferenceManager.getDefaultSharedPreferences(this@MainActivity)
                         .unregisterOnSharedPreferenceChangeListener(listener)
                 }
             }
@@ -1860,7 +1872,7 @@ class MainActivity : AppCompatActivity() {
         if (durationMs >= 0 || positionMs >= 0) {
             val positionUpdatedAt = extras.getLong(
                 PlaybackService.EXTRA_POSITION_UPDATED_AT,
-                android.os.SystemClock.elapsedRealtime()
+                SystemClock.elapsedRealtime()
             )
             viewModel.updateTrackProgress(
                 positionMs = if (positionMs >= 0) positionMs else 0,
@@ -3173,11 +3185,11 @@ class MainActivity : AppCompatActivity() {
      * @param factor How much to darken (0.0 = black, 1.0 = original color)
      */
     private fun darkenColor(color: Int, factor: Float): Int {
-        val a = android.graphics.Color.alpha(color)
-        val r = (android.graphics.Color.red(color) * factor).toInt()
-        val g = (android.graphics.Color.green(color) * factor).toInt()
-        val b = (android.graphics.Color.blue(color) * factor).toInt()
-        return android.graphics.Color.argb(a, r, g, b)
+        val a = Color.alpha(color)
+        val r = (Color.red(color) * factor).toInt()
+        val g = (Color.green(color) * factor).toInt()
+        val b = (Color.blue(color) * factor).toInt()
+        return Color.argb(a, r, g, b)
     }
 
     /**
@@ -3209,7 +3221,7 @@ class MainActivity : AppCompatActivity() {
         if (UserSettings.lowMemoryMode) return
 
         // RenderEffect blur requires API 31+ (Android 12)
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+        if (Build.VERSION.SDK_INT < VERSION_CODES.S) return
 
         // De-duplicate: skip if this is the same artwork (use generationId as cheap identity check)
         val artworkId = "${bitmap.generationId}_${bitmap.width}x${bitmap.height}"
@@ -3238,12 +3250,12 @@ class MainActivity : AppCompatActivity() {
      * Applies Gaussian blur effect to the background using RenderEffect.
      * Blur radius can be adjusted (higher = more blur).
      */
-    @android.annotation.TargetApi(android.os.Build.VERSION_CODES.S)
+    @TargetApi(VERSION_CODES.S)
     private fun applyBlurEffect() {
         val blurRadius = 80f  // Adjust blur intensity here (1-150+)
-        val blurEffect = android.graphics.RenderEffect.createBlurEffect(
+        val blurEffect = RenderEffect.createBlurEffect(
             blurRadius, blurRadius,
-            android.graphics.Shader.TileMode.CLAMP
+            Shader.TileMode.CLAMP
         )
         binding.backgroundArtView.setRenderEffect(blurEffect)
     }
@@ -3253,7 +3265,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun clearBlurredBackground() {
         // Skip if feature not available
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S) return
+        if (Build.VERSION.SDK_INT < VERSION_CODES.S) return
 
         // Clear tracking so next artwork will update
         lastArtworkSource = null
@@ -3298,7 +3310,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Fade in the blurred background art
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        if (Build.VERSION.SDK_INT >= VERSION_CODES.S) {
             binding.backgroundArtView.animate()
                 .alpha(0.5f)
                 .setDuration(300)

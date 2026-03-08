@@ -14,6 +14,7 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentManager
 import com.sendspindroid.R
 import com.sendspindroid.databinding.DialogQrScannerBinding
 import com.sendspindroid.remote.RemoteConnection
@@ -39,7 +40,7 @@ class QrScannerDialog : DialogFragment() {
         private const val TAG = "QrScannerDialog"
 
         fun show(
-            fragmentManager: androidx.fragment.app.FragmentManager,
+            fragmentManager: FragmentManager,
             onRemoteIdScanned: (String) -> Unit
         ): QrScannerDialog {
             val dialog = QrScannerDialog()

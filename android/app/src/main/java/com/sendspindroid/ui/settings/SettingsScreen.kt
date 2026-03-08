@@ -2,6 +2,7 @@ package com.sendspindroid.ui.settings
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -26,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -475,7 +477,7 @@ private fun SyncOffsetPreference(
             onClick = onDecrease,
             modifier = Modifier.size(44.dp),
             shape = RoundedCornerShape(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+            contentPadding = PaddingValues(0.dp)
         ) {
             Text("-", style = MaterialTheme.typography.titleMedium)
         }
@@ -486,7 +488,7 @@ private fun SyncOffsetPreference(
         FilledTonalButton(
             onClick = onValueClick,
             shape = RoundedCornerShape(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Text(
                 text = if (offset >= 0) "+${offset}ms" else "${offset}ms",
@@ -501,7 +503,7 @@ private fun SyncOffsetPreference(
             onClick = onIncrease,
             modifier = Modifier.size(44.dp),
             shape = RoundedCornerShape(8.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
+            contentPadding = PaddingValues(0.dp)
         ) {
             Text("+", style = MaterialTheme.typography.titleMedium)
         }
@@ -672,7 +674,7 @@ private fun CodecSelectionDialog(
                             .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        androidx.compose.material3.RadioButton(
+                        RadioButton(
                             selected = currentCodec == value,
                             onClick = { onSelect(value) }
                         )

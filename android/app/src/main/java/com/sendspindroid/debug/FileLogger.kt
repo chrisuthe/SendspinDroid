@@ -1,6 +1,7 @@
 package com.sendspindroid.debug
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import java.io.File
 import java.io.PrintWriter
@@ -61,8 +62,8 @@ object FileLogger {
         // Clear old log on init
         logFile?.writeText("=== SendSpinDroid Debug Log ===\n")
         logFile?.appendText("Initialized at ${Date()}\n")
-        logFile?.appendText("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\n")
-        logFile?.appendText("Android: ${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})\n")
+        logFile?.appendText("Device: ${Build.MANUFACTURER} ${Build.MODEL}\n")
+        logFile?.appendText("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\n")
         logFile?.appendText("${"=".repeat(50)}\n\n")
     }
 

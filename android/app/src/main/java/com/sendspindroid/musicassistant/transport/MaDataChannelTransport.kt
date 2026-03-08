@@ -12,6 +12,7 @@ import org.json.JSONObject
 import org.webrtc.DataChannel
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.util.UUID
 
 /**
  * WebRTC DataChannel transport for the Music Assistant API.
@@ -114,7 +115,7 @@ class MaDataChannelTransport(
         // send auth immediately. Otherwise wait for it.
         if (serverInfoReceived) {
             Log.d(TAG, "ServerInfo already received, sending auth immediately")
-            val msgId = java.util.UUID.randomUUID().toString()
+            val msgId = UUID.randomUUID().toString()
             authMessageId = msgId
             _state.value = MaApiTransport.State.Authenticating
             sendAuthCommand(msgId)
@@ -157,7 +158,7 @@ class MaDataChannelTransport(
         // send login immediately. Otherwise wait for it.
         if (serverInfoReceived) {
             Log.d(TAG, "ServerInfo already received, sending login immediately")
-            val msgId = java.util.UUID.randomUUID().toString()
+            val msgId = UUID.randomUUID().toString()
             authMessageId = msgId
             _state.value = MaApiTransport.State.Authenticating
             sendAuthCommand(msgId)
@@ -361,7 +362,7 @@ class MaDataChannelTransport(
                 // ServerInfo — connect() will detect it and send auth immediately.
                 if (authDeferred != null) {
                     _state.value = MaApiTransport.State.Authenticating
-                    val msgId = java.util.UUID.randomUUID().toString()
+                    val msgId = UUID.randomUUID().toString()
                     authMessageId = msgId
                     sendAuthCommand(msgId)
                 } else {
@@ -404,7 +405,7 @@ class MaDataChannelTransport(
                         // flipping isLoginMode, which was not thread-safe (H-19).
                         pendingAuthToken = token
                         loginResponse = json  // Save for later completion
-                        val newMsgId = java.util.UUID.randomUUID().toString()
+                        val newMsgId = UUID.randomUUID().toString()
                         authMessageId = newMsgId
                         sendAuthCommand(newMsgId, forceTokenMode = true)
                     }

@@ -2,6 +2,7 @@ package com.sendspindroid.sendspin
 
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.os.Build
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.util.Log
@@ -469,16 +470,16 @@ class SyncAudioPlayer(
 
         val encoding = when (bitDepth) {
             16 -> AudioFormat.ENCODING_PCM_16BIT
-            24 -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+            24 -> if (Build.VERSION.SDK_INT >= 31) {
                 AudioFormat.ENCODING_PCM_24BIT_PACKED
             } else {
-                Log.e(TAG, "24-bit PCM requires API 31+, device is API ${android.os.Build.VERSION.SDK_INT}")
+                Log.e(TAG, "24-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
                 return
             }
-            32 -> if (android.os.Build.VERSION.SDK_INT >= 31) {
+            32 -> if (Build.VERSION.SDK_INT >= 31) {
                 AudioFormat.ENCODING_PCM_32BIT
             } else {
-                Log.e(TAG, "32-bit PCM requires API 31+, device is API ${android.os.Build.VERSION.SDK_INT}")
+                Log.e(TAG, "32-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
                 return
             }
             else -> {

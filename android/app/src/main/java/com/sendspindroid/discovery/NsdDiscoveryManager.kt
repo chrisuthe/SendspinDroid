@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 
 /**
@@ -120,7 +122,7 @@ class NsdDiscoveryManager(
                     Log.d(TAG, "Pending restart detected, restarting discovery")
                     pendingRestart = false
                     // Post to handler to avoid potential recursion issues
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    Handler(Looper.getMainLooper()).post {
                         startDiscovery()
                     }
                 }
