@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -220,7 +221,7 @@ private fun getSortLabel(sort: LibraryViewModel.SortOption): String {
 @Composable
 private fun ItemsList(
     items: List<MaLibraryItem>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
+    listState: LazyListState,
     isLoadingMore: Boolean,
     onItemClick: (MaLibraryItem) -> Unit,
     onAddToPlaylist: (MaLibraryItem) -> Unit,

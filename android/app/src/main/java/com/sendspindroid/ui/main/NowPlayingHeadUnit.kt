@@ -22,6 +22,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -175,7 +176,7 @@ fun NowPlayingHeadUnit(
         // Up Next queue peek (when MA connected and queue available)
         if (isMaConnected && queueViewModel != null) {
             // Load queue on first composition and refresh when track changes
-            androidx.compose.runtime.LaunchedEffect(metadata.title) {
+            LaunchedEffect(metadata.title) {
                 queueViewModel.loadQueue(showLoading = false)
             }
             Spacer(modifier = Modifier.height(12.dp))

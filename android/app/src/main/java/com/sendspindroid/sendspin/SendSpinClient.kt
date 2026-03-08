@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin
 
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import com.sendspindroid.UserSettings
 import com.sendspindroid.remote.WebRTCTransport
@@ -24,6 +25,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -204,7 +208,7 @@ class SendSpinClient(
 
     override fun getDeviceName(): String = deviceName
 
-    override fun getManufacturer(): String = android.os.Build.MANUFACTURER ?: "Unknown"
+    override fun getManufacturer(): String = Build.MANUFACTURER ?: "Unknown"
 
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> =
         MessageBuilder.buildSupportedFormats(
@@ -845,10 +849,10 @@ class SendSpinClient(
                 // WebSocket message.
                 Log.d(TAG, "Sending proxy auth message (token ${authToken!!.length} chars)")
                 awaitingAuthResponse = true
-                val authMsg = kotlinx.serialization.json.buildJsonObject {
-                    put("type", kotlinx.serialization.json.JsonPrimitive("auth"))
-                    put("token", kotlinx.serialization.json.JsonPrimitive(authToken))
-                    put("client_id", kotlinx.serialization.json.JsonPrimitive(clientId))
+                val authMsg = buildJsonObject {
+                    put("type", JsonPrimitive("auth"))
+                    put("token", JsonPrimitive(authToken))
+                    put("client_id", JsonPrimitive(clientId))
                 }
                 val sent = transport?.send(authMsg.toString())
                 Log.d(TAG, "Auth message send result: $sent")
@@ -867,7 +871,7 @@ class SendSpinClient(
             // Check for auth failure (server may send error if token is invalid)
             if (connectionMode == ConnectionMode.PROXY && !handshakeComplete) {
                 try {
-                    val json = kotlinx.serialization.json.Json.parseToJsonElement(text).jsonObject
+                    val json = Json.parseToJsonElement(text).jsonObject
                     val msgType = json["type"]?.jsonPrimitive?.contentOrNull ?: ""
                     if (msgType == "auth_failed" || msgType == "error") {
                         val msg = json["message"]?.jsonPrimitive?.contentOrNull ?: "Authentication failed"

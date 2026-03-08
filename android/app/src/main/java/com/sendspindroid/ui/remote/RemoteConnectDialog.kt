@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentManager
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
 import com.sendspindroid.remote.RemoteConnection
@@ -39,7 +40,7 @@ class RemoteConnectDialog : DialogFragment() {
         private const val TAG = "RemoteConnectDialog"
 
         fun show(
-            fragmentManager: androidx.fragment.app.FragmentManager,
+            fragmentManager: FragmentManager,
             onConnect: (remoteId: String, nickname: String?) -> Unit
         ): RemoteConnectDialog {
             val dialog = RemoteConnectDialog()

@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.lifecycleScope
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
@@ -54,7 +55,7 @@ class ProxyConnectDialog : DialogFragment() {
         private const val TAG = "ProxyConnectDialog"
 
         fun show(
-            fragmentManager: androidx.fragment.app.FragmentManager,
+            fragmentManager: FragmentManager,
             onConnect: (url: String, authToken: String, nickname: String?) -> Unit
         ): ProxyConnectDialog {
             val dialog = ProxyConnectDialog()
