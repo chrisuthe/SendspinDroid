@@ -238,7 +238,10 @@ private fun FilterChipsRow(
         contentPadding = PaddingValues(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(filterOptions) { (type, labelRes) ->
+        items(
+            items = filterOptions,
+            key = { (type, _) -> type.name }
+        ) { (type, labelRes) ->
             FilterChip(
                 selected = activeFilters.contains(type),
                 onClick = { onFilterToggle(type, !activeFilters.contains(type)) },
