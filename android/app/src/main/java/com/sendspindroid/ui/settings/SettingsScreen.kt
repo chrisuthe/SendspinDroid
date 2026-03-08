@@ -475,7 +475,7 @@ private fun SyncOffsetPreference(
         // -10ms button
         OutlinedButton(
             onClick = onDecrease,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(0.dp)
         ) {
@@ -501,7 +501,7 @@ private fun SyncOffsetPreference(
         // +10ms button
         OutlinedButton(
             onClick = onIncrease,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(0.dp)
         ) {

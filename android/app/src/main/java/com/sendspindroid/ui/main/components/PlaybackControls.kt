@@ -71,7 +71,7 @@ fun PlaybackControls(
                     onClick = onSwitchGroupClick,
                     enabled = isSwitchGroupEnabled,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .tvFocusable()
                 ) {
                     Icon(
@@ -147,7 +147,7 @@ fun PlaybackControls(
                 FilledTonalIconButton(
                     onClick = onFavoriteClick,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .tvFocusable()
                 ) {
                     Icon(
@@ -171,7 +171,7 @@ fun PlaybackControls(
                 FilledTonalIconButton(
                     onClick = onPlayerClick,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .tvFocusable()
                 ) {
                     Icon(

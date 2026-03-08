@@ -104,7 +104,7 @@ fun AlbumGridItem(
                 ) {
                     IconButton(
                         onClick = { showMenu = true },
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Filled.MoreVert,

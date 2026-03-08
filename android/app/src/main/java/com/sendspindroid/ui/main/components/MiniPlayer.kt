@@ -227,7 +227,7 @@ fun MiniPlayer(
                 ) {
                     IconButton(
                         onClick = onPreviousClick,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_skip_previous),
@@ -239,7 +239,7 @@ fun MiniPlayer(
 
                     FilledIconButton(
                         onClick = onPlayPauseClick,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -259,7 +259,7 @@ fun MiniPlayer(
 
                     IconButton(
                         onClick = onNextClick,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_skip_next),
@@ -440,7 +440,7 @@ fun MiniPlayerSide(
                 ) {
                     FilledIconButton(
                         onClick = onPlayPauseClick,
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.primary,
                             contentColor = MaterialTheme.colorScheme.onPrimary

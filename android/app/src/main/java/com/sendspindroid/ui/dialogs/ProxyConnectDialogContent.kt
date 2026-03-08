@@ -349,7 +349,7 @@ private fun SavedProxyServerItem(
             // Delete button
             IconButton(
                 onClick = onDelete,
-                modifier = Modifier.size(32.dp),
+                modifier = Modifier.size(48.dp),
                 enabled = enabled
             ) {
                 Icon(

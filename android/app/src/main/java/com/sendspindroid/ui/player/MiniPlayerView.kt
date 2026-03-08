@@ -157,7 +157,7 @@ fun MiniPlayerView(
                     // Stop button
                     IconButton(
                         onClick = onStopClick,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             painter = painterResource(R.drawable.ic_stop),
@@ -170,7 +170,7 @@ fun MiniPlayerView(
                     // Play/Pause button
                     FilledIconButton(
                         onClick = onPlayPauseClick,
-                        modifier = Modifier.size(44.dp)
+                        modifier = Modifier.size(48.dp)
                     ) {
                         Icon(
                             painter = painterResource(

@@ -342,7 +342,7 @@ private fun PlaylistActionRow(
         // Add button (tonal)
         FilledTonalIconButton(
             onClick = onAppend,
-            modifier = Modifier.size(36.dp)
+            modifier = Modifier.size(48.dp)
         ) {
             Icon(
                 imageVector = Icons.Filled.Add,
@@ -356,7 +356,7 @@ private fun PlaylistActionRow(
         // Replace button (error-tinted)
         IconButton(
             onClick = onReplace,
-            modifier = Modifier.size(36.dp),
+            modifier = Modifier.size(48.dp),
             colors = IconButtonDefaults.iconButtonColors(
                 contentColor = MaterialTheme.colorScheme.error
             )
