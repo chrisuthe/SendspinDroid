@@ -399,7 +399,7 @@ private fun NowPlayingPortrait(
             Text(
                 text = metadataText,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -415,7 +415,7 @@ private fun NowPlayingPortrait(
             Text(
                 text = stringResource(R.string.group_label, groupName),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -556,7 +556,7 @@ private fun NowPlayingLandscape(
                 Text(
                     text = metadataText,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -570,7 +570,7 @@ private fun NowPlayingLandscape(
                 Text(
                     text = stringResource(R.string.group_label, groupName),
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                    color = MaterialTheme.colorScheme.primary,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -862,7 +862,7 @@ private fun NowPlayingTv(
                     Text(
                         text = metadataText,
                         fontSize = AdaptiveDefaults.bodyTextSize(formFactor),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -876,7 +876,7 @@ private fun NowPlayingTv(
                     Text(
                         text = stringResource(R.string.group_label, groupName),
                         fontSize = AdaptiveDefaults.captionTextSize(formFactor),
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                        color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
