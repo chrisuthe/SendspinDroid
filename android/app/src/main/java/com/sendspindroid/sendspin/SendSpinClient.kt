@@ -221,7 +221,7 @@ class SendSpinClient(
 
         if (timeFilter.isFrozen) {
             timeFilter.thaw()
-            Log.i(TAG, "Time filter thawed after reconnection - sync preserved")
+            Log.i(TAG, "Time filter thawed after reconnection - re-syncing with increased covariance")
         }
 
         reconnecting.set(false)

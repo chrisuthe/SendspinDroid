@@ -489,14 +489,23 @@ class SendspinTimeFilter {
         offset = frozen.offset
         drift = frozen.drift
 
-        // Increase covariance by 10x to allow faster adaptation
-        // while preserving the general sync estimate
-        p00 = frozen.p00 * 10.0
-        p01 = frozen.p01 * 3.0
-        p10 = frozen.p10 * 3.0
-        p11 = frozen.p11 * 10.0
+        // Increase covariance by 100x to allow rapid re-convergence after
+        // reconnection. The old offset is a reasonable starting point but may
+        // be stale if the server restarted or network conditions changed
+        // significantly. Large covariance lets the filter quickly adopt new
+        // measurements while still benefiting from the prior estimate.
+        p00 = frozen.p00 * 100.0
+        p01 = frozen.p01 * 10.0
+        p10 = frozen.p10 * 10.0
+        p11 = frozen.p11 * 100.0
 
-        measurementCount = frozen.measurementCount
+        // Reset measurement count to MIN_MEASUREMENTS so that:
+        // 1. isReady remains true (playback continues from buffer)
+        // 2. isConverged returns false (forces aggressive burst sync)
+        // 3. addMeasurement() takes the Kalman update path (not init path)
+        // This ensures TimeSyncManager uses fast burst parameters until
+        // the filter actually reconverges with fresh measurements.
+        measurementCount = MIN_MEASUREMENTS
         baselineClientTime = frozen.baselineClientTime
 
         // Restore outlier rejection state (offsets are still valid reference)
@@ -509,6 +518,11 @@ class SendspinTimeFilter {
         innovationWindowIndex = 0
         innovationWindowCount = 0
         adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
+
+        // Reset convergence tracking so it gets re-logged after re-sync
+        hasLoggedConvergence = false
+        convergenceTimeMs = 0
+        firstMeasurementTimeMs = 0
 
         frozenState = null
     }
