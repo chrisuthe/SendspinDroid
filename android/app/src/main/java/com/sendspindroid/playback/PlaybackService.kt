@@ -1183,6 +1183,10 @@ class PlaybackService : MediaLibraryService() {
             // Guard: don't try to decode if the decoder is being replaced (race with onStreamStart)
             if (!decoderReady) return
 
+            // Capture local reference to avoid TOCTOU race: the main thread can null
+            // and release syncAudioPlayer between a null-check and method call.
+            val player = syncAudioPlayer ?: return
+
             // Decode compressed data to PCM (pass-through for PCM codec)
             val pcmData = try {
                 audioDecoder?.decode(audioData) ?: audioData
@@ -1191,7 +1195,7 @@ class PlaybackService : MediaLibraryService() {
                 return
             }
             // Queue decoded PCM - SyncAudioPlayer handles threading internally
-            syncAudioPlayer?.queueChunk(serverTimeMicros, pcmData)
+            player.queueChunk(serverTimeMicros, pcmData)
         }
 
         override fun onVolumeChanged(volume: Int) {
