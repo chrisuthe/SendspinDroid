@@ -2746,8 +2746,8 @@ class MainActivity : AppCompatActivity() {
             dialog.setMessage(getString(R.string.ma_login_dialog_logging_in))
 
             lifecycleScope.launch {
-                val success = MusicAssistantManager.login(username, password)
-                if (success) {
+                val result = MusicAssistantManager.login(username, password)
+                if (result.isSuccess) {
                     dialog.dismiss()
                 } else {
                     // Re-enable inputs for retry
