@@ -351,7 +351,10 @@ private fun UpNextQueuePeek(
             verticalArrangement = Arrangement.spacedBy(2.dp),
             userScrollEnabled = false
         ) {
-            itemsIndexed(upNext) { index, item ->
+            itemsIndexed(
+                items = upNext,
+                key = { _, item -> item.queueItemId }
+            ) { index, item ->
                 UpNextItem(index = index + 1, item = item)
             }
         }

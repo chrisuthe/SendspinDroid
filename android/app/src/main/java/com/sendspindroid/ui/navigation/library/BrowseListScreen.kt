@@ -194,7 +194,10 @@ private fun FilterAndSortChipsRow(
 
         // Sort chips (only when multiple options available)
         if (sortOptions.size > 1) {
-            items(sortOptions) { sortOption ->
+            items(
+                items = sortOptions,
+                key = { it.name }
+            ) { sortOption ->
                 FilterChip(
                     selected = sortOption == selectedSort,
                     onClick = { onSortChange(sortOption) },
