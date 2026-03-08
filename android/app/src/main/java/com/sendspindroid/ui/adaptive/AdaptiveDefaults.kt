@@ -89,7 +89,7 @@ object AdaptiveDefaults {
     /** Large playback button size (play/pause) */
     fun playButtonSize(formFactor: FormFactor): Dp = when (formFactor) {
         FormFactor.PHONE -> 72.dp
-        FormFactor.TABLET_7 -> 80.dp
+        FormFactor.TABLET_7 -> 88.dp
         FormFactor.TABLET_10 -> 88.dp
         FormFactor.TV -> 96.dp
         FormFactor.HEADUNIT -> 96.dp
@@ -98,7 +98,7 @@ object AdaptiveDefaults {
     /** Small playback button size (prev/next/group) */
     fun controlButtonSize(formFactor: FormFactor): Dp = when (formFactor) {
         FormFactor.PHONE -> 56.dp
-        FormFactor.TABLET_7 -> 64.dp
+        FormFactor.TABLET_7 -> 72.dp
         FormFactor.TABLET_10 -> 72.dp
         FormFactor.TV -> 80.dp
         FormFactor.HEADUNIT -> 80.dp

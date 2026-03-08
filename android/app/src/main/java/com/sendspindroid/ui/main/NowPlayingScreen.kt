@@ -442,6 +442,7 @@ private fun NowPlayingPortrait(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Playback Controls
+        val formFactor = LocalFormFactor.current
         PlaybackControls(
             isPlaying = isPlaying,
             isEnabled = controlsEnabled,
@@ -456,7 +457,9 @@ private fun NowPlayingPortrait(
             isFavorite = false, // TODO: Track favorite state
             onFavoriteClick = onFavoriteClick,
             showPlayerButton = showPlayerButton,
-            onPlayerClick = onPlayerClick
+            onPlayerClick = onPlayerClick,
+            playButtonSize = AdaptiveDefaults.playButtonSize(formFactor),
+            controlButtonSize = AdaptiveDefaults.controlButtonSize(formFactor)
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -597,6 +600,7 @@ private fun NowPlayingLandscape(
             Spacer(modifier = Modifier.height(12.dp))
 
             // Playback Controls (horizontal layout in landscape)
+            val formFactor = LocalFormFactor.current
             PlaybackControls(
                 isPlaying = isPlaying,
                 isEnabled = controlsEnabled,
@@ -610,7 +614,9 @@ private fun NowPlayingLandscape(
                 isFavorite = false,
                 onFavoriteClick = onFavoriteClick,
                 showPlayerButton = showPlayerButton,
-                onPlayerClick = onPlayerClick
+                onPlayerClick = onPlayerClick,
+                playButtonSize = AdaptiveDefaults.playButtonSize(formFactor),
+                controlButtonSize = AdaptiveDefaults.controlButtonSize(formFactor)
             )
 
             Spacer(modifier = Modifier.height(16.dp))
