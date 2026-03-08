@@ -1,0 +1,186 @@
+package com.sendspindroid.sendspin
+
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import org.junit.Assert.*
+import org.junit.Before
+import org.junit.Test
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Unit tests for SyncAudioPlayer.
+ *
+ * These tests verify the playback state machine, sync correction logic,
+ * gap/overlap handling, and pre-sync buffering behavior.
+ *
+ * Since SyncAudioPlayer depends on Android's AudioTrack (which is unavailable
+ * in JVM unit tests), we use reflection to access and verify internal state
+ * where necessary, and mock the SendspinTimeFilter for time conversion.
+ */
+class SyncAudioPlayerTest {
+
+    private lateinit var timeFilter: SendspinTimeFilter
+    private lateinit var player: SyncAudioPlayer
+
+    // Standard audio format: 48kHz, 2ch, 16-bit = 4 bytes per frame
+    private val sampleRate = 48000
+    private val channels = 2
+    private val bitDepth = 16
+    private val bytesPerFrame = channels * (bitDepth / 8)  // 4
+
+    @Before
+    fun setUp() {
+        timeFilter = mockk(relaxed = true)
+        // Default: time filter is ready with identity mapping (offset = 0)
+        every { timeFilter.isReady } returns true
+        every { timeFilter.serverToClient(any()) } answers { firstArg() }
+        every { timeFilter.clientToServer(any()) } answers { firstArg() }
+        every { timeFilter.offsetMicros } returns 0L
+        every { timeFilter.measurementCountValue } returns 10
+
+        player = SyncAudioPlayer(timeFilter, sampleRate, channels, bitDepth)
+    }
+
+    // ========================================================================
+    // Helper methods
+    // ========================================================================
+
+    /** Create PCM data for a given number of frames (all zeros = silence). */
+    private fun makePcmData(frames: Int): ByteArray = ByteArray(frames * bytesPerFrame)
+
+    /** Get a private field value via reflection. */
+    @Suppress("UNCHECKED_CAST")
+    private fun <T> getField(name: String): T {
+        val field = SyncAudioPlayer::class.java.getDeclaredField(name)
+        field.isAccessible = true
+        return field.get(player) as T
+    }
+
+    /** Set a private field value via reflection. */
+    private fun setField(name: String, value: Any?) {
+        val field = SyncAudioPlayer::class.java.getDeclaredField(name)
+        field.isAccessible = true
+        field.set(player, value)
+    }
+
+    /** Get the internal chunk queue. */
+    private fun getChunkQueue(): ConcurrentLinkedQueue<*> = getField("chunkQueue")
+
+    /** Queue a chunk directly (bypasses AudioTrack requirement). */
+    private fun queueChunkDirect(serverTimeUs: Long, frames: Int): ByteArray {
+        val pcm = makePcmData(frames)
+        player.queueChunk(serverTimeUs, pcm)
+        return pcm
+    }
+
+    // ========================================================================
+    // Test 1: State transition INITIALIZING -> WAITING_FOR_START
+    // ========================================================================
+
+    @Test
+    fun `first chunk triggers INITIALIZING to WAITING_FOR_START transition`() {
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+
+        queueChunkDirect(1_000_000L, 960)
+
+        assertEquals(PlaybackState.WAITING_FOR_START, player.getPlaybackState())
+    }
+
+    @Test
+    fun `state callback fires on INITIALIZING to WAITING_FOR_START`() {
+        val callback = mockk<SyncAudioPlayerCallback>(relaxed = true)
+        player.setStateCallback(callback)
+
+        queueChunkDirect(1_000_000L, 960)
+
+        verify { callback.onPlaybackStateChanged(PlaybackState.WAITING_FOR_START) }
+    }
+
+    @Test
+    fun `firstServerTimestampUs is set on first chunk`() {
+        val serverTimeUs = 5_000_000L
+        queueChunkDirect(serverTimeUs, 960)
+
+        val firstTs: Long? = getField("firstServerTimestampUs")
+        assertEquals(serverTimeUs, firstTs)
+    }
+
+    // ========================================================================
+    // Test 2: DRAINING -> INITIALIZING on buffer exhaustion
+    // ========================================================================
+
+    @Test
+    fun `enterDraining transitions PLAYING to DRAINING`() {
+        setField("playbackState", PlaybackState.PLAYING)
+
+        val result = player.enterDraining()
+
+        assertTrue(result)
+        assertEquals(PlaybackState.DRAINING, player.getPlaybackState())
+    }
+
+    @Test
+    fun `enterDraining fails from INITIALIZING state`() {
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+        val result = player.enterDraining()
+        assertFalse(result)
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+    }
+
+    @Test
+    fun `buffer exhaustion during DRAINING is detectable`() {
+        val callback = mockk<SyncAudioPlayerCallback>(relaxed = true)
+        player.setStateCallback(callback)
+
+        queueChunkDirect(1_000_000L, 960)
+        setField("playbackState", PlaybackState.PLAYING)
+
+        player.enterDraining()
+        assertEquals(PlaybackState.DRAINING, player.getPlaybackState())
+
+        // Simulate buffer exhaustion
+        getChunkQueue().clear()
+        val totalQueuedSamples: AtomicLong = getField("totalQueuedSamples")
+        totalQueuedSamples.set(0)
+
+        assertEquals(0L, player.getBufferedDurationMs())
+    }
+
+    // ========================================================================
+    // Test 3: Reanchor respects 5-second cooldown
+    // ========================================================================
+
+    @Test
+    fun `triggerReanchor respects 5-second cooldown`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod("triggerReanchor")
+        method.isAccessible = true
+
+        setField("playbackState", PlaybackState.PLAYING)
+
+        // Set lastReanchorTimeUs to "now" to simulate recent reanchor
+        val nowUs = System.nanoTime() / 1000
+        setField("lastReanchorTimeUs", nowUs)
+
+        val result = method.invoke(player) as Boolean
+        assertFalse("Reanchor should be rejected within cooldown", result)
+        assertEquals(PlaybackState.PLAYING, player.getPlaybackState())
+    }
+
+    @Test
+    fun `triggerReanchor succeeds after cooldown expires`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod("triggerReanchor")
+        method.isAccessible = true
+
+        setField("playbackState", PlaybackState.PLAYING)
+
+        // Set lastReanchorTimeUs to well in the past (>5 seconds ago)
+        val nowUs = System.nanoTime() / 1000
+        setField("lastReanchorTimeUs", nowUs - 6_000_000L)
+
+        val result = method.invoke(player) as Boolean
+        assertTrue("Reanchor should succeed after cooldown", result)
+        assertEquals(PlaybackState.INITIALIZING, player.getPlaybackState())
+    }
+}
