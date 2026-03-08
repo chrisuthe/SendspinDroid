@@ -61,8 +61,8 @@ object MessageBuilder {
                         add(buildJsonObject {
                             put("source", "album")
                             put("format", "jpeg")
-                            put("media_width", 500)
-                            put("media_height", 500)
+                            put("media_width", SendSpinProtocol.Artwork.REQUEST_SIZE)
+                            put("media_height", SendSpinProtocol.Artwork.REQUEST_SIZE)
                         })
                     })
                 })
@@ -177,7 +177,7 @@ object MessageBuilder {
                     add(FormatEntry(
                         codec = codec,
                         sampleRate = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
-                        channels = 1,
+                        channels = SendSpinProtocol.AudioFormat.CHANNELS_MONO,
                         bitDepth = bitDepth
                     ))
                 }
