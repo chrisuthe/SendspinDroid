@@ -611,13 +611,20 @@ private fun ConnectedShell(
         )
     } else {
         // MA connected -> NavigationSuiteScaffold with browse tabs + Now Playing
-        // Force NavigationRail on phone landscape (auto-detect sometimes stays on BottomNav)
+        // Override navigation type based on form factor and orientation:
+        // - Phone landscape: force NavigationRail (auto-detect sometimes stays on BottomNav)
+        // - Tablet portrait: force BottomNav (default gives Rail, but portrait tablets should
+        //   match phone portrait behavior)
+        // - HEADUNIT: force BottomNav
+        // - Everything else: use adaptive default
         val configuration = LocalConfiguration.current
         val isPhoneLandscape = configuration.smallestScreenWidthDp < 600 &&
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val isTabletPortrait = (formFactor == FormFactor.TABLET_7 || formFactor == FormFactor.TABLET_10) &&
+            configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         val navSuiteType = if (isPhoneLandscape) {
             NavigationSuiteType.NavigationRail
-        } else if (formFactor == FormFactor.HEADUNIT) {
+        } else if (isTabletPortrait || formFactor == FormFactor.HEADUNIT) {
             NavigationSuiteType.NavigationBar
         } else {
             NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfo())
