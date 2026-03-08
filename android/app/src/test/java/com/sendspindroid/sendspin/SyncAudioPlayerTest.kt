@@ -340,4 +340,147 @@ class SyncAudioPlayerTest {
         assertEquals("No drop corrections during grace period", 0, dropEvery)
         assertEquals("No insert corrections during grace period", 0, insertEvery)
     }
+
+    // ========================================================================
+    // Test 7: No corrections during RECONNECT_STABILIZATION
+    // ========================================================================
+
+    @Test
+    fun `no corrections during reconnect stabilization period`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "updateCorrectionSchedule", Long::class.java
+        )
+        method.isAccessible = true
+
+        setField("startTimeCalibrated", true)
+        setField("playingStateEnteredAtUs", 1L)
+
+        // Set reconnectedAtUs to "now" (within 2s stabilization period)
+        val nowUs = System.nanoTime() / 1000
+        setField("reconnectedAtUs", nowUs)
+
+        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
+        syncErrorFilter.update(50_000L, 1_000_000L)
+        syncErrorFilter.update(50_000L, 2_000_000L)
+
+        method.invoke(player, 0L)
+
+        val dropEvery: Int = getField("dropEveryNFrames")
+        val insertEvery: Int = getField("insertEveryNFrames")
+
+        assertEquals("No drop corrections during reconnect stabilization", 0, dropEvery)
+        assertEquals("No insert corrections during reconnect stabilization", 0, insertEvery)
+    }
+
+    @Test
+    fun `corrections resume after reconnect stabilization expires`() {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "updateCorrectionSchedule", Long::class.java
+        )
+        method.isAccessible = true
+
+        setField("startTimeCalibrated", true)
+        setField("playingStateEnteredAtUs", 1L)
+
+        // Set reconnectedAtUs to 3 seconds ago (stabilization is 2 seconds)
+        val nowUs = System.nanoTime() / 1000
+        setField("reconnectedAtUs", nowUs - 3_000_000L)
+
+        val syncErrorFilter: SyncErrorFilter = getField("syncErrorFilter")
+        syncErrorFilter.update(50_000L, 1_000_000L)
+        syncErrorFilter.update(50_000L, 2_000_000L)
+        syncErrorFilter.update(50_000L, 3_000_000L)
+
+        method.invoke(player, 0L)
+
+        val dropEvery: Int = getField("dropEveryNFrames")
+
+        assertTrue(
+            "Corrections should resume after stabilization expires",
+            dropEvery > 0
+        )
+    }
+
+    // ========================================================================
+    // Test 8: Gap >10ms filled with silence
+    // ========================================================================
+
+    @Test
+    fun `gap larger than 10ms fills with silence`() {
+        val firstTimestampUs = 1_000_000L
+        val framesPerChunk = 960 // 20ms at 48kHz
+        queueChunkDirect(firstTimestampUs, framesPerChunk)
+
+        val chunkDurationUs = (framesPerChunk.toLong() * 1_000_000L) / sampleRate
+        val expectedNextUs = firstTimestampUs + chunkDurationUs
+
+        // Queue second chunk with a 50ms gap (well above 10ms threshold)
+        val gapUs = 50_000L
+        val secondTimestampUs = expectedNextUs + gapUs
+        queueChunkDirect(secondTimestampUs, framesPerChunk)
+
+        // Queue should have 3+ entries (first chunk + silence fill + second chunk)
+        val queue = getChunkQueue()
+        assertTrue(
+            "Queue should have more than 2 entries due to silence fill, got ${queue.size}",
+            queue.size >= 3
+        )
+
+        val stats = player.getStats()
+        assertEquals("One gap should have been filled", 1L, stats.gapsFilled)
+        assertTrue("Gap silence should be > 0ms", stats.gapSilenceMs > 0)
+    }
+
+    @Test
+    fun `gap smaller than 10ms does not fill with silence`() {
+        val firstTimestampUs = 1_000_000L
+        val framesPerChunk = 960
+        queueChunkDirect(firstTimestampUs, framesPerChunk)
+
+        val chunkDurationUs = (framesPerChunk.toLong() * 1_000_000L) / sampleRate
+        val expectedNextUs = firstTimestampUs + chunkDurationUs
+
+        // Queue second chunk with a 5ms gap (below 10ms threshold)
+        val smallGapUs = 5_000L
+        val secondTimestampUs = expectedNextUs + smallGapUs
+        queueChunkDirect(secondTimestampUs, framesPerChunk)
+
+        val stats = player.getStats()
+        assertEquals("No gaps should be filled for small gap", 0L, stats.gapsFilled)
+    }
+
+    // ========================================================================
+    // Test 9: Overlapping chunk trims duplicate samples
+    // ========================================================================
+
+    @Test
+    fun `overlapping chunk trims leading samples`() {
+        val firstTimestampUs = 1_000_000L
+        val framesPerChunk = 960 // 20ms
+        queueChunkDirect(firstTimestampUs, framesPerChunk)
+
+        val chunkDurationUs = (framesPerChunk.toLong() * 1_000_000L) / sampleRate
+        val expectedNextUs = firstTimestampUs + chunkDurationUs
+
+        // Queue second chunk with 5ms overlap
+        val overlapUs = 5_000L
+        val secondTimestampUs = expectedNextUs - overlapUs
+        queueChunkDirect(secondTimestampUs, framesPerChunk)
+
+        val stats = player.getStats()
+        assertEquals("One overlap should have been trimmed", 1L, stats.overlapsTrimmed)
+    }
+
+    @Test
+    fun `complete overlap skips entire chunk`() {
+        val firstTimestampUs = 1_000_000L
+        val framesPerChunk = 960
+        queueChunkDirect(firstTimestampUs, framesPerChunk)
+
+        // Queue second chunk at same timestamp (completely overlapping)
+        queueChunkDirect(firstTimestampUs, framesPerChunk)
+
+        val stats = player.getStats()
+        assertTrue("Overlap should have been detected", stats.overlapsTrimmed > 0)
+    }
 }
