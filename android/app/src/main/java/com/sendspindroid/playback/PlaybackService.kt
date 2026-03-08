@@ -126,7 +126,7 @@ class PlaybackService : MediaLibraryService() {
     // When true, the next state/group message should call exitDraining() AFTER processing.
     // This ensures the DRAINING check in onStateChanged/onGroupUpdate fires while still
     // in DRAINING state, before transitioning back to PLAYING.
-    private var pendingExitDraining = false
+    @Volatile private var pendingExitDraining = false
     private var currentCodec: String = "pcm"  // Track current stream codec for stats
 
     // Current server connection info (for MA integration)
