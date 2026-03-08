@@ -1,21 +1,31 @@
 package com.sendspindroid.ui.navigation.home
 
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
@@ -118,6 +128,16 @@ private fun HomeScreenContent(
     onRefresh: () -> Unit = {},
     onItemClick: (MaLibraryItem) -> Unit
 ) {
+    // Check if all sections have finished loading and all are empty
+    val allSections = listOf(
+        recentlyPlayedState, recentlyAddedState, albumsState,
+        artistsState, playlistsState, radioState
+    )
+    val allLoaded = allSections.none { it is SectionState.Loading }
+    val allEmpty = allLoaded && allSections.all { state ->
+        state is SectionState.Success && state.items.isEmpty()
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.surface
@@ -130,72 +150,156 @@ private fun HomeScreenContent(
             state = pullToRefreshState,
             modifier = Modifier.fillMaxSize()
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize()
-            ) {
-                // Recently Played section
-                item(key = "recently_played") {
-                    MediaCarousel(
-                        title = stringResource(R.string.home_recently_played),
-                        state = recentlyPlayedState,
-                        onItemClick = onItemClick,
-                        onRetry = onRefresh,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
+            if (allEmpty) {
+                HomeEmptyState()
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    // Only show sections that have content or are still loading/errored.
+                    // Hide sections that loaded successfully but returned no items.
 
-                // Recently Added section
-                item(key = "recently_added") {
-                    MediaCarousel(
-                        title = stringResource(R.string.home_recently_added),
-                        state = recentlyAddedState,
-                        onItemClick = onItemClick,
-                        onRetry = onRefresh
-                    )
-                }
+                    // Recently Played section
+                    if (!recentlyPlayedState.isEmptySuccess()) {
+                        item(key = "recently_played") {
+                            MediaCarousel(
+                                title = stringResource(R.string.home_recently_played),
+                                state = recentlyPlayedState,
+                                onItemClick = onItemClick,
+                                onRetry = onRefresh,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                    }
 
-                // Albums section
-                item(key = "albums") {
-                    MediaCarousel(
-                        title = stringResource(R.string.home_albums),
-                        state = albumsState,
-                        onItemClick = onItemClick,
-                        onRetry = onRefresh
-                    )
-                }
+                    // Recently Added section
+                    if (!recentlyAddedState.isEmptySuccess()) {
+                        item(key = "recently_added") {
+                            MediaCarousel(
+                                title = stringResource(R.string.home_recently_added),
+                                state = recentlyAddedState,
+                                onItemClick = onItemClick,
+                                onRetry = onRefresh
+                            )
+                        }
+                    }
 
-                // Artists section
-                item(key = "artists") {
-                    MediaCarousel(
-                        title = stringResource(R.string.home_artists),
-                        state = artistsState,
-                        onItemClick = onItemClick,
-                        onRetry = onRefresh
-                    )
-                }
+                    // Albums section
+                    if (!albumsState.isEmptySuccess()) {
+                        item(key = "albums") {
+                            MediaCarousel(
+                                title = stringResource(R.string.home_albums),
+                                state = albumsState,
+                                onItemClick = onItemClick,
+                                onRetry = onRefresh
+                            )
+                        }
+                    }
 
-                // Playlists section
-                item(key = "playlists") {
-                    MediaCarousel(
-                        title = stringResource(R.string.home_playlists),
-                        state = playlistsState,
-                        onItemClick = onItemClick,
-                        onRetry = onRefresh
-                    )
-                }
+                    // Artists section
+                    if (!artistsState.isEmptySuccess()) {
+                        item(key = "artists") {
+                            MediaCarousel(
+                                title = stringResource(R.string.home_artists),
+                                state = artistsState,
+                                onItemClick = onItemClick,
+                                onRetry = onRefresh
+                            )
+                        }
+                    }
 
-                // Radio Stations section
-                item(key = "radio") {
-                    MediaCarousel(
-                        title = stringResource(R.string.home_radio),
-                        state = radioState,
-                        onItemClick = onItemClick,
-                        onRetry = onRefresh
-                    )
-                }
+                    // Playlists section
+                    if (!playlistsState.isEmptySuccess()) {
+                        item(key = "playlists") {
+                            MediaCarousel(
+                                title = stringResource(R.string.home_playlists),
+                                state = playlistsState,
+                                onItemClick = onItemClick,
+                                onRetry = onRefresh
+                            )
+                        }
+                    }
 
+                    // Radio Stations section
+                    if (!radioState.isEmptySuccess()) {
+                        item(key = "radio") {
+                            MediaCarousel(
+                                title = stringResource(R.string.home_radio),
+                                state = radioState,
+                                onItemClick = onItemClick,
+                                onRetry = onRefresh
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+/**
+ * Returns true if this section loaded successfully but has no items.
+ */
+private fun <T> SectionState<T>.isEmptySuccess(): Boolean =
+    this is SectionState.Success && items.isEmpty()
+
+/**
+ * Empty state shown when all home screen sections have loaded but contain no content.
+ */
+@Composable
+private fun HomeEmptyState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = 32.dp)
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_nav_home),
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = stringResource(R.string.home_empty_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = stringResource(R.string.home_empty_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun HomeScreenEmptyPreview() {
+    SendSpinTheme {
+        HomeScreenContent(
+            recentlyPlayedState = SectionState.Success(emptyList()),
+            recentlyAddedState = SectionState.Success(emptyList()),
+            albumsState = SectionState.Success(emptyList()),
+            artistsState = SectionState.Success(emptyList()),
+            playlistsState = SectionState.Success(emptyList()),
+            radioState = SectionState.Success(emptyList()),
+            isRefreshing = false,
+            onRefresh = {},
+            onItemClick = {}
+        )
     }
 }
 
