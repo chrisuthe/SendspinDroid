@@ -1,0 +1,3742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SendSpinDroid - Visual Audit</title>
+<style>
+
+  :root {
+    /* Material 3 Dark Theme */
+    --md-background: #1C1B1F;
+    --md-surface: #1C1B1F;
+    --md-surface-variant: #49454F;
+    --md-surface-container: #211F26;
+    --md-surface-container-high: #2B2930;
+    --md-on-surface: #E6E1E5;
+    --md-on-surface-variant: #CAC4D0;
+    --md-primary: #D0BCFF;
+    --md-on-primary: #381E72;
+    --md-primary-container: #4F378B;
+    --md-on-primary-container: #EADDFF;
+    --md-outline: #938F99;
+    --md-outline-variant: #49454F;
+    --md-error: #F2B8B5;
+    --md-divider: rgba(202, 196, 208, 0.12);
+    --md-accent: #BB86FC;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #121212;
+    color: #E6E1E5;
+    font-family: 'Segoe UI', Roboto, sans-serif;
+    padding: 24px;
+  }
+
+  h1 {
+    font-size: 28px;
+    font-weight: 300;
+    margin-bottom: 8px;
+    color: var(--md-on-surface);
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--md-on-surface-variant);
+    margin-bottom: 32px;
+  }
+
+  .screen-row {
+    margin-bottom: 48px;
+  }
+
+  .screen-row h2 {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--md-primary);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--md-outline-variant);
+  }
+
+  .devices {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .device-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .device-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--md-on-surface-variant);
+    margin-bottom: 8px;
+  }
+
+  .device-size {
+    font-size: 10px;
+    color: var(--md-outline);
+    margin-bottom: 6px;
+  }
+
+  .viewport {
+    border: 1px solid var(--md-outline-variant);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    background: var(--md-background);
+  }
+
+  /* Scaling containers */
+  .viewport-inner {
+    transform-origin: top left;
+  }
+
+  /* ====== Common Components ====== */
+
+  .top-bar {
+    height: 56px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    background: rgba(28, 27, 31, 0.6);
+    border-bottom: 1px solid var(--md-divider);
+    flex-shrink: 0;
+  }
+
+  .top-bar .title {
+    font-size: 20px;
+    font-weight: 500;
+    color: var(--md-on-surface);
+  }
+
+  .top-bar .server-name {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+  }
+
+  .top-bar .spacer { flex: 1; }
+
+  .top-bar .icon-btn {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--md-on-surface-variant);
+    font-size: 18px;
+  }
+
+  .bottom-nav {
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: var(--md-surface-container);
+    border-top: 1px solid var(--md-divider);
+    flex-shrink: 0;
+  }
+
+  .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--md-on-surface-variant);
+    font-size: 10px;
+  }
+
+  .nav-item.active { color: var(--md-primary); }
+
+  .nav-item .nav-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .nav-item.active .nav-icon {
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+  }
+
+  .nav-rail {
+    width: 80px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 12px;
+    gap: 8px;
+    background: var(--md-surface-container);
+    border-right: 1px solid var(--md-divider);
+    flex-shrink: 0;
+  }
+
+  .rail-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    color: var(--md-on-surface-variant);
+    font-size: 9px;
+    padding: 4px 0;
+  }
+
+  .rail-item.active { color: var(--md-primary); }
+
+  .rail-item .rail-icon {
+    width: 48px;
+    height: 28px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+  }
+
+  .rail-item.active .rail-icon {
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+  }
+
+  /* ====== Album Art Placeholder ====== */
+
+  .album-art {
+    background: linear-gradient(135deg, #4A3B6B 0%, #2D2040 50%, #1A1528 100%);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(208, 188, 255, 0.3);
+    font-size: 40px;
+    aspect-ratio: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .album-art::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 10px,
+      rgba(208, 188, 255, 0.03) 10px,
+      rgba(208, 188, 255, 0.03) 20px
+    );
+  }
+
+  .album-art-sm {
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, #4A3B6B 0%, #2D2040 100%);
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .album-art-md {
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, #4A3B6B 0%, #2D2040 100%);
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  /* ====== Progress Bar ====== */
+
+  .progress-bar {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .progress-track {
+    height: 4px;
+    background: var(--md-surface-variant);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 35%;
+    background: var(--md-accent);
+    border-radius: 2px;
+  }
+
+  .progress-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--md-on-surface-variant);
+  }
+
+  /* ====== Playback Controls ====== */
+
+  .controls-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .ctrl-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--md-on-surface-variant);
+    font-size: 20px;
+  }
+
+  .ctrl-btn.secondary {
+    font-size: 16px;
+    opacity: 0.7;
+  }
+
+  .play-btn {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--md-accent);
+    color: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: bold;
+  }
+
+  .play-btn.large {
+    width: 72px;
+    height: 72px;
+    font-size: 28px;
+  }
+
+  .play-btn.xlarge {
+    width: 80px;
+    height: 80px;
+    font-size: 32px;
+  }
+
+  /* ====== Volume Slider ====== */
+
+  .volume-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .volume-icon {
+    font-size: 16px;
+    color: var(--md-on-surface-variant);
+  }
+
+  .volume-track {
+    flex: 1;
+    height: 4px;
+    background: var(--md-surface-variant);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .volume-fill {
+    height: 100%;
+    width: 65%;
+    background: var(--md-accent);
+    border-radius: 2px;
+  }
+
+  /* ====== Queue ====== */
+
+  .queue-header {
+    display: flex;
+    align-items: center;
+    padding: 4px 16px;
+    gap: 8px;
+  }
+
+  .queue-header .q-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--md-on-surface);
+  }
+
+  .queue-header .q-count {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+  }
+
+  .queue-header .q-spacer { flex: 1; }
+
+  .queue-header .q-icon {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    color: var(--md-on-surface-variant);
+  }
+
+  .queue-section-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--md-primary);
+    padding: 8px 16px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .queue-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    gap: 12px;
+  }
+
+  .queue-item.now-playing {
+    background: rgba(73, 69, 79, 0.5);
+  }
+
+  .queue-item .q-play-icon {
+    font-size: 16px;
+    color: var(--md-primary);
+    width: 20px;
+    text-align: center;
+  }
+
+  .queue-item .q-info { flex: 1; min-width: 0; }
+
+  .queue-item .q-name {
+    font-size: 14px;
+    color: var(--md-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .queue-item.now-playing .q-name { font-weight: 700; }
+
+  .queue-item .q-artist {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .queue-item .q-duration {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+    flex-shrink: 0;
+  }
+
+  .queue-item .q-more {
+    font-size: 16px;
+    color: var(--md-on-surface-variant);
+    flex-shrink: 0;
+  }
+
+  .queue-divider {
+    height: 1px;
+    background: var(--md-divider);
+    margin: 8px 16px;
+  }
+
+  /* ====== Server List ====== */
+
+  .server-section-header {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--md-on-surface-variant);
+    padding: 16px 16px 8px;
+  }
+
+  .server-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    gap: 12px;
+  }
+
+  .server-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 20px;
+    background: var(--md-primary-container);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--md-on-primary-container);
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .server-info { flex: 1; }
+
+  .server-name {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--md-on-surface);
+  }
+
+  .server-address {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+  }
+
+  .server-status {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .server-status.online {
+    background: rgba(76, 175, 80, 0.15);
+    color: #81C784;
+  }
+
+  .server-status.offline {
+    color: var(--md-on-surface-variant);
+  }
+
+  .fab {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+  }
+
+  /* ====== Home / Browse ====== */
+
+  .carousel-section {
+    padding: 16px 0 8px;
+  }
+
+  .carousel-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--md-on-surface);
+    padding: 0 16px 12px;
+  }
+
+  .carousel-row {
+    display: flex;
+    gap: 12px;
+    padding: 0 16px;
+    overflow: hidden;
+  }
+
+  .media-card {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .media-card .card-art {
+    border-radius: 8px;
+    aspect-ratio: 1;
+    background: linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%);
+  }
+
+  .media-card .card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--md-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .media-card .card-subtitle {
+    font-size: 11px;
+    color: var(--md-on-surface-variant);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: -4px;
+  }
+
+  /* ====== Mini Player ====== */
+
+  .mini-player {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 12px;
+    background: var(--md-surface-container-high);
+    border-top: 1px solid var(--md-divider);
+    flex-shrink: 0;
+  }
+
+  .mini-player .mp-art {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #4A3B6B 0%, #2D2040 100%);
+    flex-shrink: 0;
+  }
+
+  .mini-player .mp-info { flex: 1; min-width: 0; }
+
+  .mini-player .mp-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--md-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mini-player .mp-artist {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mini-player .mp-btn {
+    font-size: 20px;
+    color: var(--md-on-surface);
+  }
+
+  /* ====== Up Next (headunit) ====== */
+
+  .up-next-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 4px;
+  }
+
+  .up-next-divider .line {
+    flex: 1;
+    height: 1px;
+    background: rgba(73, 69, 79, 0.3);
+  }
+
+  .up-next-divider .label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: rgba(202, 196, 208, 0.6);
+    text-transform: uppercase;
+  }
+
+  .up-next-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 4px;
+    gap: 8px;
+  }
+
+  .up-next-item .num {
+    width: 24px;
+    text-align: center;
+    font-size: 12px;
+    color: rgba(202, 196, 208, 0.5);
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .up-next-item .thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%);
+    flex-shrink: 0;
+  }
+
+  .up-next-item .info { flex: 1; min-width: 0; }
+
+  .up-next-item .info .name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--md-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .up-next-item .info .artist {
+    font-size: 12px;
+    color: var(--md-on-surface-variant);
+  }
+
+  .up-next-item .dur {
+    font-size: 12px;
+    color: rgba(202, 196, 208, 0.6);
+    flex-shrink: 0;
+  }
+
+  /* ====== TV Queue Sidebar ====== */
+
+  .tv-queue-sidebar {
+    border-left: 1px solid var(--md-divider);
+    background: var(--md-surface);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ====== Inline Queue Panel (Tablet) ====== */
+
+  .inline-queue-panel {
+    border-left: 1px solid var(--md-divider);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ====== Vertical Divider ====== */
+
+  .vert-divider {
+    width: 1px;
+    background: var(--md-divider);
+    align-self: stretch;
+  }
+
+  /* ====== Secondary controls row ====== */
+
+  .secondary-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 4px;
+  }
+
+  .sec-btn {
+    font-size: 16px;
+    color: var(--md-on-surface-variant);
+    opacity: 0.7;
+  }
+
+  /* ====== Scrollable ====== */
+  .scrollable {
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ====== Sub-row labels for mini player states ====== */
+  .state-row {
+    margin-bottom: 24px;
+  }
+
+  .state-label {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--md-on-surface-variant);
+    margin-bottom: 12px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    display: inline-block;
+  }
+
+  .state-label.no-playback {
+    background: rgba(147, 143, 153, 0.15);
+  }
+
+  .state-label.playing {
+    background: rgba(187, 134, 252, 0.15);
+    color: var(--md-primary);
+  }
+
+  /* ====== Mini player progress bar ====== */
+  .mini-player .mp-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: rgba(147, 143, 153, 0.2);
+  }
+
+  .mini-player .mp-progress-fill {
+    height: 100%;
+    width: 35%;
+    background: var(--md-accent);
+  }
+
+</style>
+</head>
+<body>
+
+<h1>SendSpinDroid -- Visual Audit</h1>
+<p class="subtitle">Form factor mockups for layout review. All dimensions from AdaptiveDefaults.kt. Includes portrait and landscape orientations.</p>
+
+<div class="screen-row">
+  <h2>1. Now Playing</h2>
+  <div class="devices">
+    <div class="device-card">
+  <div class="device-label">Phone Portrait</div>
+  <div class="device-size">390 x 844 @ 0.5x</div>
+  <div class="viewport" style="width:195px; height:422px;">
+    <div class="viewport-inner" style="width:390px; height:844px; transform:scale(0.5);">
+      
+<div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+<div style="padding:24px; display:flex; flex-direction:column; align-items:center;">
+  <div style="height:16px;"></div>
+  <div class="album-art" style="width:273px; max-width:280px;">&#9835;</div>
+  <div style="height:24px;"></div>
+  <div style="text-align:center; width:100%;">
+    <div style="font-size:22px; font-weight:700; color:var(--md-on-surface); letter-spacing:-0.4px;">Midnight City</div>
+    <div style="height:4px;"></div>
+    <div style="font-size:14px; color:var(--md-on-surface-variant);">M83 -- Hurry Up, We're Dreaming</div>
+    <div style="height:8px;"></div>
+    <div style="font-size:12px; color:var(--md-primary); opacity:0.9;">Group: Whole House</div>
+  </div>
+  <div style="height:16px;"></div>
+  <div class="progress-bar">
+    <div class="progress-track"><div class="progress-fill"></div></div>
+    <div class="progress-times"><span>1:24</span><span>4:03</span></div>
+  </div>
+  <div style="height:16px;"></div>
+  <div class="controls-row">
+    <div class="ctrl-btn" style="width:56px; height:56px;">|&lt;</div>
+    <div class="play-btn" style="width:72px; height:72px; font-size:28px;">||</div>
+    <div class="ctrl-btn" style="width:56px; height:56px;">&gt;|</div>
+  </div>
+  <div class="secondary-row" style="margin-top:8px;">
+    <div class="sec-btn">&#9776;</div>
+    <div class="sec-btn">&#9825;</div>
+    <div class="sec-btn">&#9834;</div>
+  </div>
+  <div style="height:24px;"></div>
+  <div class="volume-row">
+    <div class="volume-icon">&#128264;</div>
+    <div class="volume-track"><div class="volume-fill"></div></div>
+    <div class="volume-icon">&#128266;</div>
+  </div>
+  <div style="height:12px;"></div>
+  <div style="padding:8px 20px; border:1px solid var(--md-outline); border-radius:20px; font-size:13px; color:var(--md-primary);">Queue</div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">Phone Landscape</div>
+  <div class="device-size">844 x 390 @ 0.5x</div>
+  <div class="viewport" style="width:422px; height:195px;">
+    <div class="viewport-inner" style="width:844px; height:390px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex; align-items:center; padding:12px;">
+      <div class="album-art" style="width:45%; max-width:180px; font-size:30px; flex-shrink:0;">&#9835;</div>
+      <div style="width:12px;"></div>
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
+        <div style="text-align:center; width:100%;">
+          <div style="font-size:16px; font-weight:700; color:var(--md-on-surface);">Midnight City</div>
+          <div style="font-size:11px; color:var(--md-on-surface-variant);">M83 -- Hurry Up, We're Dreaming</div>
+          <div style="font-size:10px; color:var(--md-primary); opacity:0.9;">Group: Whole House</div>
+        </div>
+        <div style="height:8px;"></div>
+        <div class="progress-bar">
+          <div class="progress-track"><div class="progress-fill"></div></div>
+          <div class="progress-times"><span>1:24</span><span>4:03</span></div>
+        </div>
+        <div style="height:8px;"></div>
+        <div class="controls-row">
+          <div class="ctrl-btn" style="width:40px; height:40px;">|&lt;</div>
+          <div class="play-btn" style="width:52px; height:52px; font-size:22px;">||</div>
+          <div class="ctrl-btn" style="width:40px; height:40px;">&gt;|</div>
+        </div>
+        <div style="height:4px;"></div>
+        <div class="volume-row" style="max-width:200px;">
+          <div class="volume-icon">&#128264;</div>
+          <div class="volume-track"><div class="volume-fill"></div></div>
+          <div class="volume-icon">&#128266;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">Tablet 7" Portrait</div>
+  <div class="device-size">600 x 1024 @ 0.5x</div>
+  <div class="viewport" style="width:300px; height:512px;">
+    <div class="viewport-inner" style="width:600px; height:1024px; transform:scale(0.5);">
+      
+<div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+<div style="display:flex; flex:1; height:calc(100% - 56px);">
+  <div style="width:55%; padding:16px; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
+    <div class="album-art" style="width:200px; max-width:320px;">&#9835;</div>
+    <div style="height:16px;"></div>
+    <div style="text-align:center; width:100%;">
+      <div style="font-size:24px; font-weight:700; color:var(--md-on-surface);">Midnight City</div>
+      <div style="height:4px;"></div>
+      <div style="font-size:14px; color:var(--md-on-surface-variant);">M83 -- Hurry Up, We're Dreaming</div>
+      <div style="height:6px;"></div>
+      <div style="font-size:12px; color:var(--md-primary); opacity:0.9;">Group: Whole House</div>
+    </div>
+    <div style="height:12px;"></div>
+    <div class="progress-bar">
+      <div class="progress-track"><div class="progress-fill"></div></div>
+      <div class="progress-times"><span>1:24</span><span>4:03</span></div>
+    </div>
+    <div style="height:12px;"></div>
+    <div class="controls-row">
+      <div class="ctrl-btn" style="width:64px; height:64px;">|&lt;</div>
+      <div class="play-btn" style="width:80px; height:80px; font-size:30px;">||</div>
+      <div class="ctrl-btn" style="width:64px; height:64px;">&gt;|</div>
+    </div>
+    <div class="secondary-row" style="margin-top:8px;">
+      <div class="sec-btn">&#9776;</div>
+      <div class="sec-btn">&#9825;</div>
+      <div class="sec-btn">&#9834;</div>
+    </div>
+    <div style="height:16px;"></div>
+    <div class="volume-row">
+      <div class="volume-icon">&#128264;</div>
+      <div class="volume-track"><div class="volume-fill"></div></div>
+      <div class="volume-icon">&#128266;</div>
+    </div>
+  </div>
+  <div class="vert-divider"></div>
+<div class="inline-queue-panel" style="width:45%;">
+  <div class="queue-header" style="padding-top:12px;">
+    <div>
+      <div class="q-title">Queue</div>
+      <div class="q-count">8 tracks</div>
+    </div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+    <div class="q-icon">...</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info">
+      <div class="q-name">Midnight City</div>
+      <div class="q-artist">M83 -- Hurry Up, We're Dreaming</div>
+    </div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">Tablet 7" Landscape</div>
+  <div class="device-size">1024 x 600 @ 0.5x</div>
+  <div class="viewport" style="width:512px; height:300px;">
+    <div class="viewport-inner" style="width:1024px; height:600px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="display:flex; flex:1;">
+      <div style="width:55%; display:flex; align-items:center; padding:12px;">
+        <div class="album-art" style="width:40%; max-width:200px; font-size:30px; flex-shrink:0;">&#9835;</div>
+        <div style="width:12px;"></div>
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+          <div style="text-align:center; width:100%;">
+            <div style="font-size:18px; font-weight:700; color:var(--md-on-surface);">Midnight City</div>
+            <div style="font-size:12px; color:var(--md-on-surface-variant);">M83 -- Hurry Up, We're Dreaming</div>
+            <div style="font-size:10px; color:var(--md-primary);">Group: Whole House</div>
+          </div>
+          <div style="height:6px;"></div>
+          <div class="progress-bar">
+            <div class="progress-track"><div class="progress-fill"></div></div>
+            <div class="progress-times"><span>1:24</span><span>4:03</span></div>
+          </div>
+          <div style="height:6px;"></div>
+          <div class="controls-row">
+            <div class="ctrl-btn" style="width:48px; height:48px;">|&lt;</div>
+            <div class="play-btn" style="width:60px; height:60px; font-size:24px;">||</div>
+            <div class="ctrl-btn" style="width:48px; height:48px;">&gt;|</div>
+          </div>
+          <div style="height:6px;"></div>
+          <div class="volume-row" style="max-width:250px;">
+            <div class="volume-icon">&#128264;</div>
+            <div class="volume-track"><div class="volume-fill"></div></div>
+            <div class="volume-icon">&#128266;</div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div class="inline-queue-panel" style="width:45%;">
+  <div class="queue-header" style="padding-top:12px;">
+    <div>
+      <div class="q-title">Queue</div>
+      <div class="q-count">8 tracks</div>
+    </div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+    <div class="q-icon">...</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info">
+      <div class="q-name">Midnight City</div>
+      <div class="q-artist">M83 -- Hurry Up, We're Dreaming</div>
+    </div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">Tablet 10" Portrait</div>
+  <div class="device-size">800 x 1280 @ 0.5x</div>
+  <div class="viewport" style="width:400px; height:640px;">
+    <div class="viewport-inner" style="width:800px; height:1280px; transform:scale(0.5);">
+      
+<div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+<div style="display:flex; flex:1; height:calc(100% - 56px);">
+  <div style="width:50%; padding:24px; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
+    <div class="album-art" style="width:280px; max-width:400px;">&#9835;</div>
+    <div style="height:20px;"></div>
+    <div style="text-align:center; width:100%;">
+      <div style="font-size:28px; font-weight:700; color:var(--md-on-surface);">Midnight City</div>
+      <div style="height:4px;"></div>
+      <div style="font-size:16px; color:var(--md-on-surface-variant);">M83 -- Hurry Up, We're Dreaming</div>
+      <div style="height:6px;"></div>
+      <div style="font-size:13px; color:var(--md-primary); opacity:0.9;">Group: Whole House</div>
+    </div>
+    <div style="height:16px;"></div>
+    <div class="progress-bar">
+      <div class="progress-track"><div class="progress-fill"></div></div>
+      <div class="progress-times"><span>1:24</span><span>4:03</span></div>
+    </div>
+    <div style="height:16px;"></div>
+    <div class="controls-row">
+      <div class="ctrl-btn" style="width:72px; height:72px;">|&lt;</div>
+      <div class="play-btn" style="width:88px; height:88px; font-size:34px;">||</div>
+      <div class="ctrl-btn" style="width:72px; height:72px;">&gt;|</div>
+    </div>
+    <div class="secondary-row" style="margin-top:8px;">
+      <div class="sec-btn">&#9776;</div>
+      <div class="sec-btn">&#9825;</div>
+      <div class="sec-btn">&#9834;</div>
+    </div>
+    <div style="height:20px;"></div>
+    <div class="volume-row">
+      <div class="volume-icon">&#128264;</div>
+      <div class="volume-track"><div class="volume-fill"></div></div>
+      <div class="volume-icon">&#128266;</div>
+    </div>
+  </div>
+  <div class="vert-divider"></div>
+<div class="inline-queue-panel" style="width:50%;">
+  <div class="queue-header" style="padding-top:12px;">
+    <div>
+      <div class="q-title">Queue</div>
+      <div class="q-count">8 tracks</div>
+    </div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+    <div class="q-icon">...</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info">
+      <div class="q-name">Midnight City</div>
+      <div class="q-artist">M83 -- Hurry Up, We're Dreaming</div>
+    </div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Breathe (In the Air)</div>
+    <div class="q-artist">Pink Floyd -- Dark Side of the Moon</div>
+  </div>
+  <div class="q-duration">2:43</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Around the World</div>
+    <div class="q-artist">Daft Punk -- Homework</div>
+  </div>
+  <div class="q-duration">7:09</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">Tablet 10" Landscape</div>
+  <div class="device-size">1280 x 800 @ 0.5x</div>
+  <div class="viewport" style="width:640px; height:400px;">
+    <div class="viewport-inner" style="width:1280px; height:800px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="display:flex; flex:1;">
+      <div style="width:50%; display:flex; align-items:center; padding:16px;">
+        <div class="album-art" style="width:45%; max-width:300px; font-size:40px; flex-shrink:0;">&#9835;</div>
+        <div style="width:16px;"></div>
+        <div style="flex:1; display:flex; flex-direction:column; align-items:center;">
+          <div style="text-align:center; width:100%;">
+            <div style="font-size:22px; font-weight:700; color:var(--md-on-surface);">Midnight City</div>
+            <div style="font-size:14px; color:var(--md-on-surface-variant);">M83 -- Hurry Up, We're Dreaming</div>
+            <div style="font-size:11px; color:var(--md-primary);">Group: Whole House</div>
+          </div>
+          <div style="height:8px;"></div>
+          <div class="progress-bar">
+            <div class="progress-track"><div class="progress-fill"></div></div>
+            <div class="progress-times"><span>1:24</span><span>4:03</span></div>
+          </div>
+          <div style="height:8px;"></div>
+          <div class="controls-row">
+            <div class="ctrl-btn" style="width:56px; height:56px;">|&lt;</div>
+            <div class="play-btn" style="width:72px; height:72px; font-size:28px;">||</div>
+            <div class="ctrl-btn" style="width:56px; height:56px;">&gt;|</div>
+          </div>
+          <div style="height:8px;"></div>
+          <div class="volume-row" style="max-width:300px;">
+            <div class="volume-icon">&#128264;</div>
+            <div class="volume-track"><div class="volume-fill"></div></div>
+            <div class="volume-icon">&#128266;</div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div class="inline-queue-panel" style="width:50%;">
+  <div class="queue-header" style="padding-top:12px;">
+    <div>
+      <div class="q-title">Queue</div>
+      <div class="q-count">8 tracks</div>
+    </div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+    <div class="q-icon">...</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info">
+      <div class="q-name">Midnight City</div>
+      <div class="q-artist">M83 -- Hurry Up, We're Dreaming</div>
+    </div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">TV</div>
+  <div class="device-size">1920 x 1080 @ 0.35x</div>
+  <div class="viewport" style="width:672px; height:378px;">
+    <div class="viewport-inner" style="width:1920px; height:1080px; transform:scale(0.35);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+  <div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+  <div style="display:flex; flex:1;">
+    <div style="flex:1; display:flex; align-items:center; padding:48px;">
+      <div class="album-art" style="width:500px; max-width:500px; height:500px; font-size:80px; flex-shrink:0;">&#9835;</div>
+      <div style="width:48px;"></div>
+      <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+        <div style="font-size:36px; font-weight:700; color:var(--md-on-surface); text-align:center;">Midnight City</div>
+        <div style="height:8px;"></div>
+        <div style="font-size:20px; color:var(--md-on-surface-variant); text-align:center;">M83 -- Hurry Up, We're Dreaming</div>
+        <div style="height:6px;"></div>
+        <div style="font-size:16px; color:var(--md-primary); opacity:0.9; text-align:center;">Group: Whole House</div>
+        <div style="height:24px;"></div>
+        <div class="progress-bar" style="max-width:500px;">
+          <div class="progress-track" style="height:6px;"><div class="progress-fill"></div></div>
+          <div class="progress-times" style="font-size:14px;"><span>1:24</span><span>4:03</span></div>
+        </div>
+        <div style="height:24px;"></div>
+        <div class="controls-row" style="gap:20px;">
+          <div class="ctrl-btn" style="width:80px; height:80px; font-size:28px;">|&lt;</div>
+          <div class="play-btn" style="width:96px; height:96px; font-size:38px;">||</div>
+          <div class="ctrl-btn" style="width:80px; height:80px; font-size:28px;">&gt;|</div>
+        </div>
+        <div class="secondary-row" style="margin-top:16px; gap:32px;">
+          <div class="sec-btn" style="font-size:22px;">&#9776;</div>
+          <div class="sec-btn" style="font-size:22px;">&#9825;</div>
+        </div>
+      </div>
+    </div>
+    <div class="tv-queue-sidebar" style="width:350px;">
+      <div class="queue-header" style="padding-top:12px;">
+        <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+        <div class="q-spacer"></div>
+        <div class="q-icon">&#8645;</div>
+        <div class="q-icon">&#8634;</div>
+      </div>
+      <div class="queue-section-label">Now Playing</div>
+      <div class="queue-item now-playing">
+        <div class="q-play-icon">&#9654;</div>
+        <div style="width:56px; height:56px; background:linear-gradient(135deg, #4A3B6B 0%, #2D2040 100%); border-radius:6px; flex-shrink:0;"></div>
+        <div class="q-info">
+          <div class="q-name" style="font-size:16px;">Midnight City</div>
+          <div class="q-artist" style="font-size:13px;">M83 -- Hurry Up, We're Dreaming</div>
+        </div>
+        <div class="q-duration" style="font-size:13px;">4:03</div>
+      </div>
+      <div class="queue-divider"></div>
+      <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+      <div class="queue-item">
+        <div style="width:56px; height:56px; background:linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%); border-radius:6px; flex-shrink:0;"></div>
+        <div class="q-info"><div class="q-name" style="font-size:16px;">Intro</div><div class="q-artist" style="font-size:13px;">The xx -- xx</div></div>
+        <div class="q-duration" style="font-size:13px;">2:07</div>
+      </div>
+      <div class="queue-item">
+        <div style="width:56px; height:56px; background:linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%); border-radius:6px; flex-shrink:0;"></div>
+        <div class="q-info"><div class="q-name" style="font-size:16px;">Genesis</div><div class="q-artist" style="font-size:13px;">Grimes -- Visions</div></div>
+        <div class="q-duration" style="font-size:13px;">4:14</div>
+      </div>
+      <div class="queue-item">
+        <div style="width:56px; height:56px; background:linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%); border-radius:6px; flex-shrink:0;"></div>
+        <div class="q-info"><div class="q-name" style="font-size:16px;">Oblivion</div><div class="q-artist" style="font-size:13px;">Grimes -- Visions</div></div>
+        <div class="q-duration" style="font-size:13px;">4:09</div>
+      </div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    <div class="device-card">
+  <div class="device-label">Head Unit</div>
+  <div class="device-size">900 x 1600 @ 0.35x</div>
+  <div class="viewport" style="width:315px; height:560px;">
+    <div class="viewport-inner" style="width:900px; height:1600px; transform:scale(0.35);">
+      
+<div style="display:flex; flex-direction:column; height:100%; padding:24px; align-items:center;">
+  <div style="height:12px;"></div>
+  <div class="album-art" style="width:585px; font-size:100px;">&#9835;</div>
+  <div style="height:20px;"></div>
+  <div style="text-align:center; width:100%;">
+    <div style="font-size:32px; font-weight:700; color:var(--md-on-surface); letter-spacing:-0.6px;">Midnight City</div>
+    <div style="height:4px;"></div>
+    <div style="font-size:18px; color:var(--md-on-surface-variant); opacity:0.9;">M83 -- Hurry Up, We're Dreaming</div>
+    <div style="height:6px;"></div>
+    <div style="font-size:14px; color:var(--md-primary); opacity:0.9;">Group: Whole House</div>
+  </div>
+  <div style="height:16px;"></div>
+  <div class="progress-bar">
+    <div class="progress-track" style="height:6px;"><div class="progress-fill"></div></div>
+    <div class="progress-times" style="font-size:14px;"><span>1:24</span><span>4:03</span></div>
+  </div>
+  <div style="height:16px;"></div>
+  <div class="controls-row" style="gap:10px;">
+    <div class="ctrl-btn" style="width:54px; height:54px; font-size:18px;">&#8645;</div>
+    <div class="ctrl-btn" style="width:64px; height:64px; font-size:24px;">|&lt;</div>
+    <div class="play-btn xlarge">||</div>
+    <div class="ctrl-btn" style="width:64px; height:64px; font-size:24px;">&gt;|</div>
+    <div class="ctrl-btn" style="width:54px; height:54px; font-size:18px;">&#9825;</div>
+  </div>
+  <div style="height:12px;"></div>
+  <div style="width:100%;">
+    <div class="up-next-divider">
+      <div class="line"></div><div class="label">UP NEXT</div><div class="line"></div>
+    </div>
+    <div style="height:6px;"></div>
+    <div class="up-next-item"><div class="num">1</div><div class="thumb"></div><div class="info"><div class="name">Intro</div><div class="artist">The xx</div></div><div class="dur">2:07</div></div>
+    <div class="up-next-item"><div class="num">2</div><div class="thumb"></div><div class="info"><div class="name">Genesis</div><div class="artist">Grimes</div></div><div class="dur">4:14</div></div>
+    <div class="up-next-item"><div class="num">3</div><div class="thumb"></div><div class="info"><div class="name">Oblivion</div><div class="artist">Grimes</div></div><div class="dur">4:09</div></div>
+  </div>
+</div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#9654;</div><span>Playing</span></div>
+  <div class="nav-item"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+    </div>
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="screen-row">
+  <h2>2. Server List</h2>
+  <div class="state-row">
+    <div class="state-label no-playback">No Playback (disconnected -- mini player never shown)</div>
+    <div class="devices">
+      <div class="device-card">
+  <div class="device-label">Phone Portrait</div>
+  <div class="device-size">390 x 844 @ 0.5x</div>
+  <div class="viewport" style="width:195px; height:422px;">
+    <div class="viewport-inner" style="width:390px; height:844px; transform:scale(0.5);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Phone Landscape</div>
+  <div class="device-size">844 x 390 @ 0.5x</div>
+  <div class="viewport" style="width:422px; height:195px;">
+    <div class="viewport-inner" style="width:844px; height:390px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+    <div style="height:40px;"></div>
+  </div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar"><div class="title">SendSpin</div></div>
+    <div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Portrait</div>
+  <div class="device-size">600 x 1024 @ 0.5x</div>
+  <div class="viewport" style="width:300px; height:512px;">
+    <div class="viewport-inner" style="width:600px; height:1024px; transform:scale(0.5);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Landscape</div>
+  <div class="device-size">1024 x 600 @ 0.5x</div>
+  <div class="viewport" style="width:512px; height:300px;">
+    <div class="viewport-inner" style="width:1024px; height:600px; transform:scale(0.5);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Portrait</div>
+  <div class="device-size">800 x 1280 @ 0.5x</div>
+  <div class="viewport" style="width:400px; height:640px;">
+    <div class="viewport-inner" style="width:800px; height:1280px; transform:scale(0.5);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Landscape</div>
+  <div class="device-size">1280 x 800 @ 0.5x</div>
+  <div class="viewport" style="width:640px; height:400px;">
+    <div class="viewport-inner" style="width:1280px; height:800px; transform:scale(0.5);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">TV</div>
+  <div class="device-size">1920 x 1080 @ 0.35x</div>
+  <div class="viewport" style="width:672px; height:378px;">
+    <div class="viewport-inner" style="width:1920px; height:1080px; transform:scale(0.35);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:calc(100% - 56px); padding: 48px;">
+  <div class="server-section-header" style="font-size:16px;">Saved Servers</div>
+  <div class="server-item" style="padding:16px 24px;">
+    <div class="server-icon" style="width:56px; height:56px; border-radius:28px; font-size:22px;">&#9654;</div>
+    <div class="server-info"><div class="server-name" style="font-size:20px;">Living Room</div><div class="server-address" style="font-size:16px;">192.168.1.100:8927</div></div>
+    <div class="server-status online" style="font-size:14px;">Online</div>
+  </div>
+  <div class="server-item" style="padding:16px 24px;">
+    <div class="server-icon" style="width:56px; height:56px; border-radius:28px; font-size:22px;">&#9654;</div>
+    <div class="server-info"><div class="server-name" style="font-size:20px;">Bedroom</div><div class="server-address" style="font-size:16px;">192.168.1.101:8927</div></div>
+    <div class="server-status offline" style="font-size:14px;">Offline</div>
+  </div>
+  <div class="server-section-header" style="font-size:16px;">Nearby Servers</div>
+  <div class="server-item" style="padding:16px 24px;">
+    <div class="server-icon" style="width:56px; height:56px; border-radius:28px; font-size:22px; background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name" style="font-size:20px;">Kitchen Speaker</div><div class="server-address" style="font-size:16px;">192.168.1.102:8927</div></div>
+    <div class="server-status online" style="font-size:14px;">Online</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Head Unit</div>
+  <div class="device-size">900 x 1600 @ 0.35x</div>
+  <div class="viewport" style="width:315px; height:560px;">
+    <div class="viewport-inner" style="width:900px; height:1600px; transform:scale(0.35);">
+      
+<div class="top-bar"><div class="title">SendSpin</div></div>
+<div style="position:relative; height:calc(100% - 56px);">
+  <div style="position:relative; height:100%; flex:1;">
+  <div class="server-section-header">Saved Servers</div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Living Room</div><div class="server-address">192.168.1.100:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Bedroom</div><div class="server-address">192.168.1.101:8927</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-item">
+    <div class="server-icon">&#9654;</div>
+    <div class="server-info"><div class="server-name">Office</div><div class="server-address">Remote: XYZAB...</div></div>
+    <div class="server-status offline">Offline</div>
+  </div>
+  <div class="server-section-header">Nearby Servers</div>
+  <div class="server-item">
+    <div class="server-icon" style="background:var(--md-surface-variant); color:var(--md-on-surface-variant);">&#9654;</div>
+    <div class="server-info"><div class="server-name">Kitchen Speaker</div><div class="server-address">192.168.1.102:8927</div></div>
+    <div class="server-status online">Online</div>
+  </div>
+  <div class="fab">+</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-row">
+  <h2>3. Home / Browse</h2>
+
+  <div class="state-row">
+    <div class="state-label no-playback">No Playback</div>
+    <div class="devices">
+      <div class="device-card">
+  <div class="device-label">Phone Portrait</div>
+  <div class="device-size">390 x 844 @ 0.5x</div>
+  <div class="viewport" style="width:195px; height:422px;">
+    <div class="viewport-inner" style="width:390px; height:844px; transform:scale(0.5);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+  <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+  <div style="flex:1; overflow:hidden;">
+    <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+  </div>
+</div>
+    <div class="carousel-section">
+      <div class="carousel-title">Recently Added</div>
+      <div class="carousel-row">
+        <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+        <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Phone Landscape</div>
+  <div class="device-size">844 x 390 @ 0.5x</div>
+  <div class="viewport" style="width:422px; height:195px;">
+    <div class="viewport-inner" style="width:844px; height:390px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Portrait</div>
+  <div class="device-size">600 x 1024 @ 0.5x</div>
+  <div class="viewport" style="width:300px; height:512px;">
+    <div class="viewport-inner" style="width:600px; height:1024px; transform:scale(0.5);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+  </div>
+</div>
+    </div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Landscape</div>
+  <div class="device-size">1024 x 600 @ 0.5x</div>
+  <div class="viewport" style="width:512px; height:300px;">
+    <div class="viewport-inner" style="width:1024px; height:600px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Portrait</div>
+  <div class="device-size">800 x 1280 @ 0.5x</div>
+  <div class="viewport" style="width:400px; height:640px;">
+    <div class="viewport-inner" style="width:800px; height:1280px; transform:scale(0.5);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Landscape</div>
+  <div class="device-size">1280 x 800 @ 0.5x</div>
+  <div class="viewport" style="width:640px; height:400px;">
+    <div class="viewport-inner" style="width:1280px; height:800px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">TV</div>
+  <div class="device-size">1920 x 1080 @ 0.35x</div>
+  <div class="viewport" style="width:672px; height:378px;">
+    <div class="viewport-inner" style="width:1920px; height:1080px; transform:scale(0.35);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item"><div class="rail-icon">&#9654;</div><span>Playing</span></div>
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden; padding:24px 0;">
+      <div class="carousel-section">
+        <div class="carousel-title" style="font-size:22px; padding-left:48px;">Recently Played</div>
+        <div class="carousel-row" style="padding-left:48px; gap:16px;">
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Hurry Up, We're Dreaming</div><div class="card-subtitle" style="font-size:13px;">M83</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">xx</div><div class="card-subtitle" style="font-size:13px;">The xx</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Visions</div><div class="card-subtitle" style="font-size:13px;">Grimes</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Kid A</div><div class="card-subtitle" style="font-size:13px;">Radiohead</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Homework</div><div class="card-subtitle" style="font-size:13px;">Daft Punk</div></div>
+        </div>
+      </div>
+      <div class="carousel-section">
+        <div class="carousel-title" style="font-size:22px; padding-left:48px;">Albums</div>
+        <div class="carousel-row" style="padding-left:48px; gap:16px;">
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Dark Side of the Moon</div><div class="card-subtitle" style="font-size:13px;">Pink Floyd</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">OK Computer</div><div class="card-subtitle" style="font-size:13px;">Radiohead</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Random Access Memories</div><div class="card-subtitle" style="font-size:13px;">Daft Punk</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">In Rainbows</div><div class="card-subtitle" style="font-size:13px;">Radiohead</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Head Unit</div>
+  <div class="device-size">900 x 1600 @ 0.35x</div>
+  <div class="viewport" style="width:315px; height:560px;">
+    <div class="viewport-inner" style="width:900px; height:1600px; transform:scale(0.35);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+  <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+  <div style="flex:1; overflow:hidden;">
+    <div class="carousel-section">
+      <div class="carousel-title" style="font-size:22px;">Recently Played</div>
+      <div class="carousel-row">
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+      </div>
+    </div>
+    <div class="carousel-section">
+      <div class="carousel-title" style="font-size:22px;">Albums</div>
+      <div class="carousel-row">
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+        <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">OK Computer</div><div class="card-subtitle">Radiohead</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom-nav">
+  <div class="nav-item"><div class="nav-icon">&#9654;</div><span>Playing</span></div>
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+
+  <div class="state-row">
+    <div class="state-label playing">Now Playing - Mini Player Active</div>
+    <div class="devices">
+      <div class="device-card">
+  <div class="device-label">Phone Portrait</div>
+  <div class="device-size">390 x 844 @ 0.5x</div>
+  <div class="viewport" style="width:195px; height:422px;">
+    <div class="viewport-inner" style="width:390px; height:844px; transform:scale(0.5);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+  <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+  <div style="flex:1; overflow:hidden;">
+    <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:160px;"><div class="card-art" style="width:160px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+  </div>
+</div>
+  </div>
+  <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+  <div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Phone Landscape</div>
+  <div class="device-size">844 x 390 @ 0.5x</div>
+  <div class="viewport" style="width:422px; height:195px;">
+    <div class="viewport-inner" style="width:844px; height:390px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden;">
+        <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:140px;"><div class="card-art" style="width:140px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:140px;"><div class="card-art" style="width:140px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:140px;"><div class="card-art" style="width:140px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:140px;"><div class="card-art" style="width:140px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+  </div>
+</div>
+      </div>
+      <div style="display:flex; flex-direction:column; width:200px; border-left:1px solid var(--md-divider); background:var(--md-surface-container-high);">
+  <div style="padding:12px; display:flex; flex-direction:column; align-items:center; gap:8px; flex:1;">
+    <div style="width:80px; height:80px; border-radius:8px; background:linear-gradient(135deg, #4A3B6B 0%, #2D2040 100%);"></div>
+    <div style="text-align:center; width:100%;">
+      <div style="font-size:12px; font-weight:500; color:var(--md-on-surface); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Midnight City</div>
+      <div style="font-size:10px; color:var(--md-on-surface-variant);">M83</div>
+    </div>
+    <div style="width:100%; height:2px; background:var(--md-surface-variant); border-radius:1px; overflow:hidden;">
+      <div style="height:100%; width:35%; background:var(--md-accent);"></div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <div style="font-size:14px; color:var(--md-on-surface);">||</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Portrait</div>
+  <div class="device-size">600 x 1024 @ 0.5x</div>
+  <div class="viewport" style="width:300px; height:512px;">
+    <div class="viewport-inner" style="width:600px; height:1024px; transform:scale(0.5);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+  </div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Landscape</div>
+  <div class="device-size">1024 x 600 @ 0.5x</div>
+  <div class="viewport" style="width:512px; height:300px;">
+    <div class="viewport-inner" style="width:1024px; height:600px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Portrait</div>
+  <div class="device-size">800 x 1280 @ 0.5x</div>
+  <div class="viewport" style="width:400px; height:640px;">
+    <div class="viewport-inner" style="width:800px; height:1280px; transform:scale(0.5);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Landscape</div>
+  <div class="device-size">1280 x 800 @ 0.5x</div>
+  <div class="viewport" style="width:640px; height:400px;">
+    <div class="viewport-inner" style="width:1280px; height:800px; transform:scale(0.5);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; overflow:hidden;">
+      <div class="carousel-section">
+  <div class="carousel-title">Recently Played</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up, We're Dreaming</div><div class="card-subtitle">M83</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">xx</div><div class="card-subtitle">The xx</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Visions</div><div class="card-subtitle">Grimes</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+<div class="carousel-section">
+  <div class="carousel-title">Albums</div>
+  <div class="carousel-row">
+    <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Dark Side of the Moon</div><div class="card-subtitle">Pink Floyd</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Homework</div><div class="card-subtitle">Daft Punk</div></div>
+                <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Kid A</div><div class="card-subtitle">Radiohead</div></div>
+  </div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">TV</div>
+  <div class="device-size">N/A - no mini player</div>
+  <div class="viewport" style="width:200px; height:60px; display:flex; align-items:center; justify-content:center; border-style:dashed;">
+    <div style="font-size:12px; color:var(--md-on-surface-variant); opacity:0.5;">TV never shows mini player</div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Head Unit</div>
+  <div class="device-size">N/A - no mini player</div>
+  <div class="viewport" style="width:200px; height:60px; display:flex; align-items:center; justify-content:center; border-style:dashed;">
+    <div style="font-size:12px; color:var(--md-on-surface-variant); opacity:0.5;">Headunit never shows mini player</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+
+<div class="screen-row">
+  <h2>4. Queue</h2>
+
+  <div class="state-row">
+    <div class="state-label no-playback">No Playback</div>
+    <div class="devices">
+      <div class="device-card">
+  <div class="device-label">Phone Portrait</div>
+  <div class="device-size">390 x 844 @ 0.5x</div>
+  <div class="viewport" style="width:195px; height:422px;">
+    <div class="viewport-inner" style="width:390px; height:844px; transform:scale(0.5);">
+      <div style="height:100%; display:flex; flex-direction:column;">
+  <div style="flex:1; background:rgba(0,0,0,0.5);"></div>
+  <div style="background:var(--md-surface-container-high); border-radius:28px 28px 0 0; padding-top:8px;">
+    <div style="width:32px; height:4px; background:var(--md-outline); border-radius:2px; margin:0 auto 8px;"></div>
+    <div class="queue-header">
+      <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+      <div class="q-spacer"></div>
+      <div class="q-icon">&#8645;</div>
+      <div class="q-icon">&#8634;</div>
+      <div class="q-icon">...</div>
+    </div>
+    <div class="queue-section-label">Now Playing</div>
+    <div class="queue-item now-playing">
+      <div class="q-play-icon">&#9654;</div>
+      <div class="album-art-md"></div>
+      <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83 -- Hurry Up, We're Dreaming</div></div>
+      <div class="q-duration">4:03</div>
+    </div>
+    <div class="queue-divider"></div>
+    <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+    <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+    <div style="height:16px;"></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Phone Landscape</div>
+  <div class="device-size">844 x 390 @ 0.5x</div>
+  <div class="viewport" style="width:422px; height:195px;">
+    <div class="viewport-inner" style="width:844px; height:390px; transform:scale(0.5);">
+      <div style="height:100%; display:flex; flex-direction:column;">
+  <div style="flex:1; background:rgba(0,0,0,0.5);"></div>
+  <div style="background:var(--md-surface-container-high); border-radius:28px 28px 0 0; padding-top:8px;">
+    <div style="width:32px; height:4px; background:var(--md-outline); border-radius:2px; margin:0 auto 8px;"></div>
+    <div class="queue-header">
+      <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+      <div class="q-spacer"></div>
+      <div class="q-icon">&#8645;</div>
+      <div class="q-icon">&#8634;</div>
+      <div class="q-icon">...</div>
+    </div>
+    <div class="queue-section-label">Now Playing</div>
+    <div class="queue-item now-playing">
+      <div class="q-play-icon">&#9654;</div>
+      <div class="album-art-md"></div>
+      <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83 -- Hurry Up, We're Dreaming</div></div>
+      <div class="q-duration">4:03</div>
+    </div>
+    <div class="queue-divider"></div>
+    <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+    <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+    <div style="height:16px;"></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Portrait</div>
+  <div class="device-size">600 x 1024 @ 0.5x</div>
+  <div class="viewport" style="width:300px; height:512px;">
+    <div class="viewport-inner" style="width:600px; height:1024px; transform:scale(0.5);">
+      <div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:280px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Landscape</div>
+  <div class="device-size">1024 x 600 @ 0.5x</div>
+  <div class="viewport" style="width:512px; height:300px;">
+    <div class="viewport-inner" style="width:1024px; height:600px; transform:scale(0.5);">
+      <div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:280px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Portrait</div>
+  <div class="device-size">800 x 1280 @ 0.5x</div>
+  <div class="viewport" style="width:400px; height:640px;">
+    <div class="viewport-inner" style="width:800px; height:1280px; transform:scale(0.5);">
+      <div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:320px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Breathe (In the Air)</div>
+    <div class="q-artist">Pink Floyd -- Dark Side of the Moon</div>
+  </div>
+  <div class="q-duration">2:43</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Landscape</div>
+  <div class="device-size">1280 x 800 @ 0.5x</div>
+  <div class="viewport" style="width:640px; height:400px;">
+    <div class="viewport-inner" style="width:1280px; height:800px; transform:scale(0.5);">
+      <div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:320px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">TV</div>
+  <div class="device-size">1920 x 1080 @ 0.35x</div>
+  <div class="viewport" style="width:672px; height:378px;">
+    <div class="viewport-inner" style="width:1920px; height:1080px; transform:scale(0.35);">
+      
+<div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item"><div class="rail-icon">&#9654;</div><span>Playing</span></div>
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5; padding:24px 48px;">
+        <div class="carousel-title" style="font-size:22px;">Recently Played</div>
+        <div class="carousel-row" style="gap:16px; padding:0;">
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">Hurry Up...</div></div>
+          <div class="media-card" style="width:220px;"><div class="card-art" style="width:220px;"></div><div class="card-title" style="font-size:16px;">xx</div></div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+      <div style="width:350px; display:flex; flex-direction:column; overflow:hidden;">
+        <div class="queue-header" style="padding-top:12px;">
+          <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+          <div class="q-spacer"></div>
+          <div class="q-icon">&#8645;</div>
+          <div class="q-icon">&#8634;</div>
+        </div>
+        <div class="queue-section-label">Now Playing</div>
+        <div class="queue-item now-playing">
+          <div class="q-play-icon">&#9654;</div>
+          <div style="width:56px; height:56px; background:linear-gradient(135deg, #4A3B6B 0%, #2D2040 100%); border-radius:6px; flex-shrink:0;"></div>
+          <div class="q-info"><div class="q-name" style="font-size:16px;">Midnight City</div><div class="q-artist" style="font-size:13px;">M83 -- Hurry Up...</div></div>
+          <div class="q-duration" style="font-size:13px;">4:03</div>
+        </div>
+        <div class="queue-divider"></div>
+        <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+        <div class="queue-item">
+          <div style="width:56px; height:56px; background:linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%); border-radius:6px; flex-shrink:0;"></div>
+          <div class="q-info"><div class="q-name" style="font-size:16px;">Intro</div><div class="q-artist" style="font-size:13px;">The xx</div></div>
+          <div class="q-duration" style="font-size:13px;">2:07</div>
+        </div>
+        <div class="queue-item">
+          <div style="width:56px; height:56px; background:linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%); border-radius:6px; flex-shrink:0;"></div>
+          <div class="q-info"><div class="q-name" style="font-size:16px;">Genesis</div><div class="q-artist" style="font-size:13px;">Grimes</div></div>
+          <div class="q-duration" style="font-size:13px;">4:14</div>
+        </div>
+        <div class="queue-item">
+          <div style="width:56px; height:56px; background:linear-gradient(135deg, #3D2E5C 0%, #251C3A 100%); border-radius:6px; flex-shrink:0;"></div>
+          <div class="q-info"><div class="q-name" style="font-size:16px;">Oblivion</div><div class="q-artist" style="font-size:13px;">Grimes</div></div>
+          <div class="q-duration" style="font-size:13px;">4:09</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Head Unit</div>
+  <div class="device-size">900 x 1600 @ 0.35x</div>
+  <div class="viewport" style="width:315px; height:560px;">
+    <div class="viewport-inner" style="width:900px; height:1600px; transform:scale(0.35);">
+      
+<div style="display:flex; flex-direction:column; height:100%;">
+  <div class="top-bar">
+  <div>
+    <div class="title">Now Playing</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  
+  <div class="icon-btn">...</div>
+</div>
+  <div style="flex:1; padding:24px; display:flex; flex-direction:column; align-items:center; overflow:hidden;">
+    <div style="font-size:14px; color:var(--md-on-surface-variant); text-align:center; padding:12px; opacity:0.7;">
+      Head unit shows queue via Up Next peek on Now Playing screen (no separate queue view)
+    </div>
+    <div style="height:24px;"></div>
+    <div style="width:100%;">
+      <div class="up-next-divider"><div class="line"></div><div class="label">UP NEXT</div><div class="line"></div></div>
+      <div style="height:8px;"></div>
+      <div class="up-next-item"><div class="num">1</div><div class="thumb"></div><div class="info"><div class="name">Intro</div><div class="artist">The xx -- xx</div></div><div class="dur">2:07</div></div>
+      <div class="up-next-item"><div class="num">2</div><div class="thumb"></div><div class="info"><div class="name">Genesis</div><div class="artist">Grimes -- Visions</div></div><div class="dur">4:14</div></div>
+      <div class="up-next-item"><div class="num">3</div><div class="thumb"></div><div class="info"><div class="name">Oblivion</div><div class="artist">Grimes -- Visions</div></div><div class="dur">4:09</div></div>
+    </div>
+  </div>
+  <div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#9654;</div><span>Playing</span></div>
+  <div class="nav-item"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+    </div>
+  </div>
+
+  <div class="state-row">
+    <div class="state-label playing">Now Playing - Mini Player Active</div>
+    <div class="devices">
+      <div class="device-card">
+  <div class="device-label">Phone Portrait</div>
+  <div class="device-size">390 x 844 @ 0.5x</div>
+  <div class="viewport" style="width:195px; height:422px;">
+    <div class="viewport-inner" style="width:390px; height:844px; transform:scale(0.5);">
+      <div style="height:100%; display:flex; flex-direction:column;">
+  <div style="flex:1; background:rgba(0,0,0,0.5);"></div>
+  <div style="background:var(--md-surface-container-high); border-radius:28px 28px 0 0; padding-top:8px;">
+    <div style="width:32px; height:4px; background:var(--md-outline); border-radius:2px; margin:0 auto 8px;"></div>
+    <div class="queue-header">
+      <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+      <div class="q-spacer"></div>
+      <div class="q-icon">&#8645;</div>
+      <div class="q-icon">&#8634;</div>
+      <div class="q-icon">...</div>
+    </div>
+    <div class="queue-section-label">Now Playing</div>
+    <div class="queue-item now-playing">
+      <div class="q-play-icon">&#9654;</div>
+      <div class="album-art-md"></div>
+      <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83 -- Hurry Up, We're Dreaming</div></div>
+      <div class="q-duration">4:03</div>
+    </div>
+    <div class="queue-divider"></div>
+    <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+    <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+    <div style="height:16px;"></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Phone Landscape</div>
+  <div class="device-size">844 x 390 @ 0.5x</div>
+  <div class="viewport" style="width:422px; height:195px;">
+    <div class="viewport-inner" style="width:844px; height:390px; transform:scale(0.5);">
+      <div style="height:100%; display:flex; flex-direction:column;">
+  <div style="flex:1; background:rgba(0,0,0,0.5);"></div>
+  <div style="background:var(--md-surface-container-high); border-radius:28px 28px 0 0; padding-top:8px;">
+    <div style="width:32px; height:4px; background:var(--md-outline); border-radius:2px; margin:0 auto 8px;"></div>
+    <div class="queue-header">
+      <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+      <div class="q-spacer"></div>
+      <div class="q-icon">&#8645;</div>
+      <div class="q-icon">&#8634;</div>
+      <div class="q-icon">...</div>
+    </div>
+    <div class="queue-section-label">Now Playing</div>
+    <div class="queue-item now-playing">
+      <div class="q-play-icon">&#9654;</div>
+      <div class="album-art-md"></div>
+      <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83 -- Hurry Up, We're Dreaming</div></div>
+      <div class="q-duration">4:03</div>
+    </div>
+    <div class="queue-divider"></div>
+    <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+    <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+    <div style="height:16px;"></div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Portrait</div>
+  <div class="device-size">600 x 1024 @ 0.5x</div>
+  <div class="viewport" style="width:300px; height:512px;">
+    <div class="viewport-inner" style="width:600px; height:1024px; transform:scale(0.5);">
+      <div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:280px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 7" Landscape</div>
+  <div class="device-size">1024 x 600 @ 0.5x</div>
+  <div class="viewport" style="width:512px; height:300px;">
+    <div class="viewport-inner" style="width:1024px; height:600px; transform:scale(0.5);">
+      <div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:180px;"><div class="card-art" style="width:180px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:280px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Portrait</div>
+  <div class="device-size">800 x 1280 @ 0.5x</div>
+  <div class="viewport" style="width:400px; height:640px;">
+    <div class="viewport-inner" style="width:800px; height:1280px; transform:scale(0.5);">
+      <div style="display:flex; flex-direction:column; height:100%;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:320px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Breathe (In the Air)</div>
+    <div class="q-artist">Pink Floyd -- Dark Side of the Moon</div>
+  </div>
+  <div class="q-duration">2:43</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+<div class="bottom-nav">
+  <div class="nav-item active"><div class="nav-icon">&#8962;</div><span>Home</span></div>
+  <div class="nav-item"><div class="nav-icon">&#128269;</div><span>Search</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9776;</div><span>Library</span></div>
+  <div class="nav-item"><div class="nav-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Tablet 10" Landscape</div>
+  <div class="device-size">1280 x 800 @ 0.5x</div>
+  <div class="viewport" style="width:640px; height:400px;">
+    <div class="viewport-inner" style="width:1280px; height:800px; transform:scale(0.5);">
+      <div style="display:flex; height:100%;">
+  <div class="nav-rail">
+  <div class="rail-item active"><div class="rail-icon">&#8962;</div><span>Home</span></div>
+  <div class="rail-item"><div class="rail-icon">&#128269;</div><span>Search</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9776;</div><span>Library</span></div>
+  <div class="rail-item"><div class="rail-icon">&#9835;</div><span>Playlists</span></div>
+</div>
+  <div style="flex:1; display:flex; flex-direction:column;">
+    <div class="top-bar">
+  <div>
+    <div class="title">Home</div>
+    <div class="server-name">Living Room</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="icon-btn" style="color:var(--md-primary);">&#9776;</div>
+  <div class="icon-btn">...</div>
+</div>
+    <div style="flex:1; display:flex;">
+      <div style="flex:1; overflow:hidden; opacity:0.5;">
+        <div class="carousel-section">
+          <div class="carousel-title">Recently Played</div>
+          <div class="carousel-row">
+            <div class="media-card" style="width:200px;"><div class="card-art" style="width:200px;"></div><div class="card-title">Hurry Up...</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="vert-divider"></div>
+<div style="width:320px; display:flex; flex-direction:column; overflow:hidden;">
+  <div class="queue-header" style="padding-top:8px;">
+    <div><div class="q-title">Queue</div><div class="q-count">8 tracks</div></div>
+    <div class="q-spacer"></div>
+    <div class="q-icon">&#8645;</div>
+    <div class="q-icon">&#8634;</div>
+  </div>
+  <div class="queue-section-label">Now Playing</div>
+  <div class="queue-item now-playing">
+    <div class="q-play-icon">&#9654;</div>
+    <div class="album-art-md"></div>
+    <div class="q-info"><div class="q-name">Midnight City</div><div class="q-artist">M83</div></div>
+    <div class="q-duration">4:03</div>
+  </div>
+  <div class="queue-divider"></div>
+  <div class="queue-section-label" style="color:var(--md-on-surface-variant);">Up Next</div>
+  <div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Intro</div>
+    <div class="q-artist">The xx -- xx</div>
+  </div>
+  <div class="q-duration">2:07</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Genesis</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:14</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Oblivion</div>
+    <div class="q-artist">Grimes -- Visions</div>
+  </div>
+  <div class="q-duration">4:09</div>
+  <div class="q-more">...</div>
+</div>
+<div class="queue-item">
+  <div class="album-art-sm"></div>
+  <div class="q-info">
+    <div class="q-name">Everything In Its Right Place</div>
+    <div class="q-artist">Radiohead -- Kid A</div>
+  </div>
+  <div class="q-duration">4:11</div>
+  <div class="q-more">...</div>
+</div>
+</div>
+    </div>
+    <div class="mini-player" style="position:relative;">
+  <div class="mp-art"></div>
+  <div class="mp-info">
+    <div class="mp-title">Midnight City</div>
+    <div class="mp-artist">M83</div>
+  </div>
+  <div class="mp-btn">|&lt;</div>
+  <div class="mp-btn">||</div>
+  <div class="mp-btn">&gt;|</div>
+  <div class="mp-progress"><div class="mp-progress-fill"></div></div>
+</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">TV</div>
+  <div class="device-size">N/A - no mini player</div>
+  <div class="viewport" style="width:200px; height:60px; display:flex; align-items:center; justify-content:center; border-style:dashed;">
+    <div style="font-size:12px; color:var(--md-on-surface-variant); opacity:0.5;">TV never shows mini player</div>
+  </div>
+</div>
+      <div class="device-card">
+  <div class="device-label">Head Unit</div>
+  <div class="device-size">N/A - no mini player</div>
+  <div class="viewport" style="width:200px; height:60px; display:flex; align-items:center; justify-content:center; border-style:dashed;">
+    <div style="font-size:12px; color:var(--md-on-surface-variant); opacity:0.5;">Headunit never shows mini player</div>
+  </div>
+</div>
+    </div>
+  </div>
+</div>
+
+<div style="margin-top:32px; padding:16px; border:1px solid var(--md-outline-variant); border-radius:12px; background:var(--md-surface-container);">
+  <div style="font-size:14px; font-weight:600; color:var(--md-on-surface); margin-bottom:8px;">Layout Notes (from AdaptiveDefaults.kt)</div>
+  <div style="font-size:12px; color:var(--md-on-surface-variant); line-height:1.8;">
+    <div><strong>Navigation:</strong> Phone portrait = BottomNav | Phone landscape = NavigationRail | Tablet 7"/10" = NavigationRail | TV = NavigationRail (with Now Playing tab) | Headunit = BottomNav</div>
+    <div><strong>Now Playing:</strong> Phone portrait = portrait stacked | Phone landscape = side-by-side art (45%) + controls | Tablet 7" = controls (55%) + queue (45%) | Tablet 10" = controls (50%) + queue (50%) | TV = landscape art+controls + sidebar queue (350dp) | Headunit = vertical stacked + 5-button controls + Up Next peek</div>
+    <div><strong>Mini Player:</strong> Shown on Phone, Tablet 7", Tablet 10" when browsing. Phone landscape uses side mini player (200dp). NOT shown on TV or Headunit (they have a Now Playing nav tab instead).</div>
+    <div><strong>Queue Sidebar:</strong> Tablet 7" = 280dp | Tablet 10" = 320dp | TV = 350dp (toggleable via toolbar icon). Phone = bottom sheet. Headunit = Up Next peek (3 items).</div>
+    <div><strong>Album Art Max:</strong> Phone=280dp | Tablet 7"=320dp | Tablet 10"=400dp | TV=500dp | Headunit=400dp</div>
+    <div><strong>Card Width:</strong> Phone=160dp | Tablet 7"=180dp | Tablet 10"=200dp | TV=220dp | Headunit=200dp</div>
+    <div><strong>Volume Slider:</strong> Shown on all EXCEPT TV (remote handles volume)</div>
+  </div>
+</div>
+
+</body>
+</html>
