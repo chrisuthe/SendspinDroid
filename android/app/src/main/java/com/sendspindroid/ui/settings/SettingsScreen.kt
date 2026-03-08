@@ -75,6 +75,7 @@ fun SettingsScreen(
     val fullscreenMode by viewModel.fullscreenMode.collectAsState()
     val keepScreenOn by viewModel.keepScreenOn.collectAsState()
     val miniPlayerPosition by viewModel.miniPlayerPosition.collectAsState()
+    val layoutMode by viewModel.layoutMode.collectAsState()
     val syncOffset by viewModel.syncOffset.collectAsState()
     val preferredCodec by viewModel.preferredCodec.collectAsState()
     val wifiCodec by viewModel.wifiCodec.collectAsState()
@@ -146,6 +147,16 @@ fun SettingsScreen(
                 ),
                 selectedOption = miniPlayerPosition,
                 onOptionSelected = { viewModel.setMiniPlayerPosition(it) }
+            )
+            SegmentedButtonPreference(
+                title = stringResource(R.string.pref_layout_mode_title),
+                summary = stringResource(R.string.pref_layout_mode_summary),
+                options = listOf(
+                    stringResource(R.string.pref_layout_mode_auto) to UserSettings.LayoutMode.AUTO,
+                    stringResource(R.string.pref_layout_mode_headunit) to UserSettings.LayoutMode.HEADUNIT
+                ),
+                selectedOption = layoutMode,
+                onOptionSelected = { viewModel.setLayoutMode(it) }
             )
 
             // Audio Category

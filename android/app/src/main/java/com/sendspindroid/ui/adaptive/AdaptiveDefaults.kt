@@ -30,6 +30,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 3
         FormFactor.TABLET_10 -> 4
         FormFactor.TV -> 5
+        FormFactor.HEADUNIT -> 3
     }
 
     // -- Card Sizes --
@@ -40,6 +41,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 180.dp
         FormFactor.TABLET_10 -> 200.dp
         FormFactor.TV -> 220.dp
+        FormFactor.HEADUNIT -> 200.dp
     }
 
     // -- Screen Padding --
@@ -50,6 +52,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 24.dp
         FormFactor.TABLET_10 -> 32.dp
         FormFactor.TV -> 48.dp  // Overscan-safe margin
+        FormFactor.HEADUNIT -> 24.dp
     }
 
     // -- Text Sizes --
@@ -60,6 +63,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 28.sp
         FormFactor.TABLET_10 -> 32.sp
         FormFactor.TV -> 36.sp
+        FormFactor.HEADUNIT -> 32.sp
     }
 
     /** Body text size (e.g., artist name, metadata) */
@@ -68,6 +72,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 14.sp
         FormFactor.TABLET_10 -> 16.sp
         FormFactor.TV -> 20.sp  // 10-foot UI minimum
+        FormFactor.HEADUNIT -> 18.sp
     }
 
     /** Caption/label text size */
@@ -76,6 +81,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 12.sp
         FormFactor.TABLET_10 -> 14.sp
         FormFactor.TV -> 16.sp
+        FormFactor.HEADUNIT -> 14.sp
     }
 
     // -- Playback Controls --
@@ -86,6 +92,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 80.dp
         FormFactor.TABLET_10 -> 88.dp
         FormFactor.TV -> 96.dp
+        FormFactor.HEADUNIT -> 96.dp
     }
 
     /** Small playback button size (prev/next/group) */
@@ -94,6 +101,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 64.dp
         FormFactor.TABLET_10 -> 72.dp
         FormFactor.TV -> 80.dp
+        FormFactor.HEADUNIT -> 80.dp
     }
 
     // -- Album Art --
@@ -104,6 +112,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 320.dp
         FormFactor.TABLET_10 -> 400.dp
         FormFactor.TV -> 500.dp
+        FormFactor.HEADUNIT -> 400.dp
     }
 
     // -- Layout Decisions --
@@ -115,6 +124,7 @@ object AdaptiveDefaults {
             FormFactor.TABLET_7 -> true  // Always side-by-side on 7" tablets
             FormFactor.TABLET_10 -> true
             FormFactor.TV -> true
+            FormFactor.HEADUNIT -> false  // Portrait layout, stacked vertically
         }
 
     /** Art width fraction when using side-by-side layout */
@@ -123,11 +133,12 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 0.40f
         FormFactor.TABLET_10 -> 0.45f
         FormFactor.TV -> 0.55f
+        FormFactor.HEADUNIT -> 0.45f
     }
 
-    /** Whether to show the mini player (TV doesn't need it) */
+    /** Whether to show the mini player (TV and head unit don't need it) */
     fun showMiniPlayer(formFactor: FormFactor): Boolean =
-        formFactor != FormFactor.TV
+        formFactor != FormFactor.TV && formFactor != FormFactor.HEADUNIT
 
     /**
      * Whether to show the mini player as a side panel (phone landscape only).
@@ -177,6 +188,7 @@ object AdaptiveDefaults {
         FormFactor.TABLET_7 -> 48.dp
         FormFactor.TABLET_10 -> 48.dp
         FormFactor.TV -> 64.dp
+        FormFactor.HEADUNIT -> 64.dp
     }
 
     // -- Browse Queue Sidebar --
@@ -193,5 +205,6 @@ object AdaptiveDefaults {
         FormFactor.TABLET_10 -> 320.dp
         FormFactor.TV -> 350.dp
         FormFactor.PHONE -> 0.dp  // Not shown
+        FormFactor.HEADUNIT -> 0.dp  // Not shown
     }
 }

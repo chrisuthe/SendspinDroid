@@ -142,6 +142,28 @@ fun NowPlayingScreen(
 
     Box(modifier = modifier.fillMaxSize()) {
         when {
+            // Head unit: portrait layout with large touch targets + queue peek
+            formFactor == FormFactor.HEADUNIT -> {
+                NowPlayingHeadUnit(
+                    metadata = metadata,
+                    groupName = groupName,
+                    artworkSource = artworkSource,
+                    isBuffering = isBuffering,
+                    isPlaying = isPlaying,
+                    controlsEnabled = controlsEnabled,
+                    accentColor = accentColor,
+                    isMaConnected = isMaConnected,
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    positionUpdatedAt = positionUpdatedAt,
+                    onPreviousClick = onPreviousClick,
+                    onPlayPauseClick = onPlayPauseClick,
+                    onNextClick = onNextClick,
+                    onSwitchGroupClick = onSwitchGroupClick,
+                    onFavoriteClick = onFavoriteClick,
+                    queueViewModel = queueViewModel
+                )
+            }
             // TV with MA connected: cinematic layout with toggleable queue sidebar
             formFactor == FormFactor.TV && isMaConnected -> {
                 NowPlayingTv(

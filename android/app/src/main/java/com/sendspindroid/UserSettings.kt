@@ -45,6 +45,7 @@ object UserSettings {
     const val KEY_HIGH_POWER_MODE = "high_power_mode"
     const val KEY_MINI_PLAYER_POSITION = "mini_player_position"
     const val KEY_ALBUM_ARTISTS_ONLY = "album_artists_only"
+    const val KEY_LAYOUT_MODE = "layout_mode"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -282,6 +283,26 @@ object UserSettings {
     var albumArtistsOnly: Boolean
         get() = prefs?.getBoolean(KEY_ALBUM_ARTISTS_ONLY, false) ?: false
         set(value) { prefs?.edit()?.putBoolean(KEY_ALBUM_ARTISTS_ONLY, value)?.apply() }
+
+    /**
+     * Layout mode override for adaptive UI.
+     * AUTO uses automatic detection; HEADUNIT forces head unit layout.
+     */
+    enum class LayoutMode {
+        AUTO,
+        HEADUNIT
+    }
+
+    var layoutMode: LayoutMode
+        get() {
+            val value = prefs?.getString(KEY_LAYOUT_MODE, "AUTO")
+            return try {
+                LayoutMode.valueOf(value ?: "AUTO")
+            } catch (e: Exception) {
+                LayoutMode.AUTO
+            }
+        }
+        set(value) { prefs?.edit()?.putString(KEY_LAYOUT_MODE, value.name)?.apply() }
 
     /**
      * Position of the mini player in the navigation content area.

@@ -576,11 +576,7 @@ object MusicAssistantManager {
     // Helper to resolve the effective queue ID through the command client
     private suspend fun resolveQueueId(): String {
         val playerId = UserSettings.getPlayerId()
-        try {
-            return commandClient.getEffectiveQueueId(playerId)
-        } catch (e: PlayerUnavailableException) {
-            throw Exception("Player is not available. Try reconnecting to the server.")
-        }
+        return commandClient.getEffectiveQueueId(playerId)
     }
 
     /**
@@ -603,8 +599,10 @@ object MusicAssistantManager {
     ): Result<Unit> {
         val effectiveMode = enqueueMode ?: if (enqueue) EnqueueMode.ADD else EnqueueMode.PLAY
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.playMedia(uri, queueId, mediaType, effectiveMode)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.playMedia(uri, queueId, mediaType, effectiveMode) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -613,8 +611,10 @@ object MusicAssistantManager {
      */
     suspend fun getQueueItems(limit: Int = 200, offset: Int = 0): Result<MaQueueState> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.getQueueItems(queueId, limit, offset)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.getQueueItems(queueId, limit, offset) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -623,8 +623,10 @@ object MusicAssistantManager {
      */
     suspend fun clearQueue(): Result<Unit> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.clearQueue(queueId)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.clearQueue(queueId) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -633,8 +635,10 @@ object MusicAssistantManager {
      */
     suspend fun playQueueItem(queueItemId: String): Result<Unit> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.playQueueItem(queueId, queueItemId)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.playQueueItem(queueId, queueItemId) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -643,8 +647,10 @@ object MusicAssistantManager {
      */
     suspend fun removeQueueItem(queueItemId: String): Result<Unit> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.removeQueueItem(queueId, queueItemId)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.removeQueueItem(queueId, queueItemId) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -653,8 +659,10 @@ object MusicAssistantManager {
      */
     suspend fun moveQueueItem(queueItemId: String, newIndex: Int): Result<Unit> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.moveQueueItem(queueId, queueItemId, newIndex)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.moveQueueItem(queueId, queueItemId, newIndex) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -663,8 +671,10 @@ object MusicAssistantManager {
      */
     suspend fun setQueueShuffle(enabled: Boolean): Result<Unit> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.setQueueShuffle(queueId, enabled)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.setQueueShuffle(queueId, enabled) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 
@@ -673,8 +683,10 @@ object MusicAssistantManager {
      */
     suspend fun setQueueRepeat(mode: String): Result<Unit> {
         return withContext(Dispatchers.IO) {
-            val queueId = resolveQueueId()
-            commandClient.setQueueRepeat(queueId, mode)
+            runCatching { resolveQueueId() }.fold(
+                onSuccess = { queueId -> commandClient.setQueueRepeat(queueId, mode) },
+                onFailure = { Result.failure(it) }
+            )
         }
     }
 

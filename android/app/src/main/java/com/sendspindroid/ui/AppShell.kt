@@ -454,7 +454,8 @@ private fun ConnectedShell(
     val queueViewModel: QueueViewModel = viewModel()
     val showQueueViewModel = (AdaptiveDefaults.showInlineQueuePanel(formFactor) ||
          AdaptiveDefaults.hasTvQueueSidebar(formFactor) ||
-         AdaptiveDefaults.showBrowseQueueSidebar(formFactor)) && isMaConnected
+         AdaptiveDefaults.showBrowseQueueSidebar(formFactor) ||
+         formFactor == FormFactor.HEADUNIT) && isMaConnected
 
     // Content composable shared between both layouts
     val contentArea: @Composable (PaddingValues) -> Unit = { innerPadding ->
@@ -616,6 +617,8 @@ private fun ConnectedShell(
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val navSuiteType = if (isPhoneLandscape) {
             NavigationSuiteType.NavigationRail
+        } else if (formFactor == FormFactor.HEADUNIT) {
+            NavigationSuiteType.NavigationBar
         } else {
             NavigationSuiteScaffoldDefaults.calculateFromAdaptiveInfo(currentWindowAdaptiveInfo())
         }
