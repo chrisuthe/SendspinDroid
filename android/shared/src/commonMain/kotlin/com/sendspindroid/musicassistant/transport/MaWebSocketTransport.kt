@@ -376,7 +376,7 @@ class MaWebSocketTransport(
 
                                 // Phase 2: Auth response
                                 val msgId = json.optString("message_id")
-                                if (msgId == authMessageId && authMessageId != null) {
+                                if (msgId == authMessageId) {
                                     authMessageId = null
 
                                     if (json.has("error_code")) {
