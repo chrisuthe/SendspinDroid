@@ -80,3 +80,9 @@ val md_theme_dark_inversePrimary = Color(0xFF6750A4)
 
 val md_theme_dark_surfaceTint = Color(0xFFD0BCFF)
 val md_theme_dark_scrim = Color(0xFF000000)
+
+// Semantic status colors -- used for server status indicators
+val StatusGreenLight = Color(0xFF4CAF50)
+val StatusGreenDark = Color(0xFF81C784)
+val StatusOrangeLight = Color(0xFFE65100)
+val StatusOrangeDark = Color(0xFFFFB74D)
