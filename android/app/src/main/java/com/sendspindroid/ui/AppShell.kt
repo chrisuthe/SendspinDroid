@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,12 +50,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
@@ -81,6 +84,7 @@ import com.sendspindroid.ui.main.DetailDestination
 import com.sendspindroid.ui.main.MainActivityViewModel
 import com.sendspindroid.ui.main.NavTab
 import com.sendspindroid.ui.main.NowPlayingScreen
+import com.sendspindroid.ui.main.components.ConnectionStatusDot
 import com.sendspindroid.ui.main.components.MiniPlayer
 import com.sendspindroid.ui.main.components.MiniPlayerSide
 import com.sendspindroid.ui.navigation.home.HomeScreen
@@ -313,6 +317,12 @@ private fun ConnectedShell(
         else -> null
     }
 
+    // Subtitle text: show "Reconnecting..." instead of plain server name when reconnecting
+    val subtitleText = when (connectionState) {
+        is AppConnectionState.Reconnecting -> stringResource(R.string.reconnecting_toolbar_subtitle)
+        else -> serverName
+    }
+
     // Title for the top bar -- detail title takes priority
     val topBarTitle = if (currentDetail != null) {
         currentDetail!!.title
@@ -347,12 +357,20 @@ private fun ConnectedShell(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (currentDetail == null && serverName != null) {
-                        Text(
-                            text = serverName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    if (currentDetail == null && subtitleText != null) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ConnectionStatusDot(
+                                connectionState = connectionState
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = subtitleText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             },
