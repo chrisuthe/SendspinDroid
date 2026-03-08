@@ -267,6 +267,10 @@ class PlaybackService : MediaLibraryService() {
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
+    // Sync offset state (included in broadcastSessionExtras to avoid bare-bundle overwrites)
+    private var lastSyncOffsetMs: Double = 0.0
+    private var lastSyncOffsetSource: String = ""
+
     // Artwork state
     private var lastArtworkUrl: String? = null
     private var currentArtwork: Bitmap? = null
@@ -1234,13 +1238,10 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onSyncOffsetApplied(offsetMs: Double, source: String) {
             android.util.Log.i(TAG, "Sync offset applied: ${offsetMs}ms from $source")
-            // Optionally broadcast to UI for display
             mainHandler.post {
-                val extras = Bundle().apply {
-                    putDouble("sync_offset_ms", offsetMs)
-                    putString("sync_offset_source", source)
-                }
-                mediaSession?.setSessionExtras(extras)
+                lastSyncOffsetMs = offsetMs
+                lastSyncOffsetSource = source
+                broadcastSessionExtras()
             }
         }
 
@@ -1487,6 +1488,13 @@ class PlaybackService : MediaLibraryService() {
 
             // Volume
             putInt(EXTRA_VOLUME, playbackState.volume)
+
+            // Sync offset (included here to avoid bare-bundle overwrites that
+            // would clobber volume, metadata, and connection state)
+            if (lastSyncOffsetMs != 0.0) {
+                putDouble("sync_offset_ms", lastSyncOffsetMs)
+                putString("sync_offset_source", lastSyncOffsetSource)
+            }
         }
 
         mediaSession?.setSessionExtras(extras)

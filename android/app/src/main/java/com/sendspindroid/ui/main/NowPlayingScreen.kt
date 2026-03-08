@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -106,6 +107,24 @@ fun NowPlayingScreen(
     val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
     val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
     val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsStateWithLifecycle()
+    // Optimistic metadata update: when a queue item is tapped, update the UI
+    // immediately with the item's metadata instead of waiting for the server round-trip.
+    LaunchedEffect(queueViewModel) {
+        queueViewModel?.playedItem?.collect { item ->
+            viewModel.updateMetadata(item.name, item.artist ?: "", item.album ?: "")
+            item.imageUri?.takeIf { it.isNotEmpty() }?.let { url ->
+                viewModel.updateArtwork(ArtworkSource.Url(url))
+            }
+            item.duration?.let { durationSec ->
+                viewModel.updateTrackProgress(
+                    positionMs = 0,
+                    durationMs = durationSec * 1000,
+                    positionUpdatedAt = 0
+                )
+            }
+        }
+    }
+
     // Don't show buffering spinner when paused -- SendSpin's audio stream stops on
     // pause, so Media3 reports STATE_BUFFERING even though the user intentionally paused.
     val isBuffering = playbackState == PlaybackState.BUFFERING && !metadata.isEmpty && isPlaying
