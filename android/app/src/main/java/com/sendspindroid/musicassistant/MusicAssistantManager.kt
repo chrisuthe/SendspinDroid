@@ -37,7 +37,7 @@ private fun ConnectionMode.toMaMode(): MaConnectionMode = when (this) {
  * Global singleton managing Music Assistant API availability.
  *
  * Provides a single source of truth for whether MA features should be
- * shown in the UI. Components observe [isAvailable] to conditionally
+ * shown in the UI. Components observe [connectionState] to conditionally
  * show features like:
  * - Browse Library
  * - Queue Management
@@ -68,16 +68,6 @@ object MusicAssistantManager {
      * different scenarios (error messages, re-login prompts, etc.).
      */
     val connectionState: StateFlow<MaConnectionState> = _connectionState.asStateFlow()
-
-    /**
-     * Simple boolean availability check.
-     * True only when fully connected and authenticated to MA API.
-     * Use this for simple visibility toggles.
-     */
-    val isAvailable: StateFlow<Boolean> = MutableStateFlow(false).also { flow ->
-        // This is a derived flow - updated when connectionState changes
-        // Actual implementation uses connectionState.map { it.isAvailable }
-    }
 
     // Current server info (when connected)
     private var currentServer: UnifiedServer? = null
