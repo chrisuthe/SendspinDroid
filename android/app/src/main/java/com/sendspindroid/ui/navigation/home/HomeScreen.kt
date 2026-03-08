@@ -12,7 +12,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -57,13 +57,13 @@ fun HomeScreen(
     }
 
     // Observe all section states via StateFlow
-    val recentlyPlayedState by viewModel.recentlyPlayed.collectAsState()
-    val recentlyAddedState by viewModel.recentlyAdded.collectAsState()
-    val albumsState by viewModel.albums.collectAsState()
-    val artistsState by viewModel.artists.collectAsState()
-    val playlistsState by viewModel.playlists.collectAsState()
-    val radioState by viewModel.radioStations.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val recentlyPlayedState by viewModel.recentlyPlayed.collectAsStateWithLifecycle()
+    val recentlyAddedState by viewModel.recentlyAdded.collectAsStateWithLifecycle()
+    val albumsState by viewModel.albums.collectAsStateWithLifecycle()
+    val artistsState by viewModel.artists.collectAsStateWithLifecycle()
+    val playlistsState by viewModel.playlists.collectAsStateWithLifecycle()
+    val radioState by viewModel.radioStations.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     HomeScreenContent(
         recentlyPlayedState = recentlyPlayedState,

@@ -28,7 +28,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,8 +58,8 @@ fun PlayerSheetContent(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val togglingPlayerId by viewModel.togglingPlayerId.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val togglingPlayerId by viewModel.togglingPlayerId.collectAsStateWithLifecycle()
 
     // Load players when sheet opens
     LaunchedEffect(Unit) {

@@ -22,7 +22,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -314,7 +314,7 @@ private fun UpNextQueuePeek(
     maxItems: Int = 3,
     modifier: Modifier = Modifier
 ) {
-    val uiState by queueViewModel.uiState.collectAsState()
+    val uiState by queueViewModel.uiState.collectAsStateWithLifecycle()
     val successState = uiState as? QueueUiState.Success ?: return
     val upNext = successState.upNextItems.take(maxItems)
     if (upNext.isEmpty()) return

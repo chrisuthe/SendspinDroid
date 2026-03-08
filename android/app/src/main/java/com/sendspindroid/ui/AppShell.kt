@@ -41,7 +41,7 @@ import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffo
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -147,7 +147,7 @@ fun AppShell(
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val connectionState by viewModel.connectionState.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
     when (connectionState) {
         is AppConnectionState.ServerList,
@@ -240,8 +240,8 @@ private fun ConnectedShell(
     modifier: Modifier = Modifier
 ) {
     val formFactor = LocalFormFactor.current
-    val isMaConnected by viewModel.isMaConnected.collectAsState()
-    val connectionState by viewModel.connectionState.collectAsState()
+    val isMaConnected by viewModel.isMaConnected.collectAsStateWithLifecycle()
+    val connectionState by viewModel.connectionState.collectAsStateWithLifecycle()
 
     // Which screen to show. null = Now Playing, non-null = browse tab.
     // Starts as HOME when MA is connected, null otherwise.
@@ -277,7 +277,7 @@ private fun ConnectedShell(
     val playerViewModel: PlayerViewModel = viewModel()
 
     // Detail navigation state
-    val currentDetail by viewModel.currentDetail.collectAsState()
+    val currentDetail by viewModel.currentDetail.collectAsStateWithLifecycle()
 
     val browseNavTabs = remember {
         listOf(
@@ -490,7 +490,7 @@ private fun ConnectedShell(
             val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
             val useSideMiniPlayer = AdaptiveDefaults.showSideMiniPlayer(configuration.smallestScreenWidthDp, isLandscape)
 
-            val miniPlayerPosition by viewModel.miniPlayerPosition.collectAsState()
+            val miniPlayerPosition by viewModel.miniPlayerPosition.collectAsStateWithLifecycle()
             val showBottomMiniPlayer = !useSideMiniPlayer && AdaptiveDefaults.showMiniPlayer(formFactor)
             val miniPlayerReturnToNowPlaying: () -> Unit = {
                 viewModel.clearDetailNavigation()
@@ -557,7 +557,7 @@ private fun ConnectedShell(
                                         .width(AdaptiveDefaults.browseQueueSidebarWidth(formFactor))
                                         .fillMaxHeight()
                                 ) {
-                                    val metadata by viewModel.metadata.collectAsState()
+                                    val metadata by viewModel.metadata.collectAsStateWithLifecycle()
                                     QueueSheetContent(
                                         viewModel = queueViewModel,
                                         onBrowseLibrary = {
@@ -1295,12 +1295,12 @@ private fun MiniPlayerBar(
     onNextClick: () -> Unit,
     onReturnToNowPlaying: () -> Unit
 ) {
-    val metadata by viewModel.metadata.collectAsState()
-    val artworkSource by viewModel.artworkSource.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val positionMs by viewModel.positionMs.collectAsState()
-    val durationMs by viewModel.durationMs.collectAsState()
-    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
+    val metadata by viewModel.metadata.collectAsStateWithLifecycle()
+    val artworkSource by viewModel.artworkSource.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
+    val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
+    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsStateWithLifecycle()
 
     // Slide from top or bottom depending on position setting
     val isTop = position == UserSettings.MiniPlayerPosition.TOP
@@ -1338,12 +1338,12 @@ private fun SideMiniPlayerBar(
     onPlayPauseClick: () -> Unit,
     onReturnToNowPlaying: () -> Unit
 ) {
-    val metadata by viewModel.metadata.collectAsState()
-    val artworkSource by viewModel.artworkSource.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val positionMs by viewModel.positionMs.collectAsState()
-    val durationMs by viewModel.durationMs.collectAsState()
-    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsState()
+    val metadata by viewModel.metadata.collectAsStateWithLifecycle()
+    val artworkSource by viewModel.artworkSource.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
+    val positionMs by viewModel.positionMs.collectAsStateWithLifecycle()
+    val durationMs by viewModel.durationMs.collectAsStateWithLifecycle()
+    val positionUpdatedAt by viewModel.positionUpdatedAt.collectAsStateWithLifecycle()
 
     AnimatedVisibility(
         visible = !metadata.isEmpty,
