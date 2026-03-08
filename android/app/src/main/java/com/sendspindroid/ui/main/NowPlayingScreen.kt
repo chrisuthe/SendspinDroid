@@ -505,7 +505,7 @@ private fun NowPlayingLandscape(
     onVolumeChange: (Float) -> Unit,
     onQueueClick: () -> Unit,
     showQueueButton: Boolean = true,
-    showSecondaryRow: Boolean = false,
+    showSecondaryRow: Boolean = true,
     showPlayerButton: Boolean = false,
     onPlayerClick: () -> Unit = {},
     modifier: Modifier = Modifier
