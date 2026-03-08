@@ -103,6 +103,54 @@ class SendSpinProtocolHandlerTest {
         assertEquals("Song B", handler.metadataUpdates[1].title)
     }
 
+    // ========== Sync State Validation Tests ==========
+
+    @Test
+    fun `setSyncState accepts synchronized`() {
+        handler.setSyncState("synchronized")
+        assertEquals("synchronized", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `setSyncState accepts error`() {
+        handler.setSyncState("error")
+        assertEquals("error", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `setSyncState rejects invalid value and keeps previous state`() {
+        // Default is "synchronized"
+        assertEquals("synchronized", handler.exposedSyncState())
+
+        handler.setSyncState("invalid_state")
+        assertEquals(
+            "Invalid sync state should be rejected, keeping previous value",
+            "synchronized",
+            handler.exposedSyncState()
+        )
+    }
+
+    @Test
+    fun `setSyncState rejects empty string`() {
+        handler.setSyncState("error") // Set to a known state first
+        handler.setSyncState("")
+        assertEquals(
+            "Empty string should be rejected",
+            "error",
+            handler.exposedSyncState()
+        )
+    }
+
+    @Test
+    fun `setSyncState rejects close misspellings`() {
+        handler.setSyncState("Synchronized") // capital S
+        assertEquals(
+            "Case-sensitive: 'Synchronized' should be rejected",
+            "synchronized",
+            handler.exposedSyncState()
+        )
+    }
+
     // ========== Helpers ==========
 
     private fun buildServerStateJson(
