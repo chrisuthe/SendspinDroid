@@ -25,6 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sendspindroid.ui.adaptive.AdaptiveDefaults
+import com.sendspindroid.ui.adaptive.FormFactor
+import com.sendspindroid.ui.adaptive.LocalFormFactor
 import com.sendspindroid.ui.theme.SendSpinTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -127,14 +130,17 @@ fun TvTrackProgressBar(
 
     val progress = (displayPositionMs.toFloat() / durationMs).coerceIn(0f, 1f)
     val trackColor = accentColor ?: MaterialTheme.colorScheme.primary
+    val formFactor = LocalFormFactor.current
+    val barHeight = AdaptiveDefaults.progressBarHeight(formFactor)
+    val barCornerRadius = AdaptiveDefaults.progressBarCornerRadius(formFactor)
 
     Column(modifier = modifier.fillMaxWidth()) {
         LinearProgressIndicator(
             progress = { progress },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(4.dp)
-                .clip(RoundedCornerShape(2.dp)),
+                .height(barHeight)
+                .clip(RoundedCornerShape(barCornerRadius)),
             color = trackColor,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
         )

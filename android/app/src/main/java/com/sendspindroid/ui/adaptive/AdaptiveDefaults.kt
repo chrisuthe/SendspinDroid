@@ -208,6 +208,28 @@ object AdaptiveDefaults {
         FormFactor.HEADUNIT -> 0.dp  // Not shown
     }
 
+    // -- Top Bar --
+
+    /** Top bar height. TV uses a taller bar for 10-foot visibility. */
+    fun topBarHeight(formFactor: FormFactor): Dp = when (formFactor) {
+        FormFactor.TV -> 72.dp
+        else -> 64.dp  // Material3 default
+    }
+
+    // -- Progress Bar --
+
+    /** Track progress bar thickness. TV uses a thicker bar for 10-foot visibility. */
+    fun progressBarHeight(formFactor: FormFactor): Dp = when (formFactor) {
+        FormFactor.TV -> 12.dp
+        else -> 4.dp
+    }
+
+    /** Track progress bar corner radius, matching half of the bar height. */
+    fun progressBarCornerRadius(formFactor: FormFactor): Dp = when (formFactor) {
+        FormFactor.TV -> 6.dp
+        else -> 2.dp
+    }
+
     // -- Server List --
 
     /**
