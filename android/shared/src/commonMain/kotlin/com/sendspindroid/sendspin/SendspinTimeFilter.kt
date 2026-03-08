@@ -457,22 +457,24 @@ class SendspinTimeFilter {
      * Call this when connection is lost but reconnection will be attempted.
      * Thread-safe: synchronized to capture a consistent snapshot.
      */
-    fun freeze() = synchronized(lock) {
-        if (!isReady) return
+    fun freeze() {
+        synchronized(lock) {
+            if (!isReady) return
 
-        frozenState = FrozenState(
-            offset = offset,
-            drift = drift,
-            p00 = p00,
-            p01 = p01,
-            p10 = p10,
-            p11 = p11,
-            measurementCount = measurementCount,
-            baselineClientTime = baselineClientTime,
-            recentOffsets = recentOffsets.copyOf(),
-            recentOffsetsIndex = recentOffsetsIndex,
-            recentOffsetsCount = recentOffsetsCount
-        )
+            frozenState = FrozenState(
+                offset = offset,
+                drift = drift,
+                p00 = p00,
+                p01 = p01,
+                p10 = p10,
+                p11 = p11,
+                measurementCount = measurementCount,
+                baselineClientTime = baselineClientTime,
+                recentOffsets = recentOffsets.copyOf(),
+                recentOffsetsIndex = recentOffsetsIndex,
+                recentOffsetsCount = recentOffsetsCount
+            )
+        }
     }
 
     /**
@@ -483,48 +485,50 @@ class SendspinTimeFilter {
      * Call this after successful reconnection, before resuming time sync.
      * Thread-safe: synchronized to prevent concurrent mutation.
      */
-    fun thaw() = synchronized(lock) {
-        val frozen = frozenState ?: return
+    fun thaw() {
+        synchronized(lock) {
+            val frozen = frozenState ?: return
 
-        offset = frozen.offset
-        drift = frozen.drift
+            offset = frozen.offset
+            drift = frozen.drift
 
-        // Increase covariance by 100x to allow rapid re-convergence after
-        // reconnection. The old offset is a reasonable starting point but may
-        // be stale if the server restarted or network conditions changed
-        // significantly. Large covariance lets the filter quickly adopt new
-        // measurements while still benefiting from the prior estimate.
-        p00 = frozen.p00 * 100.0
-        p01 = frozen.p01 * 10.0
-        p10 = frozen.p10 * 10.0
-        p11 = frozen.p11 * 100.0
+            // Increase covariance by 100x to allow rapid re-convergence after
+            // reconnection. The old offset is a reasonable starting point but may
+            // be stale if the server restarted or network conditions changed
+            // significantly. Large covariance lets the filter quickly adopt new
+            // measurements while still benefiting from the prior estimate.
+            p00 = frozen.p00 * 100.0
+            p01 = frozen.p01 * 10.0
+            p10 = frozen.p10 * 10.0
+            p11 = frozen.p11 * 100.0
 
-        // Reset measurement count to MIN_MEASUREMENTS so that:
-        // 1. isReady remains true (playback continues from buffer)
-        // 2. isConverged returns false (forces aggressive burst sync)
-        // 3. addMeasurement() takes the Kalman update path (not init path)
-        // This ensures TimeSyncManager uses fast burst parameters until
-        // the filter actually reconverges with fresh measurements.
-        measurementCount = MIN_MEASUREMENTS
-        baselineClientTime = frozen.baselineClientTime
+            // Reset measurement count to MIN_MEASUREMENTS so that:
+            // 1. isReady remains true (playback continues from buffer)
+            // 2. isConverged returns false (forces aggressive burst sync)
+            // 3. addMeasurement() takes the Kalman update path (not init path)
+            // This ensures TimeSyncManager uses fast burst parameters until
+            // the filter actually reconverges with fresh measurements.
+            measurementCount = MIN_MEASUREMENTS
+            baselineClientTime = frozen.baselineClientTime
 
-        // Restore outlier rejection state (offsets are still valid reference)
-        frozen.recentOffsets.copyInto(recentOffsets)
-        recentOffsetsIndex = frozen.recentOffsetsIndex
-        recentOffsetsCount = frozen.recentOffsetsCount
-        rejectedCount = 0
+            // Restore outlier rejection state (offsets are still valid reference)
+            frozen.recentOffsets.copyInto(recentOffsets)
+            recentOffsetsIndex = frozen.recentOffsetsIndex
+            recentOffsetsCount = frozen.recentOffsetsCount
+            rejectedCount = 0
 
-        // Reset innovation window (network conditions may have changed)
-        innovationWindowIndex = 0
-        innovationWindowCount = 0
-        adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
+            // Reset innovation window (network conditions may have changed)
+            innovationWindowIndex = 0
+            innovationWindowCount = 0
+            adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
 
-        // Reset convergence tracking so it gets re-logged after re-sync
-        hasLoggedConvergence = false
-        convergenceTimeMs = 0
-        firstMeasurementTimeMs = 0
+            // Reset convergence tracking so it gets re-logged after re-sync
+            hasLoggedConvergence = false
+            convergenceTimeMs = 0
+            firstMeasurementTimeMs = 0
 
-        frozenState = null
+            frozenState = null
+        }
     }
 
     /**
