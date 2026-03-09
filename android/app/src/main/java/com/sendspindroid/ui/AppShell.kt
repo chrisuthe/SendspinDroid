@@ -198,9 +198,19 @@ private fun ServerListShell(
     serverListContent: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val formFactor = LocalFormFactor.current
     Column(modifier = modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(stringResource(R.string.app_name)) },
+            title = {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = if (formFactor == FormFactor.TV)
+                        MaterialTheme.typography.headlineMedium
+                    else
+                        MaterialTheme.typography.titleLarge
+                )
+            },
+            expandedHeight = AdaptiveDefaults.topBarHeight(formFactor),
             colors = TopAppBarDefaults.topAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
             )
@@ -349,11 +359,15 @@ private fun ConnectedShell(
                     }
                 }
             },
+            expandedHeight = AdaptiveDefaults.topBarHeight(formFactor),
             title = {
                 Column {
                     Text(
                         text = topBarTitle,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = if (formFactor == FormFactor.TV)
+                            MaterialTheme.typography.headlineMedium
+                        else
+                            MaterialTheme.typography.titleLarge,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
