@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.sendspindroid.R
@@ -349,7 +350,6 @@ private fun UpNextQueuePeek(
 
         // Queue items
         LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(2.dp),
             userScrollEnabled = false
         ) {
             itemsIndexed(
@@ -364,17 +364,20 @@ private fun UpNextQueuePeek(
 
 /**
  * Single queue peek item: number, thumbnail, title, artist, duration.
+ * Minimum height of 76dp to meet Android Automotive touch target guidelines.
  */
 @Composable
 private fun UpNextItem(
     index: Int,
     item: MaQueueItem,
+    minHeight: Dp = 76.dp,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .height(minHeight)
+            .padding(horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Track number
@@ -395,7 +398,7 @@ private fun UpNextItem(
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
-                .size(44.dp)
+                .size(52.dp)
                 .clip(RoundedCornerShape(8.dp))
         )
 
