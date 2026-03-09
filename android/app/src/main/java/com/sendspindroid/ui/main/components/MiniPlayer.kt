@@ -300,6 +300,7 @@ fun MiniPlayerSide(
     isPlaying: Boolean,
     onCardClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
+    onNextClick: () -> Unit,
     positionMs: Long = 0,
     durationMs: Long = 0,
     positionUpdatedAt: Long = SystemClock.elapsedRealtime(),
@@ -455,6 +456,18 @@ fun MiniPlayerSide(
                                 else R.string.accessibility_play_button
                             ),
                             modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onNextClick,
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_skip_next),
+                            contentDescription = stringResource(R.string.accessibility_next_button),
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
