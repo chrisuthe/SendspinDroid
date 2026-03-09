@@ -1,5 +1,6 @@
 package com.sendspindroid.ui.main.components
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +11,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -22,6 +24,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sendspindroid.R
 import com.sendspindroid.ui.theme.SendSpinTheme
 
@@ -40,45 +43,58 @@ fun VolumeSlider(
     val activeTrackColor = accentColor ?: MaterialTheme.colorScheme.primary
     val thumbColor = accentColor ?: MaterialTheme.colorScheme.primary
 
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 8.dp)
     ) {
-        // Volume Down Icon
-        Icon(
-            painter = painterResource(R.drawable.ic_volume_down),
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        // Label
+        Text(
+            text = stringResource(R.string.device_volume),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            fontSize = 11.sp,
+            modifier = Modifier.padding(start = 32.dp, bottom = 2.dp)
         )
 
-        Spacer(modifier = Modifier.width(12.dp))
-
-        // Volume Slider
-        Slider(
-            value = volume,
-            onValueChange = onVolumeChange,
-            enabled = enabled,
-            modifier = Modifier.weight(1f),
-            valueRange = 0f..1f,
-            colors = SliderDefaults.colors(
-                thumbColor = thumbColor,
-                activeTrackColor = activeTrackColor,
-                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Volume Down Icon
+            Icon(
+                painter = painterResource(R.drawable.ic_volume_down),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
-        )
 
-        Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-        // Volume Up Icon
-        Icon(
-            painter = painterResource(R.drawable.ic_volume_up),
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-        )
+            // Volume Slider
+            Slider(
+                value = volume,
+                onValueChange = onVolumeChange,
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+                valueRange = 0f..1f,
+                colors = SliderDefaults.colors(
+                    thumbColor = thumbColor,
+                    activeTrackColor = activeTrackColor,
+                    inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Volume Up Icon
+            Icon(
+                painter = painterResource(R.drawable.ic_volume_up),
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
     }
 }
 
