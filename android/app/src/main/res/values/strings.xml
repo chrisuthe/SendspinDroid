@@ -550,6 +550,8 @@
     <string name="home_loading">Loading...</string>
     <string name="home_error_load_failed">Failed to load content</string>
     <string name="home_empty_section">Nothing here yet</string>
+    <string name="home_empty_title">No content available</string>
+    <string name="home_empty_subtitle">Add music to your server library to see it here</string>
 
     <!-- Library Browser -->
     <string name="library_tab_albums">Albums</string>
