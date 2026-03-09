@@ -25,7 +25,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +40,8 @@ import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.ui.adaptive.tvFocusable
 import com.sendspindroid.ui.theme.SendSpinTheme
+import com.sendspindroid.ui.theme.statusOnline
+import com.sendspindroid.ui.theme.statusWarning
 
 /**
  * Server status for UI display.
@@ -181,10 +182,10 @@ private fun StatusIndicator(
 ) {
     val color = when (status) {
         ServerItemStatus.DISCONNECTED -> MaterialTheme.colorScheme.outline
-        ServerItemStatus.ONLINE -> Color(0xFF4CAF50) // Green
+        ServerItemStatus.ONLINE -> MaterialTheme.colorScheme.statusOnline
         ServerItemStatus.CONNECTING -> MaterialTheme.colorScheme.tertiary
-        ServerItemStatus.CONNECTED -> Color(0xFF4CAF50) // Green
-        ServerItemStatus.RECONNECTING -> Color(0xFFFF9800) // Orange
+        ServerItemStatus.CONNECTED -> MaterialTheme.colorScheme.statusOnline
+        ServerItemStatus.RECONNECTING -> MaterialTheme.colorScheme.statusWarning
         ServerItemStatus.ERROR -> MaterialTheme.colorScheme.error
     }
 
