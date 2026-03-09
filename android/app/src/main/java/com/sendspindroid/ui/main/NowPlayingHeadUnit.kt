@@ -125,7 +125,7 @@ fun NowPlayingHeadUnit(
             Text(
                 text = metadataText,
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -140,7 +140,7 @@ fun NowPlayingHeadUnit(
             Text(
                 text = stringResource(R.string.group_label, groupName),
                 style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                color = MaterialTheme.colorScheme.primary,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
