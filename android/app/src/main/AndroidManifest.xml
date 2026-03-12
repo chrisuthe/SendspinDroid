@@ -65,6 +65,12 @@
          Google Play policy: Allowed for media playback apps -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- RECEIVE_BOOT_COMPLETED: Start PlaybackService on device boot
+         Permission level: Normal (auto-granted)
+         Used by: BootReceiver to auto-connect to default server on boot
+         Note: Only active when user enables "Auto-start on boot" in settings -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- CAMERA: Required for QR code scanning (Remote ID input)
          Permission level: Dangerous (requires runtime permission request)
          Used by: QR scanner to scan Music Assistant Remote ID codes
@@ -206,6 +212,21 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            BootReceiver: Auto-start PlaybackService on device boot
+            - Only active when user enables "Auto-start on boot" in settings
+            - Connects to the configured default server without launching UI
+            - Handles BOOT_COMPLETED (standard) and QUICKBOOT_POWERON (HTC/some OEMs)
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
 

@@ -84,6 +84,9 @@ fun SettingsScreen(
     val cellularCodec by viewModel.cellularCodec.collectAsStateWithLifecycle()
     val lowMemoryMode by viewModel.lowMemoryMode.collectAsStateWithLifecycle()
     val highPowerMode by viewModel.highPowerMode.collectAsStateWithLifecycle()
+    val autoStartOnBoot by viewModel.autoStartOnBoot.collectAsStateWithLifecycle()
+    val hasDefaultServer by viewModel.hasDefaultServer.collectAsStateWithLifecycle()
+    val defaultServerName by viewModel.defaultServerName.collectAsStateWithLifecycle()
     val batteryOptExempt by viewModel.batteryOptExempt.collectAsStateWithLifecycle()
     val debugLogging by viewModel.debugLogging.collectAsStateWithLifecycle()
     val debugSampleCount by viewModel.debugSampleCount.collectAsStateWithLifecycle()
@@ -227,6 +230,22 @@ fun SettingsScreen(
                     }
                 )
             }
+            SwitchPreference(
+                title = stringResource(R.string.pref_auto_start_title),
+                summary = if (!hasDefaultServer) {
+                    stringResource(R.string.pref_auto_start_no_default)
+                } else if (autoStartOnBoot) {
+                    stringResource(R.string.pref_auto_start_summary_on, defaultServerName)
+                } else {
+                    stringResource(R.string.pref_auto_start_summary_off)
+                },
+                checked = autoStartOnBoot,
+                onCheckedChange = {
+                    if (hasDefaultServer) {
+                        viewModel.setAutoStartOnBoot(it)
+                    }
+                }
+            )
 
             // Debug Category
             PreferenceCategory(title = stringResource(R.string.pref_category_debug))

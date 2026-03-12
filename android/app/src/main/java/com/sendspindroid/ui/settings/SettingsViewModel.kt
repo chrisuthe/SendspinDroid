@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
 import com.sendspindroid.SyncOffsetPreference
+import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
 import com.sendspindroid.debug.DebugLogger
 import com.sendspindroid.network.TransportType
@@ -79,6 +80,15 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _highPowerMode = MutableStateFlow(UserSettings.highPowerMode)
     val highPowerMode: StateFlow<Boolean> = _highPowerMode.asStateFlow()
+
+    private val _autoStartOnBoot = MutableStateFlow(UserSettings.autoStartOnBoot)
+    val autoStartOnBoot: StateFlow<Boolean> = _autoStartOnBoot.asStateFlow()
+
+    private val _hasDefaultServer = MutableStateFlow(UnifiedServerRepository.getDefaultServer() != null)
+    val hasDefaultServer: StateFlow<Boolean> = _hasDefaultServer.asStateFlow()
+
+    private val _defaultServerName = MutableStateFlow(UnifiedServerRepository.getDefaultServer()?.name ?: "")
+    val defaultServerName: StateFlow<String> = _defaultServerName.asStateFlow()
 
     private val _batteryOptExempt = MutableStateFlow(isBatteryOptimizationExempt())
     val batteryOptExempt: StateFlow<Boolean> = _batteryOptExempt.asStateFlow()
@@ -202,6 +212,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             putExtra(EXTRA_HIGH_POWER_MODE_ENABLED, enabled)
         }
         LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
+    }
+
+    fun setAutoStartOnBoot(enabled: Boolean) {
+        prefs.edit().putBoolean(UserSettings.KEY_AUTO_START_ON_BOOT, enabled).apply()
+        _autoStartOnBoot.value = enabled
     }
 
     /**

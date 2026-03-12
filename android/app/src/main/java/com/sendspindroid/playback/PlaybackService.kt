@@ -66,6 +66,7 @@ import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.UnifiedServerRepository
+import com.sendspindroid.UserSettings
 import com.sendspindroid.UserSettings.ConnectionMode
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
@@ -411,6 +412,10 @@ class PlaybackService : MediaLibraryService() {
         const val COMMAND_GET_STATS = "com.sendspindroid.GET_STATS"
         const val COMMAND_CONNECT_REMOTE = "com.sendspindroid.CONNECT_REMOTE"
         const val COMMAND_CONNECT_PROXY = "com.sendspindroid.CONNECT_PROXY"
+
+        // Intent actions for service start (used by BootReceiver)
+        const val ACTION_AUTO_CONNECT = "com.sendspindroid.ACTION_AUTO_CONNECT"
+        const val EXTRA_SERVER_ID = "server_id_auto_connect"
 
         // Command arguments
         const val ARG_SERVER_ADDRESS = "server_address"
@@ -3443,7 +3448,55 @@ class PlaybackService : MediaLibraryService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: action=${intent?.action}, flags=$flags")
         super.onStartCommand(intent, flags, startId)
+
+        if (intent?.action == ACTION_AUTO_CONNECT) {
+            handleAutoConnect(intent)
+        }
+
         return START_STICKY
+    }
+
+    /**
+     * Handle auto-connect from BootReceiver.
+     * Looks up the default server and connects using its preferred connection method.
+     * Shows a foreground notification immediately to satisfy Android's requirements.
+     */
+    private fun handleAutoConnect(intent: Intent) {
+        val serverId = intent.getStringExtra(EXTRA_SERVER_ID)
+        if (serverId == null) {
+            Log.w(TAG, "Auto-connect: missing server ID")
+            return
+        }
+
+        val server = UnifiedServerRepository.getServer(serverId)
+        if (server == null) {
+            Log.w(TAG, "Auto-connect: server $serverId not found")
+            return
+        }
+
+        Log.i(TAG, "Auto-connect on boot: ${server.name} (${server.id})")
+
+        // Show foreground notification immediately (Android requires this within 10s)
+        startForegroundServiceWithNotification(server.name)
+
+        // Connect using the server's preferred method
+        when {
+            server.local != null -> {
+                Log.i(TAG, "Auto-connect: local connection to ${server.local!!.address}")
+                connectToServer(server.local!!.address, server.local!!.path)
+            }
+            server.remote != null -> {
+                Log.i(TAG, "Auto-connect: remote connection with ID ${server.remote!!.remoteId.take(8)}...")
+                connectToRemoteServer(server.remote!!.remoteId)
+            }
+            server.proxy != null -> {
+                Log.i(TAG, "Auto-connect: proxy connection to ${server.proxy!!.url}")
+                connectToProxyServer(server.proxy!!.url, server.proxy!!.authToken)
+            }
+            else -> {
+                Log.w(TAG, "Auto-connect: server ${server.name} has no configured connection methods")
+            }
+        }
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -3452,14 +3505,17 @@ class PlaybackService : MediaLibraryService() {
         val isPlaying = audioPlayerState == com.sendspindroid.sendspin.PlaybackState.PLAYING ||
                         audioPlayerState == com.sendspindroid.sendspin.PlaybackState.WAITING_FOR_START
 
-        Log.d(TAG, "onTaskRemoved (playing=$isPlaying, state=$audioPlayerState)")
+        // Keep alive if auto-start is enabled and we're connected (even if idle)
+        val autoStartKeepAlive = UserSettings.autoStartOnBoot &&
+            _connectionState.value is ConnectionState.Connected
 
-        // Keep service alive only if actively playing
-        if (!isPlaying) {
-            Log.d(TAG, "Not playing, stopping service")
+        Log.d(TAG, "onTaskRemoved (playing=$isPlaying, autoStart=$autoStartKeepAlive, state=$audioPlayerState)")
+
+        if (!isPlaying && !autoStartKeepAlive) {
+            Log.d(TAG, "Not playing and no auto-start keep-alive, stopping service")
             stopSelf()
         } else {
-            Log.d(TAG, "Continuing playback in background")
+            Log.d(TAG, "Continuing in background (playing=$isPlaying, autoStart=$autoStartKeepAlive)")
         }
 
         super.onTaskRemoved(rootIntent)

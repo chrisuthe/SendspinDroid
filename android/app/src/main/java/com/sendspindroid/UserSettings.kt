@@ -47,6 +47,7 @@ object UserSettings {
     const val KEY_MINI_PLAYER_POSITION = "mini_player_position"
     const val KEY_ALBUM_ARTISTS_ONLY = "album_artists_only"
     const val KEY_LAYOUT_MODE = "layout_mode"
+    const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
 
     // Network-specific codec preference keys
     const val KEY_CODEC_WIFI = "codec_wifi"
@@ -298,6 +299,15 @@ object UserSettings {
      */
     val highPowerMode: Boolean
         get() = prefs?.getBoolean(KEY_HIGH_POWER_MODE, false) ?: false
+
+    /**
+     * Whether Auto-Start on Boot is enabled.
+     * When enabled, the app starts PlaybackService on device boot and connects
+     * to the default server without launching the UI.
+     * Requires a default server to be set in the server list.
+     */
+    val autoStartOnBoot: Boolean
+        get() = prefs?.getBoolean(KEY_AUTO_START_ON_BOOT, false) ?: false
 
     var albumArtistsOnly: Boolean
         get() = prefs?.getBoolean(KEY_ALBUM_ARTISTS_ONLY, false) ?: false

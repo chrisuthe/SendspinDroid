@@ -219,6 +219,10 @@
     <string name="pref_high_power_mode_summary">For always-on devices. Keeps WiFi, CPU, and screen active while connected to prevent disconnections. Uses more power.</string>
     <string name="pref_battery_opt_exempt">Battery optimization is disabled for SendSpin (recommended)</string>
     <string name="pref_battery_opt_not_exempt">Battery optimization is active -- tap to disable for better reliability</string>
+    <string name="pref_auto_start_title">Auto-Start on Boot</string>
+    <string name="pref_auto_start_summary_off">Disabled. When enabled, connects to the default server automatically on device boot.</string>
+    <string name="pref_auto_start_summary_on">Connects to %1$s automatically on device boot.</string>
+    <string name="pref_auto_start_no_default">Set a default server first (long-press a server in the server list).</string>
 
     <!-- Debug logging -->
     <string name="pref_category_debug">Debug</string>
