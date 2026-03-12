@@ -1,5 +1,6 @@
 package com.sendspindroid
 
+import android.app.ActivityManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
@@ -81,6 +82,10 @@ object UserSettings {
     internal var isEncrypted: Boolean = false
         private set
 
+    /** Application context for system service lookups (e.g., ActivityManager). */
+    @Volatile
+    private var appContext: Context? = null
+
     // In-memory fallback for player ID generated before prefs is available.
     // Ensures getPlayerId() always returns the same value even if called
     // before initialize(), preventing silent UUID loss (C-16).
@@ -97,6 +102,7 @@ object UserSettings {
             synchronized(this) {
                 if (prefs == null) {
                     val appContext = context.applicationContext
+                    this.appContext = appContext
                     val p = PreferenceManager.getDefaultSharedPreferences(appContext)
                     // If a player ID was generated before prefs was available,
                     // persist it now so it survives app restarts.
@@ -250,7 +256,20 @@ object UserSettings {
      * Use when controlling playback from the server and UI isn't needed.
      */
     val lowMemoryMode: Boolean
-        get() = prefs?.getBoolean(KEY_LOW_MEMORY_MODE, false) ?: false
+        get() {
+            val p = prefs ?: return false
+            if (!p.contains(KEY_LOW_MEMORY_MODE)) {
+                // First launch: auto-detect from device capabilities
+                val am = appContext?.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                    ?: return false
+                // OEM-flagged low RAM devices, or devices with 2GB or less total RAM
+                if (am.isLowRamDevice) return true
+                val memInfo = ActivityManager.MemoryInfo()
+                am.getMemoryInfo(memInfo)
+                return memInfo.totalMem <= 2L * 1024 * 1024 * 1024
+            }
+            return p.getBoolean(KEY_LOW_MEMORY_MODE, false)
+        }
 
     /**
      * Whether Full Screen Mode is enabled.
@@ -692,6 +711,7 @@ object UserSettings {
             sensitivePrefs = null
             isEncrypted = false
             cachedPlayerId = null
+            appContext = null
         }
     }
 
