@@ -413,12 +413,13 @@ abstract class SendSpinProtocolHandler(
         val config = MessageParser.parseStreamStart(payload)
         if (config == null) return
 
+        val formatChanged = _streamActive && config != _currentStreamConfig
         if (_streamActive) {
-            if (config == _currentStreamConfig) {
-                Log.d(tag, "Stream format unchanged, suppressing redundant stream/start")
-                return
+            if (formatChanged) {
+                Log.i(tag, "Stream format changed: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth} - reconfiguring pipeline")
+            } else {
+                Log.d(tag, "Stream restart (same format): codec=${config.codec}, rate=${config.sampleRate}")
             }
-            Log.i(tag, "Stream format changed: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth} - reconfiguring pipeline")
         } else {
             Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
         }
