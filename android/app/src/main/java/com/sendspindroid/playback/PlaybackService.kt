@@ -1199,17 +1199,27 @@ class PlaybackService : MediaLibraryService() {
             // Guard: don't try to decode if the decoder is being replaced (race with onStreamStart)
             if (!decoderReady) return
 
-            // Capture local reference to avoid TOCTOU race: the main thread can null
-            // and release syncAudioPlayer between a null-check and method call.
+            // Capture local references to avoid TOCTOU race: the main thread can null
+            // and release these between a null-check and method call.
             val player = syncAudioPlayer ?: return
+            val decoder = audioDecoder
 
-            // Decode compressed data to PCM (pass-through for PCM codec)
+            // Decode compressed data to PCM, or pass through for PCM codec.
+            // If decoder is null mid-reconfiguration, only PCM raw data is safe
+            // to forward -- compressed bytes (Opus/FLAC) would be garbled.
             val pcmData = try {
-                audioDecoder?.decode(audioData) ?: audioData
+                if (decoder != null) {
+                    decoder.decode(audioData)
+                } else if (currentCodec == "pcm") {
+                    audioData
+                } else {
+                    return // compressed codec with no decoder -- drop chunk
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Decode error, dropping chunk", e)
                 return
             }
+            if (pcmData == null) return
             // Queue decoded PCM - SyncAudioPlayer handles threading internally
             player.queueChunk(serverTimeMicros, pcmData)
         }
