@@ -12,7 +12,7 @@ import org.junit.Test
  * Unit tests for SendSpinProtocolHandler.
  *
  * Uses a concrete test subclass to exercise the abstract handler's
- * volume clamping, metadata deduplication, and sync state validation.
+ * volume clamping, metadata dispatch, and sync state validation.
  */
 class SendSpinProtocolHandlerTest {
 
@@ -57,23 +57,24 @@ class SendSpinProtocolHandlerTest {
         assertEquals(100, handler.exposedVolume())
     }
 
-    // ========== Metadata Deduplication Tests ==========
+    // ========== Metadata Dispatch Tests ==========
 
     @Test
-    fun `duplicate metadata only fires onMetadataUpdate once`() {
+    fun `identical metadata fires onMetadataUpdate for every message`() {
         val metadata = buildServerStateJson(
             title = "Test Song",
             artist = "Test Artist",
             album = "Test Album"
         )
 
-        // Send the same metadata twice
+        // Send the same metadata twice - both should dispatch so that
+        // playback_speed changes are never suppressed by position dedup
         handler.handleTextMessageForTest(metadata)
         handler.handleTextMessageForTest(metadata)
 
         assertEquals(
-            "Duplicate metadata should only fire callback once",
-            1,
+            "Every metadata message should fire callback regardless of content",
+            2,
             handler.metadataUpdates.size
         )
     }
