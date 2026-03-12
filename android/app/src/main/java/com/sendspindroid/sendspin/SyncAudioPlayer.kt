@@ -627,7 +627,14 @@ class SyncAudioPlayer(
     fun resume() {
         stateLock.withLock {
             if (!isPaused.get()) {
-                Log.d(TAG, "resume() called but not paused - ignoring")
+                // Even if our flag says not paused, the AudioTrack hardware might still be paused
+                // (e.g., after clearBuffer() was called while paused)
+                if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    Log.i(TAG, "resume() - isPaused is false but AudioTrack is not playing, forcing play")
+                    audioTrack?.play()
+                } else {
+                    Log.d(TAG, "resume() called but not paused - ignoring")
+                }
                 return@withLock
             }
 
@@ -958,7 +965,7 @@ class SyncAudioPlayer(
 
             // Reset paused state - we're starting a fresh stream (e.g., after seek)
             // This ensures playback loop will process new chunks even if we were paused
-            isPaused.set(false)
+            val wasPaused = isPaused.getAndSet(false)
 
             // Clear the chunk queue (thread-safe operation)
             chunkQueue.clear()
@@ -985,6 +992,11 @@ class SyncAudioPlayer(
                         Log.w(TAG, "Failed to flush AudioTrack during clearBuffer", e)
                     }
                 }
+            }
+
+            // Ensure AudioTrack hardware matches software state after clearing pause flag
+            if (wasPaused) {
+                audioTrack?.play()
             }
 
             lastChunkServerTime = 0L

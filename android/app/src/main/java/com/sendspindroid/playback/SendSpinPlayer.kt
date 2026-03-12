@@ -142,6 +142,11 @@ class SendSpinPlayer : Player {
             }
             SyncPlaybackState.PLAYING,
             SyncPlaybackState.DRAINING -> {
+                // Re-anchor the interpolation timestamp when transitioning to playing,
+                // so getCurrentPosition() doesn't include pause duration in its elapsed calc
+                if (!currentlyPlaying) {
+                    anchorElapsedRealtime = SystemClock.elapsedRealtime()
+                }
                 // DRAINING is still actively playing from buffer, so STATE_READY.
                 // Sync playWhenReady to true: audio is physically playing, so the UI
                 // must reflect that. This corrects any stale playWhenReady=false from

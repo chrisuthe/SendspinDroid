@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.ByteBuffer
@@ -37,6 +38,9 @@ abstract class SendSpinProtocolHandler(
     protected var currentVolume: Int = 100
     protected var currentMuted: Boolean = false
     protected var currentSyncState: String = "synchronized"  // "synchronized" or "error"
+
+    // Stream active tracking (mirrors CLI _stream_active)
+    private var _streamActive = false
 
     // Last received values for change detection (avoids unnecessary UI recomposition)
     private var lastMetadata: TrackMetadata? = null
@@ -316,7 +320,7 @@ abstract class SendSpinProtocolHandler(
                 SendSpinProtocol.MessageType.SERVER_COMMAND -> handleServerCommand(payload)
                 SendSpinProtocol.MessageType.GROUP_UPDATE -> handleGroupUpdate(payload)
                 SendSpinProtocol.MessageType.STREAM_START -> handleStreamStart(payload)
-                SendSpinProtocol.MessageType.STREAM_END -> handleStreamEnd()
+                SendSpinProtocol.MessageType.STREAM_END -> handleStreamEnd(payload)
                 SendSpinProtocol.MessageType.STREAM_CLEAR -> handleStreamClear()
                 SendSpinProtocol.MessageType.CLIENT_SYNC_OFFSET -> handleClientSyncOffset(payload)
                 else -> Log.d(tag, "Unhandled message type: $type")
@@ -339,6 +343,7 @@ abstract class SendSpinProtocolHandler(
         handshakeComplete = true
 
         // Clear cached values so the first post-handshake messages always propagate
+        _streamActive = false
         lastMetadata = null
         lastPlaybackState = null
         lastGroupInfo = null
@@ -361,7 +366,7 @@ abstract class SendSpinProtocolHandler(
     protected fun handleServerState(payload: JsonObject?) {
         val (metadata, state) = MessageParser.parseServerState(payload)
 
-        if (metadata != null && metadata != lastMetadata) {
+        if (metadata != null) {
             lastMetadata = metadata
             onMetadataUpdate(metadata)
         }
@@ -395,7 +400,7 @@ abstract class SendSpinProtocolHandler(
 
     protected fun handleGroupUpdate(payload: JsonObject?) {
         val info = MessageParser.parseGroupUpdate(payload)
-        if (info != null && info != lastGroupInfo) {
+        if (info != null) {
             lastGroupInfo = info
             Log.v(tag, "group/update: id=${info.groupId}, name=${info.groupName}, state=${info.playbackState}")
             onGroupUpdate(info)
@@ -404,10 +409,16 @@ abstract class SendSpinProtocolHandler(
 
     protected fun handleStreamStart(payload: JsonObject?) {
         val config = MessageParser.parseStreamStart(payload)
-        if (config != null) {
-            Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
-            onStreamStart(config)
+        if (config == null) return
+
+        if (_streamActive) {
+            Log.i(tag, "Stream format update: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
+            return
         }
+
+        _streamActive = true
+        Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
+        onStreamStart(config)
     }
 
     protected fun handleStreamClear() {
@@ -415,8 +426,17 @@ abstract class SendSpinProtocolHandler(
         onStreamClear()
     }
 
-    protected fun handleStreamEnd() {
-        Log.i(tag, "Stream end - server terminated playback")
+    protected fun handleStreamEnd(payload: JsonObject?) {
+        val rolesArray = payload?.get("roles")?.jsonArray
+        val roles = rolesArray?.map { it.jsonPrimitive.content }
+
+        if (roles != null && SendSpinProtocol.Roles.PLAYER !in roles) {
+            Log.d(tag, "Stream end for non-player roles: $roles - ignoring")
+            return
+        }
+
+        Log.i(tag, "Stream end - server terminated playback (roles=${roles ?: "all"})")
+        _streamActive = false
         onStreamEnd()
     }
 

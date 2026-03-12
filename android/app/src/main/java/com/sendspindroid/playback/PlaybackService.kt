@@ -23,7 +23,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -1481,7 +1480,7 @@ class PlaybackService : MediaLibraryService() {
             putString(EXTRA_ARTWORK_URL, playbackState.artworkUrl ?: "")
             putLong(EXTRA_DURATION_MS, playbackState.durationMs)
             putLong(EXTRA_POSITION_MS, playbackState.positionMs)
-            putLong(EXTRA_POSITION_UPDATED_AT, SystemClock.elapsedRealtime())
+            putLong(EXTRA_POSITION_UPDATED_AT, playbackState.positionUpdatedAt)
 
             // Group info
             playbackState.groupName?.let { putString(EXTRA_GROUP_NAME, it) }
