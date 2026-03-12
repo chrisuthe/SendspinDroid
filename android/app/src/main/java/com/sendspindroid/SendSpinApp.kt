@@ -3,6 +3,7 @@ package com.sendspindroid
 import android.app.Application
 import coil.ImageLoader
 import coil.ImageLoaderFactory
+import coil.request.CachePolicy
 import com.google.android.material.color.DynamicColors
 import com.sendspindroid.musicassistant.MaProxyImageFetcher
 import com.sendspindroid.musicassistant.MaSettings
@@ -24,11 +25,20 @@ class SendSpinApp : Application(), ImageLoaderFactory {
      * for loading images over the WebRTC DataChannel in REMOTE mode.
      */
     override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
-            .crossfade(true)
+        val builder = ImageLoader.Builder(this)
             .components {
                 add(MaProxyImageFetcher.Factory())
             }
-            .build()
+
+        if (UserSettings.lowMemoryMode) {
+            // Disable all caching to minimize memory footprint
+            builder
+                .memoryCachePolicy(CachePolicy.DISABLED)
+                .diskCachePolicy(CachePolicy.DISABLED)
+        } else {
+            builder.crossfade(true)
+        }
+
+        return builder.build()
     }
 }
