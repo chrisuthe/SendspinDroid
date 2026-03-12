@@ -193,7 +193,8 @@ class SyncAudioPlayer(
     private val timeFilter: SendspinTimeFilter,
     private val sampleRate: Int = SendSpinProtocol.AudioFormat.SAMPLE_RATE,
     private val channels: Int = SendSpinProtocol.AudioFormat.CHANNELS,
-    private val bitDepth: Int = SendSpinProtocol.AudioFormat.BIT_DEPTH
+    private val bitDepth: Int = SendSpinProtocol.AudioFormat.BIT_DEPTH,
+    private val maxQueueSamples: Long = 0  // 0 = unlimited; >0 caps queue to this many samples
 ) {
     companion object {
         private const val TAG = "SyncAudioPlayer"
@@ -331,6 +332,7 @@ class SyncAudioPlayer(
     // Chunk queue
     private val chunkQueue = ConcurrentLinkedQueue<AudioChunk>()
     private val totalQueuedSamples = AtomicLong(0)
+    private var queueCapDrops = 0  // Counter for capacity-based drops (diagnostics)
 
     // Sync tracking
     private var lastChunkServerTime = 0L
@@ -1050,6 +1052,23 @@ class SyncAudioPlayer(
     }
 
     /**
+     * Evict oldest chunks from the queue if adding [newSamples] would exceed the
+     * capacity limit. Only active when [maxQueueSamples] > 0.
+     */
+    private fun evictIfOverCapacity(newSamples: Long) {
+        if (maxQueueSamples <= 0) return
+        while (totalQueuedSamples.get() + newSamples > maxQueueSamples) {
+            val evicted = chunkQueue.poll() ?: break
+            totalQueuedSamples.addAndGet(-evicted.sampleCount.toLong())
+            queueCapDrops++
+            if (queueCapDrops % 100 == 1) {
+                Log.w(TAG, "Queue capacity limit reached ($maxQueueSamples samples), " +
+                    "dropping oldest chunks (total drops: $queueCapDrops)")
+            }
+        }
+    }
+
+    /**
      * Queue an audio chunk for playback.
      *
      * Handles gaps and overlaps in the audio stream following the Python reference:
@@ -1145,6 +1164,7 @@ class SyncAudioPlayer(
                         pcmData = silenceData,
                         sampleCount = gapFrames
                     )
+                    evictIfOverCapacity(gapFrames.toLong())
                     chunkQueue.add(silenceChunk)
                     totalQueuedSamples.addAndGet(gapFrames.toLong())
 
@@ -1212,6 +1232,7 @@ class SyncAudioPlayer(
             pcmData = workingPcmData,
             sampleCount = sampleCount
         )
+        evictIfOverCapacity(sampleCount.toLong())
         chunkQueue.add(chunk)
         totalQueuedSamples.addAndGet(sampleCount.toLong())
 
