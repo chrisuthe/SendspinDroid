@@ -261,7 +261,12 @@ object UserSettings {
             if (!p.contains(KEY_LOW_MEMORY_MODE)) {
                 // First launch: auto-detect from device capabilities
                 val am = appContext?.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                return am?.isLowRamDevice == true
+                    ?: return false
+                // OEM-flagged low RAM devices, or devices with 2GB or less total RAM
+                if (am.isLowRamDevice) return true
+                val memInfo = ActivityManager.MemoryInfo()
+                am.getMemoryInfo(memInfo)
+                return memInfo.totalMem <= 2L * 1024 * 1024 * 1024
             }
             return p.getBoolean(KEY_LOW_MEMORY_MODE, false)
         }
