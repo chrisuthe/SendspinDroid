@@ -175,7 +175,8 @@ abstract class SendSpinProtocolHandler(
             deviceName = getDeviceName(),
             bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),
-            supportedFormats = formats
+            supportedFormats = formats,
+            lowMemoryMode = isLowMemoryMode()
         )
         sendTextMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
