@@ -41,6 +41,7 @@ abstract class SendSpinProtocolHandler(
 
     // Stream active tracking (mirrors CLI _stream_active)
     private var _streamActive = false
+    private var _currentStreamConfig: StreamConfig? = null
 
     // Last received values for change detection (avoids unnecessary UI recomposition)
     private var lastMetadata: TrackMetadata? = null
@@ -345,6 +346,7 @@ abstract class SendSpinProtocolHandler(
 
         // Clear cached values so the first post-handshake messages always propagate
         _streamActive = false
+        _currentStreamConfig = null
         lastMetadata = null
         lastPlaybackState = null
         lastGroupInfo = null
@@ -413,12 +415,17 @@ abstract class SendSpinProtocolHandler(
         if (config == null) return
 
         if (_streamActive) {
-            Log.i(tag, "Stream format update: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
-            return
+            if (config == _currentStreamConfig) {
+                Log.d(tag, "Stream format unchanged, suppressing redundant stream/start")
+                return
+            }
+            Log.i(tag, "Stream format changed: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth} - reconfiguring pipeline")
+        } else {
+            Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
         }
 
         _streamActive = true
-        Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
+        _currentStreamConfig = config
         onStreamStart(config)
     }
 
@@ -438,6 +445,7 @@ abstract class SendSpinProtocolHandler(
 
         Log.i(tag, "Stream end - server terminated playback (roles=${roles ?: "all"})")
         _streamActive = false
+        _currentStreamConfig = null
         onStreamEnd()
     }
 
