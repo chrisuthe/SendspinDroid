@@ -210,12 +210,18 @@ class SendSpinClient(
 
     override fun getManufacturer(): String = Build.MANUFACTURER ?: "Unknown"
 
-    override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> =
-        MessageBuilder.buildSupportedFormats(
+    override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> {
+        val bitDepths = if (isLowMemoryMode()) {
+            listOf(16)
+        } else {
+            AudioDecoderFactory.getSupportedPcmBitDepths()
+        }
+        return MessageBuilder.buildSupportedFormats(
             preferredCodec = UserSettings.getPreferredCodec(),
             isCodecSupported = { AudioDecoderFactory.isCodecSupported(it) },
-            supportedBitDepths = AudioDecoderFactory.getSupportedPcmBitDepths()
+            supportedBitDepths = bitDepths
         )
+    }
 
     override fun onHandshakeComplete(serverName: String, serverId: String) {
         this.serverName = serverName
