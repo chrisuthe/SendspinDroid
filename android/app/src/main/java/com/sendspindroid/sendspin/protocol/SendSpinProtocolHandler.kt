@@ -176,8 +176,7 @@ abstract class SendSpinProtocolHandler(
             deviceName = getDeviceName(),
             bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),
-            supportedFormats = formats,
-            lowMemoryMode = isLowMemoryMode()
+            supportedFormats = formats
         )
         sendTextMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
@@ -414,13 +413,12 @@ abstract class SendSpinProtocolHandler(
         val config = MessageParser.parseStreamStart(payload)
         if (config == null) return
 
-        val formatChanged = _streamActive && config != _currentStreamConfig
         if (_streamActive) {
-            if (formatChanged) {
-                Log.i(tag, "Stream format changed: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth} - reconfiguring pipeline")
-            } else {
-                Log.d(tag, "Stream restart (same format): codec=${config.codec}, rate=${config.sampleRate}")
+            if (config == _currentStreamConfig) {
+                Log.d(tag, "Stream format unchanged, suppressing redundant stream/start")
+                return
             }
+            Log.i(tag, "Stream format changed: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth} - reconfiguring pipeline")
         } else {
             Log.i(tag, "Stream started: codec=${config.codec}, rate=${config.sampleRate}, ch=${config.channels}, bits=${config.bitDepth}, header=${config.codecHeader?.size ?: 0} bytes")
         }

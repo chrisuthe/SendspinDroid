@@ -89,6 +89,29 @@ jobs:
             -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
             -Pandroid.injected.signing.key.password="$KEY_PASSWORD"
 
+      - name: Generate changelog
+        id: changelog
+        run: |
+          if git rev-parse dev-latest >/dev/null 2>&1; then
+            PREV_SHA=$(git rev-parse dev-latest)
+            LOG=$(git log --reverse --format='- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))' "${PREV_SHA}..HEAD" -- . ../.github/workflows/dev-build.yml)
+            if [ -z "$LOG" ]; then
+              LOG="- No application changes (workflow-only update)"
+            fi
+          else
+            LOG="- Initial development build"
+          fi
+          {
+            echo "notes<<CHANGELOG_EOF"
+            echo "## Changes since last dev build"
+            echo ""
+            echo "$LOG"
+            echo ""
+            echo "---"
+            echo "Commit: ${{ github.sha }}"
+            echo "CHANGELOG_EOF"
+          } >> $GITHUB_OUTPUT
+
       - name: Delete existing dev GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -106,6 +129,6 @@ jobs:
           gh release create dev-latest \
             --target ${{ github.sha }} \
             --title "DEVELOPMENT BUILD" \
-            --notes "Automated development build from commit ${{ github.sha }}" \
+            --notes "${{ steps.changelog.outputs.notes }}" \
             --prerelease \
             app/build/outputs/apk/release/app-release.apk
