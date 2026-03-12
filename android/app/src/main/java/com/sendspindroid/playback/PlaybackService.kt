@@ -71,6 +71,7 @@ import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.SyncAudioPlayerCallback
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
+import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.NetworkEvaluator
@@ -1153,11 +1154,18 @@ class PlaybackService : MediaLibraryService() {
                 } else {
                     // Format changed or no existing player - create new one
                     existingPlayer?.release()
+                    // In low memory mode, cap the chunk queue to ~10 seconds of audio
+                    val maxSamples = if (com.sendspindroid.UserSettings.lowMemoryMode) {
+                        sampleRate.toLong() * SendSpinProtocol.Buffer.DURATION_LOW_MEM_SEC
+                    } else {
+                        0L  // Unlimited
+                    }
                     syncAudioPlayer = SyncAudioPlayer(
                         timeFilter = timeFilter,
                         sampleRate = sampleRate,
                         channels = channels,
-                        bitDepth = bitDepth
+                        bitDepth = bitDepth,
+                        maxQueueSamples = maxSamples
                     ).apply {
                         // Set callback to update SendSpinPlayer when playback state changes
                         setStateCallback(SyncAudioPlayerStateCallback())
