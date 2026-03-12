@@ -152,6 +152,35 @@ class SendSpinProtocolHandlerTest {
         )
     }
 
+    // ========== Stream Start Dispatch Tests ==========
+
+    @Test
+    fun `stream start with same format dispatches every time`() {
+        val streamStart = buildStreamStartJson(codec = "pcm", sampleRate = 48000, channels = 2, bitDepth = 16)
+
+        handler.handleTextMessageForTest(streamStart)
+        handler.handleTextMessageForTest(streamStart)
+
+        assertEquals(
+            "Every stream/start should dispatch to onStreamStart regardless of format match",
+            2,
+            handler.streamStarts.size
+        )
+    }
+
+    @Test
+    fun `stream start with different format dispatches`() {
+        val start1 = buildStreamStartJson(codec = "pcm", sampleRate = 48000, channels = 2, bitDepth = 16)
+        val start2 = buildStreamStartJson(codec = "pcm", sampleRate = 44100, channels = 2, bitDepth = 24)
+
+        handler.handleTextMessageForTest(start1)
+        handler.handleTextMessageForTest(start2)
+
+        assertEquals(2, handler.streamStarts.size)
+        assertEquals(48000, handler.streamStarts[0].sampleRate)
+        assertEquals(44100, handler.streamStarts[1].sampleRate)
+    }
+
     // ========== Helpers ==========
 
     private fun buildServerStateJson(
@@ -183,6 +212,27 @@ class SendSpinProtocolHandlerTest {
             }
         """.trimIndent()
     }
+
+    private fun buildStreamStartJson(
+        codec: String,
+        sampleRate: Int,
+        channels: Int,
+        bitDepth: Int
+    ): String {
+        return """
+            {
+                "type": "stream/start",
+                "payload": {
+                    "player": {
+                        "codec": "$codec",
+                        "sample_rate": $sampleRate,
+                        "channels": $channels,
+                        "bit_depth": $bitDepth
+                    }
+                }
+            }
+        """.trimIndent()
+    }
 }
 
 /**
@@ -197,6 +247,7 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
     val metadataUpdates = mutableListOf<TrackMetadata>()
     val playbackStateChanges = mutableListOf<String>()
     val groupUpdates = mutableListOf<GroupInfo>()
+    val streamStarts = mutableListOf<StreamConfig>()
 
     fun setHandshakeCompleteForTest() {
         handshakeComplete = true
@@ -245,7 +296,9 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
         groupUpdates.add(info)
     }
 
-    override fun onStreamStart(config: StreamConfig) {}
+    override fun onStreamStart(config: StreamConfig) {
+        streamStarts.add(config)
+    }
 
     override fun onStreamClear() {}
 
