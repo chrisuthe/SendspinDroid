@@ -20,7 +20,8 @@ object MessageBuilder {
         deviceName: String,
         bufferCapacity: Int,
         manufacturer: String,
-        supportedFormats: List<FormatEntry>
+        supportedFormats: List<FormatEntry>,
+        lowMemoryMode: Boolean = false
     ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_HELLO)
@@ -32,7 +33,9 @@ object MessageBuilder {
                     add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.PLAYER))
                     add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.CONTROLLER))
                     add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.METADATA))
-                    add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.ARTWORK))
+                    if (!lowMemoryMode) {
+                        add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.ARTWORK))
+                    }
                 })
                 put("device_info", buildJsonObject {
                     put("product_name", "SendSpinDroid")
@@ -56,16 +59,18 @@ object MessageBuilder {
                         add(kotlinx.serialization.json.JsonPrimitive("mute"))
                     })
                 })
-                put("artwork@v1_support", buildJsonObject {
-                    put("channels", buildJsonArray {
-                        add(buildJsonObject {
-                            put("source", "album")
-                            put("format", "jpeg")
-                            put("media_width", SendSpinProtocol.Artwork.REQUEST_SIZE)
-                            put("media_height", SendSpinProtocol.Artwork.REQUEST_SIZE)
+                if (!lowMemoryMode) {
+                    put("artwork@v1_support", buildJsonObject {
+                        put("channels", buildJsonArray {
+                            add(buildJsonObject {
+                                put("source", "album")
+                                put("format", "jpeg")
+                                put("media_width", SendSpinProtocol.Artwork.REQUEST_SIZE)
+                                put("media_height", SendSpinProtocol.Artwork.REQUEST_SIZE)
+                            })
                         })
                     })
-                })
+                }
             })
         }
         return message.toString()
