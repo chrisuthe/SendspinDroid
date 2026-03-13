@@ -1,1 +1,0 @@
-Synchronized audio player for SendSpin and Music Assistant
