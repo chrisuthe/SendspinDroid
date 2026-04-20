@@ -347,7 +347,12 @@ class PlaybackService : MediaLibraryService() {
     // captive portal, DNS hijack). onLost() does not fire in that case, so we watch
     // for a VALIDATED=true->false transition in onCapabilitiesChanged and debounce
     // briefly to ride through roaming probe flickers.
-    private var lastValidatedState: Boolean = true
+    //
+    // @Volatile: written from a binder thread (NetworkCallback) and read from the
+    // main looper (validationLossRunnable). Null means "no prior state" -- first
+    // callback, no transition to compare against yet.
+    @Volatile
+    private var lastValidatedState: Boolean? = null
 
     // AudioManager for device volume control (Spotify-style hybrid approach)
     private var audioManager: AudioManager? = null
@@ -363,7 +368,7 @@ class PlaybackService : MediaLibraryService() {
     // Posted from onCapabilitiesChanged and cancelled if VALIDATED returns true before
     // the debounce elapses (which is common during WiFi roaming / probe retries).
     private val validationLossRunnable = Runnable {
-        if (!lastValidatedState) {
+        if (lastValidatedState == false) {
             Log.w(TAG, "Validation loss confirmed after debounce - notifying client")
             sendSpinClient?.setNetworkAvailable(false)
         }
@@ -416,11 +421,13 @@ class PlaybackService : MediaLibraryService() {
             val wasValidated = lastValidatedState
             lastValidatedState = isValidated
 
-            if (wasValidated && !isValidated) {
+            // Skip transition logic on the first callback (wasValidated == null) - we have
+            // no "previous state" to compare against, so there is no transition yet.
+            if (wasValidated == true && !isValidated) {
                 Log.w(TAG, "Network lost VALIDATED - debouncing ${VALIDATION_LOSS_DEBOUNCE_MS}ms")
                 mainHandler.removeCallbacks(validationLossRunnable)
                 mainHandler.postDelayed(validationLossRunnable, VALIDATION_LOSS_DEBOUNCE_MS)
-            } else if (!wasValidated && isValidated) {
+            } else if (wasValidated == false && isValidated) {
                 Log.i(TAG, "Network regained VALIDATED")
                 mainHandler.removeCallbacks(validationLossRunnable)
                 // setNetworkAvailable(true) triggers immediate reconnect via

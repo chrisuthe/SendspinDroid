@@ -214,7 +214,12 @@ class MainActivity : AppCompatActivity() {
     // has no upstream (captive portal, walked out of range, DNS hijack). The
     // PlaybackService callback owns the actual reconnect-pause side effect; this
     // field is UI-only.
-    private var lastActivityValidatedState: Boolean = true
+    //
+    // @Volatile: written from a binder thread (NetworkCallback) and read from the
+    // main looper via runOnUiThread. Null means "no prior state" -- first callback,
+    // no transition to compare against yet.
+    @Volatile
+    private var lastActivityValidatedState: Boolean? = null
 
     // Volume control - uses device STREAM_MUSIC (Spotify-style)
     private val audioManager by lazy {
@@ -1249,7 +1254,7 @@ class MainActivity : AppCompatActivity() {
                 // reconnect-pause side effect in its own callback; here we just show
                 // the snackbar if the user is connected or actively connecting.
                 val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                if (lastActivityValidatedState && !isValidated) {
+                if (lastActivityValidatedState == true && !isValidated) {
                     Log.w(TAG, "Activity: network lost VALIDATED")
                     runOnUiThread {
                         if (connectionState is AppConnectionState.Connected ||
