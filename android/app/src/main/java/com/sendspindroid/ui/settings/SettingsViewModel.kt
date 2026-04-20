@@ -13,7 +13,7 @@ import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
 import com.sendspindroid.debug.DebugLogger
-import com.sendspindroid.network.TransportType
+import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,12 +67,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _preferredCodec = MutableStateFlow(UserSettings.getPreferredCodec())
     val preferredCodec: StateFlow<String> = _preferredCodec.asStateFlow()
 
-    // Network-specific codec settings
-    private val _wifiCodec = MutableStateFlow(UserSettings.getCodecForNetwork(TransportType.WIFI))
-    val wifiCodec: StateFlow<String> = _wifiCodec.asStateFlow()
-
-    private val _cellularCodec = MutableStateFlow(UserSettings.getCodecForNetwork(TransportType.CELLULAR))
-    val cellularCodec: StateFlow<String> = _cellularCodec.asStateFlow()
+    private val _supportedCodecs = MutableStateFlow(computeSupportedCodecs())
+    val supportedCodecs: StateFlow<Set<String>> = _supportedCodecs.asStateFlow()
 
     // Performance settings
     private val _lowMemoryMode = MutableStateFlow(UserSettings.lowMemoryMode)
@@ -182,16 +178,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _preferredCodec.value = codec
     }
 
-    fun setWifiCodec(codec: String) {
-        UserSettings.setCodecForNetwork(TransportType.WIFI, codec)
-        _wifiCodec.value = codec
-    }
-
-    fun setCellularCodec(codec: String) {
-        UserSettings.setCodecForNetwork(TransportType.CELLULAR, codec)
-        _cellularCodec.value = codec
-    }
-
     // Performance settings
     /**
      * Sets low memory mode.
@@ -251,5 +237,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             putExtra(EXTRA_DEBUG_LOGGING_ENABLED, enabled)
         }
         LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
+    }
+
+    private fun computeSupportedCodecs(): Set<String> {
+        return listOf("opus", "flac", "pcm")
+            .filter { AudioDecoderFactory.isCodecSupported(it) }
+            .toSet()
     }
 }

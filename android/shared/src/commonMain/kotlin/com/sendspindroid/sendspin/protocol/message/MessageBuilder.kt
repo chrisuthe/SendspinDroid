@@ -140,6 +140,24 @@ object MessageBuilder {
         return durationSec * maxPcmBytesPerSec
     }
 
+    /**
+     * Build the supported_formats list for the client/hello message.
+     *
+     * The advertised list never contains a codec other than [preferredCodec] or
+     * `"pcm"`, and when both are present the preferred codec appears first
+     * (each with stereo+mono variants at the appropriate bit depths). Edge cases:
+     * - If [preferredCodec] is not supported on this device, it is silently dropped
+     *   and only PCM is advertised. The Settings UI surfaces supported codecs
+     *   explicitly; this fallback exists so a connection can still succeed even
+     *   if support state was stale at the time the preference was set.
+     * - If [preferredCodec] is `"pcm"`, PCM is advertised once (not twice).
+     * - If neither the preferred codec nor PCM is supported (shouldn't happen on
+     *   any real Android device; PCM is always supported), the list is empty.
+     *
+     * Compressed codecs (FLAC, Opus) are always advertised at 16-bit. PCM is
+     * advertised at every entry in [supportedBitDepths], highest first (so the
+     * server picks the best-quality match).
+     */
     fun buildSupportedFormats(
         preferredCodec: String,
         isCodecSupported: (String) -> Boolean,
@@ -149,12 +167,6 @@ object MessageBuilder {
 
         if (preferredCodec != "pcm" && isCodecSupported(preferredCodec)) {
             codecOrder.add(preferredCodec)
-        }
-
-        for (codec in listOf("flac", "opus")) {
-            if (codec != preferredCodec && isCodecSupported(codec)) {
-                codecOrder.add(codec)
-            }
         }
 
         if (isCodecSupported("pcm")) {
