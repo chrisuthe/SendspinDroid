@@ -5,13 +5,17 @@ import android.media.AudioFormat
 import android.os.Build
 import android.media.AudioTimestamp
 import android.media.AudioTrack
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Process
 import android.util.Log
 import com.sendspindroid.debug.FileLogger
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.android.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -288,6 +292,30 @@ class SyncAudioPlayer(
         val pcmData: ByteArray,
         val sampleCount: Int
     )
+
+    // Dedicated audio thread for the playback write loop.
+    //
+    // The write loop owns every blocking AudioTrack.write() call, the
+    // System.nanoTime()-based sync error computation, and the sample
+    // insert/drop corrector. Running it on a shared pool (Dispatchers.Default)
+    // at normal priority leaves it vulnerable to background CPU throttling:
+    // display-pipeline suspend / big.LITTLE migration / thermal DVFS can delay
+    // the coroutine past AudioTrack's DAC deadline, causing underruns and
+    // phantom sync drift that the corrector then chases with ±4% rate
+    // adjustments (audible pitch warble).
+    //
+    // A HandlerThread constructed with THREAD_PRIORITY_URGENT_AUDIO stays on
+    // the audio-class cpuset across foreground/background transitions, which
+    // is exactly what AudioTrack MODE_STREAM push-model playback needs.
+    //
+    // Thread-level lifecycle: created once per SyncAudioPlayer instance, quit
+    // in release() after the final coroutine drains. Safe because only one
+    // coroutine is ever launched into the scope (the main playback loop), so
+    // serializing through a single Looper cannot starve siblings.
+    private val audioThread: HandlerThread =
+        HandlerThread("SendSpinAudio", Process.THREAD_PRIORITY_URGENT_AUDIO).apply { start() }
+    private val audioDispatcher: CoroutineDispatcher =
+        Handler(audioThread.looper).asCoroutineDispatcher("SendSpinAudioDispatcher")
 
     // Coroutine scope for playback - recreated for each playback session
     private var scope: CoroutineScope? = null
@@ -584,8 +612,11 @@ class SyncAudioPlayer(
             }
 
             // Create a new scope for this playback session
-            // Using SupervisorJob so child failures don't cancel the scope
-            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+            // Using SupervisorJob so child failures don't cancel the scope.
+            // Dispatcher is backed by a dedicated HandlerThread running at
+            // THREAD_PRIORITY_URGENT_AUDIO so the write loop keeps its audio
+            // deadline even when the app is backgrounded.
+            scope = CoroutineScope(SupervisorJob() + audioDispatcher)
 
             isPlaying.set(true)
             isPaused.set(false)
@@ -924,6 +955,11 @@ class SyncAudioPlayer(
 
         // Phase 2: Outside lock - cancel scope and wait for coroutine to finish
         awaitPlaybackLoopCancellation(captured)
+
+        // Quit the audio HandlerThread only after the playback coroutine has
+        // drained off its Looper. Quitting earlier would orphan pending
+        // messages and risk IllegalStateException on subsequent post().
+        audioThread.quitSafely()
 
         // Phase 3: Re-acquire lock for final resource cleanup
         stateLock.withLock {
@@ -1717,6 +1753,16 @@ class SyncAudioPlayer(
         }
 
         playbackJob = currentScope.launch {
+            // Confirms per-device whether THREAD_PRIORITY_URGENT_AUDIO was
+            // actually honored. Some OEMs clamp audio priorities for non-system
+            // apps; logging the effective tid/priority makes field triage
+            // deterministic. On a healthy device we expect priority = -19.
+            val tid = Process.myTid()
+            Log.i(
+                TAG,
+                "Playback loop thread: name=${Thread.currentThread().name} " +
+                    "tid=$tid priority=${Process.getThreadPriority(tid)}"
+            )
             Log.d(TAG, "Playback loop started, initial state=$playbackState")
 
             while (isActive && isPlaying.get()) {
