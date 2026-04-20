@@ -124,4 +124,19 @@ class WebSocketUrlBuilderTest {
             WebSocketUrlBuilder.buildFromHostPort("host.example.com", 8927, "/ws")
         )
     }
+
+    @Test
+    fun buildFromHostPort_wss_scheme() {
+        assertEquals(
+            "wss://host.example.com:8927/ws",
+            WebSocketUrlBuilder.buildFromHostPort("host.example.com", 8927, "/ws", scheme = "wss")
+        )
+    }
+
+    @Test
+    fun empty_address_produces_schemeless_authority() {
+        // Documents current behavior: no input validation. Callers must ensure
+        // the address is non-empty. The wizard validates this upstream.
+        assertEquals("ws:///path", WebSocketUrlBuilder.build("", "/path"))
+    }
 }

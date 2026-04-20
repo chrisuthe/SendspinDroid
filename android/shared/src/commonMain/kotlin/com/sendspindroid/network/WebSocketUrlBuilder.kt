@@ -44,24 +44,28 @@ object WebSocketUrlBuilder {
      * (i.e. host or host:port, with IPv6 literals bracket-wrapped).
      */
     private fun formatAuthority(address: String): String {
-        val trimmed = address.trim()
+        // Callers are responsible for stripping whitespace at the input boundary
+        // (e.g. the wizard ViewModel). Don't silently swallow it here - that would
+        // mask copy-paste issues that don't survive in other contexts.
 
-        // Already bracketed? Keep as-is.
-        if (trimmed.startsWith("[")) {
-            return trimmed
+        // Already bracketed? Keep as-is. Note: this is a pass-through for any
+        // "[..." prefix; malformed bracketed input (no closing bracket) would
+        // produce a malformed URL. Acceptable given trusted wizard inputs.
+        if (address.startsWith("[")) {
+            return address
         }
 
-        val colonCount = trimmed.count { it == ':' }
+        val colonCount = address.count { it == ':' }
         return when {
             // No colons: bare hostname or IPv4, no port
-            colonCount == 0 -> trimmed
+            colonCount == 0 -> address
 
             // Exactly one colon: host:port (hostname or IPv4 with port)
-            colonCount == 1 -> trimmed
+            colonCount == 1 -> address
 
             // 2+ colons and no brackets: bare IPv6 literal, no port
             // Wrap the whole thing in brackets
-            else -> "[$trimmed]"
+            else -> "[$address]"
         }
     }
 
