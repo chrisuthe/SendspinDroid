@@ -546,7 +546,7 @@ class AddServerWizardViewModel : ViewModel() {
 
     private fun deriveMaApiUrl(): String? {
         if (localAddress.isNotBlank()) {
-            val host = localAddress.substringBefore(":")
+            val host = WebSocketUrlBuilder.extractHost(localAddress)
             return WebSocketUrlBuilder.buildFromHostPort(host, maPort, "/ws")
         }
 

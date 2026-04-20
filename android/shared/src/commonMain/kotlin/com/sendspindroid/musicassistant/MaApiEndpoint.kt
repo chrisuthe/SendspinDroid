@@ -70,7 +70,7 @@ object MaApiEndpoint {
      */
     fun deriveFromLocal(server: UnifiedServer, defaultPort: Int = 8095): String? {
         return server.local?.let { local ->
-            val host = local.address.substringBefore(":")
+            val host = WebSocketUrlBuilder.extractHost(local.address)
             WebSocketUrlBuilder.buildFromHostPort(host, defaultPort, "/ws")
         }
     }
