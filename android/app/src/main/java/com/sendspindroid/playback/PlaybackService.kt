@@ -1241,7 +1241,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onStreamClear() {
+            Log.i(TAG, "[cmd-trace] T2 onStreamClear ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
             mainHandler.post {
+                Log.i(TAG, "[cmd-trace] T3 onStreamClear.post ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
                 Log.d(TAG, "Stream clear - flushing audio and decoder buffers")
                 audioDecoder?.flush()
                 syncAudioPlayer?.clearBuffer()
@@ -1249,7 +1251,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onStreamEnd() {
+            Log.i(TAG, "[cmd-trace] T2 onStreamEnd ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
             mainHandler.post {
+                Log.i(TAG, "[cmd-trace] T3 onStreamEnd.post ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
                 Log.i(TAG, "Stream end - server terminated playback")
                 // Enter idle mode: keep AudioTrack alive and writing silence
                 // so DAC timestamps stay warm for the next stream start
@@ -1287,7 +1291,9 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onVolumeChanged(volume: Int) {
+            Log.i(TAG, "[cmd-trace] T2 onVolumeChanged ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} vol=$volume")
             mainHandler.post {
+                Log.i(TAG, "[cmd-trace] T3 onVolumeChanged.post ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} vol=$volume")
                 // Convert from 0-100 to 0.0-1.0 and apply to device volume
                 val volumeFloat = volume / 100f
                 setVolume(volumeFloat)  // Sets device STREAM_MUSIC volume
@@ -1789,6 +1795,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Set device volume (no flags = silent, no UI popup)
         am.setStreamVolume(AudioManager.STREAM_MUSIC, newVolume, 0)
+        Log.i(TAG, "[cmd-trace] T4 setStreamVolume ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} new=$newVolume max=$maxVolume")
     }
 
     /**

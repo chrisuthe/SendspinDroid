@@ -793,6 +793,15 @@ class SyncAudioPlayer(
      */
     fun enterIdle() {
         stateLock.withLock {
+            // Mirrors clearBuffer(): invalidate any queueChunk() invocations
+            // that are still in flight on the WebSocket IO thread. Without
+            // this, a chunk whose queueChunk() captured the pre-idle
+            // generation can re-populate the queue after the clears below
+            // run, leaving stale audio in the pipeline after stream/end.
+            streamGeneration++
+
+            Log.i(TAG, "[cmd-trace] T4 enterIdle ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} gen=$streamGeneration")
+
             // Clear all audio buffers
             chunkQueue.clear()
             totalQueuedSamples.set(0)
@@ -1000,6 +1009,8 @@ class SyncAudioPlayer(
 
         stateLock.withLock {
             streamGeneration++
+
+            Log.i(TAG, "[cmd-trace] T4 clearBuffer ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} gen=$streamGeneration")
 
             // Reset paused state - we're starting a fresh stream (e.g., after seek)
             // This ensures playback loop will process new chunks even if we were paused
