@@ -65,10 +65,11 @@ class ConnectionSelectorTest {
     }
 
     @Test
-    fun getPriorityOrder_cellular_noLocal() {
-        val order = ConnectionSelector.getPriorityOrder(TransportType.CELLULAR)
-        assertEquals(listOf(ConnectionType.PROXY, ConnectionType.REMOTE), order)
-        assertFalse(order.contains(ConnectionType.LOCAL))
+    fun getPriorityOrder_cellular_proxy_remote_local() {
+        assertEquals(
+            listOf(ConnectionType.PROXY, ConnectionType.REMOTE, ConnectionType.LOCAL),
+            ConnectionSelector.getPriorityOrder(TransportType.CELLULAR)
+        )
     }
 
     @Test
@@ -172,8 +173,10 @@ class ConnectionSelectorTest {
     }
 
     @Test
-    fun shouldAttemptLocal_cellular_false() {
-        assertFalse(ConnectionSelector.shouldAttemptLocal(TransportType.CELLULAR))
+    fun shouldAttemptLocal_cellular_true() {
+        // LOCAL is no longer excluded on cellular - users may configure
+        // a publicly-routable hostname as their local connection target.
+        assertTrue(ConnectionSelector.shouldAttemptLocal(TransportType.CELLULAR))
     }
 
     @Test

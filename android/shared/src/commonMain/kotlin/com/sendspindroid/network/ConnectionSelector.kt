@@ -11,7 +11,7 @@ import com.sendspindroid.shared.log.Log
  * | Network       | Priority Order            | Rationale                          |
  * |---------------|---------------------------|------------------------------------|
  * | WiFi/Ethernet | Local -> Proxy -> Remote    | Local has lowest latency           |
- * | Cellular      | Proxy -> Remote            | Skip local (not on LAN)            |
+ * | Cellular      | Proxy -> Remote -> Local    | Local last - supports publicly-routable hostnames |
  * | VPN           | Proxy -> Remote -> Local    | VPN may route home, proxy preferred|
  * | Unknown       | Proxy -> Remote -> Local    | Can't determine network, proxy safest|
  *
@@ -110,10 +110,15 @@ object ConnectionSelector {
                 ConnectionType.REMOTE
             )
 
-            // Cellular: Skip local (not on LAN), prefer proxy over WebRTC
+            // Cellular: Proxy first (direct, usually fastest on cellular), then Remote
+            // (WebRTC signaling), then Local last. Local is included because users may
+            // configure a publicly-routable hostname (AAAA, public IP, dyndns) as their
+            // "local" address - those work over cellular even though mDNS-discovered
+            // LAN servers don't. A doomed attempt to a LAN-only server times out fast.
             TransportType.CELLULAR -> listOf(
                 ConnectionType.PROXY,
-                ConnectionType.REMOTE
+                ConnectionType.REMOTE,
+                ConnectionType.LOCAL
             )
 
             // VPN: Proxy first (VPN might tunnel to home network)
@@ -133,11 +138,13 @@ object ConnectionSelector {
     }
 
     /**
-     * Checks if local connections should be attempted on the current network.
-     * Returns false for cellular networks where local connections won't work.
+     * Checks whether local connections should be attempted on the current network.
+     * Always true: the "local" slot may hold a publicly-routable hostname or IP,
+     * and we would rather make a quick doomed attempt than wrongly exclude a
+     * working configuration. Kept as a function to avoid breaking callers.
      */
-    fun shouldAttemptLocal(transportType: TransportType): Boolean {
-        return transportType != TransportType.CELLULAR
+    fun shouldAttemptLocal(@Suppress("UNUSED_PARAMETER") transportType: TransportType): Boolean {
+        return true
     }
 
     /**
