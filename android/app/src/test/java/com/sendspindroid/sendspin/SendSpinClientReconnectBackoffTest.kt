@@ -26,10 +26,10 @@ import org.junit.Test
 
 /**
  * Tests that reconnection uses exponential backoff with the correct delays
- * and respects the max attempt limit (normal mode) and high power mode behavior.
+ * and that both normal and high-power modes retry indefinitely.
  *
- * Expected delay sequence: 500ms, 1s, 2s, 4s, 8s with max 5 attempts.
- * High power mode: infinite retries, 30s steady-state after 5th attempt.
+ * Expected delay sequence: 500ms, 1s, 2s, 4s, 8s.
+ * Both normal and high-power mode: infinite retries, 30s steady-state after the 5th attempt.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SendSpinClientReconnectBackoffTest {

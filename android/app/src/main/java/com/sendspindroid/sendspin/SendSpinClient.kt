@@ -797,8 +797,7 @@ class SendSpinClient(
                 .coerceAtMost(MAX_RECONNECT_DELAY_MS)
         }
 
-        val attemptsDisplay = "$attempts"
-        Log.i(TAG, "Attempting reconnection $attemptsDisplay in ${delayMs}ms")
+        Log.i(TAG, "Attempting reconnection $attempts in ${delayMs}ms")
         reconnecting.set(true)
         _connectionState.value = ConnectionState.Connecting
 
