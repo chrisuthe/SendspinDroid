@@ -8,7 +8,6 @@ import android.util.Log
 import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
-import com.sendspindroid.network.TransportType
 import java.util.UUID
 
 /**
@@ -48,10 +47,6 @@ object UserSettings {
     const val KEY_ALBUM_ARTISTS_ONLY = "album_artists_only"
     const val KEY_LAYOUT_MODE = "layout_mode"
     const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
-
-    // Network-specific codec preference keys
-    const val KEY_CODEC_WIFI = "codec_wifi"
-    const val KEY_CODEC_CELLULAR = "codec_cellular"
 
     // Remote access preference keys (stored in encrypted prefs)
     const val KEY_REMOTE_SERVERS = "remote_servers"
@@ -375,38 +370,6 @@ object UserSettings {
      */
     fun setPreferredCodec(codec: String) {
         prefs?.edit()?.putString(KEY_PREFERRED_CODEC, codec)?.apply()
-    }
-
-    /**
-     * Gets the preferred codec for a specific network type.
-     * Falls back to the global preferred codec if no network-specific preference is set.
-     *
-     * @param transportType The current network transport type
-     * @return The codec to use (pcm, flac, or opus)
-     */
-    fun getCodecForNetwork(transportType: TransportType): String {
-        val key = when (transportType) {
-            TransportType.WIFI -> KEY_CODEC_WIFI
-            TransportType.CELLULAR -> KEY_CODEC_CELLULAR
-            else -> KEY_PREFERRED_CODEC
-        }
-        // Fall back to global preferred codec if network-specific not set
-        return prefs?.getString(key, null) ?: getPreferredCodec()
-    }
-
-    /**
-     * Sets the preferred codec for a specific network type.
-     *
-     * @param transportType The network transport type
-     * @param codec The codec to use (pcm, flac, or opus)
-     */
-    fun setCodecForNetwork(transportType: TransportType, codec: String) {
-        val key = when (transportType) {
-            TransportType.WIFI -> KEY_CODEC_WIFI
-            TransportType.CELLULAR -> KEY_CODEC_CELLULAR
-            else -> KEY_PREFERRED_CODEC
-        }
-        prefs?.edit()?.putString(key, codec)?.apply()
     }
 
     // ========== Remote Access Settings ==========

@@ -13,7 +13,6 @@ import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
 import com.sendspindroid.debug.DebugLogger
-import com.sendspindroid.network.TransportType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -66,13 +65,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _preferredCodec = MutableStateFlow(UserSettings.getPreferredCodec())
     val preferredCodec: StateFlow<String> = _preferredCodec.asStateFlow()
-
-    // Network-specific codec settings
-    private val _wifiCodec = MutableStateFlow(UserSettings.getCodecForNetwork(TransportType.WIFI))
-    val wifiCodec: StateFlow<String> = _wifiCodec.asStateFlow()
-
-    private val _cellularCodec = MutableStateFlow(UserSettings.getCodecForNetwork(TransportType.CELLULAR))
-    val cellularCodec: StateFlow<String> = _cellularCodec.asStateFlow()
 
     // Performance settings
     private val _lowMemoryMode = MutableStateFlow(UserSettings.lowMemoryMode)
@@ -180,16 +172,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setPreferredCodec(codec: String) {
         UserSettings.setPreferredCodec(codec)
         _preferredCodec.value = codec
-    }
-
-    fun setWifiCodec(codec: String) {
-        UserSettings.setCodecForNetwork(TransportType.WIFI, codec)
-        _wifiCodec.value = codec
-    }
-
-    fun setCellularCodec(codec: String) {
-        UserSettings.setCodecForNetwork(TransportType.CELLULAR, codec)
-        _cellularCodec.value = codec
     }
 
     // Performance settings
