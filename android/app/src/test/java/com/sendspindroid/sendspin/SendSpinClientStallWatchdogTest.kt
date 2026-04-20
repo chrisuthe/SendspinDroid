@@ -141,6 +141,9 @@ class SendSpinClientStallWatchdogTest {
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 60_000L)  // 60s in the past
+        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        streamActiveField.isAccessible = true
+        (streamActiveField.get(client) as AtomicBoolean).set(true)
 
         val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
@@ -217,6 +220,51 @@ class SendSpinClientStallWatchdogTest {
         assertNotNull("stallWatchdogJob should be restarted by onHandshakeComplete", newJob)
         assertTrue("stallWatchdogJob should be active after onHandshakeComplete",
             newJob!!.isActive)
+    }
+
+    @Test
+    fun `checkStall does not close when no stream is active`() {
+        // Seed a stale timestamp that would normally trip the watchdog
+        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        lastByteField.isAccessible = true
+        val atomicLong = lastByteField.get(client) as AtomicLong
+        atomicLong.set(System.currentTimeMillis() - 60_000L)
+
+        // Ensure streamActive is false (it defaults to false, but be explicit)
+        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        streamActiveField.isAccessible = true
+        val streamActive = streamActiveField.get(client) as AtomicBoolean
+        streamActive.set(false)
+
+        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        checkStall.isAccessible = true
+        checkStall.invoke(client)
+
+        assertFalse("Watchdog should NOT close while no stream is active",
+            fakeTransport.closeCalled)
+    }
+
+    @Test
+    fun `checkStall closes when stream is active and stalled`() {
+        // Seed a stale timestamp
+        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        lastByteField.isAccessible = true
+        val atomicLong = lastByteField.get(client) as AtomicLong
+        atomicLong.set(System.currentTimeMillis() - 60_000L)
+
+        // Activate the stream
+        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        streamActiveField.isAccessible = true
+        val streamActive = streamActiveField.get(client) as AtomicBoolean
+        streamActive.set(true)
+
+        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        checkStall.isAccessible = true
+        checkStall.invoke(client)
+
+        assertTrue("Watchdog should close when stream is active and stalled",
+            fakeTransport.closeCalled)
+        assertNotEquals(1000, fakeTransport.closeCode)
     }
 
     private fun buildTransportListener(): SendSpinTransport.Listener {

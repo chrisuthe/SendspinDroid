@@ -188,6 +188,11 @@ class SendSpinClient(
     @Volatile
     private var stallWatchdogJob: Job? = null
 
+    // True while a server-announced audio stream is active. The stall watchdog
+    // only trips while streaming - during idle (no stream) the server may send
+    // nothing for long periods, which would cause false-positive stalls.
+    private val streamActive = AtomicBoolean(false)
+
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
@@ -258,6 +263,7 @@ class SendSpinClient(
         }
 
         callback.onConnected(serverName)
+        streamActive.set(false)  // fresh handshake - wait for server to announce stream state
         startStallWatchdog()  // (re)start watchdog now that we have a live handshake-complete session
     }
 
@@ -290,6 +296,11 @@ class SendSpinClient(
     }
 
     override fun onStreamStart(config: StreamConfig) {
+        streamActive.set(true)
+        // Reset so we don't false-trip from any stale timestamp accumulated while
+        // the stream was inactive (we were not expecting data then).
+        lastByteReceivedAtMs.set(System.currentTimeMillis())
+
         val preferredCodec = UserSettings.getPreferredCodec()
         Log.i(TAG, "Stream started: server chose codec=${config.codec} (we preferred=$preferredCodec)")
         callback.onStreamStart(
@@ -302,10 +313,12 @@ class SendSpinClient(
     }
 
     override fun onStreamClear() {
+        streamActive.set(false)
         callback.onStreamClear()
     }
 
     override fun onStreamEnd() {
+        streamActive.set(false)
         callback.onStreamEnd()
     }
 
@@ -719,8 +732,10 @@ class SendSpinClient(
 
     /**
      * Check whether the transport has gone silent for too long and force-close it
-     * if so. Only acts when the client is connected, handshake is complete, and we
-     * are not already in a reconnect cycle.
+     * if so. Only acts when the client is connected, handshake is complete, a
+     * stream is active (server has announced stream/start and not stream/stop),
+     * and we are not already in a reconnect cycle. Keeps the watchdog from
+     * false-tripping during idle periods when the server has nothing to send.
      *
      * Private for production; reached via reflection from SendSpinClientStallWatchdogTest.
      */
@@ -730,6 +745,9 @@ class SendSpinClient(
         if (!handshakeComplete) return
         val t = transport ?: return
         if (!t.isConnected) return
+        // Don't trip during idle - server may send nothing between streams, and
+        // WebSocket pings (which keep the socket alive) don't update lastByteReceivedAtMs.
+        if (!streamActive.get()) return
 
         val sinceLastByte = System.currentTimeMillis() - lastByteReceivedAtMs.get()
         if (sinceLastByte > STALL_TIMEOUT_MS) {
