@@ -132,6 +132,8 @@ class MessageBuilderTest {
             preferredCodec = "pcm",
             isCodecSupported = { it == "pcm" }
         )
+        // Pin the dedup: pcm stereo + pcm mono = 2, not 4.
+        assertEquals(2, formats.size)
         assertTrue(formats.all { it.codec == "pcm" })
     }
 
@@ -145,6 +147,21 @@ class MessageBuilderTest {
         )
         val codecsAdvertised = formats.map { it.codec }.toSet()
         assertEquals(setOf("pcm"), codecsAdvertised)
+        // Default supportedBitDepths = [16], so pcm stereo + pcm mono = 2.
+        assertEquals(2, formats.size)
+    }
+
+    @Test
+    fun buildSupportedFormats_noCodecsSupportedReturnsEmpty() {
+        // Pins the current behaviour for the degenerate case where not even PCM
+        // is supported. A real Android device should never produce this (PCM is
+        // always supported) but we lock it in so a future refactor can't
+        // silently change the contract.
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "opus",
+            isCodecSupported = { false }
+        )
+        assertTrue(formats.isEmpty())
     }
 
     @Test
