@@ -34,6 +34,7 @@ abstract class SendSpinProtocolHandler(
     protected val tag: String
 ) {
     // Protocol state
+    @Volatile
     protected var handshakeComplete = false
     protected var currentVolume: Int = 100
     protected var currentMuted: Boolean = false

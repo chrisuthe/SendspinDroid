@@ -216,7 +216,12 @@ class SendSpinClientTimeFilterFreezeTest {
     }
 
     @Test
-    fun `time filter is reset and discarded when reconnect attempts exhausted`() {
+    fun `time filter stays frozen across many reconnect attempts in normal mode`() {
+        // After removing the 5-attempt cap, there is no exhaustion path in normal
+        // mode: the client retries forever and the time filter stays frozen so
+        // clock sync state is preserved across long outages. The filter only
+        // thaws on successful handshake (covered by the thaw tests above) or
+        // explicit disconnect.
         seedTimeFilter()
         setupForReconnection()
         every { UserSettings.highPowerMode } returns false
@@ -225,17 +230,13 @@ class SendSpinClientTimeFilterFreezeTest {
         val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
-        // Exhaust all 5 attempts
-        for (i in 1..5) {
+        // Perform many attempts, well past the old 5-attempt cap.
+        for (i in 1..10) {
             attemptReconnect.invoke(client)
         }
-        assertTrue("Should be frozen during reconnection", tf.isFrozen)
 
-        // 6th attempt should exhaust and call resetAndDiscard
-        attemptReconnect.invoke(client)
-
-        assertFalse(
-            "Time filter should not be frozen after exhaustion (resetAndDiscard clears frozen state)",
+        assertTrue(
+            "Time filter should remain frozen while still reconnecting (no exhaustion path)",
             tf.isFrozen
         )
     }
