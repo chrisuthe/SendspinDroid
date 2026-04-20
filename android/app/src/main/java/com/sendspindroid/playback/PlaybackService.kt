@@ -387,10 +387,27 @@ class PlaybackService : MediaLibraryService() {
             // 2. Cancelling backoff for immediate retry (existing onNetworkAvailable behavior)
             sendSpinClient?.setNetworkAvailable(true)
 
-            // Only trigger time filter reset if we had a previous network and it changed
+            // Only trigger time filter reset + reselection if we had a previous network
+            // and it changed (not the very first callback on connect).
             if (lastNetworkId != -1 && lastNetworkId != networkId) {
                 Log.i(TAG, "Network changed from $lastNetworkId to $networkId")
                 sendSpinClient?.onNetworkChanged()
+
+                // A network identity change means the old transport address may no
+                // longer be reachable (typical case: WiFi -> Cellular while a LAN
+                // LOCAL connection is in use). The inner reconnect loop would retry
+                // the old mode forever; instead, cleanly yield so the outer
+                // AutoReconnectManager loop re-runs ConnectionSelector against the
+                // new network and picks the right mode. Unconditional because the
+                // cost of an unnecessary reselection is one extra reconnect cycle,
+                // while the cost of a missed reselection is ~50s of blackout.
+                val connState = sendSpinClient?.connectionState?.value
+                val shouldReselect = connState is SendSpinClient.ConnectionState.Connected ||
+                                     connState is SendSpinClient.ConnectionState.Connecting
+                if (shouldReselect) {
+                    Log.i(TAG, "Triggering connection reselection for new network")
+                    sendSpinClient?.disconnectForReselection()
+                }
             }
             lastNetworkId = networkId
         }
@@ -398,12 +415,24 @@ class PlaybackService : MediaLibraryService() {
         override fun onLost(network: Network) {
             Log.d(TAG, "Network lost: id=${network.hashCode()}")
             // Don't reset lastNetworkId here - we want to detect when a new network comes up
-            // Update network evaluator to reflect disconnected state
-            networkEvaluator?.evaluateCurrentNetwork(null)
+            // Update network evaluator to reflect disconnected state only if nothing else is up
+            val stillHaveNetwork = connectivityManager?.activeNetwork != null
+            networkEvaluator?.evaluateCurrentNetwork(
+                if (stillHaveNetwork) connectivityManager?.activeNetwork else null
+            )
             // Cancel any pending validation-loss debounce; onLost is authoritative.
             mainHandler.removeCallbacks(validationLossRunnable)
-            // Notify client so reconnection pauses instead of wasting attempts
-            sendSpinClient?.setNetworkAvailable(false)
+            // Only signal unavailability if we have no active network. During a
+            // transport handover (WiFi -> Cellular), onLost(WiFi) fires AFTER
+            // onAvailable(Cellular); blindly calling setNetworkAvailable(false)
+            // there would pause the reconnect loop despite having a working
+            // network, making the observable blackout longer.
+            if (!stillHaveNetwork) {
+                Log.i(TAG, "No active network remaining - pausing client reconnect")
+                sendSpinClient?.setNetworkAvailable(false)
+            } else {
+                Log.d(TAG, "Another network still active - keeping client reconnect running")
+            }
         }
 
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
