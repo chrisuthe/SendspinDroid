@@ -6,6 +6,7 @@ import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.musicassistant.MaAuthHelper
 import com.sendspindroid.musicassistant.transport.MaApiTransport
+import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.ui.wizard.ClientMode
 import com.sendspindroid.ui.wizard.ConnectionTestState
 import com.sendspindroid.ui.wizard.DiscoveredServerUi
@@ -545,8 +546,8 @@ class AddServerWizardViewModel : ViewModel() {
 
     private fun deriveMaApiUrl(): String? {
         if (localAddress.isNotBlank()) {
-            val host = localAddress.substringBefore(":")
-            return "ws://$host:$maPort/ws"
+            val host = WebSocketUrlBuilder.extractHost(localAddress)
+            return WebSocketUrlBuilder.buildFromHostPort(host, maPort, "/ws")
         }
 
         if (proxyUrl.isNotBlank()) {

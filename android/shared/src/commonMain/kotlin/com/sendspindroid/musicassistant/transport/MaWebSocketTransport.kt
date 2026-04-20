@@ -1,5 +1,6 @@
 package com.sendspindroid.musicassistant.transport
 
+import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.shared.log.Log
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocket
@@ -469,7 +470,7 @@ class MaWebSocketTransport(
             url.startsWith("ws://") || url.startsWith("wss://") -> url
             url.startsWith("https://") -> url.replaceFirst("https://", "wss://")
             url.startsWith("http://") -> url.replaceFirst("http://", "ws://")
-            else -> "ws://$url"
+            else -> WebSocketUrlBuilder.build(url, path = "")
         }
     }
 }

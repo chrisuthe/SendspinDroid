@@ -357,7 +357,7 @@ class DefaultServerPinger(
     private suspend fun pingLocal(address: String, path: String): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val url = "ws://$address$path"
+                val url = WebSocketUrlBuilder.build(address, path)
                 Log.d(TAG, "Ping local: $url")
 
                 withTimeout(LOCAL_PING_TIMEOUT_MS) {

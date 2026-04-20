@@ -65,10 +65,11 @@ class ConnectionSelectorTest {
     }
 
     @Test
-    fun getPriorityOrder_cellular_noLocal() {
-        val order = ConnectionSelector.getPriorityOrder(TransportType.CELLULAR)
-        assertEquals(listOf(ConnectionType.PROXY, ConnectionType.REMOTE), order)
-        assertFalse(order.contains(ConnectionType.LOCAL))
+    fun getPriorityOrder_cellular_proxy_remote_local() {
+        assertEquals(
+            listOf(ConnectionType.PROXY, ConnectionType.REMOTE, ConnectionType.LOCAL),
+            ConnectionSelector.getPriorityOrder(TransportType.CELLULAR)
+        )
     }
 
     @Test
@@ -105,6 +106,21 @@ class ConnectionSelectorTest {
     }
 
     @Test
+    fun selectConnection_cellularOnlyLocal_selectsLocal() {
+        // Regression guard for #115: LOCAL must be attempted on cellular
+        // when it is the only configured connection (publicly-routable
+        // hostname case - e.g. user configured an AAAA-only DNS name).
+        val result = ConnectionSelector.selectConnection(
+            server(local = localConn),
+            networkState(TransportType.CELLULAR)
+        )
+        assertTrue(
+            "Expected Local selection but got $result",
+            result is ConnectionSelector.SelectedConnection.Local
+        )
+    }
+
+    @Test
     fun selectConnection_wifiNoLocal_selectsProxy() {
         val result = ConnectionSelector.selectConnection(
             server(remote = remoteConn, proxy = proxyConn),
@@ -129,7 +145,7 @@ class ConnectionSelectorTest {
         val result = ConnectionSelector.selectConnection(
             server(local = localConn, remote = remoteConn, proxy = proxyConn,
                 preference = ConnectionPreference.LOCAL_ONLY),
-            networkState(TransportType.CELLULAR) // Would normally skip local
+            networkState(TransportType.CELLULAR)
         )
         assertTrue(result is ConnectionSelector.SelectedConnection.Local)
     }
@@ -162,28 +178,6 @@ class ConnectionSelectorTest {
             networkState(TransportType.WIFI)
         )
         assertTrue(result is ConnectionSelector.SelectedConnection.Proxy)
-    }
-
-    // --- shouldAttemptLocal ---
-
-    @Test
-    fun shouldAttemptLocal_wifi_true() {
-        assertTrue(ConnectionSelector.shouldAttemptLocal(TransportType.WIFI))
-    }
-
-    @Test
-    fun shouldAttemptLocal_cellular_false() {
-        assertFalse(ConnectionSelector.shouldAttemptLocal(TransportType.CELLULAR))
-    }
-
-    @Test
-    fun shouldAttemptLocal_ethernet_true() {
-        assertTrue(ConnectionSelector.shouldAttemptLocal(TransportType.ETHERNET))
-    }
-
-    @Test
-    fun shouldAttemptLocal_vpn_true() {
-        assertTrue(ConnectionSelector.shouldAttemptLocal(TransportType.VPN))
     }
 
     // --- getConnectionDescription ---

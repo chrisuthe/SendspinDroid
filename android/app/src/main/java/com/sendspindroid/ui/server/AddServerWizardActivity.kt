@@ -26,6 +26,7 @@ import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.TransportType
+import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.remote.RemoteConnection
 import com.sendspindroid.musicassistant.MaAuthHelper
 import com.sendspindroid.musicassistant.transport.MaApiTransport
@@ -351,11 +352,11 @@ class AddServerWizardActivity : FragmentActivity() {
     private suspend fun testLocalConnection(address: String): Result<Int> {
         return withContext(Dispatchers.IO) {
             try {
-                val wsUrl = if (address.contains(":")) {
-                    "ws://$address/sendspin"
-                } else {
-                    "ws://$address:8927/sendspin"
-                }
+                // Use the shared builder - it handles IPv4, hostnames, and IPv6 literals
+                // (bracket-wraps when needed per RFC 3986). If the user did not specify
+                // a port (no colon in non-IPv6 input), append the default.
+                val addressWithPort = WebSocketUrlBuilder.ensureDefaultPort(address, defaultPort = 8927)
+                val wsUrl = WebSocketUrlBuilder.build(addressWithPort, "/sendspin")
 
                 Log.d(TAG, "Testing WebSocket connection to: $wsUrl")
 
