@@ -26,6 +26,7 @@ import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.TransportType
+import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.remote.RemoteConnection
 import com.sendspindroid.musicassistant.MaAuthHelper
 import com.sendspindroid.musicassistant.transport.MaApiTransport
@@ -351,11 +352,11 @@ class AddServerWizardActivity : FragmentActivity() {
     private suspend fun testLocalConnection(address: String): Result<Int> {
         return withContext(Dispatchers.IO) {
             try {
-                val wsUrl = if (address.contains(":")) {
-                    "ws://$address/sendspin"
-                } else {
-                    "ws://$address:8927/sendspin"
-                }
+                // Use the shared builder - it handles IPv4, hostnames, and IPv6 literals
+                // (bracket-wraps when needed per RFC 3986). If the user did not specify
+                // a port (no colon in non-IPv6 input), append the default.
+                val addressWithPort = ensureDefaultPort(address, defaultPort = 8927)
+                val wsUrl = WebSocketUrlBuilder.build(addressWithPort, "/sendspin")
 
                 Log.d(TAG, "Testing WebSocket connection to: $wsUrl")
 
@@ -404,6 +405,27 @@ class AddServerWizardActivity : FragmentActivity() {
                 Log.e(TAG, "Connection test exception", e)
                 Result.failure(e)
             }
+        }
+    }
+
+    /**
+     * Ensures the user-entered address has a port. Appends :8927 if none is present.
+     * Does not touch bracketed IPv6 literals that already include a port.
+     */
+    private fun ensureDefaultPort(address: String, defaultPort: Int): String {
+        val trimmed = address.trim()
+        // Already bracketed IPv6 - check for :port after the closing bracket
+        if (trimmed.startsWith("[")) {
+            val closeIdx = trimmed.indexOf(']')
+            val hasPort = closeIdx >= 0 && closeIdx < trimmed.length - 1 &&
+                          trimmed[closeIdx + 1] == ':'
+            return if (hasPort) trimmed else "$trimmed:$defaultPort"
+        }
+        val colonCount = trimmed.count { it == ':' }
+        return when {
+            colonCount == 0 -> "$trimmed:$defaultPort"       // hostname/IPv4 bare
+            colonCount == 1 -> trimmed                        // host:port already
+            else -> "[$trimmed]:$defaultPort"                 // bare IPv6 literal
         }
     }
 

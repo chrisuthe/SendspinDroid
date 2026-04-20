@@ -1,6 +1,7 @@
 package com.sendspindroid.musicassistant
 
 import com.sendspindroid.model.UnifiedServer
+import com.sendspindroid.network.WebSocketUrlBuilder
 
 /**
  * Derives Music Assistant API WebSocket URL from server configuration.
@@ -70,7 +71,7 @@ object MaApiEndpoint {
     fun deriveFromLocal(server: UnifiedServer, defaultPort: Int = 8095): String? {
         return server.local?.let { local ->
             val host = local.address.substringBefore(":")
-            "ws://$host:$defaultPort/ws"
+            WebSocketUrlBuilder.buildFromHostPort(host, defaultPort, "/ws")
         }
     }
 

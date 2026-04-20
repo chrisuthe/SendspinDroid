@@ -1,5 +1,6 @@
 package com.sendspindroid.sendspin.transport
 
+import com.sendspindroid.network.WebSocketUrlBuilder
 import io.ktor.client.HttpClient
 
 /**
@@ -36,5 +37,5 @@ class WebSocketTransport(
         private const val TAG = "WebSocketTransport"
     }
 
-    override fun buildWebSocketUrl(): String = "ws://$address$path"
+    override fun buildWebSocketUrl(): String = WebSocketUrlBuilder.build(address, path)
 }
