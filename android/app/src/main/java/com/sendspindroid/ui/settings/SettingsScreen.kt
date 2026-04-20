@@ -664,13 +664,7 @@ private fun CodecSelectionDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .then(
-                                if (supported) {
-                                    Modifier.clickable { onSelect(value) }
-                                } else {
-                                    Modifier
-                                }
-                            )
+                            .clickable(enabled = supported) { onSelect(value) }
                             .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -718,6 +712,7 @@ private fun getCodecDisplayName(codec: String): String {
     return when (codec.lowercase()) {
         "opus" -> "Opus"
         "flac" -> "FLAC"
+        "pcm" -> "PCM"
         else -> codec
     }
 }
