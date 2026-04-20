@@ -38,6 +38,7 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.SSLHandshakeException
 
 /**
@@ -81,6 +82,12 @@ class SendSpinClient(
         private const val INITIAL_RECONNECT_DELAY_MS = 500L // 500ms (was 1s)
         private const val MAX_RECONNECT_DELAY_MS = 10000L // 10 seconds (was 30s)
         private const val HIGH_POWER_RECONNECT_DELAY_MS = 30_000L // 30s steady-state for high power mode
+
+        // Stall watchdog: while connected+handshake-complete, if no bytes arrive for
+        // this long, force-close the transport so the existing reconnect path kicks in.
+        // Shorter than Ktor's 30s ping-timeout to beat buffer drain.
+        private const val STALL_TIMEOUT_MS = 7_000L
+        private const val STALL_CHECK_INTERVAL_MS = 3_000L
 
     }
 
@@ -174,6 +181,11 @@ class SendSpinClient(
     // When network is unavailable, reconnect attempts are paused (not wasted)
     private val networkAvailable = AtomicBoolean(true)
     private val waitingForNetwork = AtomicBoolean(false)
+
+    // Stall watchdog state. lastByteReceivedAtMs is updated on EVERY text/binary
+    // message from the transport. stallWatchdogJob is the polling coroutine.
+    private val lastByteReceivedAtMs = AtomicLong(System.currentTimeMillis())
+    private var stallWatchdogJob: Job? = null
 
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
@@ -525,6 +537,8 @@ class SendSpinClient(
         transport?.setListener(null)
         transport?.destroy()
         transport = null
+
+        startStallWatchdog()
     }
 
     /**
@@ -604,6 +618,7 @@ class SendSpinClient(
      * Disconnect from the current server.
      */
     fun disconnect() {
+        stopStallWatchdog()
         Log.d(TAG, "Disconnecting (user-initiated)")
         userInitiatedDisconnect.set(true)
 
@@ -635,6 +650,7 @@ class SendSpinClient(
      * Clean up resources.
      */
     fun destroy() {
+        stopStallWatchdog()
         stopTimeSync()
         userInitiatedDisconnect.set(true)
 
@@ -678,6 +694,52 @@ class SendSpinClient(
     }
 
     /**
+     * Start the stall watchdog. Called when the connection reaches a state where
+     * we expect data to be flowing. Cancels any previous instance.
+     */
+    private fun startStallWatchdog() {
+        stallWatchdogJob?.cancel()
+        // Reset so we don't false-trip using a stale pre-handshake timestamp
+        lastByteReceivedAtMs.set(System.currentTimeMillis())
+        stallWatchdogJob = scope.launch {
+            while (true) {
+                delay(STALL_CHECK_INTERVAL_MS)
+                checkStall()
+            }
+        }
+    }
+
+    /**
+     * Stop the stall watchdog. Called on disconnect or during reconnect attempts.
+     */
+    private fun stopStallWatchdog() {
+        stallWatchdogJob?.cancel()
+        stallWatchdogJob = null
+    }
+
+    /**
+     * Check whether the transport has gone silent for too long and force-close it
+     * if so. Only acts when the client is connected, handshake is complete, and we
+     * are not already in a reconnect cycle.
+     *
+     * Private for production; reached via reflection from SendSpinClientStallWatchdogTest.
+     */
+    private fun checkStall() {
+        if (userInitiatedDisconnect.get()) return
+        if (reconnecting.get()) return
+        if (!handshakeComplete) return
+        val t = transport ?: return
+        if (!t.isConnected) return
+
+        val sinceLastByte = System.currentTimeMillis() - lastByteReceivedAtMs.get()
+        if (sinceLastByte > STALL_TIMEOUT_MS) {
+            Log.w(TAG, "Stall watchdog: no data received in ${sinceLastByte}ms (threshold ${STALL_TIMEOUT_MS}ms) - forcing transport close")
+            // 1001 "Going Away" is non-1000 so onClosed path triggers reconnection
+            t.close(1001, "stall watchdog")
+        }
+    }
+
+    /**
      * Attempt reconnection with exponential backoff.
      *
      * Smart reconnection: if network is unavailable, pauses without consuming attempts.
@@ -710,6 +772,7 @@ class SendSpinClient(
             timeFilter.freeze()
             Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
         }
+        stopStallWatchdog()  // watchdog restarts on next successful handshake via prepareForConnection
 
         // Check attempt limits - high power mode allows infinite retries
         val maxAttempts = if (UserSettings.highPowerMode) Int.MAX_VALUE else MAX_RECONNECT_ATTEMPTS
@@ -874,6 +937,7 @@ class SendSpinClient(
         }
 
         override fun onMessage(text: String) {
+            lastByteReceivedAtMs.set(System.currentTimeMillis())
             // Check for auth failure (server may send error if token is invalid)
             if (connectionMode == ConnectionMode.PROXY && !handshakeComplete) {
                 try {
@@ -907,6 +971,7 @@ class SendSpinClient(
         }
 
         override fun onMessage(bytes: ByteArray) {
+            lastByteReceivedAtMs.set(System.currentTimeMillis())
             handleBinaryMessage(bytes)
         }
 
