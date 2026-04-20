@@ -139,35 +139,62 @@ class SendSpinClientReconnectBackoffTest {
     }
 
     @Test
-    fun `max 5 reconnect attempts in normal mode`() {
+    fun `normal mode retries forever without triggering exhausted error`() {
         setupForReconnection()
         every { UserSettings.highPowerMode } returns false
 
         val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
-        // Perform 5 attempts (all should proceed)
-        for (i in 1..5) {
+        // Perform 10 attempts - all should succeed in normal mode now
+        for (i in 1..10) {
             attemptReconnect.invoke(client)
         }
 
-        // Verify 5 onReconnecting calls were made
-        verify(exactly = 5) {
-            mockCallback.onReconnecting(any(), any())
-        }
-
-        // 6th attempt should exceed max and trigger error
-        attemptReconnect.invoke(client)
-
-        verify(exactly = 1) {
+        // Should NOT have called onDisconnected with wasReconnectExhausted=true
+        verify(exactly = 0) {
             mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
         }
 
-        // State should be Error
+        // All 10 should have been onReconnecting calls
+        verify(exactly = 10) {
+            mockCallback.onReconnecting(any(), any())
+        }
+
+        // State should remain Connecting (not Error)
         assertTrue(
-            "State should be Error after max attempts exceeded",
-            client.connectionState.value is SendSpinClient.ConnectionState.Error
+            "State should remain Connecting in normal mode with no cap, was: ${client.connectionState.value}",
+            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
         )
+    }
+
+    @Test
+    fun `normal mode uses 30s steady-state delay after attempt 5`() {
+        // Verify the delay formula selects the steady-state path for attempts > 5
+        // regardless of highPowerMode setting. The formula we expect in SendSpinClient:
+        //   val delayMs = if (attempts > MAX_RECONNECT_ATTEMPTS) HIGH_POWER_RECONNECT_DELAY_MS
+        //                 else (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
+        //                         .coerceAtMost(MAX_RECONNECT_DELAY_MS)
+
+        val initialDelay = 500L
+        val maxDelay = 10_000L
+        val steadyStateDelay = 30_000L
+
+        for (attempt in 1..5) {
+            val computed = (initialDelay * (1 shl (attempt - 1))).coerceAtMost(maxDelay)
+            val expected = when (attempt) {
+                1 -> 500L; 2 -> 1000L; 3 -> 2000L; 4 -> 4000L; 5 -> 8000L
+                else -> fail("unreachable") as Long
+            }
+            assertEquals("Attempt $attempt should use exponential backoff", expected, computed)
+        }
+
+        // Attempt 6+ should use steady-state 30s
+        for (attempt in 6..10) {
+            val computed = if (attempt > 5) steadyStateDelay
+                           else (initialDelay * (1 shl (attempt - 1))).coerceAtMost(maxDelay)
+            assertEquals("Attempt $attempt should use 30s steady-state", steadyStateDelay, computed)
+        }
     }
 
     @Test

@@ -775,18 +775,6 @@ class SendSpinClient(
         }
         stopStallWatchdog()  // watchdog restarts on next successful handshake via prepareForConnection
 
-        // Check attempt limits - high power mode allows infinite retries
-        val maxAttempts = if (UserSettings.highPowerMode) Int.MAX_VALUE else MAX_RECONNECT_ATTEMPTS
-        if (attempts > maxAttempts) {
-            Log.w(TAG, "Max reconnection attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
-            reconnecting.set(false)
-            timeFilter.resetAndDiscard()
-            _connectionState.value = ConnectionState.Error("Connection lost. Please reconnect manually.")
-            callback.onError("Connection lost after $MAX_RECONNECT_ATTEMPTS reconnection attempts")
-            callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-            return
-        }
-
         // If network is unavailable, pause without wasting an attempt
         // setNetworkAvailable(true) will resume via onNetworkAvailable()
         if (!networkAvailable.get()) {
@@ -799,15 +787,17 @@ class SendSpinClient(
             return
         }
 
-        // Exponential backoff for first 5 attempts, then steady 30s in high power mode
-        val delayMs = if (UserSettings.highPowerMode && attempts > MAX_RECONNECT_ATTEMPTS) {
+        // Exponential backoff for first 5 attempts, then 30s steady-state forever.
+        // Applies in both normal and high power mode - the user can always disconnect
+        // manually if they're done listening.
+        val delayMs = if (attempts > MAX_RECONNECT_ATTEMPTS) {
             HIGH_POWER_RECONNECT_DELAY_MS
         } else {
             (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
                 .coerceAtMost(MAX_RECONNECT_DELAY_MS)
         }
 
-        val attemptsDisplay = if (UserSettings.highPowerMode) "$attempts" else "$attempts/$MAX_RECONNECT_ATTEMPTS"
+        val attemptsDisplay = "$attempts"
         Log.i(TAG, "Attempting reconnection $attemptsDisplay in ${delayMs}ms")
         reconnecting.set(true)
         _connectionState.value = ConnectionState.Connecting
