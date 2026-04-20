@@ -180,7 +180,11 @@ abstract class BaseWebSocketTransport(
                     try {
                         for (frame in incoming) {
                             when (frame) {
-                                is Frame.Text -> listener?.onMessage(frame.readText())
+                                is Frame.Text -> {
+                                    val txt = frame.readText()
+                                    Log.i(tag, "[cmd-trace] T0 wire-text len=${txt.length}")
+                                    listener?.onMessage(txt)
+                                }
                                 is Frame.Binary -> listener?.onMessage(frame.readBytes())
                                 is Frame.Close -> {
                                     val reason = closeReason.await()
