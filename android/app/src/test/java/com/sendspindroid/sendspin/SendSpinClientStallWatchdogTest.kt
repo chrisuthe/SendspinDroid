@@ -183,6 +183,42 @@ class SendSpinClientStallWatchdogTest {
         assertFalse("Watchdog should NOT close during reconnection", fakeTransport.closeCalled)
     }
 
+    @Test
+    fun `watchdog restarts after onHandshakeComplete so a second stall is detected`() {
+        // Simulate the post-reconnect state: stop the watchdog (as attemptReconnect does),
+        // then fire onHandshakeComplete and verify the watchdog job is active again.
+
+        // Force-start the watchdog (as if from a prior connect), then stop it (as if from
+        // attemptReconnect at line 776).
+        val startWatchdog = SendSpinClient::class.java.getDeclaredMethod("startStallWatchdog")
+        startWatchdog.isAccessible = true
+        startWatchdog.invoke(client)
+
+        val stopWatchdog = SendSpinClient::class.java.getDeclaredMethod("stopStallWatchdog")
+        stopWatchdog.isAccessible = true
+        stopWatchdog.invoke(client)
+
+        // Verify the job is null after stop
+        val jobField = SendSpinClient::class.java.getDeclaredField("stallWatchdogJob")
+        jobField.isAccessible = true
+        assertNull("stallWatchdogJob should be null after stop", jobField.get(client))
+
+        // Now simulate onHandshakeComplete firing - this is what happens after a
+        // reconnect succeeds. We call it through the superclass since the method is
+        // declared on SendSpinProtocolHandler and overridden in SendSpinClient.
+        val handshakeMethod = SendSpinClient::class.java.getDeclaredMethod(
+            "onHandshakeComplete", String::class.java, String::class.java
+        )
+        handshakeMethod.isAccessible = true
+        handshakeMethod.invoke(client, "TestServer", "test-server-id")
+
+        // Verify the watchdog job exists again and is active
+        val newJob = jobField.get(client) as? kotlinx.coroutines.Job
+        assertNotNull("stallWatchdogJob should be restarted by onHandshakeComplete", newJob)
+        assertTrue("stallWatchdogJob should be active after onHandshakeComplete",
+            newJob!!.isActive)
+    }
+
     private fun buildTransportListener(): SendSpinTransport.Listener {
         val innerClasses = SendSpinClient::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!

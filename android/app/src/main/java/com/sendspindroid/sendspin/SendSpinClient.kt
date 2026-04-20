@@ -258,6 +258,7 @@ class SendSpinClient(
         }
 
         callback.onConnected(serverName)
+        startStallWatchdog()  // (re)start watchdog now that we have a live handshake-complete session
     }
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
@@ -538,8 +539,6 @@ class SendSpinClient(
         transport?.setListener(null)
         transport?.destroy()
         transport = null
-
-        startStallWatchdog()
     }
 
     /**
@@ -743,8 +742,9 @@ class SendSpinClient(
     /**
      * Attempt reconnection with exponential backoff.
      *
-     * Smart reconnection: if network is unavailable, pauses without consuming attempts.
-     * High Power Mode: infinite retry with 30s steady-state interval.
+     * Exponential backoff for the first 5 attempts (500ms -> 8s), then 30s
+     * steady-state retries forever. Applies in both normal and high-power mode.
+     * If network is unavailable, pauses without consuming an attempt.
      */
     private fun attemptReconnect() {
         val savedServerName = serverName ?: serverAddress ?: remoteId ?: "Unknown"
@@ -773,7 +773,7 @@ class SendSpinClient(
             timeFilter.freeze()
             Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
         }
-        stopStallWatchdog()  // watchdog restarts on next successful handshake via prepareForConnection
+        stopStallWatchdog()  // watchdog restarts on next successful handshake via onHandshakeComplete
 
         // If network is unavailable, pause without wasting an attempt
         // setNetworkAvailable(true) will resume via onNetworkAvailable()
