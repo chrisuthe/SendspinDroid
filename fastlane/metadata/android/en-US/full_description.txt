@@ -1,0 +1,28 @@
+SendSpin Player is a synchronized audio player that connects to SendSpin servers for multi-room, perfectly time-aligned music playback. It also integrates with Music Assistant to browse and control your media library.
+
+<b>Features</b>
+
+<ul>
+<li>Time-synchronized playback across multiple devices using clock sync and sample-accurate audio output</li>
+<li>Music Assistant integration for browsing artists, albums, playlists, and radios</li>
+<li>Queue management with Play Now, Play Next, and Add to Playlist actions</li>
+<li>Full-text search across your music library</li>
+<li>Background playback with lock screen and notification controls</li>
+<li>Android Auto support with browse tree, queue display, and voice search</li>
+<li>Android TV support with D-pad navigation</li>
+<li>Automatic server discovery via mDNS/Zeroconf on your local network</li>
+<li>Remote access via WebRTC for connections outside your home network</li>
+<li>Adaptive UI that scales across phones, tablets, and TVs</li>
+</ul>
+
+<b>How It Works</b>
+
+SendSpin Player connects to a SendSpin server over WebSocket to receive audio streams with precise timestamps. A Kalman filter synchronizes the device clock with the server, and audio is played back at the exact correct time using sample-level sync correction. This enables multiple Android devices (and other SendSpin clients) to play the same music in perfect sync.
+
+<b>Requirements</b>
+
+A SendSpin server or Music Assistant instance on your local network (or accessible via WebRTC for remote connections).
+
+<b>Open Source</b>
+
+SendSpin Player is free and open source software, licensed under the MIT License.
