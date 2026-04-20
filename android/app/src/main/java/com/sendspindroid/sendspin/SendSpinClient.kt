@@ -185,6 +185,7 @@ class SendSpinClient(
     // Stall watchdog state. lastByteReceivedAtMs is updated on EVERY text/binary
     // message from the transport. stallWatchdogJob is the polling coroutine.
     private val lastByteReceivedAtMs = AtomicLong(System.currentTimeMillis())
+    @Volatile
     private var stallWatchdogJob: Job? = null
 
     val isConnected: Boolean
