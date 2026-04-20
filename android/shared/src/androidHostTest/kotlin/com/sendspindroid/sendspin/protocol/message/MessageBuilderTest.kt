@@ -103,63 +103,62 @@ class MessageBuilderTest {
     // --- buildSupportedFormats ---
 
     @Test
-    fun buildSupportedFormats_preferredCodecFirst() {
+    fun buildSupportedFormats_preferredCodecFirst_pcmLast() {
         val formats = MessageBuilder.buildSupportedFormats(
             preferredCodec = "opus",
-            isCodecSupported = { it in listOf("flac", "opus", "pcm") }
+            isCodecSupported = { it in listOf("opus", "pcm") }
         )
         assertTrue(formats.isNotEmpty())
-        assertEquals("opus", formats[0].codec)
+        assertEquals("opus", formats.first().codec)
+        assertEquals("pcm", formats.last().codec)
     }
 
     @Test
-    fun buildSupportedFormats_pcmAlwaysLast() {
+    fun buildSupportedFormats_onlyPreferredAndPcm_noSecondaryCodec() {
+        // Regression guard for issue #26: previously a hardcoded [flac, opus] secondary
+        // list was appended after the preferred codec. Now only the preferred codec
+        // and PCM are advertised.
         val formats = MessageBuilder.buildSupportedFormats(
-            preferredCodec = "flac",
-            isCodecSupported = { it in listOf("flac", "opus", "pcm") }
+            preferredCodec = "opus",
+            isCodecSupported = { it in listOf("opus", "flac", "pcm") }
         )
-        val lastCodec = formats.last().codec
-        assertEquals("pcm", lastCodec)
+        val codecsAdvertised = formats.map { it.codec }.toSet()
+        assertEquals(setOf("opus", "pcm"), codecsAdvertised)
+    }
+
+    @Test
+    fun buildSupportedFormats_preferredPcmProducesPcmOnly() {
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "pcm",
+            isCodecSupported = { it == "pcm" }
+        )
+        assertTrue(formats.all { it.codec == "pcm" })
+    }
+
+    @Test
+    fun buildSupportedFormats_preferredUnsupportedFallsBackToPcm() {
+        // On a device where the preferred codec is not decodable, we still advertise
+        // PCM so the session is not silently broken.
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "opus",
+            isCodecSupported = { it == "pcm" }
+        )
+        val codecsAdvertised = formats.map { it.codec }.toSet()
+        assertEquals(setOf("pcm"), codecsAdvertised)
     }
 
     @Test
     fun buildSupportedFormats_stereoAndMonoForEachCodec() {
         val formats = MessageBuilder.buildSupportedFormats(
             preferredCodec = "flac",
-            isCodecSupported = { it == "flac" }
+            isCodecSupported = { it in listOf("flac", "pcm") }
         )
-        // flac: stereo + mono = 2 entries
-        assertEquals(2, formats.size)
-        assertEquals(2, formats[0].channels)
-        assertEquals(1, formats[1].channels)
-    }
-
-    @Test
-    fun buildSupportedFormats_includesMultipleBitDepths() {
-        val formats = MessageBuilder.buildSupportedFormats(
-            preferredCodec = "pcm",
-            isCodecSupported = { it == "pcm" },
-            supportedBitDepths = listOf(16, 24, 32)
-        )
-        // pcm at 32-bit stereo/mono, 24-bit stereo/mono, 16-bit stereo/mono = 6
-        // Higher bit depths should come first (server picks first match)
-        assertEquals(6, formats.size)
-        assertEquals(32, formats[0].bitDepth)
-        assertEquals(32, formats[1].bitDepth)
-        assertEquals(24, formats[2].bitDepth)
-        assertEquals(24, formats[3].bitDepth)
-        assertEquals(16, formats[4].bitDepth)
-        assertEquals(16, formats[5].bitDepth)
-    }
-
-    @Test
-    fun buildSupportedFormats_defaultBitDepthIs16Only() {
-        val formats = MessageBuilder.buildSupportedFormats(
-            preferredCodec = "pcm",
-            isCodecSupported = { it == "pcm" }
-        )
-        assertEquals(2, formats.size)
-        assertTrue(formats.all { it.bitDepth == 16 })
+        // flac at 16-bit stereo + mono = 2
+        // pcm at 16-bit stereo + mono = 2 (default supportedBitDepths = [16])
+        // total = 4
+        assertEquals(4, formats.size)
+        val channelSet = formats.map { it.channels }.toSet()
+        assertEquals(setOf(2, 1), channelSet)
     }
 
     @Test
@@ -170,17 +169,24 @@ class MessageBuilderTest {
             supportedBitDepths = listOf(16, 32)
         )
         // flac: 16-bit only (stereo + mono) = 2
-        // pcm:  32-bit stereo/mono + 16-bit stereo/mono = 4
+        // pcm:  32-bit stereo/mono + 16-bit stereo/mono = 4 (higher depths first)
         assertEquals(6, formats.size)
-        // First 2 are flac at 16-bit only
         assertEquals("flac", formats[0].codec)
         assertEquals(16, formats[0].bitDepth)
-        assertEquals("flac", formats[1].codec)
-        // Last 4 are pcm with higher depths first
         assertEquals("pcm", formats[2].codec)
         assertEquals(32, formats[2].bitDepth)
         assertEquals("pcm", formats[4].codec)
         assertEquals(16, formats[4].bitDepth)
+    }
+
+    @Test
+    fun buildSupportedFormats_defaultBitDepthIs16Only() {
+        val formats = MessageBuilder.buildSupportedFormats(
+            preferredCodec = "pcm",
+            isCodecSupported = { it == "pcm" }
+        )
+        assertEquals(2, formats.size)
+        assertTrue(formats.all { it.bitDepth == 16 })
     }
 
     // --- calculateBufferCapacity ---
