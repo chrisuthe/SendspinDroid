@@ -80,8 +80,7 @@ fun SettingsScreen(
     val layoutMode by viewModel.layoutMode.collectAsStateWithLifecycle()
     val syncOffset by viewModel.syncOffset.collectAsStateWithLifecycle()
     val preferredCodec by viewModel.preferredCodec.collectAsStateWithLifecycle()
-    val wifiCodec by viewModel.wifiCodec.collectAsStateWithLifecycle()
-    val cellularCodec by viewModel.cellularCodec.collectAsStateWithLifecycle()
+    val supportedCodecs by viewModel.supportedCodecs.collectAsStateWithLifecycle()
     val lowMemoryMode by viewModel.lowMemoryMode.collectAsStateWithLifecycle()
     val highPowerMode by viewModel.highPowerMode.collectAsStateWithLifecycle()
     val autoStartOnBoot by viewModel.autoStartOnBoot.collectAsStateWithLifecycle()
@@ -95,7 +94,7 @@ fun SettingsScreen(
     var showPlayerNameDialog by remember { mutableStateOf(false) }
     var showSyncOffsetDialog by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
-    var showCodecDialog by remember { mutableStateOf<CodecDialogType?>(null) }
+    var showCodecDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -175,20 +174,7 @@ fun SettingsScreen(
             CodecPreference(
                 title = stringResource(R.string.pref_codec_title),
                 summary = getCodecDisplayName(preferredCodec),
-                onClick = { showCodecDialog = CodecDialogType.PREFERRED }
-            )
-
-            // Network Codecs Category
-            PreferenceCategory(title = stringResource(R.string.pref_category_network_codecs))
-            CodecPreference(
-                title = stringResource(R.string.pref_codec_wifi_title),
-                summary = getCodecDisplayName(wifiCodec),
-                onClick = { showCodecDialog = CodecDialogType.WIFI }
-            )
-            CodecPreference(
-                title = stringResource(R.string.pref_codec_cellular_title),
-                summary = getCodecDisplayName(cellularCodec),
-                onClick = { showCodecDialog = CodecDialogType.CELLULAR }
+                onClick = { showCodecDialog = true }
             )
 
             // Performance Category
@@ -319,33 +305,18 @@ fun SettingsScreen(
     }
 
     // Codec Selection Dialog
-    showCodecDialog?.let { dialogType ->
+    if (showCodecDialog) {
         CodecSelectionDialog(
-            title = when (dialogType) {
-                CodecDialogType.PREFERRED -> stringResource(R.string.pref_codec_title)
-                CodecDialogType.WIFI -> stringResource(R.string.pref_codec_wifi_title)
-                CodecDialogType.CELLULAR -> stringResource(R.string.pref_codec_cellular_title)
-            },
-            currentCodec = when (dialogType) {
-                CodecDialogType.PREFERRED -> preferredCodec
-                CodecDialogType.WIFI -> wifiCodec
-                CodecDialogType.CELLULAR -> cellularCodec
-            },
+            title = stringResource(R.string.pref_codec_title),
+            currentCodec = preferredCodec,
+            supportedCodecs = supportedCodecs,
             onSelect = { codec ->
-                when (dialogType) {
-                    CodecDialogType.PREFERRED -> viewModel.setPreferredCodec(codec)
-                    CodecDialogType.WIFI -> viewModel.setWifiCodec(codec)
-                    CodecDialogType.CELLULAR -> viewModel.setCellularCodec(codec)
-                }
-                showCodecDialog = null
+                viewModel.setPreferredCodec(codec)
+                showCodecDialog = false
             },
-            onDismiss = { showCodecDialog = null }
+            onDismiss = { showCodecDialog = false }
         )
     }
-}
-
-private enum class CodecDialogType {
-    PREFERRED, WIFI, CELLULAR
 }
 
 // ============================================================================
@@ -672,13 +643,16 @@ private fun RestartAppDialog(
 private fun CodecSelectionDialog(
     title: String,
     currentCodec: String,
+    supportedCodecs: Set<String>,
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val codecs = listOf(
         "opus" to "Opus",
-        "flac" to "FLAC"
+        "flac" to "FLAC",
+        "pcm" to "PCM"
     )
+    val unavailableHint = stringResource(R.string.pref_codec_unavailable_hint)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -686,19 +660,43 @@ private fun CodecSelectionDialog(
         text = {
             Column {
                 codecs.forEach { (value, label) ->
+                    val supported = value in supportedCodecs
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onSelect(value) }
+                            .then(
+                                if (supported) {
+                                    Modifier.clickable { onSelect(value) }
+                                } else {
+                                    Modifier
+                                }
+                            )
                             .padding(vertical = 12.dp, horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
                             selected = currentCodec == value,
-                            onClick = { onSelect(value) }
+                            onClick = if (supported) { { onSelect(value) } } else null,
+                            enabled = supported
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(label)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = label,
+                                color = if (supported) {
+                                    MaterialTheme.colorScheme.onSurface
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                            if (!supported) {
+                                Text(
+                                    text = unavailableHint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }

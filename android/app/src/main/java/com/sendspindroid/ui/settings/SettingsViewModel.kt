@@ -13,6 +13,7 @@ import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
 import com.sendspindroid.debug.DebugLogger
+import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +66,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private val _preferredCodec = MutableStateFlow(UserSettings.getPreferredCodec())
     val preferredCodec: StateFlow<String> = _preferredCodec.asStateFlow()
+
+    private val _supportedCodecs = MutableStateFlow(computeSupportedCodecs())
+    val supportedCodecs: StateFlow<Set<String>> = _supportedCodecs.asStateFlow()
 
     // Performance settings
     private val _lowMemoryMode = MutableStateFlow(UserSettings.lowMemoryMode)
@@ -233,5 +237,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             putExtra(EXTRA_DEBUG_LOGGING_ENABLED, enabled)
         }
         LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
+    }
+
+    private fun computeSupportedCodecs(): Set<String> {
+        return listOf("opus", "flac", "pcm")
+            .filter { AudioDecoderFactory.isCodecSupported(it) }
+            .toSet()
     }
 }
