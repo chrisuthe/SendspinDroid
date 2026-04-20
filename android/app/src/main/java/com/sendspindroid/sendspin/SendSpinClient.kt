@@ -628,6 +628,44 @@ class SendSpinClient(
     }
 
     /**
+     * Disconnect from the current server for reasons that should trigger an
+     * upward auto-reconnect, such as the underlying network transport type
+     * changing (WiFi -> Cellular). Unlike [disconnect], this does NOT set
+     * [userInitiatedDisconnect]. Fires `onDisconnected(wasUserInitiated=false,
+     * wasReconnectExhausted=false)`, which MainActivity's STATE_DISCONNECTED
+     * handler interprets as "start AutoReconnectManager" -- the outer reconnect
+     * loop re-runs `ConnectionSelector` fresh and picks the right mode for
+     * whatever network we are on now.
+     *
+     * The reason for existing: [disconnect] is a user action (tap 'Switch Server'
+     * etc.) and explicitly suppresses auto-reconnect. We want the opposite here:
+     * the user did nothing wrong, the network changed out from under us, and the
+     * inner reconnect loop is going to spin forever on the wrong mode. Yield
+     * cleanly and let the outer loop re-select.
+     */
+    fun disconnectForReselection() {
+        stopStallWatchdog()
+        Log.i(TAG, "Disconnecting for reselection (transport-type change)")
+
+        // Cancel any pending reconnect coroutine to prevent races
+        reconnectJob?.cancel()
+        reconnectJob = null
+
+        stopTimeSync()
+        reconnecting.set(false)
+        waitingForNetwork.set(false)
+        sendGoodbye("network_type_changed")
+        // Clear the transport listener BEFORE closing to prevent the async onClosed
+        // callback from firing a second onDisconnected after we fire one synchronously below.
+        transport?.setListener(null)
+        transport?.close(1000, "Reselection")
+        transport = null
+        handshakeComplete = false
+        _connectionState.value = ConnectionState.Disconnected
+        callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
+    }
+
+    /**
      * Disconnect from the current server.
      */
     fun disconnect() {
