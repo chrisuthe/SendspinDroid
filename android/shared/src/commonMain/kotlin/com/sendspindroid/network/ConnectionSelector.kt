@@ -11,7 +11,7 @@ import com.sendspindroid.shared.log.Log
  * | Network       | Priority Order            | Rationale                          |
  * |---------------|---------------------------|------------------------------------|
  * | WiFi/Ethernet | Local -> Proxy -> Remote    | Local has lowest latency           |
- * | Cellular      | Proxy -> Remote -> Local    | Local last - supports publicly-routable hostnames |
+ * | Cellular      | Proxy -> Remote -> Local    | Local last as fallback for public hosts |
  * | VPN           | Proxy -> Remote -> Local    | VPN may route home, proxy preferred|
  * | Unknown       | Proxy -> Remote -> Local    | Can't determine network, proxy safest|
  *
@@ -135,16 +135,6 @@ object ConnectionSelector {
                 ConnectionType.LOCAL
             )
         }
-    }
-
-    /**
-     * Checks whether local connections should be attempted on the current network.
-     * Always true: the "local" slot may hold a publicly-routable hostname or IP,
-     * and we would rather make a quick doomed attempt than wrongly exclude a
-     * working configuration. Kept as a function to avoid breaking callers.
-     */
-    fun shouldAttemptLocal(@Suppress("UNUSED_PARAMETER") transportType: TransportType): Boolean {
-        return true
     }
 
     /**
