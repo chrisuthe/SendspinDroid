@@ -2,7 +2,6 @@ package com.sendspindroid.sendspin.transport
 
 import com.sendspindroid.shared.log.Log
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.websocket.Frame
@@ -44,20 +43,16 @@ abstract class BaseWebSocketTransport(
     companion object {
         /**
          * Create a default Ktor HttpClient configured for WebSocket connections.
+         *
+         * Delegates to the platform-specific [createWebSocketHttpClient] so the
+         * ping interval is applied on the actual engine (OkHttp on Android),
+         * not via Ktor's `install(WebSockets) { pingIntervalMillis = ... }` —
+         * the OkHttp engine silently ignores the latter.
          */
         fun createDefaultClient(
             pingIntervalSeconds: Long = 30,
             connectTimeoutMs: Long = 5000
-        ): HttpClient = HttpClient {
-            install(WebSockets) {
-                pingIntervalMillis = pingIntervalSeconds * 1000
-            }
-            install(io.ktor.client.plugins.HttpTimeout) {
-                connectTimeoutMillis = connectTimeoutMs
-                // No socket timeout for WebSocket (long-lived connection)
-                socketTimeoutMillis = Long.MAX_VALUE
-            }
-        }
+        ): HttpClient = createWebSocketHttpClient(pingIntervalSeconds, connectTimeoutMs)
     }
 
     private val _state = AtomicReference(TransportState.Disconnected)

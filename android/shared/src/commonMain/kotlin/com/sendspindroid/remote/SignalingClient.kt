@@ -2,7 +2,6 @@ package com.sendspindroid.remote
 
 import com.sendspindroid.shared.log.Log
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
@@ -91,15 +90,11 @@ class SignalingClient(
             IceServerConfig("stun:stun.home-assistant.io:3478")
         )
 
-        fun createDefaultClient(): HttpClient = HttpClient {
-            install(WebSockets) {
-                pingIntervalMillis = 30_000
-            }
-            install(io.ktor.client.plugins.HttpTimeout) {
-                connectTimeoutMillis = 10_000
-                socketTimeoutMillis = Long.MAX_VALUE
-            }
-        }
+        fun createDefaultClient(): HttpClient =
+            com.sendspindroid.sendspin.transport.createWebSocketHttpClient(
+                pingIntervalSeconds = 30,
+                connectTimeoutMs = 10_000,
+            )
     }
 
     /**
