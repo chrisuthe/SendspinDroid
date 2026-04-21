@@ -80,6 +80,29 @@ fun StatsContent(
         StatRow(stringResource(R.string.stats_state), state.connectionState, getStatusColor(getConnectionStatus(state.connectionState)))
         StatRow(stringResource(R.string.stats_codec), state.audioCodec)
         StatRow(stringResource(R.string.stats_reconnects), state.reconnectAttempts.toString(), getStatusColor(state.reconnectAttempts == 0))
+        if (state.reconnectAttemptsTotal > 0) {
+            StatRow(stringResource(R.string.stats_reconnects_total), state.reconnectAttemptsTotal.toString())
+        }
+        if (state.lastByteReceivedAgoMs >= 0) {
+            StatRow(
+                stringResource(R.string.stats_last_byte_received),
+                String.format("%.1fs ago", state.lastByteReceivedAgoMs / 1000.0),
+                getLastSyncColor(state.lastByteReceivedAgoMs),
+            )
+        }
+        StatRow(
+            stringResource(R.string.stats_stall_watchdog),
+            if (state.stallWatchdogArmed) stringResource(R.string.stats_watchdog_armed) else stringResource(R.string.stats_watchdog_idle),
+            if (state.stallWatchdogArmed) ColorGood else null,
+        )
+        if (state.lastDisconnectCode != null || state.lastDisconnectReason != null) {
+            val code = state.lastDisconnectCode?.toString() ?: "--"
+            val reason = state.lastDisconnectReason?.take(40) ?: ""
+            StatRow(
+                stringResource(R.string.stats_last_disconnect),
+                "code=$code ${if (reason.isNotEmpty()) "\"$reason\"" else ""}".trim(),
+            )
+        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
@@ -136,6 +159,20 @@ fun StatsContent(
         StatRow(stringResource(R.string.stats_converged), if (state.clockConverged) stringResource(R.string.action_yes) else stringResource(R.string.action_no),
             if (state.clockConverged) ColorGood else ColorWarning)
         StatRow(stringResource(R.string.stats_measurements), state.measurementCount.toString())
+        // Kalman-filter health. `stability` should be ~1.0 for a well-tuned filter;
+        // < 1 = over-responsive, > 1 = sluggish. `convergence` is time from first
+        // measurement to first isConverged==true. Issue #128.
+        StatRow(
+            stringResource(R.string.stats_stability),
+            String.format("%.2f", state.timeFilterStability),
+            getStabilityColor(state.timeFilterStability),
+        )
+        if (state.timeFilterConvergenceMs > 0) {
+            StatRow(
+                stringResource(R.string.stats_convergence_time),
+                String.format("%.1fs", state.timeFilterConvergenceMs / 1000.0),
+            )
+        }
 
         if (state.lastTimeSyncAgeMs >= 0) {
             StatRow(stringResource(R.string.stats_last_sync), String.format("%.1fs ago", state.lastTimeSyncAgeMs / 1000.0),
@@ -287,6 +324,17 @@ private fun getLastSyncColor(ageMs: Long): Color {
         ageMs < 10_000L -> ColorWarning
         else -> ColorBad
     }
+}
+
+/**
+ * Kalman-filter stability score (issue #128). Ideal ~1.0; departures in either
+ * direction indicate a mis-tuned or noisy filter. Generous band around 1.0 is
+ * fine for "healthy" because jitter is normal on real networks.
+ */
+private fun getStabilityColor(stability: Double): Color? = when {
+    stability in 0.7..1.5 -> ColorGood
+    stability in 0.5..2.5 -> ColorWarning
+    else -> ColorBad
 }
 
 private fun formatNumber(value: Long): String {
