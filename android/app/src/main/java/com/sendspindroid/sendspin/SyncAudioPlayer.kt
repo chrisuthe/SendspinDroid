@@ -1490,6 +1490,15 @@ class SyncAudioPlayer(
      * @return true if we should continue waiting, false if ready to play
      */
     private fun handleStartGatingDacAware(track: AudioTrack): Boolean {
+        // Measurement-complete clause: don't transition to PLAYING until
+        // the latency estimator has converged or timed out. If we don't
+        // wait here, an unusually-early server-scheduled start could make
+        // us enter PLAYING with staticDelay=0, then change it mid-stream
+        // once measurement finishes -- causing a one-time sync jump / click.
+        if (latencyEstimator.status == com.sendspindroid.sendspin.latency.OutputLatencyEstimator.Status.Measuring) {
+            return true  // keep waiting
+        }
+
         val nowMicros = System.nanoTime() / 1000
         val pendingToDacUs = getPendingToDacUs(track)
 
