@@ -19,9 +19,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.locks.ReentrantLock
@@ -276,8 +276,11 @@ class SyncAudioPlayer(
         // Pre-sync buffering - buffer chunks while waiting for time sync to be ready
         private const val MAX_PENDING_CHUNKS = 500  // ~10 seconds at 48kHz/20ms chunks
 
-        // Coroutine cancellation
-        private const val PLAYBACK_LOOP_CANCEL_TIMEOUT_MS = 1000L  // Timeout waiting for playback loop to stop
+        // Coroutine cancellation. Best-effort wait after scope.cancel(); the
+        // worst case is bounded by a single AudioTrack.write() duration (one
+        // chunk, ~20 ms at 48 kHz), so 250 ms is comfortably above the typical
+        // exit latency and well below Android's 5 s ANR threshold for main.
+        private const val PLAYBACK_LOOP_CANCEL_TIMEOUT_MS = 250L
     }
 
     /**
@@ -448,9 +451,18 @@ class SyncAudioPlayer(
     @Volatile private var reanchorCount = 0L        // Count of reanchor events
     @Volatile private var bufferUnderrunCount = 0L  // Count of times queue was empty during playback
 
-    // Pre-sync chunk buffer - holds chunks received before time sync is ready
-    // These will be processed once time sync completes
+    // Pre-sync chunk buffer - holds chunks received before time sync is ready.
+    // These will be processed once time sync completes. Mutations require the
+    // `synchronized(pendingChunks)` monitor; see [hasPendingChunks] for the
+    // lock-free reader hint.
     private val pendingChunks = mutableListOf<Pair<Long, ByteArray>>()
+
+    // Lock-free fast-path hint for [processPendingChunks]. Writes happen under
+    // `synchronized(pendingChunks)`, reads are lock-free. A stale-true read is
+    // benign (one wasted lock acquisition); a stale-false read is prevented
+    // because every add sets this before releasing the monitor, and @Volatile
+    // gives the subsequent reader the correct visibility.
+    @Volatile private var hasPendingChunks = false
 
     // Gap/overlap handling (from Python reference)
     private var expectedNextTimestampUs: Long? = null  // Expected server timestamp of next chunk
@@ -764,6 +776,7 @@ class SyncAudioPlayer(
             // Clear pending chunks buffer
             synchronized(pendingChunks) {
                 pendingChunks.clear()
+                hasPendingChunks = false
             }
 
             // Reset playback state machine
@@ -802,7 +815,10 @@ class SyncAudioPlayer(
             // Clear all audio buffers
             chunkQueue.clear()
             totalQueuedSamples.set(0)
-            synchronized(pendingChunks) { pendingChunks.clear() }
+            synchronized(pendingChunks) {
+                pendingChunks.clear()
+                hasPendingChunks = false
+            }
 
             lastChunkServerTime = 0L
 
@@ -908,8 +924,15 @@ class SyncAudioPlayer(
      * MUST be called OUTSIDE stateLock to avoid deadlock. The playback loop
      * coroutine may be blocked on stateLock (e.g. inside setPlaybackState()),
      * so holding the lock here would create a deadlock cycle:
-     *   main thread holds stateLock -> runBlocking waits for coroutine
+     *   main thread holds stateLock -> wait for coroutine
      *   coroutine waits for stateLock -> deadlock
+     *
+     * Uses a [CountDownLatch] + [Job.invokeOnCompletion] instead of
+     * `runBlocking { job.join() }`. The scope cancel is the actual cleanup
+     * mechanism; this wait only exists so subsequent phases of stop()/release()
+     * can touch the AudioTrack without racing the loop's final write. A bare
+     * JVM latch avoids spinning up a new coroutine event loop on the caller
+     * thread for a single await.
      */
     private fun awaitPlaybackLoopCancellation(scopeAndJob: Pair<CoroutineScope?, Job?>) {
         val (currentScope, job) = scopeAndJob
@@ -924,14 +947,15 @@ class SyncAudioPlayer(
 
         // Wait for the job to complete if it was active
         if (job != null && job.isActive) {
+            val latch = CountDownLatch(1)
+            job.invokeOnCompletion { latch.countDown() }
             try {
-                runBlocking {
-                    withTimeoutOrNull(PLAYBACK_LOOP_CANCEL_TIMEOUT_MS) {
-                        job.join()
-                    } ?: AppLog.Audio.w("Playback loop did not stop within timeout - scope was cancelled, coroutines will be cleaned up")
+                if (!latch.await(PLAYBACK_LOOP_CANCEL_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                    AppLog.Audio.w("Playback loop did not stop within timeout - scope was cancelled, coroutines will be cleaned up")
                 }
-            } catch (e: Exception) {
-                AppLog.Audio.w("Exception while waiting for playback loop to stop", e)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                AppLog.Audio.w("Interrupted while waiting for playback loop to stop", e)
             }
         }
 
@@ -985,6 +1009,7 @@ class SyncAudioPlayer(
             totalQueuedSamples.set(0)
             synchronized(pendingChunks) {
                 pendingChunks.clear()
+                hasPendingChunks = false
             }
             stateCallback = null
 
@@ -1020,6 +1045,7 @@ class SyncAudioPlayer(
             // Clear pending chunks buffer
             synchronized(pendingChunks) {
                 pendingChunks.clear()
+                hasPendingChunks = false
             }
 
             // Signal the playback loop to flush AudioTrack before its next write.
@@ -1131,6 +1157,7 @@ class SyncAudioPlayer(
             synchronized(pendingChunks) {
                 if (pendingChunks.size < MAX_PENDING_CHUNKS) {
                     pendingChunks.add(Pair(serverTimeMicros, pcmData))
+                    hasPendingChunks = true
                     if (pendingChunks.size == 1) {
                         AppLog.Audio.d("Buffering chunks while waiting for time sync...")
                     }
@@ -1154,16 +1181,35 @@ class SyncAudioPlayer(
     /**
      * Process pending chunks that were buffered while waiting for time sync.
      * Called when time sync becomes ready.
+     *
+     * Drains `pendingChunks` under its monitor and then processes the drained
+     * snapshot OUTSIDE the monitor. This is required because [processChunk]
+     * acquires `stateLock`, while `stop()`, `clearBuffer()`, `enterIdle()`,
+     * and `release()` acquire `stateLock` BEFORE `synchronized(pendingChunks)`.
+     * Holding `pendingChunks` across a `stateLock` acquisition would create a
+     * lock-order inversion and a potential deadlock.
      */
     private fun processPendingChunks() {
+        // Lock-free fast path: the overwhelming steady-state case (sync ready,
+        // buffer already drained) avoids the monitor entirely.
+        if (!hasPendingChunks) return
+
+        val drained: List<Pair<Long, ByteArray>>
         synchronized(pendingChunks) {
-            if (pendingChunks.isNotEmpty()) {
-                AppLog.Audio.i("Time sync ready, processing ${pendingChunks.size} buffered chunks")
-                for ((timestamp, data) in pendingChunks) {
-                    processChunk(timestamp, data)
-                }
-                pendingChunks.clear()
+            if (pendingChunks.isEmpty()) {
+                hasPendingChunks = false
+                return
             }
+            AppLog.Audio.i("Time sync ready, processing ${pendingChunks.size} buffered chunks")
+            drained = pendingChunks.toList()
+            pendingChunks.clear()
+            hasPendingChunks = false
+        }
+
+        // processChunk() acquires stateLock - MUST be called outside the
+        // synchronized(pendingChunks) block above.
+        for ((timestamp, data) in drained) {
+            processChunk(timestamp, data)
         }
     }
 
