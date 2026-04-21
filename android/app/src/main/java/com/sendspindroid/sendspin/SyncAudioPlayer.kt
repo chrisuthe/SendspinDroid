@@ -8,8 +8,7 @@ import android.media.AudioTrack
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
-import android.util.Log
-import com.sendspindroid.debug.FileLogger
+import com.sendspindroid.logging.AppLog
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -201,8 +200,6 @@ class SyncAudioPlayer(
     private val maxQueueSamples: Long = 0  // 0 = unlimited; >0 caps queue to this many samples
 ) {
     companion object {
-        private const val TAG = "SyncAudioPlayer"
-
         // Sync correction thresholds (microseconds)
         private const val DEADBAND_THRESHOLD_US = 10_000L       // 10ms - no correction needed
         private const val HARD_RESYNC_THRESHOLD_US = 200_000L   // 200ms - hard resync (drop/skip chunks)
@@ -478,13 +475,13 @@ class SyncAudioPlayer(
      */
     fun initialize() {
         if (isReleased.get()) {
-            Log.e(TAG, "Cannot initialize - player has been released")
+            AppLog.Audio.e("Cannot initialize - player has been released")
             return
         }
 
         stateLock.withLock {
             if (audioTrack != null) {
-                Log.w(TAG, "Already initialized")
+                AppLog.Audio.w("Already initialized")
                 return
             }
         }
@@ -493,7 +490,7 @@ class SyncAudioPlayer(
             1 -> AudioFormat.CHANNEL_OUT_MONO
             2 -> AudioFormat.CHANNEL_OUT_STEREO
             else -> {
-                Log.e(TAG, "Unsupported channel count: $channels")
+                AppLog.Audio.e("Unsupported channel count: $channels")
                 return
             }
         }
@@ -503,17 +500,17 @@ class SyncAudioPlayer(
             24 -> if (Build.VERSION.SDK_INT >= 31) {
                 AudioFormat.ENCODING_PCM_24BIT_PACKED
             } else {
-                Log.e(TAG, "24-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
+                AppLog.Audio.e("24-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
                 return
             }
             32 -> if (Build.VERSION.SDK_INT >= 31) {
                 AudioFormat.ENCODING_PCM_32BIT
             } else {
-                Log.e(TAG, "32-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
+                AppLog.Audio.e("32-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
                 return
             }
             else -> {
-                Log.e(TAG, "Unsupported bit depth: $bitDepth")
+                AppLog.Audio.e("Unsupported bit depth: $bitDepth")
                 return
             }
         }
@@ -549,9 +546,9 @@ class SyncAudioPlayer(
             crossfadeTargetFrame = ByteArray(bytesPerFrame)
             crossfadeScratchBuf = ByteArray(bytesPerFrame)
 
-            Log.i(TAG, "AudioTrack initialized: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit, buffer=${bufferSize}bytes")
+            AppLog.Audio.i("AudioTrack initialized: ${sampleRate}Hz, ${channels}ch, ${bitDepth}bit, buffer=${bufferSize}bytes")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create AudioTrack", e)
+            AppLog.Audio.e("Failed to create AudioTrack", e)
         }
     }
 
@@ -563,19 +560,19 @@ class SyncAudioPlayer(
      */
     fun start() {
         if (isReleased.get()) {
-            Log.e(TAG, "Cannot start - player has been released")
+            AppLog.Audio.e("Cannot start - player has been released")
             return
         }
 
         // Phase 1: Under lock, capture old playback loop refs and check preconditions
         val captured = stateLock.withLock {
             if (isPlaying.get()) {
-                Log.w(TAG, "Already playing")
+                AppLog.Audio.w("Already playing")
                 return
             }
 
             if (audioTrack == null) {
-                Log.e(TAG, "AudioTrack not initialized")
+                AppLog.Audio.e("AudioTrack not initialized")
                 return
             }
 
@@ -594,19 +591,19 @@ class SyncAudioPlayer(
             // Re-check preconditions after re-acquiring lock - another thread may
             // have called start() or release() while we were awaiting cancellation
             if (isPlaying.get() || isReleased.get()) {
-                Log.w(TAG, "State changed during playback loop cancellation - aborting start")
+                AppLog.Audio.w("State changed during playback loop cancellation - aborting start")
                 return
             }
 
             val track = audioTrack
             if (track == null) {
-                Log.e(TAG, "AudioTrack was released during playback loop cancellation")
+                AppLog.Audio.e("AudioTrack was released during playback loop cancellation")
                 return
             }
 
             // Defensive check: scope should be null after capture+await
             if (scope != null) {
-                Log.e(TAG, "BUG: Scope was not null after cancellation - forcing cleanup")
+                AppLog.Audio.e("BUG: Scope was not null after cancellation - forcing cleanup")
                 scope?.cancel()
                 scope = null
             }
@@ -625,7 +622,7 @@ class SyncAudioPlayer(
             // Start the playback loop
             startPlaybackLoop()
 
-            Log.i(TAG, "Playback started")
+            AppLog.Audio.i("Playback started")
         }
     }
 
@@ -641,7 +638,7 @@ class SyncAudioPlayer(
             pausedAtUs = System.nanoTime() / 1000
             audioTrack?.pause()
             audioTrack?.flush()
-            Log.d(TAG, "Playback paused")
+            AppLog.Audio.d("Playback paused")
         }
     }
 
@@ -663,10 +660,10 @@ class SyncAudioPlayer(
                 // Even if our flag says not paused, the AudioTrack hardware might still be paused
                 // (e.g., after clearBuffer() was called while paused)
                 if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                    Log.i(TAG, "resume() - isPaused is false but AudioTrack is not playing, forcing play")
+                    AppLog.Audio.i("resume() - isPaused is false but AudioTrack is not playing, forcing play")
                     audioTrack?.play()
                 } else {
-                    Log.d(TAG, "resume() called but not paused - ignoring")
+                    AppLog.Audio.d("resume() called but not paused - ignoring")
                 }
                 return@withLock
             }
@@ -676,7 +673,7 @@ class SyncAudioPlayer(
             val LONG_PAUSE_THRESHOLD_US = 5_000_000L  // 5 seconds
 
             if (pauseDurationUs > LONG_PAUSE_THRESHOLD_US) {
-                Log.d(TAG, "Long pause detected (${pauseDurationUs / 1000}ms) - clearing stale buffer")
+                AppLog.Audio.d("Long pause detected (${pauseDurationUs / 1000}ms) - clearing stale buffer")
                 // Clear buffer and let it refill from server
                 chunkQueue.clear()
                 totalQueuedSamples.set(0)
@@ -712,7 +709,7 @@ class SyncAudioPlayer(
 
             isPaused.set(false)
             audioTrack?.play()
-            Log.d(TAG, "Playback resumed after ${pauseDurationUs / 1000}ms pause - sync state reset")
+            AppLog.Audio.d("Playback resumed after ${pauseDurationUs / 1000}ms pause - sync state reset")
         }
     }
 
@@ -730,7 +727,7 @@ class SyncAudioPlayer(
         // Volume is now controlled via device STREAM_MUSIC, not AudioTrack gain.
         // AudioTrack plays at full volume; device media stream handles attenuation.
         // This follows Spotify/Plexamp best practices for hardware volume button support.
-        Log.d(TAG, "setVolume called (ignored - using device volume): $volume")
+        AppLog.Audio.d("setVolume called (ignored - using device volume): $volume")
     }
 
     /**
@@ -778,7 +775,7 @@ class SyncAudioPlayer(
             consecutiveValidTimestamps = 0
             dacTimestampsStable = false
 
-            Log.i(TAG, "Playback stopped")
+            AppLog.Audio.i("Playback stopped")
         }
     }
 
@@ -800,7 +797,7 @@ class SyncAudioPlayer(
             // run, leaving stale audio in the pipeline after stream/end.
             streamGeneration++
 
-            Log.i(TAG, "[cmd-trace] T4 enterIdle ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} gen=$streamGeneration")
+            AppLog.Audio.i("[cmd-trace] T4 enterIdle ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} gen=$streamGeneration")
 
             // Clear all audio buffers
             chunkQueue.clear()
@@ -861,7 +858,7 @@ class SyncAudioPlayer(
                     try {
                         track.flush()
                     } catch (e: IllegalStateException) {
-                        Log.w(TAG, "Failed to flush AudioTrack during enterIdle", e)
+                        AppLog.Audio.w("Failed to flush AudioTrack during enterIdle", e)
                     }
                 }
             }
@@ -870,7 +867,7 @@ class SyncAudioPlayer(
             // The loop will continue in INITIALIZING state, writing silence
             // to keep DAC timestamps warm.
 
-            Log.i(TAG, "Entered idle mode - continuing silence for DAC keepalive")
+            AppLog.Audio.i("Entered idle mode - continuing silence for DAC keepalive")
         }
     }
 
@@ -931,14 +928,14 @@ class SyncAudioPlayer(
                 runBlocking {
                     withTimeoutOrNull(PLAYBACK_LOOP_CANCEL_TIMEOUT_MS) {
                         job.join()
-                    } ?: Log.w(TAG, "Playback loop did not stop within timeout - scope was cancelled, coroutines will be cleaned up")
+                    } ?: AppLog.Audio.w("Playback loop did not stop within timeout - scope was cancelled, coroutines will be cleaned up")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Exception while waiting for playback loop to stop", e)
+                AppLog.Audio.w("Exception while waiting for playback loop to stop", e)
             }
         }
 
-        Log.v(TAG, "Playback loop cancelled and cleaned up")
+        AppLog.Audio.v("Playback loop cancelled and cleaned up")
     }
 
     /**
@@ -949,7 +946,7 @@ class SyncAudioPlayer(
      */
     fun release() {
         if (isReleased.getAndSet(true)) {
-            Log.w(TAG, "Already released")
+            AppLog.Audio.w("Already released")
             return
         }
 
@@ -978,7 +975,7 @@ class SyncAudioPlayer(
                 audioTrack?.stop()
             } catch (e: IllegalStateException) {
                 // AudioTrack may already be stopped
-                Log.v(TAG, "AudioTrack already stopped during release")
+                AppLog.Audio.v("AudioTrack already stopped during release")
             }
             audioTrack?.release()
             audioTrack = null
@@ -991,7 +988,7 @@ class SyncAudioPlayer(
             }
             stateCallback = null
 
-            Log.i(TAG, "Released")
+            AppLog.Audio.i("Released")
         }
     }
 
@@ -1003,14 +1000,14 @@ class SyncAudioPlayer(
      */
     fun clearBuffer() {
         if (isReleased.get()) {
-            Log.w(TAG, "Cannot clear buffer - player has been released")
+            AppLog.Audio.w("Cannot clear buffer - player has been released")
             return
         }
 
         stateLock.withLock {
             streamGeneration++
 
-            Log.i(TAG, "[cmd-trace] T4 clearBuffer ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} gen=$streamGeneration")
+            AppLog.Audio.i("[cmd-trace] T4 clearBuffer ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name} gen=$streamGeneration")
 
             // Reset paused state - we're starting a fresh stream (e.g., after seek)
             // This ensures playback loop will process new chunks even if we were paused
@@ -1038,7 +1035,7 @@ class SyncAudioPlayer(
                     try {
                         track.flush()
                     } catch (e: IllegalStateException) {
-                        Log.w(TAG, "Failed to flush AudioTrack during clearBuffer", e)
+                        AppLog.Audio.w("Failed to flush AudioTrack during clearBuffer", e)
                     }
                 }
             }
@@ -1094,7 +1091,7 @@ class SyncAudioPlayer(
             // Reset gap/overlap tracking
             expectedNextTimestampUs = null
 
-            Log.d(TAG, "Buffer cleared, generation=$streamGeneration, state=$playbackState")
+            AppLog.Audio.d("Buffer cleared, generation=$streamGeneration, state=$playbackState")
         }
     }
 
@@ -1109,7 +1106,7 @@ class SyncAudioPlayer(
             totalQueuedSamples.addAndGet(-evicted.sampleCount.toLong())
             queueCapDrops++
             if (queueCapDrops % 100 == 1) {
-                Log.w(TAG, "Queue capacity limit reached ($maxQueueSamples samples), " +
+                AppLog.Audio.w("Queue capacity limit reached ($maxQueueSamples samples), " +
                     "dropping oldest chunks (total drops: $queueCapDrops)")
             }
         }
@@ -1135,12 +1132,12 @@ class SyncAudioPlayer(
                 if (pendingChunks.size < MAX_PENDING_CHUNKS) {
                     pendingChunks.add(Pair(serverTimeMicros, pcmData))
                     if (pendingChunks.size == 1) {
-                        Log.d(TAG, "Buffering chunks while waiting for time sync...")
+                        AppLog.Audio.d("Buffering chunks while waiting for time sync...")
                     }
                 } else {
                     chunksDropped++  // Only drop if buffer is full
                     if (chunksDropped % CHUNK_DROP_LOG_INTERVAL == 1L) {
-                        Log.w(TAG, "Pending buffer full, dropping chunk (dropped: $chunksDropped)")
+                        AppLog.Audio.w("Pending buffer full, dropping chunk (dropped: $chunksDropped)")
                     }
                 }
             }
@@ -1161,7 +1158,7 @@ class SyncAudioPlayer(
     private fun processPendingChunks() {
         synchronized(pendingChunks) {
             if (pendingChunks.isNotEmpty()) {
-                Log.i(TAG, "Time sync ready, processing ${pendingChunks.size} buffered chunks")
+                AppLog.Audio.i("Time sync ready, processing ${pendingChunks.size} buffered chunks")
                 for ((timestamp, data) in pendingChunks) {
                     processChunk(timestamp, data)
                 }
@@ -1256,7 +1253,7 @@ class SyncAudioPlayer(
 
             // If gap is more than threshold different from expected, log it
             if (abs(serverGap - expectedGapUs) > DISCONTINUITY_THRESHOLD_US) {
-                Log.w(TAG, "Discontinuity detected: gap=${serverGap}us, expected=${expectedGapUs}us")
+                AppLog.Audio.w("Discontinuity detected: gap=${serverGap}us, expected=${expectedGapUs}us")
             }
         }
         lastChunkServerTime = serverTimeMicros
@@ -1315,7 +1312,7 @@ class SyncAudioPlayer(
                     firstServerTimestampUs = workingServerTimeMicros
                     scheduledStartLoopTimeUs = clientPlayTime
                     setPlaybackState(PlaybackState.WAITING_FOR_START)
-                    Log.i(TAG, "First chunk received: serverTime=${workingServerTimeMicros/1000}ms, " +
+                    AppLog.Audio.i("First chunk received: serverTime=${workingServerTimeMicros/1000}ms, " +
                             "scheduled start at ${clientPlayTime/1000}ms, transitioning to WAITING_FOR_START")
                 }
                 PlaybackState.WAITING_FOR_START -> {
@@ -1339,7 +1336,7 @@ class SyncAudioPlayer(
                     firstServerTimestampUs = workingServerTimeMicros
                     scheduledStartLoopTimeUs = clientPlayTime
                     setPlaybackState(PlaybackState.WAITING_FOR_START)
-                    Log.i(TAG, "Reanchoring: new first chunk at serverTime=${workingServerTimeMicros/1000}ms")
+                    AppLog.Sync.i("Reanchoring: new first chunk at serverTime=${workingServerTimeMicros/1000}ms")
                 }
                 PlaybackState.PLAYING,
                 PlaybackState.DRAINING -> {
@@ -1418,7 +1415,7 @@ class SyncAudioPlayer(
 
         if (pendingToDacUs <= 0) {
             // Timestamp read failed despite being "stable" -- fall back to Kalman
-            Log.w(TAG, "DAC-aware start: getPendingToDacUs returned $pendingToDacUs, falling back to Kalman")
+            AppLog.Sync.w("DAC-aware start: getPendingToDacUs returned $pendingToDacUs, falling back to Kalman")
             return handleStartGatingKalman()
         }
 
@@ -1443,7 +1440,7 @@ class SyncAudioPlayer(
             // Queue head is too far ahead of where the DAC needs it -- wait for
             // the DAC to catch up by playing through existing silence. Without
             // this gate, starting with startErr=200ms bakes in a permanent offset.
-            Log.d(TAG, "DAC-aware start: waiting for alignment, startErr=${startErrUs/1000}ms > ${START_ALIGN_TOL_US/1000}ms")
+            AppLog.Sync.d("DAC-aware start: waiting for alignment, startErr=${startErrUs/1000}ms > ${START_ALIGN_TOL_US/1000}ms")
             return true
         }
 
@@ -1465,14 +1462,14 @@ class SyncAudioPlayer(
             }
 
             framesDropped += droppedFrames.toLong()
-            Log.d(TAG, "DAC-aware start: dropped $droppedChunks stale chunks ($droppedFrames frames)")
+            AppLog.Sync.d("DAC-aware start: dropped $droppedChunks stale chunks ($droppedFrames frames)")
         }
 
         // Update timing anchor to actual queue head
         val alignedHead = chunkQueue.peek()
         if (alignedHead == null) {
             // Dropped everything -- wait for more chunks
-            Log.w(TAG, "DAC-aware start: all chunks were stale, waiting for more")
+            AppLog.Sync.w("DAC-aware start: all chunks were stale, waiting for more")
             return true
         }
 
@@ -1484,7 +1481,7 @@ class SyncAudioPlayer(
         // Diagnostic logging
         val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
         val finalErr = alignedHead.serverTimeMicros - desiredHeadServerUs
-        FileLogger.i(TAG, "DAC-aware start gating transition: " +
+        AppLog.Sync.i("DAC-aware start gating transition: " +
             "startErr=${startErrUs/1000}ms, finalErr=${finalErr/1000}ms, " +
             "pendingToDac=${pendingToDacUs/1000}ms, " +
             "firstServerTs=${firstServerTimestampUs}us, " +
@@ -1493,7 +1490,7 @@ class SyncAudioPlayer(
             "bufferedChunks=${chunkQueue.size}, bufferedMs=$bufferedMs")
 
         setPlaybackState(PlaybackState.PLAYING)
-        FileLogger.i(TAG, "DAC-aware start gating complete: now PLAYING")
+        AppLog.Sync.i("DAC-aware start gating complete: now PLAYING")
         return false
     }
 
@@ -1520,7 +1517,7 @@ class SyncAudioPlayer(
                 val framesToDrop = ((-deltaUs * sampleRate) / 1_000_000).toInt()
                 var droppedFrames = 0
 
-                Log.w(TAG, "Kalman start gating: late by ${-deltaUs/1000}ms, dropping $framesToDrop frames")
+                AppLog.Sync.w("Kalman start gating: late by ${-deltaUs/1000}ms, dropping $framesToDrop frames")
 
                 // Drop chunks until we've caught up
                 while (droppedFrames < framesToDrop) {
@@ -1550,7 +1547,7 @@ class SyncAudioPlayer(
 
                 // Diagnostic logging
                 val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
-                FileLogger.i(TAG, "Kalman start gating transition (late): " +
+                AppLog.Sync.i("Kalman start gating transition (late): " +
                     "scheduledStart=${scheduledStartLoopTimeUs}us, now=${nowMicros}us, " +
                     "delta=${deltaUs/1000}ms, " +
                     "firstServerTs=${firstServerTimestampUs}us, " +
@@ -1559,7 +1556,7 @@ class SyncAudioPlayer(
                     "bufferedChunks=${chunkQueue.size}, bufferedMs=$bufferedMs")
 
                 setPlaybackState(PlaybackState.PLAYING)
-                FileLogger.i(TAG, "Kalman start gating complete: dropped $droppedFrames frames, now PLAYING")
+                AppLog.Sync.i("Kalman start gating complete: dropped $droppedFrames frames, now PLAYING")
                 return false
             }
             else -> {
@@ -1569,14 +1566,14 @@ class SyncAudioPlayer(
                     val oldServerTs = firstServerTimestampUs
                     firstServerTimestampUs = firstChunk.serverTimeMicros
                     scheduledStartLoopTimeUs = timeFilter.serverToClient(firstChunk.serverTimeMicros)
-                    Log.d(TAG, "Realigned timing anchor: serverTs ${oldServerTs}->${firstServerTimestampUs}")
+                    AppLog.Sync.d("Realigned timing anchor: serverTs ${oldServerTs}->${firstServerTimestampUs}")
                 }
 
                 resetSyncBaselines(System.nanoTime() / 1000)
 
                 // Diagnostic logging
                 val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
-                FileLogger.i(TAG, "Kalman start gating transition: " +
+                AppLog.Sync.i("Kalman start gating transition: " +
                     "scheduledStart=${scheduledStartLoopTimeUs}us, now=${nowMicros}us, " +
                     "delta=${deltaUs/1000}ms, " +
                     "firstServerTs=${firstServerTimestampUs}us, " +
@@ -1585,7 +1582,7 @@ class SyncAudioPlayer(
                     "bufferedChunks=${chunkQueue.size}, bufferedMs=$bufferedMs")
 
                 setPlaybackState(PlaybackState.PLAYING)
-                FileLogger.i(TAG, "Kalman start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
+                AppLog.Sync.i("Kalman start gating complete: delta=${deltaUs/1000}ms, now PLAYING")
                 return false
             }
         }
@@ -1630,7 +1627,7 @@ class SyncAudioPlayer(
                 consecutiveValidTimestamps++
                 if (consecutiveValidTimestamps >= TIMESTAMP_STABLE_READS && !dacTimestampsStable) {
                     dacTimestampsStable = true
-                    Log.i(TAG, "DAC timestamps stable after $consecutiveValidTimestamps consecutive reads")
+                    AppLog.Sync.i("DAC timestamps stable after $consecutiveValidTimestamps consecutive reads")
                 }
             } else {
                 // Invalid framePosition resets stability counter
@@ -1687,7 +1684,7 @@ class SyncAudioPlayer(
         }
 
         try {
-            Log.w(TAG, "Triggering reanchor: clearing buffers and resetting state")
+            AppLog.Sync.w("Triggering reanchor: clearing buffers and resetting state")
 
             lastReanchorTimeUs = nowMicros
             setPlaybackState(PlaybackState.REANCHORING)
@@ -1704,7 +1701,7 @@ class SyncAudioPlayer(
                     track.flush()
                     track.play()
                 } catch (e: IllegalStateException) {
-                    Log.w(TAG, "Failed to flush AudioTrack during reanchor", e)
+                    AppLog.Sync.w("Failed to flush AudioTrack during reanchor", e)
                 }
             }
 
@@ -1759,7 +1756,7 @@ class SyncAudioPlayer(
      */
     private fun startPlaybackLoop() {
         val currentScope = scope ?: run {
-            Log.e(TAG, "Cannot start playback loop - scope is null")
+            AppLog.Audio.e("Cannot start playback loop - scope is null")
             return
         }
 
@@ -1769,12 +1766,11 @@ class SyncAudioPlayer(
             // apps; logging the effective tid/priority makes field triage
             // deterministic. On a healthy device we expect priority = -19.
             val tid = Process.myTid()
-            Log.i(
-                TAG,
+            AppLog.Audio.i(
                 "Playback loop thread: name=${Thread.currentThread().name} " +
                     "tid=$tid priority=${Process.getThreadPriority(tid)}"
             )
-            Log.d(TAG, "Playback loop started, initial state=$playbackState")
+            AppLog.Audio.d("Playback loop started, initial state=$playbackState")
 
             while (isActive && isPlaying.get()) {
                 if (isPaused.get()) {
@@ -1793,7 +1789,7 @@ class SyncAudioPlayer(
                             track.flush()
                             track.play()
                         } catch (e: IllegalStateException) {
-                            Log.w(TAG, "Failed to flush AudioTrack (deferred)", e)
+                            AppLog.Audio.w("Failed to flush AudioTrack (deferred)", e)
                         }
                     }
                 }
@@ -1862,7 +1858,7 @@ class SyncAudioPlayer(
 
                         if (bufferedMs <= 0) {
                             // Buffer exhausted - notify and stop
-                            Log.e(TAG, "Buffer exhausted during DRAINING - stopping playback")
+                            AppLog.Audio.e("Buffer exhausted during DRAINING - stopping playback")
                             stateCallback?.onBufferExhausted()
                             setPlaybackState(PlaybackState.INITIALIZING)
                             delay(STATE_POLL_DELAY_MS)
@@ -1875,7 +1871,7 @@ class SyncAudioPlayer(
                             if (nowUs - lastBufferWarningTimeUs > BUFFER_WARNING_INTERVAL_US) {
                                 lastBufferWarningTimeUs = nowUs
                                 stateCallback?.onBufferLow(bufferedMs)
-                                Log.w(TAG, "Buffer low during DRAINING: ${bufferedMs}ms remaining")
+                                AppLog.Audio.w("Buffer low during DRAINING: ${bufferedMs}ms remaining")
                             }
                         }
 
@@ -1914,7 +1910,7 @@ class SyncAudioPlayer(
                 val nowMicros = System.nanoTime() / 1000
                 if (dacTimestampsStable && nowMicros - lastDacPacingLogTimeUs > DAC_PACING_LOG_INTERVAL_US) {
                     lastDacPacingLogTimeUs = nowMicros
-                    Log.d(TAG, "DAC pacing: pending=${pendingToDacUs/1000}ms, syncErr=${syncErrorUs/1000}ms")
+                    AppLog.Sync.d("DAC pacing: pending=${pendingToDacUs/1000}ms, syncErr=${syncErrorUs/1000}ms")
                 }
 
                 // Pause writing when the AudioTrack buffer is sufficiently full
@@ -1925,7 +1921,7 @@ class SyncAudioPlayer(
 
                 // Reanchor if sync error is extremely large (e.g. after long pause/seek)
                 if (startTimeCalibrated && abs(syncErrorUs) > REANCHOR_THRESHOLD_US) {
-                    Log.w(TAG, "Large sync error: ${syncErrorUs/1000}ms, considering reanchor")
+                    AppLog.Sync.w("Large sync error: ${syncErrorUs/1000}ms, considering reanchor")
                     if (triggerReanchor()) {
                         continue
                     }
@@ -1936,7 +1932,7 @@ class SyncAudioPlayer(
                 playChunkWithCorrection(chunk)
             }
 
-            Log.d(TAG, "Playback loop ended")
+            AppLog.Audio.d("Playback loop ended")
         }
     }
 
@@ -2156,7 +2152,7 @@ class SyncAudioPlayer(
         }
 
         if (written < 0) {
-            Log.e(TAG, "AudioTrack write error: $written")
+            AppLog.Audio.e("AudioTrack write error: $written")
         }
 
         // Update frame tracking
@@ -2528,7 +2524,7 @@ class SyncAudioPlayer(
             // A backward jump of more than 1 second of frames indicates the counter
             // wrapped rather than a genuine regression. Skip this reading.
             if (lastValidFramePosition > 0 && framePosition < lastValidFramePosition - sampleRate) {
-                Log.w(TAG, "Frame position wrap detected: last=$lastValidFramePosition, " +
+                AppLog.Sync.w("Frame position wrap detected: last=$lastValidFramePosition, " +
                     "current=$framePosition, totalWritten=${totalFramesWritten.get()}")
                 return
             }
@@ -2577,7 +2573,7 @@ class SyncAudioPlayer(
                 serverTimelineCursor = kalmanServerTimeUs + currentPendingUs
                 serverTimelineCursorRemainder = 0L
 
-                Log.i(TAG, "Sync baseline calibrated: " +
+                AppLog.Sync.i("Sync baseline calibrated: " +
                     "framePos=$framePosition, totalWritten=${totalFramesWritten.get()}, " +
                     "pending=${currentPendingUs/1000}ms, " +
                     "baselineServerTime=${baselineServerTimeUs}us")
@@ -2610,7 +2606,7 @@ class SyncAudioPlayer(
                         ((framePosition - oldBaselineFramePos) * 1_000_000L) / sampleRate
                     val shiftUs = kalmanServerTimeUs - expectedServerUs
                     if (abs(shiftUs) > 1000) {  // Only log shifts > 1ms
-                        Log.d(TAG, "Baseline refreshed via Kalman: shift=${shiftUs/1000}ms, " +
+                        AppLog.Sync.d("Baseline refreshed via Kalman: shift=${shiftUs/1000}ms, " +
                             "newServerTime=${kalmanServerTimeUs}us, framePos=$framePosition")
                     }
                 }
@@ -2650,14 +2646,14 @@ class SyncAudioPlayer(
 
             // Periodic log to confirm cursor-based measurement is working
             if (chunksPlayed % 100 == 0L) {
-                Log.d(TAG, "Sync: err=${rawSyncError / 1000}ms, " +
+                AppLog.Sync.d("Sync: err=${rawSyncError / 1000}ms, " +
                     "pending=${pendingUs / 1000}ms, " +
                     "cursor=${serverTimelineCursor}us, " +
                     "dacServer=${dacPlaybackServerTimeUs}us")
             }
 
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to update sync error", e)
+            AppLog.Sync.w("Failed to update sync error", e)
         }
     }
 
@@ -2864,13 +2860,13 @@ class SyncAudioPlayer(
      */
     fun enterDraining(): Boolean {
         if (isReleased.get()) {
-            Log.w(TAG, "Cannot enter DRAINING - player has been released")
+            AppLog.Audio.w("Cannot enter DRAINING - player has been released")
             return false
         }
         stateLock.withLock {
             // Only enter draining if we're currently playing or have buffer
             if (playbackState != PlaybackState.PLAYING && playbackState != PlaybackState.WAITING_FOR_START) {
-                Log.w(TAG, "Cannot enter DRAINING from state $playbackState")
+                AppLog.Audio.w("Cannot enter DRAINING from state $playbackState")
                 return false
             }
 
@@ -2880,7 +2876,7 @@ class SyncAudioPlayer(
             setPlaybackState(PlaybackState.DRAINING)
 
             val bufferedMs = getBufferedDurationMs()
-            Log.i(TAG, "Entering DRAINING state - buffer: ${bufferedMs}ms")
+            AppLog.Audio.i("Entering DRAINING state - buffer: ${bufferedMs}ms")
             return true
         }
     }
@@ -2898,12 +2894,12 @@ class SyncAudioPlayer(
     fun exitDraining(): Boolean {
         stateLock.withLock {
             if (playbackState != PlaybackState.DRAINING) {
-                Log.w(TAG, "Cannot exit DRAINING - current state is $playbackState")
+                AppLog.Audio.w("Cannot exit DRAINING - current state is $playbackState")
                 return false
             }
 
             val drainingDurationMs = (System.nanoTime() / 1000 - drainingStartTimeUs) / 1000
-            Log.i(TAG, "Exiting DRAINING state after ${drainingDurationMs}ms - resuming normal playback")
+            AppLog.Audio.i("Exiting DRAINING state after ${drainingDurationMs}ms - resuming normal playback")
 
             // Mark reconnection time for stabilization period (skip sync corrections while Kalman re-converges)
             reconnectedAtUs = System.nanoTime() / 1000
@@ -2932,7 +2928,7 @@ class SyncAudioPlayer(
                 // Track when we enter PLAYING state for grace period calculation
                 if (newState == PlaybackState.PLAYING && playbackState != PlaybackState.PLAYING) {
                     playingStateEnteredAtUs = System.nanoTime() / 1000
-                    Log.d(TAG, "Entered PLAYING state - grace period starts (${STARTUP_GRACE_PERIOD_US/1000}ms)")
+                    AppLog.Audio.d("Entered PLAYING state - grace period starts (${STARTUP_GRACE_PERIOD_US/1000}ms)")
                 }
                 playbackState = newState
                 stateCallback?.onPlaybackStateChanged(newState)

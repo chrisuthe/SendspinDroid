@@ -51,7 +51,8 @@ import com.sendspindroid.MainActivity
 
 import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.ui.settings.SettingsViewModel
-import com.sendspindroid.debug.DebugLogger
+import com.sendspindroid.logging.AppLog
+import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.model.PlaybackState
 import com.sendspindroid.model.PlaybackStateType
 import com.sendspindroid.model.SyncStats
@@ -222,16 +223,14 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    // BroadcastReceiver for debug logging toggle changes from settings
-    private val debugLoggingReceiver = object : BroadcastReceiver() {
+    // BroadcastReceiver for log level changes from settings
+    private val logLevelReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val enabled = intent.getBooleanExtra(
-                SettingsViewModel.EXTRA_DEBUG_LOGGING_ENABLED, false
-            )
-            Log.i(TAG, "Debug logging changed: $enabled")
+            val levelStr = intent.getStringExtra(SettingsViewModel.EXTRA_LOG_LEVEL) ?: return
+            val level = runCatching { LogLevel.valueOf(levelStr) }.getOrDefault(LogLevel.OFF)
+            Log.i(TAG, "Log level changed: $level")
 
-            if (enabled && isConnected()) {
-                // Start collecting stats if connected
+            if (level != LogLevel.OFF && isConnected()) {
                 startDebugLogging()
             } else {
                 stopDebugLogging()
@@ -330,7 +329,7 @@ class PlaybackService : MediaLibraryService() {
         override fun run() {
             // Prevent callback execution after service destruction
             if (isDestroyed) return
-            if (DebugLogger.isEnabled && isConnected()) {
+            if (AppLog.level != LogLevel.OFF && isConnected()) {
                 logCurrentStats()
                 debugLogHandler.postDelayed(this, DEBUG_LOG_INTERVAL_MS)
             }
@@ -633,10 +632,10 @@ class PlaybackService : MediaLibraryService() {
             IntentFilter(SyncOffsetPreference.ACTION_SYNC_OFFSET_CHANGED)
         )
 
-        // Register receiver for debug logging toggle changes from settings
+        // Register receiver for log level changes from settings
         LocalBroadcastManager.getInstance(this).registerReceiver(
-            debugLoggingReceiver,
-            IntentFilter(SettingsViewModel.ACTION_DEBUG_LOGGING_CHANGED)
+            logLevelReceiver,
+            IntentFilter(SettingsViewModel.ACTION_LOG_LEVEL_CHANGED)
         )
 
         // Register receiver for High Power Mode toggle changes from settings
@@ -882,7 +881,7 @@ class PlaybackService : MediaLibraryService() {
                     // Get address from connection state or use empty string
                     (it.connectionState.value as? SendSpinClient.ConnectionState.Connected)?.serverName ?: ""
                 } ?: ""
-                DebugLogger.startSession(serverName, serverAddr)
+                AppLog.session.start(serverName, serverAddr)
                 startDebugLogging()
 
                 // Broadcast connection state to controllers (MainActivity)
@@ -903,7 +902,7 @@ class PlaybackService : MediaLibraryService() {
 
                 // Stop debug logging session
                 stopDebugLogging()
-                DebugLogger.endSession()
+                AppLog.session.end()
 
                 // Check if we're in DRAINING state (reconnection in progress)
                 // If so, keep the audio player alive to continue playback from buffer
@@ -1924,7 +1923,7 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Logs the current stats to DebugLogger if enabled.
+     * Logs the current stats to AppLog if logging is enabled.
      * Called periodically when debug mode is active.
      */
     private fun logCurrentStats() {
@@ -1965,14 +1964,20 @@ class PlaybackService : MediaLibraryService() {
             stabilityScore = timeFilter.stability
         )
 
-        DebugLogger.logStats(syncStats)
+        AppLog.Audio.d("Stats: " +
+            "state=${syncStats.playbackState.name}, " +
+            "syncErr=${syncStats.syncErrorUs}us, " +
+            "queue=${syncStats.queuedSamples}, " +
+            "offset=${syncStats.clockOffsetUs}us, " +
+            "insertN=${syncStats.insertEveryNFrames}, dropN=${syncStats.dropEveryNFrames}, " +
+            "framesIns=${syncStats.framesInserted}, framesDrop=${syncStats.framesDropped}")
     }
 
     /**
      * Starts the debug logging loop if debug mode is enabled.
      */
     private fun startDebugLogging() {
-        if (DebugLogger.isEnabled) {
+        if (AppLog.level != LogLevel.OFF) {
             debugLogHandler.removeCallbacks(debugLogRunnable)
             debugLogHandler.postDelayed(debugLogRunnable, DEBUG_LOG_INTERVAL_MS)
             Log.d(TAG, "Debug logging started")
@@ -3636,8 +3641,8 @@ class PlaybackService : MediaLibraryService() {
         // Unregister sync offset receiver
         LocalBroadcastManager.getInstance(this).unregisterReceiver(syncOffsetReceiver)
 
-        // Unregister debug logging receiver
-        LocalBroadcastManager.getInstance(this).unregisterReceiver(debugLoggingReceiver)
+        // Unregister log level receiver
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(logLevelReceiver)
 
         // Unregister High Power Mode receiver and release locks
         LocalBroadcastManager.getInstance(this).unregisterReceiver(highPowerModeReceiver)

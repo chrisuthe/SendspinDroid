@@ -28,8 +28,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
-import com.sendspindroid.debug.DebugLogger
-import com.sendspindroid.debug.FileLogger
+import com.sendspindroid.logging.AppLog
 import android.app.UiModeManager
 import android.annotation.TargetApi
 import android.graphics.RenderEffect
@@ -508,14 +507,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize file-based debug logger (for devices where logcat is disabled)
-        FileLogger.init(this)
-
-        // Restore debug logging enabled state from preferences (so startup logs are captured)
-        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        DebugLogger.isEnabled = prefs.getBoolean("debug_logging_enabled", false)
-
-        FileLogger.i(TAG, "MainActivity onCreate (debug logging: ${DebugLogger.isEnabled})")
+        // Initialize on-device logging facade. This also runs one-time pref migration from the
+        // legacy `debug_logging_enabled` flag to the new `log_level` string.
+        AppLog.init(this)
+        AppLog.App.i("MainActivity onCreate (log level: ${AppLog.level})")
 
         // Initialize UnifiedServerRepository for unified server management
         // Single source of truth for all server state (discovered + saved)

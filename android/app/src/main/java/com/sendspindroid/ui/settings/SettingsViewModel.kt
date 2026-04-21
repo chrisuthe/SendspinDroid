@@ -12,7 +12,8 @@ import androidx.preference.PreferenceManager
 import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
-import com.sendspindroid.debug.DebugLogger
+import com.sendspindroid.logging.AppLog
+import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,8 +36,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         private const val DEBUG_STATS_UPDATE_INTERVAL_MS = 2000L
 
         // Broadcast actions
-        const val ACTION_DEBUG_LOGGING_CHANGED = "com.sendspindroid.ACTION_DEBUG_LOGGING_CHANGED"
-        const val EXTRA_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
+        const val ACTION_LOG_LEVEL_CHANGED = "com.sendspindroid.ACTION_LOG_LEVEL_CHANGED"
+        const val EXTRA_LOG_LEVEL = "log_level"
         const val ACTION_HIGH_POWER_MODE_CHANGED = "com.sendspindroid.ACTION_HIGH_POWER_MODE_CHANGED"
         const val EXTRA_HIGH_POWER_MODE_ENABLED = "high_power_mode_enabled"
     }
@@ -89,12 +90,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _batteryOptExempt = MutableStateFlow(isBatteryOptimizationExempt())
     val batteryOptExempt: StateFlow<Boolean> = _batteryOptExempt.asStateFlow()
 
-    // Debug settings
-    private val _debugLogging = MutableStateFlow(DebugLogger.isEnabled)
-    val debugLogging: StateFlow<Boolean> = _debugLogging.asStateFlow()
+    // Log level (global) and log file stats (KB, file count)
+    private val _logLevel = MutableStateFlow(AppLog.level)
+    val logLevel: StateFlow<LogLevel> = _logLevel.asStateFlow()
 
-    private val _debugSampleCount = MutableStateFlow(DebugLogger.getSampleCount())
-    val debugSampleCount: StateFlow<Int> = _debugSampleCount.asStateFlow()
+    private val _logFileStats = MutableStateFlow(AppLog.logFileStats())
+    val logFileStats: StateFlow<Pair<Long, Int>> = _logFileStats.asStateFlow()
 
     // App version
     private val _appVersion = MutableStateFlow(getAppVersion())
@@ -108,7 +109,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private fun startDebugStatsUpdates() {
         viewModelScope.launch {
             while (isActive) {
-                _debugSampleCount.value = DebugLogger.getSampleCount()
+                _logFileStats.value = AppLog.logFileStats()
+                _logLevel.value = AppLog.level
                 delay(DEBUG_STATS_UPDATE_INTERVAL_MS)
             }
         }
@@ -220,23 +222,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _batteryOptExempt.value = isBatteryOptimizationExempt()
     }
 
-    // Debug settings
-    fun setDebugLogging(enabled: Boolean) {
-        DebugLogger.isEnabled = enabled
-        // Save to preferences
-        prefs.edit().putBoolean("debug_logging_enabled", enabled).apply()
-        _debugLogging.value = enabled
-
-        if (!enabled) {
-            DebugLogger.clear()
-            _debugSampleCount.value = 0
+    fun setLogLevel(level: LogLevel) {
+        AppLog.setLevel(level)
+        _logLevel.value = level
+        if (level == LogLevel.OFF) {
+            _logFileStats.value = AppLog.logFileStats()
         }
-
-        // Broadcast to PlaybackService
-        val intent = Intent(ACTION_DEBUG_LOGGING_CHANGED).apply {
-            putExtra(EXTRA_DEBUG_LOGGING_ENABLED, enabled)
+        val intent = Intent(ACTION_LOG_LEVEL_CHANGED).apply {
+            putExtra(EXTRA_LOG_LEVEL, level.name)
         }
         LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
+    }
+
+    fun clearLogs() {
+        AppLog.clear()
+        _logFileStats.value = AppLog.logFileStats()
     }
 
     private fun computeSupportedCodecs(): Set<String> {

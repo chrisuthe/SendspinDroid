@@ -53,3 +53,6 @@ android/build_output.txt
 # Windows junk
 Thumbs.db
 android/nul
+
+# Git worktrees (isolated dev branches)
+.worktrees/
