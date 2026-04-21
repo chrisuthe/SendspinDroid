@@ -1372,7 +1372,10 @@ class PlaybackService : MediaLibraryService() {
                         sampleRate = sampleRate,
                         channels = channels,
                         bitDepth = bitDepth,
-                        maxQueueSamples = maxSamples
+                        maxQueueSamples = maxSamples,
+                        requestClientStateSnapshot = {
+                            sendSpinClient?.sendClientStateSnapshot()
+                        },
                     ).apply {
                         // Set callback to update SendSpinPlayer when playback state changes
                         setStateCallback(SyncAudioPlayerStateCallback())
