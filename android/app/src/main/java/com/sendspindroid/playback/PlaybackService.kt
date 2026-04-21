@@ -1768,6 +1768,17 @@ class PlaybackService : MediaLibraryService() {
         currentServerId = serverId
         currentConnectionMode = connectionMode
         Log.d(TAG, "Set current server: $serverId, mode=$connectionMode")
+
+        // Configure PROXY fallback for internal LOCAL->PROXY switchover in the
+        // reconnect loop. Only applies when connecting in LOCAL mode with a server
+        // that also has a PROXY config; cleared (null/null) otherwise so a later
+        // server-switch doesn't carry stale fallback data. Issue #126.
+        val proxy = if (connectionMode == ConnectionMode.LOCAL) {
+            serverId?.let { UnifiedServerRepository.getServer(it) }?.proxy
+        } else {
+            null
+        }
+        sendSpinClient?.setProxyFallback(proxy?.url, proxy?.authToken)
     }
 
     /**
