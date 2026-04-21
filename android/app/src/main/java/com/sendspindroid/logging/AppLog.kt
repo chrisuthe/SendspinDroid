@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.preference.PreferenceManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import java.io.File
 
 /**
@@ -40,6 +43,8 @@ object AppLog {
 
     @Volatile
     private var appContext: Context? = null
+
+    private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val Audio: Logger = Logger(LogCategory.Audio)
     val Sync: Logger = Logger(LogCategory.Sync)
@@ -94,23 +99,33 @@ object AppLog {
             .remove(PREF_LEGACY_DEBUG_LOGGING)
             .apply()
 
+        bridge = LogcatBridge(w, bridgeScope)
         setLevel(resolved)
     }
 
     /**
-     * Change the global log level. Persists to preferences. Bridge start/stop is wired in Task 6.
+     * Change the global log level. Persists to preferences and transitions the [LogcatBridge]:
+     * - OFF -> X: start(X)
+     * - X -> OFF: stop()
+     * - X -> Y (both non-OFF): setLevel(Y) which internally does stop() + start(Y)
+     * - OFF -> OFF: no-op
      */
     fun setLevel(newLevel: LogLevel) {
+        val previous = level
         level = newLevel
         appContext?.let { ctx ->
             PreferenceManager.getDefaultSharedPreferences(ctx).edit()
                 .putString(PREF_LOG_LEVEL, newLevel.name)
                 .apply()
         }
+        bridge?.let { br ->
+            if (previous == LogLevel.OFF && newLevel != LogLevel.OFF) br.start(newLevel)
+            else if (newLevel == LogLevel.OFF && previous != LogLevel.OFF) br.stop()
+            else if (newLevel != LogLevel.OFF) br.setLevel(newLevel)
+        }
         if (newLevel != LogLevel.OFF) {
             App.i("Log level set to ${newLevel.name}")
         }
-        // Bridge transition wiring is added in Task 6.
     }
 
     /** For Settings UI. Returns the total size (KB) and file count across rotated files. */
