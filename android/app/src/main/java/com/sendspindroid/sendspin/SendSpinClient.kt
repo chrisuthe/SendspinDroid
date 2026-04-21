@@ -1026,6 +1026,24 @@ class SendSpinClient(
 
     /**
      * Unified event listener for both WebSocket and WebRTC transports.
+     *
+     * ## Reconnect-gate policy (issue #129)
+     *
+     * Both [onClosed] and [onFailure] trigger [attemptReconnect] under the same
+     * core conditions:
+     *   * Not a user-initiated disconnect (`!userInitiatedDisconnect`).
+     *   * Have connection info for the current mode (address + token for PROXY,
+     *     remoteId for REMOTE, address for LOCAL).
+     *   * The failure is transient / unexpected (non-1000 close code for
+     *     [onClosed]; `isRecoverable` exception class for [onFailure]).
+     *
+     * Notably, `handshakeComplete` is NOT part of the gate. A server that
+     * accepts the WebSocket upgrade and then closes abnormally before
+     * `server/hello` arrives is retried -- backoff with 30 s steady-state
+     * after 5 attempts handles the "server is broken" case without spinning,
+     * and the existing `!isNormalClosure` / `isRecoverable` filters prevent
+     * reconnect storms on deterministic rejections (code 1000 from an
+     * accept-then-reject server, DNS, SSL, auth failures).
      */
     private inner class TransportEventListener : SendSpinTransport.Listener {
 
@@ -1112,9 +1130,13 @@ class SendSpinClient(
                 ConnectionMode.PROXY -> serverAddress != null && !authToken.isNullOrBlank()
             }
 
-            if (!userInitiatedDisconnect.get() && handshakeComplete && !isNormalClosure && hasConnectionInfo) {
-                // Abnormal closure (not code 1000) - attempt reconnection
-                Log.i(TAG, "Abnormal closure (code=$code), attempting reconnection")
+            if (!userInitiatedDisconnect.get() && !isNormalClosure && hasConnectionInfo) {
+                // Abnormal closure (not code 1000) - attempt reconnection. We no
+                // longer gate on handshakeComplete here; see class-level doc for
+                // the unified reconnect-gate policy (#129). Logging keeps the
+                // handshake state so field triage can still distinguish
+                // "pre-handshake drop" from "post-handshake drop".
+                Log.i(TAG, "Abnormal closure (code=$code, handshakeComplete=$handshakeComplete), attempting reconnection")
                 attemptReconnect()
             } else {
                 // Either user-initiated, pre-handshake, or server's normal closure
