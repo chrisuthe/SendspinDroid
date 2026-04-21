@@ -1,15 +1,15 @@
 # SendSpinDroid Project Memory
 
-## Current Focus: Native Kotlin SendSpin Client
+## Overview
 
-This project is being rebuilt with a **native Kotlin** approach, removing the previous Go-based implementation.
+SendSpinDroid is a native Kotlin Android client for SendSpin. It acts as a **Player**-role client: it connects to a SendSpin server over WebSocket, synchronizes its local clock to the server, and renders timestamped PCM audio with continuous sync correction.
 
 ## Application Architecture
 
 SendSpinDroid is a **synchronized audio player** that connects to SendSpin servers:
 
 ```
-SendSpin Server ──WebSocket──► SendSpinClient ──AAudio──► Audio Output
+SendSpin Server ──WebSocket──► SendSpinClient ──► SyncAudioPlayer (AudioTrack) ──► Audio Output
                     │
                     ├── JSON messages (metadata, state)
                     └── Binary messages (timestamped audio PCM)
@@ -34,7 +34,7 @@ SendSpin Server ──WebSocket──► SendSpinClient ──AAudio──► Au
 - `server/state` - Server state and track metadata
 - `group/update` - Group playback state changes
 - `stream/start` - Audio stream beginning
-- `stream/stop` - Audio stream ending
+- `stream/end` - Audio stream ending
 
 ### Binary Messages
 ```
@@ -62,12 +62,17 @@ Reports player state to server:
 - `muted`: boolean
 - `static_delay_ms`: device audio output latency compensation (milliseconds)
 
-## Implementation Phases
+## Audio Pipeline
 
-1. **Protocol** - WebSocket connection, JSON/binary parsing
-2. **Clock Sync** - Kalman filter for time synchronization
-3. **Audio Buffer** - Timestamped chunk storage
-4. **AAudio Output** - Native audio with sync correction
+The shipped audio pipeline uses Android's `AudioTrack` (Java API) in `MODE_STREAM` (push mode). Incoming binary WebSocket frames are decoded to PCM (if encoded), anchored against the synchronized server clock via a Kalman time filter, and written to `AudioTrack` with sample insert/drop correction to maintain sync.
+
+Key modules:
+- **Protocol** - WebSocket connection, JSON/binary frame parsing (`sendspin/protocol/`)
+- **Clock Sync** - 2D Kalman time filter (`SendspinTimeFilter.kt`)
+- **Audio Buffer** - Timestamped chunk queue and state machine (`SyncAudioPlayer.kt`)
+- **Audio Output** - `AudioTrack` in `SyncAudioPlayer.kt` with DAC-aware start gating and sample insert/drop sync correction
+
+AAudio/Oboe would provide callback-precise hardware latency and lower-latency writes, and is a **possible future migration** — but is not the currently shipped path. Code and docs should describe `AudioTrack` as the present audio output.
 
 ## Development Environment
 
@@ -140,8 +145,13 @@ Key files to study:
 - `protocol.py` - WebSocket protocol handling
 - `clocksync.py` - Clock synchronization algorithm
 
-The CLI shows the correct approach:
+The CLI shows the canonical approach:
 - Uses `sounddevice` which provides `outputBufferDacTime` in callback
-- State machine: WAITING_FOR_START → PLAYING → REANCHORING
-- Sync correction via sample insert/drop (±4% rate adjustment)
+- State machine: WAITING_FOR_START -> PLAYING -> REANCHORING
+- Sync correction via sample insert/drop (+/-4% rate adjustment)
 - Measures sync error: `expected_play_time - actual_dac_time`
+
+### Android Deviations from the Python Reference
+
+- **Speed-correction cap**: `SyncAudioPlayer.MAX_SPEED_CORRECTION = 0.02` (+/-2%), vs the reference's +/-4%. The tighter cap is a safety margin against over-correction given that `AudioTrack` DAC-timing jitter on Android can be larger than desktop `sounddevice`. Revisit if high-drift scenarios fail to converge.
+- **Audio output API**: `AudioTrack` in `MODE_STREAM` instead of `sounddevice`. DAC position is read via `AudioTrack.getTimestamp()` for sync-error measurement and start-gating.

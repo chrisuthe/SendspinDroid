@@ -104,22 +104,16 @@ import kotlinx.coroutines.withContext
  * - Bluetooth/headset button support
  * - Android Auto browse tree support
  *
- * ## Architecture (Native Kotlin)
+ * ## Architecture
  * ```
- * MainActivity ──MediaController──► PlaybackService
- *                                        │
- *                                   ┌────┴────┐
- *                                   │ SendSpinClient │
- *                                   │ AAudio (TODO)  │
- *                                   │ MediaSession   │
- *                                   └────────────────┘
+ * MainActivity --MediaController--> PlaybackService
+ *                                        |
+ *                                   +----+----+
+ *                                   | SendSpinClient  |
+ *                                   | SyncAudioPlayer |
+ *                                   | MediaSession    |
+ *                                   +-----------------+
  * ```
- *
- * ## TODO: Implementation phases
- * 1. WebSocket connection and protocol (SendSpinClient)
- * 2. Clock synchronization
- * 3. AAudio/Oboe playback with sync correction
- * 4. Remove ExoPlayer dependency
  */
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
