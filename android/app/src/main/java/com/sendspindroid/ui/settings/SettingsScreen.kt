@@ -55,6 +55,7 @@ import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
+import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.ui.theme.SendSpinTheme
 
 /**
@@ -88,8 +89,8 @@ fun SettingsScreen(
     val hasDefaultServer by viewModel.hasDefaultServer.collectAsStateWithLifecycle()
     val defaultServerName by viewModel.defaultServerName.collectAsStateWithLifecycle()
     val batteryOptExempt by viewModel.batteryOptExempt.collectAsStateWithLifecycle()
-    val debugLogging by viewModel.debugLogging.collectAsStateWithLifecycle()
-    val debugSampleCount by viewModel.debugSampleCount.collectAsStateWithLifecycle()
+    val logLevel by viewModel.logLevel.collectAsStateWithLifecycle()
+    val logFileStats by viewModel.logFileStats.collectAsStateWithLifecycle()
     val appVersion by viewModel.appVersion.collectAsStateWithLifecycle()
 
     var showPlayerNameDialog by remember { mutableStateOf(false) }
@@ -249,25 +250,72 @@ fun SettingsScreen(
 
             // Debug Category
             PreferenceCategory(title = stringResource(R.string.pref_category_debug))
-            SwitchPreference(
-                title = stringResource(R.string.pref_debug_logging_title),
-                summary = if (debugLogging) {
-                    stringResource(R.string.pref_debug_logging_summary_on, debugSampleCount)
-                } else {
-                    stringResource(R.string.pref_debug_logging_summary_off)
-                },
-                checked = debugLogging,
-                onCheckedChange = { viewModel.setDebugLogging(it) }
+
+            // Log level selector (6-option segmented row)
+            val levels = listOf(
+                LogLevel.OFF to R.string.log_level_off,
+                LogLevel.ERROR to R.string.log_level_error,
+                LogLevel.WARN to R.string.log_level_warn,
+                LogLevel.INFO to R.string.log_level_info,
+                LogLevel.DEBUG to R.string.log_level_debug,
+                LogLevel.VERBOSE to R.string.log_level_verbose,
             )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.pref_log_level_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    levels.forEachIndexed { index, (lvl, labelRes) ->
+                        SegmentedButton(
+                            selected = logLevel == lvl,
+                            onClick = { viewModel.setLogLevel(lvl) },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = levels.size)
+                        ) {
+                            Text(
+                                text = stringResource(labelRes),
+                                maxLines = 1,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                val (sizeKb, fileCount) = logFileStats
+                Text(
+                    text = stringResource(
+                        R.string.pref_log_level_summary,
+                        stringResource(levels.first { it.first == logLevel }.second),
+                        sizeKb,
+                        fileCount,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             TextPreference(
                 title = stringResource(R.string.pref_export_logs_title),
-                summary = if (debugSampleCount > 0) {
+                summary = if (logFileStats.first > 0) {
                     stringResource(R.string.pref_export_logs_summary)
                 } else {
                     stringResource(R.string.pref_export_logs_summary_empty)
                 },
-                enabled = debugSampleCount > 0,
+                enabled = logFileStats.first > 0,
                 onClick = onExportLogs
+            )
+
+            TextPreference(
+                title = stringResource(R.string.pref_clear_logs_title),
+                summary = stringResource(R.string.pref_clear_logs_summary),
+                enabled = logFileStats.first > 0,
+                onClick = { viewModel.clearLogs() }
             )
 
             // About Category

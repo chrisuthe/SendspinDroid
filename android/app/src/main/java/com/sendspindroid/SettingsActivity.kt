@@ -6,7 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import com.sendspindroid.debug.DebugLogger
+import com.sendspindroid.logging.AppLog
 import com.sendspindroid.ui.settings.SettingsScreen
 import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.ui.theme.SendSpinTheme
@@ -35,11 +35,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun exportDebugLogs() {
-        // Clean up old logs first
-        DebugLogger.cleanupOldLogs(this)
-
-        // Create share intent
-        val shareIntent = DebugLogger.createShareIntent(this)
+        val shareIntent = AppLog.shareIntent(this)
 
         if (shareIntent != null) {
             val chooserIntent = Intent.createChooser(
