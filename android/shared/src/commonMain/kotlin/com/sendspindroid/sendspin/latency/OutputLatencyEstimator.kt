@@ -26,6 +26,7 @@ class OutputLatencyEstimator(
         // the mean with these.
         const val MAX_REASONABLE_LATENCY_NS = 1_000_000_000L  // 1 second
         const val CONVERGENCE_SAMPLE_COUNT = 20
+        const val TIMEOUT_NS = 2_000_000_000L  // 2 seconds
     }
 
     enum class Status { Idle, Measuring, Converged, TimedOut, Cancelled }
@@ -46,6 +47,7 @@ class OutputLatencyEstimator(
     private val ring = ArrayDeque<WriteEntry>(DEFAULT_RING_CAPACITY)
     private val samples = ArrayDeque<Long>()  // latency values in nanoseconds
     private var rejectedSamples = 0
+    private var startNs: Long = 0L
 
     fun start(onResult: (Result) -> Unit) {
         synchronized(lock) {
@@ -54,6 +56,7 @@ class OutputLatencyEstimator(
             ring.clear()
             samples.clear()
             rejectedSamples = 0
+            startNs = nowNs()
             status = Status.Measuring
         }
     }
@@ -109,5 +112,23 @@ class OutputLatencyEstimator(
             if (entry.framesWritten >= framePosition) return entry.writeTimeNs
         }
         return null
+    }
+
+    /**
+     * Check the timeout clock. Call this periodically from any thread that
+     * also calls [recordWrite] / [recordDacTimestamp] (so the same lock
+     * serializes state). When the timeout has elapsed and the session has
+     * not yet converged, fires [Result.TimedOut].
+     */
+    fun tick() {
+        synchronized(lock) {
+            if (status != Status.Measuring) return
+            if (nowNs() - startNs < TIMEOUT_NS) return
+            val result = Result.TimedOut(sampleCount = samples.size)
+            status = Status.TimedOut
+            val cb = onResult
+            onResult = null
+            cb?.invoke(result)
+        }
     }
 }

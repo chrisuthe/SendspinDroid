@@ -139,4 +139,30 @@ class OutputLatencyEstimatorTest {
         assertEquals(null, captured)
         assertEquals(OutputLatencyEstimator.Status.Measuring, est.status)
     }
+
+    @Test
+    fun `times out after 2 seconds with partial sample count`() {
+        var now = 0L
+        var captured: OutputLatencyEstimator.Result? = null
+        val est = OutputLatencyEstimator(nowNs = { now })
+        est.start { captured = it }
+
+        // Feed 10 clean samples over the first 200 ms.
+        repeat(15) { i ->
+            est.recordWrite(framesWritten = (i + 1) * 960L, writeTimeNs = i * 20_000_000L)
+        }
+        for (i in 0 until 10) {
+            est.recordDacTimestamp((i + 1) * 960L, i * 20_000_000L + 50_000_000L)
+        }
+        assertEquals(null, captured)
+
+        // Advance the clock 2.1 s forward and tick.
+        now = 2_100_000_000L
+        est.tick()
+
+        val result = captured as? OutputLatencyEstimator.Result.TimedOut
+        assertNotNull("should have timed out", result)
+        assertEquals(10, result!!.sampleCount)
+        assertEquals(OutputLatencyEstimator.Status.TimedOut, est.status)
+    }
 }
