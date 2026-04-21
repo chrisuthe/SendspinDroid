@@ -2899,6 +2899,9 @@ class PlaybackService : MediaLibraryService() {
             bundle.putInt("reconnect_attempts", client.getReconnectAttempts())
             bundle.putBoolean("clock_frozen", timeFilter.isFrozen)
             bundle.putDouble("static_delay_ms", timeFilter.staticDelayMs)
+            bundle.putDouble("auto_measured_delay_ms", timeFilter.autoMeasuredDelayMs)
+            bundle.putDouble("user_sync_offset_ms", timeFilter.userSyncOffsetMs)
+            bundle.putString("static_delay_source", timeFilter.staticDelaySource.name)
 
             // Connection health telemetry (issue #128). Keys left absent when
             // the underlying value is null so StatsViewModel can distinguish
