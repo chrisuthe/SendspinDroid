@@ -165,4 +165,26 @@ class OutputLatencyEstimatorTest {
         assertEquals(10, result!!.sampleCount)
         assertEquals(OutputLatencyEstimator.Status.TimedOut, est.status)
     }
+
+    @Test
+    fun `cancel() stops firing callbacks even if convergence would have happened`() {
+        var callbackCount = 0
+        val est = OutputLatencyEstimator(nowNs = { 0L })
+        est.start { callbackCount++ }
+
+        est.cancel()
+        assertEquals(OutputLatencyEstimator.Status.Cancelled, est.status)
+
+        // Feed enough samples that it would normally converge.
+        repeat(30) { i ->
+            est.recordWrite(framesWritten = (i + 1) * 960L, writeTimeNs = i * 20_000_000L)
+        }
+        for (i in 0 until 20) {
+            val frame = (i + 1) * 960L
+            est.recordDacTimestamp(frame, i * 20_000_000L + 50_000_000L)
+        }
+
+        assertEquals(0, callbackCount)
+        assertEquals(OutputLatencyEstimator.Status.Cancelled, est.status)
+    }
 }

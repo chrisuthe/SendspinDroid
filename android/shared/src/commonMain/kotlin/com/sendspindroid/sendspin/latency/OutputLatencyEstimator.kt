@@ -62,7 +62,11 @@ class OutputLatencyEstimator(
     }
 
     fun cancel() {
-        TODO("Task 7")
+        synchronized(lock) {
+            if (status != Status.Measuring) return
+            status = Status.Cancelled
+            onResult = null
+        }
     }
 
     fun recordWrite(framesWritten: Long, writeTimeNs: Long) {
