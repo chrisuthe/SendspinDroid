@@ -11,7 +11,7 @@ import com.sendspindroid.shared.log.Log
  * | Network       | Priority Order            | Rationale                          |
  * |---------------|---------------------------|------------------------------------|
  * | WiFi/Ethernet | Local -> Proxy -> Remote    | Local has lowest latency           |
- * | Cellular      | Proxy -> Remote            | Skip local (not on LAN)            |
+ * | Cellular      | Proxy -> Remote -> Local    | Local last as fallback for public hosts |
  * | VPN           | Proxy -> Remote -> Local    | VPN may route home, proxy preferred|
  * | Unknown       | Proxy -> Remote -> Local    | Can't determine network, proxy safest|
  *
@@ -110,10 +110,15 @@ object ConnectionSelector {
                 ConnectionType.REMOTE
             )
 
-            // Cellular: Skip local (not on LAN), prefer proxy over WebRTC
+            // Cellular: Proxy first (direct, usually fastest on cellular), then Remote
+            // (WebRTC signaling), then Local last. Local is included because users may
+            // configure a publicly-routable hostname (AAAA, public IP, dyndns) as their
+            // "local" address - those work over cellular even though mDNS-discovered
+            // LAN servers don't. A doomed attempt to a LAN-only server times out fast.
             TransportType.CELLULAR -> listOf(
                 ConnectionType.PROXY,
-                ConnectionType.REMOTE
+                ConnectionType.REMOTE,
+                ConnectionType.LOCAL
             )
 
             // VPN: Proxy first (VPN might tunnel to home network)
@@ -130,14 +135,6 @@ object ConnectionSelector {
                 ConnectionType.LOCAL
             )
         }
-    }
-
-    /**
-     * Checks if local connections should be attempted on the current network.
-     * Returns false for cellular networks where local connections won't work.
-     */
-    fun shouldAttemptLocal(transportType: TransportType): Boolean {
-        return transportType != TransportType.CELLULAR
     }
 
     /**

@@ -38,6 +38,7 @@ import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.SSLHandshakeException
 
 /**
@@ -81,6 +82,12 @@ class SendSpinClient(
         private const val INITIAL_RECONNECT_DELAY_MS = 500L // 500ms (was 1s)
         private const val MAX_RECONNECT_DELAY_MS = 10000L // 10 seconds (was 30s)
         private const val HIGH_POWER_RECONNECT_DELAY_MS = 30_000L // 30s steady-state for high power mode
+
+        // Stall watchdog: while connected+handshake-complete, if no bytes arrive for
+        // this long, force-close the transport so the existing reconnect path kicks in.
+        // Shorter than Ktor's 30s ping-timeout to beat buffer drain.
+        private const val STALL_TIMEOUT_MS = 7_000L
+        private const val STALL_CHECK_INTERVAL_MS = 3_000L
 
     }
 
@@ -175,6 +182,17 @@ class SendSpinClient(
     private val networkAvailable = AtomicBoolean(true)
     private val waitingForNetwork = AtomicBoolean(false)
 
+    // Stall watchdog state. lastByteReceivedAtMs is updated on EVERY text/binary
+    // message from the transport. stallWatchdogJob is the polling coroutine.
+    private val lastByteReceivedAtMs = AtomicLong(System.currentTimeMillis())
+    @Volatile
+    private var stallWatchdogJob: Job? = null
+
+    // True while a server-announced audio stream is active. The stall watchdog
+    // only trips while streaming - during idle (no stream) the server may send
+    // nothing for long periods, which would cause false-positive stalls.
+    private val streamActive = AtomicBoolean(false)
+
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
@@ -245,6 +263,8 @@ class SendSpinClient(
         }
 
         callback.onConnected(serverName)
+        streamActive.set(false)  // fresh handshake - wait for server to announce stream state
+        startStallWatchdog()  // (re)start watchdog now that we have a live handshake-complete session
     }
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
@@ -276,6 +296,11 @@ class SendSpinClient(
     }
 
     override fun onStreamStart(config: StreamConfig) {
+        streamActive.set(true)
+        // Reset so we don't false-trip from any stale timestamp accumulated while
+        // the stream was inactive (we were not expecting data then).
+        lastByteReceivedAtMs.set(System.currentTimeMillis())
+
         val preferredCodec = UserSettings.getPreferredCodec()
         Log.i(TAG, "Stream started: server chose codec=${config.codec} (we preferred=$preferredCodec)")
         callback.onStreamStart(
@@ -288,10 +313,12 @@ class SendSpinClient(
     }
 
     override fun onStreamClear() {
+        streamActive.set(false)
         callback.onStreamClear()
     }
 
     override fun onStreamEnd() {
+        streamActive.set(false)
         callback.onStreamEnd()
     }
 
@@ -601,9 +628,48 @@ class SendSpinClient(
     }
 
     /**
+     * Disconnect from the current server for reasons that should trigger an
+     * upward auto-reconnect, such as the underlying network transport type
+     * changing (WiFi -> Cellular). Unlike [disconnect], this does NOT set
+     * [userInitiatedDisconnect]. Fires `onDisconnected(wasUserInitiated=false,
+     * wasReconnectExhausted=false)`, which MainActivity's STATE_DISCONNECTED
+     * handler interprets as "start AutoReconnectManager" -- the outer reconnect
+     * loop re-runs `ConnectionSelector` fresh and picks the right mode for
+     * whatever network we are on now.
+     *
+     * The reason for existing: [disconnect] is a user action (tap 'Switch Server'
+     * etc.) and explicitly suppresses auto-reconnect. We want the opposite here:
+     * the user did nothing wrong, the network changed out from under us, and the
+     * inner reconnect loop is going to spin forever on the wrong mode. Yield
+     * cleanly and let the outer loop re-select.
+     */
+    fun disconnectForReselection() {
+        stopStallWatchdog()
+        Log.i(TAG, "Disconnecting for reselection (transport-type change)")
+
+        // Cancel any pending reconnect coroutine to prevent races
+        reconnectJob?.cancel()
+        reconnectJob = null
+
+        stopTimeSync()
+        reconnecting.set(false)
+        waitingForNetwork.set(false)
+        sendGoodbye("network_type_changed")
+        // Clear the transport listener BEFORE closing to prevent the async onClosed
+        // callback from firing a second onDisconnected after we fire one synchronously below.
+        transport?.setListener(null)
+        transport?.close(1000, "Reselection")
+        transport = null
+        handshakeComplete = false
+        _connectionState.value = ConnectionState.Disconnected
+        callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
+    }
+
+    /**
      * Disconnect from the current server.
      */
     fun disconnect() {
+        stopStallWatchdog()
         Log.d(TAG, "Disconnecting (user-initiated)")
         userInitiatedDisconnect.set(true)
 
@@ -635,6 +701,7 @@ class SendSpinClient(
      * Clean up resources.
      */
     fun destroy() {
+        stopStallWatchdog()
         stopTimeSync()
         userInitiatedDisconnect.set(true)
 
@@ -678,10 +745,62 @@ class SendSpinClient(
     }
 
     /**
+     * Start the stall watchdog. Called when the connection reaches a state where
+     * we expect data to be flowing. Cancels any previous instance.
+     */
+    private fun startStallWatchdog() {
+        stallWatchdogJob?.cancel()
+        // Reset so we don't false-trip using a stale pre-handshake timestamp
+        lastByteReceivedAtMs.set(System.currentTimeMillis())
+        stallWatchdogJob = scope.launch {
+            while (true) {
+                delay(STALL_CHECK_INTERVAL_MS)
+                checkStall()
+            }
+        }
+    }
+
+    /**
+     * Stop the stall watchdog. Called on disconnect or during reconnect attempts.
+     */
+    private fun stopStallWatchdog() {
+        stallWatchdogJob?.cancel()
+        stallWatchdogJob = null
+    }
+
+    /**
+     * Check whether the transport has gone silent for too long and force-close it
+     * if so. Only acts when the client is connected, handshake is complete, a
+     * stream is active (server has announced stream/start and not stream/stop),
+     * and we are not already in a reconnect cycle. Keeps the watchdog from
+     * false-tripping during idle periods when the server has nothing to send.
+     *
+     * Private for production; reached via reflection from SendSpinClientStallWatchdogTest.
+     */
+    private fun checkStall() {
+        if (userInitiatedDisconnect.get()) return
+        if (reconnecting.get()) return
+        if (!handshakeComplete) return
+        val t = transport ?: return
+        if (!t.isConnected) return
+        // Don't trip during idle - server may send nothing between streams, and
+        // WebSocket pings (which keep the socket alive) don't update lastByteReceivedAtMs.
+        if (!streamActive.get()) return
+
+        val sinceLastByte = System.currentTimeMillis() - lastByteReceivedAtMs.get()
+        if (sinceLastByte > STALL_TIMEOUT_MS) {
+            Log.w(TAG, "Stall watchdog: no data received in ${sinceLastByte}ms (threshold ${STALL_TIMEOUT_MS}ms) - forcing transport close")
+            // 1001 "Going Away" is non-1000 so onClosed path triggers reconnection
+            t.close(1001, "stall watchdog")
+        }
+    }
+
+    /**
      * Attempt reconnection with exponential backoff.
      *
-     * Smart reconnection: if network is unavailable, pauses without consuming attempts.
-     * High Power Mode: infinite retry with 30s steady-state interval.
+     * Exponential backoff for the first 5 attempts (500ms -> 8s), then 30s
+     * steady-state retries forever. Applies in both normal and high-power mode.
+     * If network is unavailable, pauses without consuming an attempt.
      */
     private fun attemptReconnect() {
         val savedServerName = serverName ?: serverAddress ?: remoteId ?: "Unknown"
@@ -710,18 +829,7 @@ class SendSpinClient(
             timeFilter.freeze()
             Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
         }
-
-        // Check attempt limits - high power mode allows infinite retries
-        val maxAttempts = if (UserSettings.highPowerMode) Int.MAX_VALUE else MAX_RECONNECT_ATTEMPTS
-        if (attempts > maxAttempts) {
-            Log.w(TAG, "Max reconnection attempts ($MAX_RECONNECT_ATTEMPTS) reached, giving up")
-            reconnecting.set(false)
-            timeFilter.resetAndDiscard()
-            _connectionState.value = ConnectionState.Error("Connection lost. Please reconnect manually.")
-            callback.onError("Connection lost after $MAX_RECONNECT_ATTEMPTS reconnection attempts")
-            callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-            return
-        }
+        stopStallWatchdog()  // watchdog restarts on next successful handshake via onHandshakeComplete
 
         // If network is unavailable, pause without wasting an attempt
         // setNetworkAvailable(true) will resume via onNetworkAvailable()
@@ -735,16 +843,17 @@ class SendSpinClient(
             return
         }
 
-        // Exponential backoff for first 5 attempts, then steady 30s in high power mode
-        val delayMs = if (UserSettings.highPowerMode && attempts > MAX_RECONNECT_ATTEMPTS) {
+        // Exponential backoff for first 5 attempts, then 30s steady-state forever.
+        // Applies in both normal and high power mode - the user can always disconnect
+        // manually if they're done listening.
+        val delayMs = if (attempts > MAX_RECONNECT_ATTEMPTS) {
             HIGH_POWER_RECONNECT_DELAY_MS
         } else {
             (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
                 .coerceAtMost(MAX_RECONNECT_DELAY_MS)
         }
 
-        val attemptsDisplay = if (UserSettings.highPowerMode) "$attempts" else "$attempts/$MAX_RECONNECT_ATTEMPTS"
-        Log.i(TAG, "Attempting reconnection $attemptsDisplay in ${delayMs}ms")
+        Log.i(TAG, "Attempting reconnection $attempts in ${delayMs}ms")
         reconnecting.set(true)
         _connectionState.value = ConnectionState.Connecting
 
@@ -874,6 +983,7 @@ class SendSpinClient(
         }
 
         override fun onMessage(text: String) {
+            lastByteReceivedAtMs.set(System.currentTimeMillis())
             // Check for auth failure (server may send error if token is invalid)
             if (connectionMode == ConnectionMode.PROXY && !handshakeComplete) {
                 try {
@@ -907,6 +1017,7 @@ class SendSpinClient(
         }
 
         override fun onMessage(bytes: ByteArray) {
+            lastByteReceivedAtMs.set(System.currentTimeMillis())
             handleBinaryMessage(bytes)
         }
 

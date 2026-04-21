@@ -34,6 +34,7 @@ abstract class SendSpinProtocolHandler(
     protected val tag: String
 ) {
     // Protocol state
+    @Volatile
     protected var handshakeComplete = false
     protected var currentVolume: Int = 100
     protected var currentMuted: Boolean = false
@@ -380,6 +381,7 @@ abstract class SendSpinProtocolHandler(
     }
 
     protected fun handleServerCommand(payload: JsonObject?) {
+        Log.i(tag, "[cmd-trace] T1 handleServerCommand ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
         when (val result = MessageParser.parseServerCommand(payload)) {
             is ServerCommandResult.Volume -> {
                 Log.d(tag, "Server command: set volume to ${result.volume}%")
@@ -430,11 +432,13 @@ abstract class SendSpinProtocolHandler(
     }
 
     protected fun handleStreamClear() {
+        Log.i(tag, "[cmd-trace] T1 handleStreamClear ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
         Log.v(tag, "Stream clear - flushing audio buffers")
         onStreamClear()
     }
 
     protected fun handleStreamEnd(payload: JsonObject?) {
+        Log.i(tag, "[cmd-trace] T1 handleStreamEnd ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
         val rolesArray = payload?.get("roles")?.jsonArray
         val roles = rolesArray?.map { it.jsonPrimitive.content }
 

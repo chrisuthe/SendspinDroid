@@ -1,8 +1,8 @@
 package com.sendspindroid.musicassistant.transport
 
+import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.shared.log.Log
 import io.ktor.client.HttpClient
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
@@ -64,19 +64,17 @@ class MaWebSocketTransport(
 
         /**
          * Create a default Ktor HttpClient configured for MA WebSocket connections.
+         *
+         * Delegates to the platform-specific [createWebSocketHttpClient] — see that
+         * function's docs for why Ktor's `pingIntervalMillis` alone is insufficient.
          */
         fun createDefaultClient(
             pingIntervalSeconds: Long = 30,
             connectTimeoutMs: Long = 15000
-        ): HttpClient = HttpClient {
-            install(WebSockets) {
-                pingIntervalMillis = pingIntervalSeconds * 1000
-            }
-            install(io.ktor.client.plugins.HttpTimeout) {
-                connectTimeoutMillis = connectTimeoutMs
-                socketTimeoutMillis = Long.MAX_VALUE
-            }
-        }
+        ): HttpClient = com.sendspindroid.sendspin.transport.createWebSocketHttpClient(
+            pingIntervalSeconds,
+            connectTimeoutMs,
+        )
     }
 
     private val _state = MutableStateFlow<MaApiTransport.State>(MaApiTransport.State.Disconnected)
@@ -472,7 +470,7 @@ class MaWebSocketTransport(
             url.startsWith("ws://") || url.startsWith("wss://") -> url
             url.startsWith("https://") -> url.replaceFirst("https://", "wss://")
             url.startsWith("http://") -> url.replaceFirst("http://", "ws://")
-            else -> "ws://$url"
+            else -> WebSocketUrlBuilder.build(url, path = "")
         }
     }
 }

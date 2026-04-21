@@ -189,28 +189,33 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
     }
 
     @Test
-    fun `max reconnect attempts reached triggers exhausted callback`() {
+    fun `reconnect beyond old 5-attempt cap keeps retrying in normal mode`() {
+        // The 5-attempt cap was removed: both normal and high power mode now
+        // retry forever with 30s steady-state after attempt 5. There is no
+        // exhausted-callback path any more -- the user has to disconnect
+        // manually (or the reconnect succeeds) to exit reconnection state.
         connectAndHandshake()
 
-        // Manually set attempt counter near max
+        // Start past the old cap
         setAtomicInteger(client, "reconnectAttempts", 5)
 
-        // Trigger one more reconnection - should exceed max (5)
+        // Trigger another reconnection - in the old code this would exhaust
         fakeTransport.simulateFailure(
             error = SocketException("Connection reset"),
             isRecoverable = true
         )
 
-        // Should report exhausted reconnection
-        verify {
+        // Must NOT report exhausted reconnection any more
+        verify(exactly = 0) {
             mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
         }
 
-        // Connection state should be Error
+        // Should still be reconnecting, not in Error state
+        verify { mockCallback.onReconnecting(any(), any()) }
         val state = client.connectionState.value
         assertTrue(
-            "State should be Error after exhausting reconnection attempts",
-            state is SendSpinClient.ConnectionState.Error
+            "State should remain Connecting with no cap, was: $state",
+            state is SendSpinClient.ConnectionState.Connecting
         )
     }
 

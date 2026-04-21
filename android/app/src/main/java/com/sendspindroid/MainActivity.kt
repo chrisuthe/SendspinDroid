@@ -208,6 +208,18 @@ class MainActivity : AppCompatActivity() {
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    // Tracks NET_CAPABILITY_VALIDATED transitions on the Activity's network callback
+    // so we can surface a "no internet access" snackbar when WiFi is associated but
+    // has no upstream (captive portal, walked out of range, DNS hijack). The
+    // PlaybackService callback owns the actual reconnect-pause side effect; this
+    // field is UI-only.
+    //
+    // @Volatile: written from a binder thread (NetworkCallback) and read from the
+    // main looper via runOnUiThread. Null means "no prior state" -- first callback,
+    // no transition to compare against yet.
+    @Volatile
+    private var lastActivityValidatedState: Boolean? = null
+
     // Volume control - uses device STREAM_MUSIC (Spotify-style)
     private val audioManager by lazy {
         getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -1225,10 +1237,31 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                // Network type may have changed (WiFi ↔ cellular) - notify pinger
+                // Network type may have changed (WiFi <-> cellular) - notify pinger
                 // This triggers re-evaluation of connection priority
                 networkEvaluator?.evaluateCurrentNetwork(network)
                 defaultServerPinger?.onNetworkChanged()
+
+                // Detect NET_CAPABILITY_VALIDATED dropping. Android can keep INTERNET
+                // set while removing VALIDATED (captive portal, out of WiFi range with
+                // association still up, etc.), in which case onLost() never fires and
+                // the user would see no UI feedback. PlaybackService handles the
+                // reconnect-pause side effect in its own callback; here we just show
+                // the snackbar if the user is connected or actively connecting.
+                val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                if (lastActivityValidatedState == true && !isValidated) {
+                    Log.w(TAG, "Activity: network lost VALIDATED")
+                    runOnUiThread {
+                        if (connectionState is AppConnectionState.Connected ||
+                            connectionState is AppConnectionState.Connecting) {
+                            showErrorSnackbar(
+                                message = "Network has no internet access",
+                                errorType = ErrorType.NETWORK
+                            )
+                        }
+                    }
+                }
+                lastActivityValidatedState = isValidated
             }
 
             override fun onLost(network: Network) {
