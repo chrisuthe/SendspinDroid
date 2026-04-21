@@ -206,7 +206,13 @@ class SendSpinClient(
 
     // Stall watchdog state. lastByteReceivedAtMs is updated on EVERY text/binary
     // message from the transport. stallWatchdogJob is the polling coroutine.
+    // watchdogLock serializes the cancel+reassign dance in startStallWatchdog /
+    // stopStallWatchdog so a concurrent start-from-WS-thread + stop-from-main
+    // cannot orphan a job or leave the field pointing at a running watchdog
+    // that the caller believed was stopped. @Volatile is still needed for any
+    // reader that observes the field without taking the lock.
     private val lastByteReceivedAtMs = AtomicLong(System.currentTimeMillis())
+    private val watchdogLock = Any()
     @Volatile
     private var stallWatchdogJob: Job? = null
 
@@ -574,6 +580,11 @@ class SendSpinClient(
         serverAddress = address
         serverPath = normalizedPath
         remoteId = null
+        // Clear any stale PROXY credential so it can't be observed after a
+        // mode transition. createLocalTransport doesn't use it, but leaving a
+        // valid token in the field across modes is a code smell and a future
+        // footgun if any new reader forgets to re-check connectionMode.
+        authToken = null
 
         createLocalTransport(address, normalizedPath)
     }
@@ -596,6 +607,8 @@ class SendSpinClient(
         this.remoteId = remoteId
         serverAddress = null
         serverPath = null
+        // Clear any stale PROXY credential; see connectLocal for rationale.
+        authToken = null
 
         createRemoteTransport(remoteId)
     }
@@ -805,13 +818,14 @@ class SendSpinClient(
     fun destroy() {
         stopStallWatchdog()
         stopTimeSync()
-        userInitiatedDisconnect.set(true)
 
         // Cancel any pending reconnect coroutine
         reconnectJob?.cancel()
         reconnectJob = null
 
         reconnecting.set(false)
+        // disconnect() sets userInitiatedDisconnect unconditionally; no need
+        // to pre-set it here.
         disconnect()
     }
 
@@ -849,25 +863,35 @@ class SendSpinClient(
     /**
      * Start the stall watchdog. Called when the connection reaches a state where
      * we expect data to be flowing. Cancels any previous instance.
+     *
+     * Serialized against [stopStallWatchdog] via [watchdogLock]: the cancel +
+     * reassign pair must be atomic so a concurrent stop() cannot null the
+     * field after this method launches a new job (which would leave the new
+     * job orphaned and running).
      */
     private fun startStallWatchdog() {
-        stallWatchdogJob?.cancel()
-        // Reset so we don't false-trip using a stale pre-handshake timestamp
-        lastByteReceivedAtMs.set(System.currentTimeMillis())
-        stallWatchdogJob = scope.launch {
-            while (true) {
-                delay(STALL_CHECK_INTERVAL_MS)
-                checkStall()
+        synchronized(watchdogLock) {
+            stallWatchdogJob?.cancel()
+            // Reset so we don't false-trip using a stale pre-handshake timestamp
+            lastByteReceivedAtMs.set(System.currentTimeMillis())
+            stallWatchdogJob = scope.launch {
+                while (true) {
+                    delay(STALL_CHECK_INTERVAL_MS)
+                    checkStall()
+                }
             }
         }
     }
 
     /**
      * Stop the stall watchdog. Called on disconnect or during reconnect attempts.
+     * Serialized against [startStallWatchdog] via [watchdogLock].
      */
     private fun stopStallWatchdog() {
-        stallWatchdogJob?.cancel()
-        stallWatchdogJob = null
+        synchronized(watchdogLock) {
+            stallWatchdogJob?.cancel()
+            stallWatchdogJob = null
+        }
     }
 
     /**
