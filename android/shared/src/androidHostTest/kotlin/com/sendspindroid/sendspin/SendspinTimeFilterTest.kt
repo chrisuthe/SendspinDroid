@@ -1,5 +1,6 @@
 package com.sendspindroid.sendspin
 
+import com.sendspindroid.sendspin.latency.StaticDelaySource
 import com.sendspindroid.shared.log.Log
 import io.mockk.every
 import io.mockk.mockkObject
@@ -171,7 +172,7 @@ class SendspinTimeFilterTest {
         val serverTime = 100_000_000L
         val withoutDelay = filter.serverToClient(serverTime)
 
-        filter.staticDelayMs = 5.0 // 5ms = 5000us
+        filter.setUserSyncOffsetMs(5.0) // 5ms = 5000us
         val withDelay = filter.serverToClient(serverTime)
 
         // Positive delay = play later = higher client time
@@ -180,7 +181,7 @@ class SendspinTimeFilterTest {
 
     @Test
     fun staticDelayMs_getterReturnsSetValue() {
-        filter.staticDelayMs = 10.5
+        filter.setUserSyncOffsetMs(10.5)
         assertEquals(10.5, filter.staticDelayMs, 0.01)
     }
 
@@ -496,6 +497,36 @@ class SendspinTimeFilterTest {
         reader.join(5000)
 
         assertFalse("Concurrent reset and read should not cause exceptions", failed.get())
+    }
+
+    // --- Static delay split: auto-measured + user sync offset ---
+
+    @Test
+    fun `staticDelayMs returns sum of auto-measured and user sync offset`() {
+        val f = SendspinTimeFilter()
+        f.setUserSyncOffsetMs(30.0)
+        f.setAutoMeasuredDelayMicros(50_000L, StaticDelaySource.AUTO)
+        assertEquals(80.0, f.staticDelayMs, 0.0001)
+    }
+
+    @Test
+    fun `user and auto-measured writes do not clobber each other`() {
+        val f = SendspinTimeFilter()
+        f.setAutoMeasuredDelayMicros(100_000L, StaticDelaySource.AUTO)
+        f.setUserSyncOffsetMs(25.0)
+        assertEquals(125.0, f.staticDelayMs, 0.0001)
+        assertEquals(StaticDelaySource.USER, f.staticDelaySource)  // Most recent writer
+
+        f.setAutoMeasuredDelayMicros(0L, StaticDelaySource.NONE)
+        assertEquals(25.0, f.staticDelayMs, 0.0001)
+    }
+
+    @Test
+    fun `server sync_offset writes route to user field with SERVER source`() {
+        val f = SendspinTimeFilter()
+        f.setServerSyncOffsetMs(-40.0)
+        assertEquals(-40.0, f.staticDelayMs, 0.0001)
+        assertEquals(StaticDelaySource.SERVER, f.staticDelaySource)
     }
 
     @Test
