@@ -25,6 +25,7 @@ class OutputLatencyEstimator(
         // bug, > 1 s = pathological device or Bluetooth routing. Don't poison
         // the mean with these.
         const val MAX_REASONABLE_LATENCY_NS = 1_000_000_000L  // 1 second
+        const val CONVERGENCE_SAMPLE_COUNT = 20
     }
 
     enum class Status { Idle, Measuring, Converged, TimedOut, Cancelled }
@@ -82,7 +83,18 @@ class OutputLatencyEstimator(
                 return
             }
             samples.addLast(latencyNs)
-            // Convergence trigger lands in Task 4.
+            if (samples.size >= CONVERGENCE_SAMPLE_COUNT) {
+                val sum = samples.sum()
+                val meanNs = sum / samples.size
+                val result = Result.Converged(
+                    latencyMicros = meanNs / 1_000,
+                    sampleCount = samples.size,
+                )
+                status = Status.Converged
+                val cb = onResult
+                onResult = null
+                cb?.invoke(result)
+            }
         }
     }
 

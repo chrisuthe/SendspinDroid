@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.latency
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 class OutputLatencyEstimatorTest {
@@ -57,5 +58,34 @@ class OutputLatencyEstimatorTest {
         // Asking about frame 960 should be dropped (no throw, no crash, no sample).
         est.recordDacTimestamp(framePosition = 960L, dacTimeNs = 100_000_000L)
         // Implicit assertion: no exception thrown.
+    }
+
+    @Test
+    fun `converges on exactly 20 accepted samples with arithmetic mean`() {
+        var captured: OutputLatencyEstimator.Result? = null
+        val est = OutputLatencyEstimator(nowNs = { 0L })
+        est.start { captured = it }
+
+        // Seed the ring with 25 writes so every DAC frame has a lookup.
+        repeat(25) { i ->
+            est.recordWrite(framesWritten = (i + 1) * 960L, writeTimeNs = i * 20_000_000L)
+        }
+
+        // Emit 20 DAC samples. For sample i, DAC reports frame (i+1)*960, DAC time
+        // is (write time for that frame) + latency_ns. Vary latency so the mean
+        // is testable: use 80ms for all 20 -> mean is 80ms -> 80000us.
+        val latencyNs = 80_000_000L
+        for (i in 0 until 20) {
+            val frame = (i + 1) * 960L
+            val writeTimeNs = i * 20_000_000L
+            est.recordDacTimestamp(framePosition = frame, dacTimeNs = writeTimeNs + latencyNs)
+        }
+
+        val result = captured
+        assertNotNull("should have converged after 20 samples", result)
+        result as OutputLatencyEstimator.Result.Converged
+        assertEquals(80_000L, result.latencyMicros)
+        assertEquals(20, result.sampleCount)
+        assertEquals(OutputLatencyEstimator.Status.Converged, est.status)
     }
 }
