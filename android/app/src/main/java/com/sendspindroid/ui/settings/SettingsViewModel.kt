@@ -35,8 +35,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         private const val DEBUG_STATS_UPDATE_INTERVAL_MS = 2000L
 
         // Broadcast actions
-        const val ACTION_DEBUG_LOGGING_CHANGED = "com.sendspindroid.ACTION_DEBUG_LOGGING_CHANGED"
-        const val EXTRA_DEBUG_LOGGING_ENABLED = "debug_logging_enabled"
+        const val ACTION_LOG_LEVEL_CHANGED = "com.sendspindroid.ACTION_LOG_LEVEL_CHANGED"
+        const val EXTRA_LOG_LEVEL = "log_level"
         const val ACTION_HIGH_POWER_MODE_CHANGED = "com.sendspindroid.ACTION_HIGH_POWER_MODE_CHANGED"
         const val EXTRA_HIGH_POWER_MODE_ENABLED = "high_power_mode_enabled"
     }
@@ -246,9 +246,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _debugSampleCount.value = 0
         }
 
-        // Broadcast to PlaybackService
-        val intent = Intent(ACTION_DEBUG_LOGGING_CHANGED).apply {
-            putExtra(EXTRA_DEBUG_LOGGING_ENABLED, enabled)
+        // Broadcast to PlaybackService (string extra; boolean -> "DEBUG"/"OFF" mapping)
+        val intent = Intent(ACTION_LOG_LEVEL_CHANGED).apply {
+            putExtra(EXTRA_LOG_LEVEL, if (enabled) "DEBUG" else "OFF")
         }
         LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
     }
