@@ -89,6 +89,20 @@ class SendSpinClient(
         private const val STALL_TIMEOUT_MS = 7_000L
         private const val STALL_CHECK_INTERVAL_MS = 3_000L
 
+        // Idle-mode stall threshold. Larger than the streaming threshold because during
+        // idle the only regular server->client traffic is server/time responses to our
+        // TimeSyncManager bursts. Burst cadence is 500ms-3s once converged, so ~9s is
+        // the worst-case natural silence; 20s gives 2x headroom while still catching
+        // server death with headroom for reconnect + resync inside the ~30s audio buffer.
+        // Issue #127.
+        private const val IDLE_STALL_TIMEOUT_MS = 20_000L
+
+        // After this many consecutive LOCAL-mode reconnect failures in a row, switch
+        // internally to PROXY if a fallback was configured via setProxyFallback().
+        // Prevents indefinite retry of a dead LAN address when the server is no longer
+        // reachable on this network. Issue #126.
+        private const val LOCAL_RECONNECT_FALLBACK_THRESHOLD = 3
+
     }
 
     /**
@@ -164,6 +178,13 @@ class SendSpinClient(
     // Proxy authentication state
     private var authToken: String? = null
     private var awaitingAuthResponse = false
+
+    // Optional PROXY fallback config. When set and the client is reconnecting in
+    // LOCAL mode after [LOCAL_RECONNECT_FALLBACK_THRESHOLD] consecutive failures,
+    // the client switches internally to PROXY using these values instead of
+    // continuing to retry a dead LAN address. See setProxyFallback(). Issue #126.
+    private var proxyFallbackUrl: String? = null
+    private var proxyFallbackAuthToken: String? = null
 
     // Client identity - persisted across app launches
     private val clientId = UserSettings.getPlayerId()
@@ -449,6 +470,23 @@ class SendSpinClient(
      */
     fun connect(address: String, path: String = SendSpinProtocol.ENDPOINT_PATH) {
         connectLocal(address, path)
+    }
+
+    /**
+     * Configure a PROXY fallback for LOCAL mode. When set, the client will switch
+     * internally to PROXY after [LOCAL_RECONNECT_FALLBACK_THRESHOLD] consecutive
+     * LOCAL-mode reconnect failures, instead of retrying the dead LAN address
+     * indefinitely. Closes the "moved off LAN but saved LOCAL address is still
+     * being tried" gap from issue #126.
+     *
+     * Call with (null, null) to clear (e.g., when switching servers, or when
+     * connecting to a server that has no PROXY configured).
+     *
+     * Safe to call at any time; takes effect on the next reconnect cycle.
+     */
+    fun setProxyFallback(url: String?, authToken: String?) {
+        proxyFallbackUrl = url
+        proxyFallbackAuthToken = authToken
     }
 
     /**
@@ -770,10 +808,16 @@ class SendSpinClient(
 
     /**
      * Check whether the transport has gone silent for too long and force-close it
-     * if so. Only acts when the client is connected, handshake is complete, a
-     * stream is active (server has announced stream/start and not stream/stop),
-     * and we are not already in a reconnect cycle. Keeps the watchdog from
-     * false-tripping during idle periods when the server has nothing to send.
+     * if so. Only acts when the client is connected, handshake is complete, and we
+     * are not already in a reconnect cycle.
+     *
+     * Uses a two-tier threshold: [STALL_TIMEOUT_MS] while a stream is active (audio
+     * frames should arrive continuously), and [IDLE_STALL_TIMEOUT_MS] when idle
+     * (only regular traffic is server/time responses to our TimeSyncManager bursts).
+     * The idle threshold catches server death during kiosk/dashboard-style
+     * deployments where music is rarely flowing -- without it, detection relied on
+     * OkHttp's 30s ping timeout alone which consumes the entire audio buffer.
+     * Issue #127.
      *
      * Private for production; reached via reflection from SendSpinClientStallWatchdogTest.
      */
@@ -783,15 +827,15 @@ class SendSpinClient(
         if (!handshakeComplete) return
         val t = transport ?: return
         if (!t.isConnected) return
-        // Don't trip during idle - server may send nothing between streams, and
-        // WebSocket pings (which keep the socket alive) don't update lastByteReceivedAtMs.
-        if (!streamActive.get()) return
 
+        val streaming = streamActive.get()
+        val threshold = if (streaming) STALL_TIMEOUT_MS else IDLE_STALL_TIMEOUT_MS
         val sinceLastByte = System.currentTimeMillis() - lastByteReceivedAtMs.get()
-        if (sinceLastByte > STALL_TIMEOUT_MS) {
-            Log.w(TAG, "Stall watchdog: no data received in ${sinceLastByte}ms (threshold ${STALL_TIMEOUT_MS}ms) - forcing transport close")
+        if (sinceLastByte > threshold) {
+            val mode = if (streaming) "streaming" else "idle"
+            Log.w(TAG, "Stall watchdog: no data received in ${sinceLastByte}ms ($mode threshold ${threshold}ms) - forcing transport close")
             // 1001 "Going Away" is non-1000 so onClosed path triggers reconnection
-            t.close(1001, "stall watchdog")
+            t.close(1001, "stall watchdog ($mode)")
         }
     }
 
@@ -823,6 +867,36 @@ class SendSpinClient(
         }
 
         val attempts = reconnectAttempts.incrementAndGet()
+
+        // LOCAL -> PROXY internal fallback: if LOCAL reconnect has failed
+        // [LOCAL_RECONNECT_FALLBACK_THRESHOLD] times in a row and a PROXY fallback
+        // is configured, switch modes internally instead of retrying a LAN address
+        // that is apparently unreachable on this network. Issue #126.
+        //
+        // Note: we intentionally do NOT call disconnectForReselection() here.
+        // That would trigger MainActivity.startReconnecting -> AutoReconnectManager,
+        // but AutoReconnectManager's performAutoReconnect() returns optimistically
+        // and would re-select LOCAL first, creating an infinite ping-pong. Doing
+        // the mode switch internally keeps this fix self-contained.
+        val fbUrl = proxyFallbackUrl
+        val fbToken = proxyFallbackAuthToken
+        if (connectionMode == ConnectionMode.LOCAL &&
+            attempts > LOCAL_RECONNECT_FALLBACK_THRESHOLD &&
+            !fbUrl.isNullOrBlank() &&
+            !fbToken.isNullOrBlank()) {
+            Log.i(TAG, "LOCAL reconnect failed $attempts times; switching internally to PROXY fallback")
+            connectionMode = ConnectionMode.PROXY
+            serverAddress = fbUrl
+            serverPath = null  // PROXY URL already carries the path; matches connectProxy()
+            authToken = fbToken
+            // Reset so PROXY attempt counting starts fresh (backoff from attempt 1).
+            reconnectAttempts.set(0)
+            // Re-invoke attemptReconnect so the PROXY path goes through the same
+            // freeze/backoff/transport-creation flow. This also re-checks
+            // canReconnect and userInitiatedDisconnect cleanly.
+            attemptReconnect()
+            return
+        }
 
         // On first reconnection attempt, freeze the time filter
         if (attempts == 1) {

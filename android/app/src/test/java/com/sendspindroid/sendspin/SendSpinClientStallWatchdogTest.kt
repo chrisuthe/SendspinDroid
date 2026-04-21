@@ -223,14 +223,15 @@ class SendSpinClientStallWatchdogTest {
     }
 
     @Test
-    fun `checkStall does not close when no stream is active`() {
-        // Seed a stale timestamp that would normally trip the watchdog
+    fun `checkStall does not close during idle when recently active (under idle threshold)`() {
+        // Idle threshold is 20s; 15s stale should NOT trip. Issue #127: idle watchdog
+        // uses a longer threshold than streaming to accommodate TimeSyncManager burst
+        // cadence, but still detects genuine server death well inside the 30s buffer.
         val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
-        atomicLong.set(System.currentTimeMillis() - 60_000L)
+        atomicLong.set(System.currentTimeMillis() - 15_000L)  // 15s stale — under idle threshold
 
-        // Ensure streamActive is false (it defaults to false, but be explicit)
         val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
         streamActiveField.isAccessible = true
         val streamActive = streamActiveField.get(client) as AtomicBoolean
@@ -240,7 +241,51 @@ class SendSpinClientStallWatchdogTest {
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
-        assertFalse("Watchdog should NOT close while no stream is active",
+        assertFalse("Watchdog should NOT close during idle when within the idle threshold",
+            fakeTransport.closeCalled)
+    }
+
+    @Test
+    fun `checkStall closes during idle when past idle threshold`() {
+        // Idle threshold is 20s; 25s stale should trip even with no stream active. Issue #127.
+        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        lastByteField.isAccessible = true
+        val atomicLong = lastByteField.get(client) as AtomicLong
+        atomicLong.set(System.currentTimeMillis() - 25_000L)  // 25s stale — past idle threshold
+
+        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        streamActiveField.isAccessible = true
+        val streamActive = streamActiveField.get(client) as AtomicBoolean
+        streamActive.set(false)
+
+        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        checkStall.isAccessible = true
+        checkStall.invoke(client)
+
+        assertTrue("Watchdog should close during idle when past the 20s idle threshold",
+            fakeTransport.closeCalled)
+        assertNotEquals(1000, fakeTransport.closeCode)
+    }
+
+    @Test
+    fun `checkStall does not close streaming within streaming threshold`() {
+        // Streaming threshold is 7s; 5s stale should NOT trip. Regression guard against
+        // accidental tightening of the streaming threshold.
+        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        lastByteField.isAccessible = true
+        val atomicLong = lastByteField.get(client) as AtomicLong
+        atomicLong.set(System.currentTimeMillis() - 5_000L)  // 5s stale — under streaming threshold
+
+        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        streamActiveField.isAccessible = true
+        val streamActive = streamActiveField.get(client) as AtomicBoolean
+        streamActive.set(true)
+
+        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        checkStall.isAccessible = true
+        checkStall.invoke(client)
+
+        assertFalse("Watchdog should NOT close while streaming within the 7s threshold",
             fakeTransport.closeCalled)
     }
 
