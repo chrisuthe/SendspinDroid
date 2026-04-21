@@ -465,7 +465,7 @@ abstract class SendSpinProtocolHandler(
             Log.w(tag, "client/sync_offset: clamped from ${result.offsetMs}ms to ${clampedOffset}ms")
         }
 
-        getTimeFilter().staticDelayMs = clampedOffset
+        getTimeFilter().setServerSyncOffsetMs(clampedOffset)
         Log.d(tag, "client/sync_offset: static delay set to ${clampedOffset}ms")
 
         onSyncOffsetApplied(clampedOffset, result.source)

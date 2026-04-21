@@ -228,7 +228,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onReceive(context: Context, intent: Intent) {
             val offsetMs = intent.getIntExtra(SyncOffsetPreference.EXTRA_OFFSET_MS, 0)
             sendSpinClient?.getTimeFilter()?.let { timeFilter ->
-                timeFilter.staticDelayMs = offsetMs.toDouble()
+                timeFilter.setUserSyncOffsetMs(offsetMs.toDouble())
                 Log.i(TAG, "Applied sync offset from settings change: ${offsetMs}ms")
             }
         }
@@ -2933,7 +2933,7 @@ class PlaybackService : MediaLibraryService() {
         val offsetMs = com.sendspindroid.UserSettings.getSyncOffsetMs()
         if (offsetMs != 0) {
             sendSpinClient?.getTimeFilter()?.let { timeFilter ->
-                timeFilter.staticDelayMs = offsetMs.toDouble()
+                timeFilter.setUserSyncOffsetMs(offsetMs.toDouble())
                 Log.i(TAG, "Applied manual sync offset from settings: ${offsetMs}ms")
             }
         }
@@ -2946,7 +2946,7 @@ class PlaybackService : MediaLibraryService() {
     fun updateSyncOffset(offsetMs: Int) {
         com.sendspindroid.UserSettings.setSyncOffsetMs(offsetMs)
         sendSpinClient?.getTimeFilter()?.let { timeFilter ->
-            timeFilter.staticDelayMs = offsetMs.toDouble()
+            timeFilter.setUserSyncOffsetMs(offsetMs.toDouble())
             Log.i(TAG, "Updated sync offset to: ${offsetMs}ms")
         }
     }
