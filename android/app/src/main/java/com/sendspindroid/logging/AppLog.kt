@@ -99,6 +99,7 @@ object AppLog {
             .remove(PREF_LEGACY_DEBUG_LOGGING)
             .apply()
 
+        bridge?.stop()
         bridge = LogcatBridge(w, bridgeScope)
         setLevel(resolved)
     }
