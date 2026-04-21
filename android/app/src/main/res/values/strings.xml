@@ -767,6 +767,14 @@
     <string name="stats_state">State</string>
     <string name="stats_codec">Codec</string>
     <string name="stats_reconnects">Reconnects</string>
+    <string name="stats_reconnects_total">Reconnects (lifetime)</string>
+    <string name="stats_last_byte_received">Last Byte Received</string>
+    <string name="stats_stall_watchdog">Stall Watchdog</string>
+    <string name="stats_watchdog_armed">Armed</string>
+    <string name="stats_watchdog_idle">Idle</string>
+    <string name="stats_last_disconnect">Last Disconnect</string>
+    <string name="stats_stability">Filter Stability</string>
+    <string name="stats_convergence_time">Convergence Time</string>
     <string name="stats_type">Type</string>
     <string name="stats_quality">Quality</string>
     <string name="stats_metered">Metered</string>

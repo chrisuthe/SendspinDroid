@@ -2839,6 +2839,17 @@ class PlaybackService : MediaLibraryService() {
             bundle.putInt("reconnect_attempts", client.getReconnectAttempts())
             bundle.putBoolean("clock_frozen", timeFilter.isFrozen)
             bundle.putDouble("static_delay_ms", timeFilter.staticDelayMs)
+
+            // Connection health telemetry (issue #128). Keys left absent when
+            // the underlying value is null so StatsViewModel can distinguish
+            // "no disconnect yet" from "last disconnect was code=0".
+            bundle.putLong("last_byte_received_ago_ms", client.getLastByteReceivedAgoMs())
+            bundle.putBoolean("stall_watchdog_armed", client.isStallWatchdogArmed())
+            bundle.putInt("reconnect_attempts_total", client.getReconnectAttemptsTotal())
+            client.getLastDisconnectCode()?.let { bundle.putInt("last_disconnect_code", it) }
+            client.getLastDisconnectReason()?.let { bundle.putString("last_disconnect_reason", it) }
+            bundle.putDouble("time_filter_stability", timeFilter.stability)
+            bundle.putLong("time_filter_convergence_ms", timeFilter.convergenceTimeMillis)
         }
 
         // Get network stats from NetworkEvaluator

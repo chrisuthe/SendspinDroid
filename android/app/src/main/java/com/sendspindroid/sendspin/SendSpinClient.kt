@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.sendspindroid.UserSettings
+import com.sendspindroid.logging.AppLog
 import com.sendspindroid.remote.WebRTCTransport
 import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
 import com.sendspindroid.sendspin.protocol.GroupInfo
@@ -214,6 +215,17 @@ class SendSpinClient(
     // nothing for long periods, which would cause false-positive stalls.
     private val streamActive = AtomicBoolean(false)
 
+    // -- Connection health telemetry (issue #128). All observational: updated on
+    // event paths that already touch state (handshake-complete, onClosed,
+    // onFailure, attemptReconnect); read by the stats poll and the structured
+    // [disconnect]/[reconnect-ok] log lines. No hot-path cost.
+    private val reconnectAttemptsTotal = AtomicInteger(0)
+    @Volatile private var connectedAtMs: Long? = null
+    @Volatile private var lastDisconnectAtMs: Long? = null
+    @Volatile private var lastDisconnectCode: Int? = null
+    @Volatile private var lastDisconnectReason: String? = null
+    @Volatile private var lastDisconnectMode: ConnectionMode? = null
+
     val isConnected: Boolean
         get() = _connectionState.value is ConnectionState.Connected
 
@@ -221,6 +233,35 @@ class SendSpinClient(
      * Get the number of reconnection attempts since last successful connect.
      */
     fun getReconnectAttempts(): Int = reconnectAttempts.get()
+
+    // -- Connection health accessors (issue #128) --
+
+    /** Milliseconds since the transport last delivered a text or binary frame. */
+    fun getLastByteReceivedAgoMs(): Long =
+        System.currentTimeMillis() - lastByteReceivedAtMs.get()
+
+    /**
+     * True when the stall watchdog would actually evaluate: handshake is
+     * complete, the client isn't mid-reconnect, and the user hasn't asked to
+     * disconnect. Note: this does NOT check `streamActive` -- the watchdog
+     * fires in both streaming (7 s threshold) and idle (20 s threshold) states
+     * per #127, so "armed" means "the watchdog is running and will trip if
+     * the appropriate silence threshold is exceeded."
+     */
+    fun isStallWatchdogArmed(): Boolean =
+        handshakeComplete && !userInitiatedDisconnect.get() && !reconnecting.get()
+
+    /** Lifetime reconnect attempts (survives across sessions within the process). */
+    fun getReconnectAttemptsTotal(): Int = reconnectAttemptsTotal.get()
+
+    /** Most recent close code seen on an abnormal disconnect; null if none. */
+    fun getLastDisconnectCode(): Int? = lastDisconnectCode
+
+    /** Most recent close reason / error message. null if no disconnect yet. */
+    fun getLastDisconnectReason(): String? = lastDisconnectReason
+
+    /** When the current session handshake completed (null if not connected). */
+    fun getConnectedAtMs(): Long? = connectedAtMs
 
     init {
         // Initialize time sync manager with our time filter
@@ -273,12 +314,35 @@ class SendSpinClient(
             Log.i(TAG, "Time filter thawed after reconnection - re-syncing with increased covariance")
         }
 
+        // Capture telemetry for the structured [reconnect-ok] line before resetting
+        // current-cycle counters. Issue #128.
+        val attemptsThisCycle = reconnectAttempts.get()
+        val disconnectAtMs = lastDisconnectAtMs
+
         reconnecting.set(false)
         reconnectAttempts.set(0)
         waitingForNetwork.set(false)
         _connectionState.value = ConnectionState.Connected(serverName)
 
+        // Mark session start for uptime calculation and clear the disconnect marker.
+        // Issue #128.
+        connectedAtMs = System.currentTimeMillis()
+        lastDisconnectAtMs = null
+
         if (wasReconnecting) {
+            // Emit a structured recovery log line so shared on-device logs show
+            // end-to-end reconnect outcomes (disconnect -> handshake complete).
+            // Issue #128.
+            if (disconnectAtMs != null) {
+                val tookSeconds = (System.currentTimeMillis() - disconnectAtMs) / 1000.0
+                AppLog.Network.i(
+                    "[reconnect-ok] took_s=%.1f attempts_this_cycle=%d attempts_total=%d".format(
+                        tookSeconds,
+                        attemptsThisCycle,
+                        reconnectAttemptsTotal.get(),
+                    )
+                )
+            }
             callback.onReconnected()
             Log.i(TAG, "Reconnection successful")
         }
@@ -840,6 +904,55 @@ class SendSpinClient(
     }
 
     /**
+     * Record disconnect state and emit a structured `[disconnect]` log line
+     * consumable by anyone reading the on-device log file shared via Settings.
+     *
+     * Invariants (issue #128):
+     *   * Fires on every disconnect path -- normal, abnormal, pre-handshake, or
+     *     user-initiated. The stats screen's "last disconnect" is informational
+     *     regardless of whether reconnect is scheduled.
+     *   * Uptime is derived from [connectedAtMs] (null -> "preconnect" when
+     *     handshake had not yet completed).
+     *   * Logs at INFO so `AppLog.level = WARN or above` suppresses emission
+     *     without any formatting cost.
+     */
+    private fun recordDisconnectTelemetry(
+        code: Int?,
+        reasonText: String,
+        isNormalClosure: Boolean,
+    ) {
+        val now = System.currentTimeMillis()
+        val connectedAt = connectedAtMs
+
+        // Persist for the stats screen. Keep the "abnormal" flag for Part B's
+        // reconnect-result correlation: lastDisconnectAtMs only gates the
+        // [reconnect-ok] emission on a subsequent handshake complete, not the
+        // user-facing stats, so only set it on abnormal closures that will
+        // actually trigger a retry cycle.
+        lastDisconnectCode = code
+        lastDisconnectReason = reasonText
+        lastDisconnectMode = connectionMode
+        if (!isNormalClosure && !userInitiatedDisconnect.get()) {
+            lastDisconnectAtMs = now
+        }
+
+        // Session ended for uptime purposes regardless of whether we reconnect.
+        connectedAtMs = null
+
+        val codeField = code?.toString() ?: "none"
+        val uptimeField = if (connectedAt != null) {
+            "%.1f".format((now - connectedAt) / 1000.0)
+        } else {
+            "preconnect"
+        }
+        AppLog.Network.i(
+            "[disconnect] code=$codeField reason=${reasonText.ifBlank { "unknown" }} " +
+                "mode=$connectionMode uptime_s=$uptimeField " +
+                "attempts_total=${reconnectAttemptsTotal.get()}"
+        )
+    }
+
+    /**
      * Attempt reconnection with exponential backoff.
      *
      * Exponential backoff for the first 5 attempts (500ms -> 8s), then 30s
@@ -867,6 +980,8 @@ class SendSpinClient(
         }
 
         val attempts = reconnectAttempts.incrementAndGet()
+        // Lifetime counter survives across reconnect cycles. Issue #128.
+        reconnectAttemptsTotal.incrementAndGet()
 
         // LOCAL -> PROXY internal fallback: if LOCAL reconnect has failed
         // [LOCAL_RECONNECT_FALLBACK_THRESHOLD] times in a row and a PROXY fallback
@@ -1124,6 +1239,16 @@ class SendSpinClient(
             // This is NOT an error that should trigger reconnection
             val isNormalClosure = code == 1000
 
+            // Record telemetry for the stats screen + emit the structured [disconnect]
+            // log line. Issue #128. Safe for all paths (normal, abnormal,
+            // user-initiated): the stats screen shows "last disconnect" which is
+            // informational regardless of whether we reconnect.
+            recordDisconnectTelemetry(
+                code = code,
+                reasonText = reason.ifEmpty { "code=$code" },
+                isNormalClosure = isNormalClosure,
+            )
+
             val hasConnectionInfo = when (connectionMode) {
                 ConnectionMode.LOCAL -> serverAddress != null
                 ConnectionMode.REMOTE -> remoteId != null
@@ -1154,6 +1279,15 @@ class SendSpinClient(
 
         override fun onFailure(error: Throwable, isRecoverable: Boolean) {
             Log.e(TAG, "Transport failure", error)
+
+            // Record telemetry for the stats screen + emit the structured [disconnect]
+            // log line. onFailure has no WebSocket close code -- use `null` code and
+            // the error class/message as the reason. Issue #128.
+            recordDisconnectTelemetry(
+                code = null,
+                reasonText = error.message ?: error::class.java.simpleName,
+                isNormalClosure = false,
+            )
 
             val hasConnectionInfo = when (connectionMode) {
                 ConnectionMode.LOCAL -> serverAddress != null
