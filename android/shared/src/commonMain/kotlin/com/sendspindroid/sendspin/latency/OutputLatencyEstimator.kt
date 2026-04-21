@@ -21,6 +21,10 @@ class OutputLatencyEstimator(
 ) {
     companion object {
         const val DEFAULT_RING_CAPACITY = 64
+        // Reject latency samples outside [0, 1_000 ms]. Negative = measurement
+        // bug, > 1 s = pathological device or Bluetooth routing. Don't poison
+        // the mean with these.
+        const val MAX_REASONABLE_LATENCY_NS = 1_000_000_000L  // 1 second
     }
 
     enum class Status { Idle, Measuring, Converged, TimedOut, Cancelled }
@@ -39,12 +43,16 @@ class OutputLatencyEstimator(
     private val lock = Any()
     private var onResult: ((Result) -> Unit)? = null
     private val ring = ArrayDeque<WriteEntry>(DEFAULT_RING_CAPACITY)
+    private val samples = ArrayDeque<Long>()  // latency values in nanoseconds
+    private var rejectedSamples = 0
 
     fun start(onResult: (Result) -> Unit) {
         synchronized(lock) {
             if (status != Status.Idle) return
             this.onResult = onResult
             ring.clear()
+            samples.clear()
+            rejectedSamples = 0
             status = Status.Measuring
         }
     }
@@ -62,6 +70,32 @@ class OutputLatencyEstimator(
     }
 
     fun recordDacTimestamp(framePosition: Long, dacTimeNs: Long) {
-        TODO("Task 3")
+        synchronized(lock) {
+            if (status != Status.Measuring) return
+            val writeTimeNs = lookupWriteTime(framePosition) ?: run {
+                rejectedSamples++
+                return
+            }
+            val latencyNs = dacTimeNs - writeTimeNs
+            if (latencyNs <= 0 || latencyNs > MAX_REASONABLE_LATENCY_NS) {
+                rejectedSamples++
+                return
+            }
+            samples.addLast(latencyNs)
+            // Convergence trigger lands in Task 4.
+        }
+    }
+
+    /**
+     * Linear scan for the write entry whose `framesWritten` is >= the query
+     * frame — i.e., the earliest write that contains the requested frame.
+     * Returns its `writeTimeNs`, or null if the frame is older than the
+     * oldest entry in the ring.
+     */
+    private fun lookupWriteTime(framePosition: Long): Long? {
+        for (entry in ring) {
+            if (entry.framesWritten >= framePosition) return entry.writeTimeNs
+        }
+        return null
     }
 }
