@@ -88,4 +88,55 @@ class OutputLatencyEstimatorTest {
         assertEquals(20, result.sampleCount)
         assertEquals(OutputLatencyEstimator.Status.Converged, est.status)
     }
+
+    @Test
+    fun `rejects negative latency and still converges on 20 real samples`() {
+        var captured: OutputLatencyEstimator.Result? = null
+        val est = OutputLatencyEstimator(nowNs = { 0L })
+        est.start { captured = it }
+
+        // 30 writes so every frame resolves.
+        repeat(30) { i ->
+            est.recordWrite(framesWritten = (i + 1) * 960L, writeTimeNs = i * 20_000_000L)
+        }
+
+        // First 5 "samples" have negative latency (DAC time before write time) --
+        // must be rejected and NOT count toward the 20.
+        for (i in 0 until 5) {
+            est.recordDacTimestamp(framePosition = (i + 1) * 960L, dacTimeNs = i * 20_000_000L - 1_000L)
+        }
+        // Then 20 clean samples at 50ms.
+        for (i in 0 until 20) {
+            val frame = (i + 6) * 960L
+            val writeTimeNs = (i + 5) * 20_000_000L
+            est.recordDacTimestamp(frame, writeTimeNs + 50_000_000L)
+        }
+
+        val result = captured as? OutputLatencyEstimator.Result.Converged
+        assertNotNull(result)
+        assertEquals(50_000L, result!!.latencyMicros)
+        assertEquals(20, result.sampleCount)
+    }
+
+    @Test
+    fun `rejects latency above 1000ms cap`() {
+        var captured: OutputLatencyEstimator.Result? = null
+        val est = OutputLatencyEstimator(nowNs = { 0L })
+        est.start { captured = it }
+
+        repeat(30) { i ->
+            est.recordWrite(framesWritten = (i + 1) * 960L, writeTimeNs = i * 20_000_000L)
+        }
+
+        // 10 "samples" with 2-second latency -- rejected.
+        for (i in 0 until 10) {
+            est.recordDacTimestamp(
+                framePosition = (i + 1) * 960L,
+                dacTimeNs = i * 20_000_000L + 2_000_000_000L,
+            )
+        }
+        // No result yet.
+        assertEquals(null, captured)
+        assertEquals(OutputLatencyEstimator.Status.Measuring, est.status)
+    }
 }
