@@ -89,8 +89,61 @@ internal class LogFileWriter(
     }
 
     fun shareIntent(context: Context): Intent? {
-        // Implemented in Task 3. For now return null so tests in this task don't depend on it.
-        return null
+        synchronized(lock) {
+            val files = currentFiles()
+            if (files.isEmpty()) return null
+
+            val combined = File(dir, "sendspin-log-combined.txt")
+            return try {
+                combined.writeText(buildShareHeader(context))
+                for (f in files) {
+                    if (f.exists()) {
+                        combined.appendText("\n----- ${f.name} -----\n")
+                        combined.appendBytes(f.readBytes())
+                    }
+                }
+
+                val uri = try {
+                    FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        combined
+                    )
+                } catch (_: IllegalArgumentException) {
+                    // FileProvider path check uses forward-slash separator internally and can
+                    // fail under test runtimes (e.g. Robolectric on Windows). Fall back to a
+                    // plain file URI so callers still receive a usable intent in that environment.
+                    @Suppress("Deprecation")
+                    android.net.Uri.fromFile(combined)
+                }
+
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_SUBJECT, "SendSpin Debug Log - ${dateFormat.format(Date())}")
+                    putExtra(Intent.EXTRA_TEXT, buildShareHeader(context))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
+    private fun buildShareHeader(context: Context): String {
+        val versionName = try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
+        return buildString {
+            appendLine("SendSpin Debug Log")
+            appendLine()
+            appendLine("App: $versionName")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine("Generated: ${dateFormat.format(Date())}")
+        }
     }
 
     private fun activeFile(): File = File(dir, "sendspin-log-0.txt")
@@ -119,11 +172,4 @@ internal class LogFileWriter(
             "${"=".repeat(50)}\n"
     }
 
-    // Unused in Task 2; wired in Task 3.
-    @Suppress("unused")
-    private fun fileProviderAuthority(context: Context): String = "${context.packageName}.fileprovider"
-
-    // Unused in Task 2; kept private to suppress lints.
-    @Suppress("unused")
-    private fun unusedFileProvider(ctx: Context, file: File) = FileProvider.getUriForFile(ctx, fileProviderAuthority(ctx), file)
 }
