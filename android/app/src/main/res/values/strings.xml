@@ -238,7 +238,7 @@
     <string name="pref_clear_logs_summary">Delete all stored log files</string>
     <string name="pref_export_logs_title">Export Debug Logs</string>
     <string name="pref_export_logs_summary">Share collected sync data for troubleshooting</string>
-    <string name="pref_export_logs_summary_empty">No logs collected yet - enable debug logging first</string>
+    <string name="pref_export_logs_summary_empty">No logs collected yet - set a log level above</string>
     <string name="debug_share_chooser_title">Share Debug Log</string>
     <string name="debug_log_exported">Debug log exported</string>
     <string name="debug_log_export_failed">Failed to export debug log</string>

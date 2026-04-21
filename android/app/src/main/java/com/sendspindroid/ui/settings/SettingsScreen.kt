@@ -302,19 +302,19 @@ fun SettingsScreen(
 
             TextPreference(
                 title = stringResource(R.string.pref_export_logs_title),
-                summary = if (logFileStats.first > 0) {
+                summary = if (logFileStats.second > 0) {
                     stringResource(R.string.pref_export_logs_summary)
                 } else {
                     stringResource(R.string.pref_export_logs_summary_empty)
                 },
-                enabled = logFileStats.first > 0,
+                enabled = logFileStats.second > 0,
                 onClick = onExportLogs
             )
 
             TextPreference(
                 title = stringResource(R.string.pref_clear_logs_title),
                 summary = stringResource(R.string.pref_clear_logs_summary),
-                enabled = logFileStats.first > 0,
+                enabled = logFileStats.second > 0,
                 onClick = { viewModel.clearLogs() }
             )
 
