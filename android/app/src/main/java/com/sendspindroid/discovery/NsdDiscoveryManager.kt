@@ -373,6 +373,21 @@ class NsdDiscoveryManager(
     }
 
     /**
+     * Re-acquires the multicast lock if discovery is currently active. Intended
+     * to be called from a network link-properties-changed callback (DHCP renewal
+     * on the same AP, IPv4/IPv6 stack swap, etc.) where the existing lock may
+     * have been silently invalidated by the interface flapping.
+     *
+     * Safe no-op when discovery is not running. Issue #130.
+     */
+    fun refreshMulticastLockIfActive() {
+        if (!isDiscovering) return
+        Log.i(TAG, "Refreshing multicast lock after network link change")
+        releaseMulticastLock()
+        acquireMulticastLock()
+    }
+
+    /**
      * Converts NSD error codes to human-readable strings.
      */
     private fun nsdErrorToString(errorCode: Int): String = when (errorCode) {
