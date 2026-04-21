@@ -14,6 +14,8 @@ import android.provider.Settings
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
+import android.net.LinkAddress
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
@@ -346,6 +348,19 @@ class PlaybackService : MediaLibraryService() {
     private var lastNetworkId: Int = -1
     private var networkEvaluator: NetworkEvaluator? = null
 
+    // Link-addresses tracking for detecting meaningful link-property changes
+    // (DHCP renewal on same AP, IPv4/IPv6 stack swap) that don't come through
+    // onAvailable because the Network identity is unchanged. The address set
+    // is the minimal high-signal indicator -- DNS reorders and MTU changes fire
+    // through the same callback as noise. Reset to null on network-identity
+    // change so a fresh network starts with a clean baseline. Issue #130.
+    //
+    // @Volatile: written from the binder callback thread, read from the same.
+    // Nullable: null means "no baseline yet", and the first onLinkPropertiesChanged
+    // after onAvailable takes no action (just records the baseline).
+    @Volatile
+    private var lastLinkAddresses: Set<LinkAddress>? = null
+
     // VALIDATED capability tracking: Android may keep NET_CAPABILITY_INTERNET set
     // while dropping NET_CAPABILITY_VALIDATED (e.g., WiFi associated but no upstream,
     // captive portal, DNS hijack). onLost() does not fire in that case, so we watch
@@ -395,6 +410,10 @@ class PlaybackService : MediaLibraryService() {
             // and it changed (not the very first callback on connect).
             if (lastNetworkId != -1 && lastNetworkId != networkId) {
                 Log.i(TAG, "Network changed from $lastNetworkId to $networkId")
+                // Fresh network: drop the link-addresses baseline so the next
+                // onLinkPropertiesChanged establishes a new one rather than comparing
+                // against the old network's addresses. Issue #130.
+                lastLinkAddresses = null
                 sendSpinClient?.onNetworkChanged()
 
                 // A network identity change means the old transport address may no
@@ -434,6 +453,11 @@ class PlaybackService : MediaLibraryService() {
             if (!stillHaveNetwork) {
                 Log.i(TAG, "No active network remaining - pausing client reconnect")
                 sendSpinClient?.setNetworkAvailable(false)
+                // No active network means no link-addresses baseline is meaningful.
+                // Leave lastNetworkId as-is (we want to detect a new network later),
+                // but clear addresses so onLinkPropertiesChanged after the next
+                // onAvailable starts fresh. Issue #130.
+                lastLinkAddresses = null
             } else {
                 Log.d(TAG, "Another network still active - keeping client reconnect running")
             }
@@ -467,6 +491,35 @@ class PlaybackService : MediaLibraryService() {
                 // onNetworkAvailable() per SendSpinClient.kt (no-op if already connected).
                 sendSpinClient?.setNetworkAvailable(true)
             }
+        }
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
+            // Only care about link-property changes on the currently-active network.
+            // Changes on a different network are either about-to-replace-us (handled
+            // by onAvailable) or already-departed (handled by onLost).
+            if (network.hashCode() != lastNetworkId) return
+
+            val prev = lastLinkAddresses
+            val current = linkProperties.linkAddresses.toSet()
+            lastLinkAddresses = current
+
+            // First callback after onAvailable establishes the baseline -- no action.
+            if (prev == null) return
+            // Filter out callback noise: DNS reorders, MTU changes, and route updates
+            // all fire this callback but don't change the visible address set.
+            if (prev == current) return
+
+            Log.i(TAG, "Link addresses changed on active network: $prev -> $current")
+
+            // Soft refresh: drop the stale RTT baseline. onNetworkChanged() internally
+            // no-ops during active reconnection / frozen filter, so this call is safe
+            // unconditionally. Issue #130.
+            sendSpinClient?.onNetworkChanged()
+
+            // Refresh the multicast lock if mDNS discovery is active. Link changes can
+            // silently invalidate the existing lock, leaving discovery unable to
+            // receive any further announcements. No-op when discovery isn't running.
+            browseDiscoveryManager?.refreshMulticastLockIfActive()
         }
     }
 
