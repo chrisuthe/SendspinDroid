@@ -858,6 +858,9 @@ class PlaybackService : MediaLibraryService() {
                 _connectionState.value = ConnectionState.Connected(serverName)
                 sendSpinPlayer?.updateConnectionState(true, serverName)
                 sendSpinPlayer?.clearError()
+                // Restore MediaSession metadata / playback state after any reconnect.
+                // Idempotent: no-op when no overlay is active. Issue #132.
+                forwardingPlayer?.clearReconnectingOverlay()
 
                 // Refresh browse tree root so "Connect" disappears
                 mediaSession?.notifyChildrenChanged(MEDIA_ID_ROOT, 0, null)
@@ -903,6 +906,10 @@ class PlaybackService : MediaLibraryService() {
                 // Stop debug logging session
                 stopDebugLogging()
                 AppLog.session.end()
+
+                // Any active reconnect overlay is no longer meaningful once we've
+                // transitioned out of Reconnecting into a terminal state. Issue #132.
+                forwardingPlayer?.clearReconnectingOverlay()
 
                 // Check if we're in DRAINING state (reconnection in progress)
                 // If so, keep the audio player alive to continue playback from buffer
@@ -1183,6 +1190,9 @@ class PlaybackService : MediaLibraryService() {
                 // Show error on Android Auto
                 sendSpinPlayer?.setError(message)
 
+                // Terminal error supersedes any reconnecting overlay. Issue #132.
+                forwardingPlayer?.clearReconnectingOverlay()
+
                 // Broadcast error to controllers (MainActivity)
                 broadcastConnectionState(STATE_ERROR, errorMessage = message)
             }
@@ -1387,6 +1397,11 @@ class PlaybackService : MediaLibraryService() {
 
                 // Broadcast to UI
                 broadcastConnectionState(STATE_RECONNECTING, serverName)
+
+                // Surface the reconnect on the MediaSession so lock screen / Android Auto
+                // / AVRCP show "Reconnecting to {server}..." and the buffering indicator
+                // instead of the stale track title. Issue #132.
+                forwardingPlayer?.setReconnectingOverlay(serverName)
             }
         }
 

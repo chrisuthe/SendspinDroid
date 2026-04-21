@@ -55,6 +55,14 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
     @Volatile
     private var cachedMetadata: MediaMetadata = MediaMetadata.EMPTY
 
+    // Reconnecting overlay: when non-null, the rebuilt metadata substitutes
+    // "Reconnecting to {serverName}..." for the title (preserving artwork and
+    // subtitle) and getPlaybackState() returns STATE_BUFFERING. This surfaces
+    // recovery visibly on the lock screen, Android Auto, and AVRCP instead of
+    // leaving the stale track title during reconnect storms. Issue #132.
+    @Volatile
+    private var reconnectingOverlay: String? = null
+
     /**
      * Updates the current track metadata.
      *
@@ -120,6 +128,11 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
 
     /**
      * Rebuilds the cached MediaMetadata from current values.
+     *
+     * When [reconnectingOverlay] is non-null, the title and displayTitle are
+     * replaced with "Reconnecting to {server}..." while subtitle and artwork
+     * are preserved; the lock screen keeps the album art but clearly reads as
+     * recovering. Issue #132.
      */
     private fun rebuildMetadata() {
         // Build subtitle for Android Auto's DISPLAY_SUBTITLE (e.g. "Artist - Album")
@@ -131,9 +144,12 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
             }
         }.ifEmpty { null }
 
+        val overlayServer = reconnectingOverlay
+        val displayTitle = if (overlayServer != null) "Reconnecting to $overlayServer..." else currentTitle
+
         cachedMetadata = MediaMetadata.Builder()
-            .setTitle(currentTitle)
-            .setDisplayTitle(currentTitle)
+            .setTitle(displayTitle)
+            .setDisplayTitle(displayTitle)
             .setSubtitle(subtitle)  // Android Auto uses DISPLAY_SUBTITLE for second line
             .setArtist(currentArtist)
             .setAlbumTitle(currentAlbum)
@@ -146,6 +162,46 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
                 currentArtworkUri?.let { setArtworkUri(it) }
             }
             .build()
+    }
+
+    /**
+     * Show a "Reconnecting to {serverName}..." overlay on the MediaSession while
+     * the client is in ConnectionState.Reconnecting. Also forces
+     * [getPlaybackState] to return [Player.STATE_BUFFERING] so lock screen /
+     * Auto / AVRCP render the system buffering indicator.
+     *
+     * Idempotent: calling with the same [serverName] twice is a no-op after
+     * the first call, so it is safe to call on every retry attempt.
+     *
+     * Issue #132.
+     */
+    fun setReconnectingOverlay(serverName: String) {
+        if (reconnectingOverlay == serverName) return
+        reconnectingOverlay = serverName
+        rebuildMetadata()
+        val newState = getPlaybackState()
+        listeners.forEach { listener ->
+            listener.onMediaMetadataChanged(cachedMetadata)
+            listener.onPlaybackStateChanged(newState)
+        }
+    }
+
+    /**
+     * Clear any active reconnecting overlay and restore normal metadata /
+     * playback-state behavior. Called on [ConnectionState.Connected],
+     * [ConnectionState.Disconnected], or [ConnectionState.Error].
+     *
+     * Idempotent: no-op if no overlay is active. Issue #132.
+     */
+    fun clearReconnectingOverlay() {
+        if (reconnectingOverlay == null) return
+        reconnectingOverlay = null
+        rebuildMetadata()
+        val newState = getPlaybackState()
+        listeners.forEach { listener ->
+            listener.onMediaMetadataChanged(cachedMetadata)
+            listener.onPlaybackStateChanged(newState)
+        }
     }
 
     /**
@@ -171,13 +227,27 @@ class MetadataForwardingPlayer(player: Player) : ForwardingPlayer(player) {
      * for lock screen and notifications.
      */
     override fun getMediaMetadata(): MediaMetadata {
-        // If we have metadata, return it; otherwise fall back to underlying player
-        return if (currentTitle != null || currentArtist != null) {
+        // The reconnecting overlay always takes precedence: even if no track
+        // metadata has ever been set, the user should see "Reconnecting to..."
+        // rather than an empty lock screen.
+        return if (reconnectingOverlay != null ||
+            currentTitle != null ||
+            currentArtist != null) {
             cachedMetadata
         } else {
             super.getMediaMetadata()
         }
     }
+
+    /**
+     * Forces [Player.STATE_BUFFERING] while a reconnecting overlay is active,
+     * so the lock screen / Android Auto / AVRCP render the buffering indicator
+     * rather than showing the old "playing" state. Falls through to the
+     * underlying player's state otherwise. Issue #132.
+     */
+    override fun getPlaybackState(): Int =
+        if (reconnectingOverlay != null) Player.STATE_BUFFERING
+        else super.getPlaybackState()
 
     /**
      * Returns the current media item with our enhanced metadata injected.
