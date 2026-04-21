@@ -530,6 +530,30 @@ class SendspinTimeFilterTest {
     }
 
     @Test
+    fun `concurrent writer-reader stress on offset does not tear`() {
+        val f = SendspinTimeFilter()
+        val writer = Thread {
+            for (i in 0 until 10_000) {
+                // measurementOffset = i * 1000us, maxError = 1000us, clientTimeMicros = i * 1000us
+                f.addMeasurement(i.toLong() * 1_000L, 1_000L, i.toLong() * 1_000L)
+            }
+        }
+        val reader = Thread {
+            for (i in 0 until 10_000) {
+                val now = i.toLong() * 1_000L
+                val v = f.serverToClient(now)
+                // A torn read would yield NaN or an impossible magnitude.
+                // Accept any finite long as non-torn.
+                require(v in Long.MIN_VALUE..Long.MAX_VALUE)
+            }
+        }
+        writer.start()
+        reader.start()
+        writer.join()
+        reader.join()
+    }
+
+    @Test
     fun concurrentAccess_freezeThawAndServerToClient_doesNotCrash() {
         // Verify that freeze/thaw during concurrent reads does not crash
         val failed = AtomicBoolean(false)

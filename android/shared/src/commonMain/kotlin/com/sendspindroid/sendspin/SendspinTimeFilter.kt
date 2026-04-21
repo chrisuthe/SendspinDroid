@@ -3,6 +3,7 @@ package com.sendspindroid.sendspin
 import com.sendspindroid.sendspin.latency.StaticDelaySource
 import com.sendspindroid.shared.log.Log
 import com.sendspindroid.shared.platform.Platform
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -271,8 +272,17 @@ class SendspinTimeFilter {
     private val lock = Any()
 
     // State vector: [offset, drift]
-    // @Volatile: read by audio thread (serverToClient), written under lock by IO thread
-    @Volatile private var offset: Double = 0.0
+    // offset is stored as AtomicLong (bit-cast from Double via toRawBits /
+    // fromBits) so reads on 32-bit JVMs are atomic. The covariance matrix
+    // (p00, p01, p10, p11) is still guarded by [lock] on writes. Readers
+    // on the audio thread (serverToClient, clientToServer) read offset
+    // lock-free via the Double property accessor below.
+    private val offsetBits = AtomicLong(0L)
+
+    private var offset: Double
+        get() = Double.fromBits(offsetBits.get())
+        set(value) { offsetBits.set(value.toRawBits()) }
+
     private var drift: Double = 0.0
 
     // Covariance matrix (2x2)
