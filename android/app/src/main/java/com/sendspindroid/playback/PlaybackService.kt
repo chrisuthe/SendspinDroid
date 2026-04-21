@@ -338,6 +338,11 @@ class PlaybackService : MediaLibraryService() {
 
     // Network change detection - resets time filter when network changes
     private var connectivityManager: ConnectivityManager? = null
+
+    // @Volatile: written only from a binder thread (NetworkCallback.onAvailable) and
+    // may be read from other threads (future reconnect-coroutine paths). Single-writer
+    // contract: all writes occur inside onAvailable. -1 means "no prior network seen".
+    @Volatile
     private var lastNetworkId: Int = -1
     private var networkEvaluator: NetworkEvaluator? = null
 
