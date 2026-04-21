@@ -5,7 +5,6 @@ import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
-import com.sendspindroid.sendspin.protocol.message.parse
 import com.sendspindroid.sendspin.protocol.timesync.TimeSyncManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
@@ -14,19 +13,18 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.nio.ByteBuffer
 
 /**
  * Abstract base class for SendSpin protocol handling.
  *
- * Contains shared protocol logic for both SendSpinClient and SendSpinServer:
+ * Contains shared protocol logic used by [SendSpinClient]:
  * - Message building and sending
  * - Message parsing and dispatching
  * - Time synchronization
  * - Binary message handling
  *
- * Subclasses implement transport-specific behavior (OkHttp vs Java-WebSocket)
- * and connection state management.
+ * Subclasses implement transport-specific behavior and connection state
+ * management.
  *
  * @param tag Log tag for debugging
  */
@@ -476,19 +474,9 @@ abstract class SendSpinProtocolHandler(
     // ========== Binary Message Handling ==========
 
     /**
-     * Handle binary message from ByteArray (SendSpinClient via Ktor/WebRTC).
+     * Handle binary message from the transport.
      */
     protected fun handleBinaryMessage(bytes: ByteArray) {
-        val message = BinaryMessageParser.parse(bytes)
-        if (message != null) {
-            dispatchBinaryMessage(message)
-        }
-    }
-
-    /**
-     * Handle binary message from Java-WebSocket ByteBuffer (SendSpinServer).
-     */
-    protected fun handleBinaryMessage(bytes: ByteBuffer) {
         val message = BinaryMessageParser.parse(bytes)
         if (message != null) {
             dispatchBinaryMessage(message)
