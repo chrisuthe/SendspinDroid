@@ -36,6 +36,7 @@ object AppLog {
     // Bridge is wired in Task 6.
     @Volatile
     internal var bridge: LogcatBridge? = null
+        private set
 
     @Volatile
     private var appContext: Context? = null
