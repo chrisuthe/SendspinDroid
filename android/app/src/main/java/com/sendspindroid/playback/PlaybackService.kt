@@ -228,7 +228,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onReceive(context: Context, intent: Intent) {
             val offsetMs = intent.getIntExtra(SyncOffsetPreference.EXTRA_OFFSET_MS, 0)
             sendSpinClient?.getTimeFilter()?.let { timeFilter ->
-                timeFilter.staticDelayMs = offsetMs.toDouble()
+                timeFilter.setUserSyncOffsetMs(offsetMs.toDouble())
                 Log.i(TAG, "Applied sync offset from settings change: ${offsetMs}ms")
             }
         }
@@ -1372,7 +1372,10 @@ class PlaybackService : MediaLibraryService() {
                         sampleRate = sampleRate,
                         channels = channels,
                         bitDepth = bitDepth,
-                        maxQueueSamples = maxSamples
+                        maxQueueSamples = maxSamples,
+                        requestClientStateSnapshot = {
+                            sendSpinClient?.sendClientStateSnapshot()
+                        },
                     ).apply {
                         // Set callback to update SendSpinPlayer when playback state changes
                         setStateCallback(SyncAudioPlayerStateCallback())
@@ -2896,6 +2899,9 @@ class PlaybackService : MediaLibraryService() {
             bundle.putInt("reconnect_attempts", client.getReconnectAttempts())
             bundle.putBoolean("clock_frozen", timeFilter.isFrozen)
             bundle.putDouble("static_delay_ms", timeFilter.staticDelayMs)
+            bundle.putDouble("auto_measured_delay_ms", timeFilter.autoMeasuredDelayMs)
+            bundle.putDouble("user_sync_offset_ms", timeFilter.userSyncOffsetMs)
+            bundle.putString("static_delay_source", timeFilter.staticDelaySource.name)
 
             // Connection health telemetry (issue #128). Keys left absent when
             // the underlying value is null so StatsViewModel can distinguish
@@ -2933,7 +2939,7 @@ class PlaybackService : MediaLibraryService() {
         val offsetMs = com.sendspindroid.UserSettings.getSyncOffsetMs()
         if (offsetMs != 0) {
             sendSpinClient?.getTimeFilter()?.let { timeFilter ->
-                timeFilter.staticDelayMs = offsetMs.toDouble()
+                timeFilter.setUserSyncOffsetMs(offsetMs.toDouble())
                 Log.i(TAG, "Applied manual sync offset from settings: ${offsetMs}ms")
             }
         }
@@ -2946,7 +2952,7 @@ class PlaybackService : MediaLibraryService() {
     fun updateSyncOffset(offsetMs: Int) {
         com.sendspindroid.UserSettings.setSyncOffsetMs(offsetMs)
         sendSpinClient?.getTimeFilter()?.let { timeFilter ->
-            timeFilter.staticDelayMs = offsetMs.toDouble()
+            timeFilter.setUserSyncOffsetMs(offsetMs.toDouble())
             Log.i(TAG, "Updated sync offset to: ${offsetMs}ms")
         }
     }
