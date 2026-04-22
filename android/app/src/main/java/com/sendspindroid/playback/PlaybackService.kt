@@ -93,10 +93,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.ThreadPoolExecutor
-import java.util.concurrent.TimeUnit
 
 /**
  * Background playback service for SendSpinDroid.
@@ -127,18 +123,7 @@ class PlaybackService : MediaLibraryService() {
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
     @Volatile private var syncAudioPlayer: SyncAudioPlayer? = null
-    // Decoder is owned exclusively by [decodeExecutor]. Every mutation -- release,
-    // create, flush -- is submitted as a task so only one thread touches the
-    // native resource. Reads inside decode tasks are safe because the single-
-    // threaded executor serializes all work. No @Volatile: there are no
-    // cross-thread readers.
     private var audioDecoder: AudioDecoder? = null
-
-    // Single-threaded executor that owns the decoder and performs PCM decode
-    // off the WebSocket IO thread. Bounded queue with drop-oldest semantics:
-    // audio is real-time, so a stale chunk is useless. Initialized in onCreate,
-    // shut down in onDestroy.
-    private lateinit var decodeExecutor: ExecutorService
 
     // When true, the next state/group message should call exitDraining() AFTER processing.
     // This ensures the DRAINING check in onStateChanged/onGroupUpdate fires while still
@@ -545,18 +530,6 @@ class PlaybackService : MediaLibraryService() {
         // Debug logging interval (1 sample per second)
         private const val DEBUG_LOG_INTERVAL_MS = 1000L
 
-        // Bounded backlog for the decode executor. At 48 kHz / 20 ms chunks
-        // (~50 chunks/sec), 100 tasks is roughly 2 seconds of runway before
-        // drop-oldest kicks in. Sized large enough to absorb brief GC pauses
-        // or codec hiccups, small enough that sustained backlog doesn't pile
-        // up perceptible staleness.
-        private const val DECODE_QUEUE_CAPACITY = 100
-
-        // Max time to wait for in-flight decode tasks to finish during
-        // onDestroy. After this the executor is forcibly shut down -- any
-        // outstanding decoder release is lost, which is fine during teardown.
-        private const val DECODE_EXECUTOR_SHUTDOWN_TIMEOUT_MS = 500L
-
         // Debounce before acting on NET_CAPABILITY_VALIDATED loss. Android's
         // validation probe can flicker briefly during WiFi roaming or captive-portal
         // probes; 3s rides through those while still firing well before the ~30s
@@ -685,25 +658,6 @@ class PlaybackService : MediaLibraryService() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "PlaybackService.onCreate() started")
-
-        // Build the decode executor before anything else that may rely on it.
-        // Bounded queue (DECODE_QUEUE_CAPACITY) with drop-oldest rejection so
-        // sustained decode underruns cannot grow the queue without limit.
-        // Audio is real-time, so the oldest queued chunk is the least useful
-        // to keep.
-        decodeExecutor = ThreadPoolExecutor(
-            1, 1,
-            0L, TimeUnit.MILLISECONDS,
-            LinkedBlockingQueue(DECODE_QUEUE_CAPACITY),
-            java.util.concurrent.ThreadFactory { r ->
-                Thread(r, "SendSpinDecode").apply { isDaemon = true }
-            },
-            { r, executor ->
-                executor.queue.poll()
-                executor.execute(r)
-                Log.w(TAG, "Decode queue full, dropping oldest chunk")
-            }
-        )
 
         // Create notification channel for foreground service
         NotificationHelper.createNotificationChannel(this)
@@ -1298,8 +1252,7 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
             // Mark decoder as not ready IMMEDIATELY (on WebSocket thread) before posting.
-            // This prevents onAudioChunk from submitting further decode tasks until
-            // the new decoder is ready on the decode thread.
+            // This prevents onAudioChunk from using the old (about-to-be-released) decoder.
             decoderReady = false
             mainHandler.post {
                 Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
@@ -1308,34 +1261,26 @@ class PlaybackService : MediaLibraryService() {
                 completePendingExitDraining()
                 currentCodec = codec
 
-                // Release + recreate the decoder on the decode thread so this
-                // submission is ordered after any in-flight decode tasks for
-                // the previous stream (they finish with the old decoder first,
-                // then this task releases and creates the new one).
-                decodeExecutor.execute {
-                    audioDecoder?.release()
-                    audioDecoder = null
+                // Release existing decoder and create new one for this stream
+                audioDecoder?.release()
+                audioDecoder = null
+                try {
+                    audioDecoder = AudioDecoderFactory.create(codec)
+                    audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
+                    Log.i(TAG, "Audio decoder created: $codec")
+                    decoderReady = true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
                     try {
-                        val created = AudioDecoderFactory.create(codec).also {
-                            it.configure(sampleRate, channels, bitDepth, codecHeader)
-                        }
-                        audioDecoder = created
-                        Log.i(TAG, "Audio decoder created: $codec")
+                        val fallback = AudioDecoderFactory.create("pcm")
+                        fallback.configure(sampleRate, channels, bitDepth)
+                        audioDecoder = fallback
+                        Log.i(TAG, "PCM fallback decoder configured")
                         decoderReady = true
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
-                        try {
-                            val fallback = AudioDecoderFactory.create("pcm").also {
-                                it.configure(sampleRate, channels, bitDepth)
-                            }
-                            audioDecoder = fallback
-                            Log.i(TAG, "PCM fallback decoder configured")
-                            decoderReady = true
-                        } catch (fallbackEx: Exception) {
-                            Log.e(TAG, "PCM fallback decoder also failed", fallbackEx)
-                            audioDecoder = null
-                            // decoderReady stays false -- onAudioChunk will drop chunks
-                        }
+                    } catch (fallbackEx: Exception) {
+                        Log.e(TAG, "PCM fallback decoder also failed", fallbackEx)
+                        audioDecoder = null
+                        // decoderReady stays false -- onAudioChunk will drop chunks
                     }
                 }
 
@@ -1393,10 +1338,7 @@ class PlaybackService : MediaLibraryService() {
             mainHandler.post {
                 Log.i(TAG, "[cmd-trace] T3 onStreamClear.post ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
                 Log.d(TAG, "Stream clear - flushing audio and decoder buffers")
-                // Flush on the decode thread so it is ordered relative to any
-                // in-flight decode tasks: chunks queued before the flush decode
-                // with pre-flush state, subsequent chunks with post-flush state.
-                decodeExecutor.execute { audioDecoder?.flush() }
+                audioDecoder?.flush()
                 syncAudioPlayer?.clearBuffer()
             }
         }
@@ -1413,37 +1355,32 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {
-            // WS-IO thread fast path: gate on decoderReady (flipped false by
-            // onStreamStart so chunks from the old stream don't get submitted
-            // after a reconfigure), and capture the player reference cheaply.
-            // Actual decode + queue happens on [decodeExecutor] so the WS-IO
-            // thread stays responsive for other frames (notably time-sync
-            // replies whose latency feeds back into the Kalman filter).
+            // Guard: don't try to decode if the decoder is being replaced (race with onStreamStart)
             if (!decoderReady) return
-            val player = syncAudioPlayer ?: return
 
-            decodeExecutor.execute {
-                // Read audioDecoder inside the task. The single-threaded
-                // executor serializes all decoder mutations with all decode
-                // tasks, so there is no TOCTOU: this read sees the decoder
-                // that was current when this task was submitted, not a newer
-                // (possibly released) one.
-                val decoder = audioDecoder
-                val pcmData = try {
-                    if (decoder != null) {
-                        decoder.decode(audioData)
-                    } else if (currentCodec == "pcm") {
-                        audioData
-                    } else {
-                        return@execute // compressed codec with no decoder -- drop
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Decode error, dropping chunk", e)
-                    return@execute
+            // Capture local references to avoid TOCTOU race: the main thread can null
+            // and release these between a null-check and method call.
+            val player = syncAudioPlayer ?: return
+            val decoder = audioDecoder
+
+            // Decode compressed data to PCM, or pass through for PCM codec.
+            // If decoder is null mid-reconfiguration, only PCM raw data is safe
+            // to forward -- compressed bytes (Opus/FLAC) would be garbled.
+            val pcmData = try {
+                if (decoder != null) {
+                    decoder.decode(audioData)
+                } else if (currentCodec == "pcm") {
+                    audioData
+                } else {
+                    return // compressed codec with no decoder -- drop chunk
                 }
-                if (pcmData == null) return@execute
-                player.queueChunk(serverTimeMicros, pcmData)
+            } catch (e: Exception) {
+                Log.e(TAG, "Decode error, dropping chunk", e)
+                return
             }
+            if (pcmData == null) return
+            // Queue decoded PCM - SyncAudioPlayer handles threading internally
+            player.queueChunk(serverTimeMicros, pcmData)
         }
 
         override fun onVolumeChanged(volume: Int) {
@@ -3820,25 +3757,9 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.cancel()
         imageLoader?.shutdown()
 
-        // Submit final decoder release on the decode thread, then shut down
-        // the executor. Any tasks still queued here are for a connection that
-        // is already tearing down -- dropping them is fine.
-        decoderReady = false
-        decodeExecutor.execute {
-            audioDecoder?.release()
-            audioDecoder = null
-        }
-        decodeExecutor.shutdown()
-        try {
-            if (!decodeExecutor.awaitTermination(DECODE_EXECUTOR_SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                Log.w(TAG, "Decode executor did not terminate within ${DECODE_EXECUTOR_SHUTDOWN_TIMEOUT_MS}ms; forcing shutdown")
-                decodeExecutor.shutdownNow()
-            }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            decodeExecutor.shutdownNow()
-        }
-
+        // Release audio decoder and player, then playback locks and foreground notification
+        audioDecoder?.release()
+        audioDecoder = null
         syncAudioPlayer?.release()
         syncAudioPlayer = null
         releasePlaybackLocks()
