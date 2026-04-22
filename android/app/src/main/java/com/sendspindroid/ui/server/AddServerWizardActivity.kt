@@ -292,9 +292,15 @@ class AddServerWizardActivity : FragmentActivity() {
     }
 
     private fun updateDiscoveredServersInViewModel() {
-        val servers = discoveredServers.values.map { server ->
+        // Use the map key (the mDNS service instance name) as the UI id,
+        // not server.name (the friendly/display name). Friendly names are
+        // not required to be unique -- e.g. two Music Assistant instances
+        // on the same LAN both advertise friendlyName="Music Assistant",
+        // and using the friendly name as the id would produce duplicate
+        // Compose LazyColumn keys and crash the wizard.
+        val servers = discoveredServers.map { (instanceName, server) ->
             DiscoveredServerUi(
-                id = server.name,
+                id = instanceName,
                 name = server.name,
                 address = server.address
             )
