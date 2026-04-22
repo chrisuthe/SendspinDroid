@@ -267,9 +267,23 @@ class PlaybackService : MediaLibraryService() {
     private var lastSyncOffsetMs: Double = 0.0
     private var lastSyncOffsetSource: String = ""
 
-    // Artwork state
+    // Artwork state. Two independent sources are maintained so the lock-screen
+    // widget and app UI don't diverge when the SendSpin server sends a binary
+    // artwork payload whose contents don't match the `artwork_url` in the
+    // accompanying `server/state` metadata (observed with MA in playlist
+    // contexts; see docs/architecture/sendspin-ma-metadata-flow.md §7 Q4/Q5).
+    //
+    // Policy: URL artwork is authoritative when available. Binary artwork is
+    // used only as a bridge before the URL fetch completes, matching what the
+    // app's own mini-player already does via Coil on the `artworkUrl` state.
+    //
+    // effectiveArtwork is recomputed on every write and passed to MediaSession.
     private var lastArtworkUrl: String? = null
-    private var currentArtwork: Bitmap? = null
+    private var lastTrackTitle: String? = null
+    private var urlArtwork: Bitmap? = null
+    private var binaryArtwork: Bitmap? = null
+    private val effectiveArtwork: Bitmap?
+        get() = urlArtwork ?: binaryArtwork
     // ImageLoader is null when low memory mode is enabled
     private var imageLoader: ImageLoader? = null
 
@@ -1002,7 +1016,9 @@ class PlaybackService : MediaLibraryService() {
                 // Clear playback state on disconnect
                 _playbackState.value = PlaybackState()
                 lastArtworkUrl = null
-                currentArtwork = null
+                lastTrackTitle = null
+                urlArtwork = null
+                binaryArtwork = null
 
                 // Clear lock screen metadata
                 forwardingPlayer?.clearMetadata()
@@ -1182,10 +1198,27 @@ class PlaybackService : MediaLibraryService() {
                 // Populate the player's timeline with queue items for native queue UI
                 populatePlayerQueue()
 
-                // Handle artwork URL changes
+                // Handle artwork URL changes + track changes.
+                //
+                // On title change we invalidate urlArtwork and re-fetch the URL
+                // even when the URL string itself is unchanged. MA reuses the
+                // album URL across tracks on the same album, so without this
+                // invalidation the MediaSession keeps whatever bitmap was set at
+                // the first track of the album (commonly the binary artwork,
+                // which MA may have populated with a playlist-context image
+                // rather than the actual album cover -- see
+                // docs/architecture/sendspin-ma-metadata-flow.md §7 Q4).
+                // Coil caches the URL so re-fetching is essentially free.
+                val newTitle = title.ifEmpty { null }
+                val titleChanged = newTitle != lastTrackTitle
+                if (titleChanged) {
+                    lastTrackTitle = newTitle
+                    urlArtwork = null
+                }
+
                 if (effectiveArtworkUrl.isEmpty()) {
                     lastArtworkUrl = null
-                } else if (effectiveArtworkUrl != lastArtworkUrl) {
+                } else if (effectiveArtworkUrl != lastArtworkUrl || titleChanged) {
                     lastArtworkUrl = effectiveArtworkUrl
                     fetchArtwork(effectiveArtworkUrl)
                 }
@@ -1213,8 +1246,12 @@ class PlaybackService : MediaLibraryService() {
                         bitmap?.let { scaleArtwork(it) }
                     }
                     if (scaled != null) {
-                        currentArtwork = scaled
-                        updateMediaSessionArtwork(scaled)
+                        binaryArtwork = scaled
+                        // Only push to MediaSession if we don't already have URL-based
+                        // artwork; URL is preferred (see urlArtwork field comment).
+                        if (urlArtwork == null) {
+                            updateMediaSessionArtwork(scaled)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to decode artwork", e)
@@ -1225,7 +1262,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onArtworkCleared() {
             mainHandler.post {
                 Log.d(TAG, "Artwork cleared by server (empty payload)")
-                currentArtwork = null
+                binaryArtwork = null
                 updateMediaMetadata(
                     _playbackState.value.title ?: "",
                     _playbackState.value.artist ?: "",
@@ -1501,7 +1538,9 @@ class PlaybackService : MediaLibraryService() {
                     val bitmap = result.drawable.toBitmap()
                     val scaled = scaleArtwork(bitmap)
                     mainHandler.post {
-                        currentArtwork = scaled
+                        urlArtwork = scaled
+                        // URL is preferred over binary; push this to MediaSession
+                        // unconditionally.
                         updateMediaSessionArtwork(scaled)
                     }
                 }
@@ -1590,7 +1629,7 @@ class PlaybackService : MediaLibraryService() {
             title = state.title,
             artist = state.artist,
             album = state.album,
-            artwork = currentArtwork,
+            artwork = effectiveArtwork,
             artworkUri = state.artworkUrl?.let { Uri.parse(it) }
         )
 
