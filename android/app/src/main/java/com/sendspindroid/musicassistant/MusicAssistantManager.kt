@@ -468,6 +468,33 @@ object MusicAssistantManager {
      */
     fun getThisDevicePlayerId(): String = UserSettings.getPlayerId()
 
+    /**
+     * Resolve this device's id to Music Assistant's internal player id.
+     *
+     * MA registers SendSpin-provider players under a transformed id
+     * (e.g. `up` + UUID-with-dashes-stripped), which means the raw UUID
+     * we registered with the SendSpin server will not match entries
+     * returned by `players/all`. Ask the server to do the mapping
+     * authoritatively via `player_queues/get_active_queue`.
+     *
+     * Returns `null` if the server could not resolve. Callers can
+     * fall back to the raw UUID (via [getThisDevicePlayerId]).
+     *
+     * Note: when this device is synced to another player in a group,
+     * the resolved id may be the group's queue id rather than this
+     * device's own player id. That is intentional — for UI purposes
+     * ("show me the active player we are participating with") the
+     * queue id is usually the right entity.
+     */
+    suspend fun resolveThisDeviceMaPlayerId(): String? {
+        val playerId = UserSettings.getPlayerId()
+        return try {
+            commandClient.getEffectiveQueueId(playerId)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // ========================================================================
     // Delegated Command Methods
     // ========================================================================

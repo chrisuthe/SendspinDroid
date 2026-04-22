@@ -68,10 +68,18 @@ class PlayerViewModel : ViewModel() {
             val thisDevicePlayerId = MusicAssistantManager.getThisDevicePlayerId()
             Log.d(TAG, "This device player ID: $thisDevicePlayerId")
 
+            // MA represents SendSpin-provider players under a transformed id
+            // (e.g. "up" + UUID-without-dashes). Ask the server to resolve our
+            // raw UUID to its internal id before matching against players/all.
+            // Falls back to the raw UUID if resolution fails; [buildSuccessState]
+            // still tries that as a secondary lookup.
+            val resolvedMaPlayerId = MusicAssistantManager.resolveThisDeviceMaPlayerId()
+            Log.d(TAG, "Resolved MA player ID: $resolvedMaPlayerId")
+
             val result = MusicAssistantManager.getAllPlayers()
             result.fold(
                 onSuccess = { allPlayers ->
-                    buildSuccessState(thisDevicePlayerId, allPlayers)
+                    buildSuccessState(thisDevicePlayerId, resolvedMaPlayerId, allPlayers)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load players", error)
@@ -167,11 +175,23 @@ class PlayerViewModel : ViewModel() {
 
     /**
      * Build the Success UI state from the active player and full player list.
+     *
+     * @param thisDevicePlayerId raw UUID we registered with SendSpin
+     * @param resolvedMaPlayerId server-resolved MA-internal id (may be null if
+     *        resolution failed); preferred match since MA uses a transformed id
+     *        for SendSpin-provider players
      */
-    private fun buildSuccessState(thisDevicePlayerId: String, allPlayers: List<MaPlayer>) {
-        val currentPlayer = allPlayers.find { it.playerId == thisDevicePlayerId }
+    private fun buildSuccessState(
+        thisDevicePlayerId: String,
+        resolvedMaPlayerId: String?,
+        allPlayers: List<MaPlayer>,
+    ) {
+        val currentPlayer = resolvedMaPlayerId?.let { id ->
+            allPlayers.find { it.playerId == id }
+        } ?: allPlayers.find { it.playerId == thisDevicePlayerId }
         if (currentPlayer == null) {
-            Log.e(TAG, "This device player $thisDevicePlayerId not found in player list " +
+            Log.e(TAG, "This device player $thisDevicePlayerId " +
+                "(resolved=$resolvedMaPlayerId) not found in player list " +
                 "(${allPlayers.size} players: ${allPlayers.map { "${it.playerId}=${it.name}" }})")
             _uiState.value = PlayerUiState.Error("This device not found in player list")
             return
@@ -239,10 +259,11 @@ class PlayerViewModel : ViewModel() {
     private fun reloadSilently() {
         viewModelScope.launch {
             val thisDevicePlayerId = MusicAssistantManager.getThisDevicePlayerId()
+            val resolvedMaPlayerId = MusicAssistantManager.resolveThisDeviceMaPlayerId()
             val result = MusicAssistantManager.getAllPlayers()
             result.fold(
                 onSuccess = { allPlayers ->
-                    buildSuccessState(thisDevicePlayerId, allPlayers)
+                    buildSuccessState(thisDevicePlayerId, resolvedMaPlayerId, allPlayers)
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Silent reload failed", error)
