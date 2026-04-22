@@ -66,6 +66,7 @@ import com.sendspindroid.musicassistant.MaQueueItem
 import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.QueueUpdate
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.UnifiedServerRepository
@@ -674,6 +675,16 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize MusicAssistantManager for MA API integration
         MusicAssistantManager.initialize(this)
+
+        // Fast metadata path: subscribe to MA command-channel queue_updated events
+        // to update title/artist/album as soon as the server's queue advances,
+        // roughly 1 second before the SendSpin server/state broadcast arrives.
+        // See docs/architecture/sendspin-ma-metadata-flow.md section 8a.
+        serviceScope.launch {
+            MusicAssistantManager.queueUpdates.collect { update ->
+                applyFastQueueUpdate(update)
+            }
+        }
 
         // Initialize UnifiedServerRepository for server lookups
         UnifiedServerRepository.initialize(this)
@@ -1472,6 +1483,58 @@ class PlaybackService : MediaLibraryService() {
                 // Connection state will be updated by onConnected() callback which follows
             }
         }
+    }
+
+    // ========================================================================
+    // Fast metadata path: queue_updated event from MA command channel (fix 8a)
+    // ========================================================================
+
+    /**
+     * Apply title/artist/album from a Music Assistant `queue_updated` event.
+     *
+     * Called from [MusicAssistantManager.queueUpdates] roughly 1 second before
+     * the SendSpin `server/state` broadcast with the same metadata. Updates
+     * [_playbackState] and [sendSpinPlayer]'s MediaItem so the lock screen,
+     * Android Auto, and Bluetooth AVRCP reflect the new track immediately.
+     *
+     * Artwork is intentionally NOT updated here; the SendSpin `server/state`
+     * that follows will carry a fully-resolved artwork_url and is the
+     * authoritative source for imagery. See fix 8b for URL-preferred artwork.
+     *
+     * Must run on the Main thread (serviceScope dispatcher is Main).
+     */
+    @OptIn(UnstableApi::class)
+    private fun applyFastQueueUpdate(update: QueueUpdate) {
+        // Skip if there is no new title information.
+        if (update.title == null && update.artist == null && update.album == null) return
+
+        val current = _playbackState.value
+
+        // Skip if the title is already up to date to avoid redundant writes.
+        // When SendSpin server/state arrives ~1s later with the same title,
+        // the withMetadata call below is a no-op (null-preserves semantics ensure
+        // no visible flicker). But we skip early here to avoid the sendSpinPlayer
+        // round-trip when nothing has changed.
+        if (update.title != null && update.title == current.title) return
+
+        Log.d(TAG, "Fast metadata via queue_updated: ${update.title} / ${update.artist} / ${update.album}")
+
+        _playbackState.value = current.withMetadata(
+            title = update.title,
+            artist = update.artist,
+            album = update.album,
+            artworkUrl = null,  // preserve existing; server/state will update this
+            durationMs = update.durationMs ?: current.durationMs,
+            positionMs = current.positionMs,
+            playbackSpeed = current.playbackSpeed
+        )
+
+        sendSpinPlayer?.updateMediaItem(
+            title = update.title,
+            artist = update.artist,
+            album = update.album,
+            durationMs = update.durationMs ?: 0L
+        )
     }
 
     /**
