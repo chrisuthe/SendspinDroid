@@ -17,13 +17,18 @@ import com.sendspindroid.sendspin.transport.TransportState
 import com.sendspindroid.sendspin.transport.WebSocketTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.Executors
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import kotlinx.serialization.json.Json
@@ -161,7 +166,23 @@ class SendSpinClient(
         data class Error(val message: String) : ConnectionState()
     }
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Dedicated single-thread dispatcher for timer-dominated work: stall
+    // watchdog polling, reconnect backoff delays, TimeSyncManager's
+    // periodic scheduler. Isolating this from Dispatchers.IO means timer
+    // latency is bounded by a single thread's scheduling, not by shared
+    // pool contention with blocking IO work.
+    //
+    // ExecutorCoroutineDispatcher is held as its concrete type so it can
+    // be closed() during destroy() -- otherwise the executor thread leaks.
+    private val timerDispatcher: ExecutorCoroutineDispatcher =
+        Executors.newSingleThreadExecutor { r ->
+            Thread(r, "SendSpinTimer").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
+    private val timerScope = CoroutineScope(SupervisorJob() + timerDispatcher)
+
+    // Dispatchers.IO scope for blocking IO work: immediate reconnect
+    // transport creation, any other work that may block the thread.
+    private val workScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -284,7 +305,10 @@ class SendSpinClient(
         }
     }
 
-    override fun getCoroutineScope(): CoroutineScope = scope
+    // TimeSyncManager uses this scope for its periodic scheduler loop
+    // (delay then send a small time-sync request). That is timer-dominated
+    // work, so it belongs on timerScope.
+    override fun getCoroutineScope(): CoroutineScope = timerScope
 
     override fun getTimeFilter(): SendspinTimeFilter = timeFilter
 
@@ -489,7 +513,7 @@ class SendSpinClient(
         reconnectAttempts.set(1)
 
         // Immediately try to reconnect using the appropriate mode
-        scope.launch {
+        workScope.launch {
             if (userInitiatedDisconnect.get() || !reconnecting.get()) {
                 Log.d(TAG, "Reconnection cancelled before immediate retry")
                 return@launch
@@ -827,6 +851,13 @@ class SendSpinClient(
         // disconnect() sets userInitiatedDisconnect unconditionally; no need
         // to pre-set it here.
         disconnect()
+
+        // Cancel both scopes before closing the timer dispatcher.
+        // Cancelling the scope cancels all its launched coroutines; closing
+        // the dispatcher shuts down the underlying executor thread.
+        timerScope.cancel()
+        workScope.cancel()
+        timerDispatcher.close()
     }
 
     // ========== Private Methods ==========
@@ -874,7 +905,7 @@ class SendSpinClient(
             stallWatchdogJob?.cancel()
             // Reset so we don't false-trip using a stale pre-handshake timestamp
             lastByteReceivedAtMs.set(System.currentTimeMillis())
-            stallWatchdogJob = scope.launch {
+            stallWatchdogJob = timerScope.launch {
                 while (true) {
                     delay(STALL_CHECK_INTERVAL_MS)
                     checkStall()
@@ -1073,7 +1104,7 @@ class SendSpinClient(
         callback.onReconnecting(attempts, savedServerName)
 
         // Store the job so it can be cancelled if user disconnects during the delay
-        reconnectJob = scope.launch {
+        reconnectJob = timerScope.launch {
             delay(delayMs)
 
             if (userInitiatedDisconnect.get() || !reconnecting.get()) {
@@ -1088,23 +1119,27 @@ class SendSpinClient(
             transport?.destroy()
             transport = null
 
-            // Reconnect using the appropriate mode
-            when (connectionMode) {
-                ConnectionMode.LOCAL -> {
-                    val address = serverAddress ?: return@launch
-                    val path = serverPath ?: SendSpinProtocol.ENDPOINT_PATH
-                    Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
-                    createLocalTransport(address, path)
-                }
-                ConnectionMode.REMOTE -> {
-                    val id = remoteId ?: return@launch
-                    Log.d(TAG, "Reconnecting via Remote ID: $id (attempt $attempts)")
-                    createRemoteTransport(id)
-                }
-                ConnectionMode.PROXY -> {
-                    val url = serverAddress ?: return@launch
-                    Log.d(TAG, "Reconnecting via proxy: $url (attempt $attempts)")
-                    createProxyTransport(url)
+            // Transport creation does blocking IO -- switch dispatcher
+            // from the single-thread timer to the IO pool.
+            withContext(Dispatchers.IO) {
+                // Reconnect using the appropriate mode
+                when (connectionMode) {
+                    ConnectionMode.LOCAL -> {
+                        val address = serverAddress ?: return@withContext
+                        val path = serverPath ?: SendSpinProtocol.ENDPOINT_PATH
+                        Log.d(TAG, "Reconnecting to: $address path=$path (attempt $attempts)")
+                        createLocalTransport(address, path)
+                    }
+                    ConnectionMode.REMOTE -> {
+                        val id = remoteId ?: return@withContext
+                        Log.d(TAG, "Reconnecting via Remote ID: $id (attempt $attempts)")
+                        createRemoteTransport(id)
+                    }
+                    ConnectionMode.PROXY -> {
+                        val url = serverAddress ?: return@withContext
+                        Log.d(TAG, "Reconnecting via proxy: $url (attempt $attempts)")
+                        createProxyTransport(url)
+                    }
                 }
             }
         }
