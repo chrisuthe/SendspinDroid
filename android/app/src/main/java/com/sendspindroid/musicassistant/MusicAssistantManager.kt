@@ -18,13 +18,21 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.sendspindroid.musicassistant.transport.MaTransportException
 import java.io.IOException
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 
 /** Map app ConnectionMode to shared MaConnectionMode. */
 private fun ConnectionMode.toMaMode(): MaConnectionMode = when (this) {
@@ -56,6 +64,22 @@ private fun ConnectionMode.toMaMode(): MaConnectionMode = when (this) {
  * - Connection lifecycle
  * - Token/credential authentication flow
  */
+/**
+ * Metadata extracted from a Music Assistant `queue_updated` event.
+ *
+ * Null fields mean "no information available"; callers should preserve existing
+ * state for null fields (matching the null-preserves-existing semantics of
+ * [com.sendspindroid.model.PlaybackState.withMetadata]).
+ */
+data class QueueUpdate(
+    val queueId: String?,
+    val currentItemId: String?,
+    val title: String?,
+    val artist: String?,
+    val album: String?,
+    val durationMs: Long?
+)
+
 object MusicAssistantManager {
 
     private const val TAG = "MusicAssistantManager"
@@ -68,6 +92,15 @@ object MusicAssistantManager {
      * different scenarios (error messages, re-login prompts, etc.).
      */
     val connectionState: StateFlow<MaConnectionState> = _connectionState.asStateFlow()
+
+    // Queue update events from the MA command-channel (fix 8a).
+    // Emitted when a `queue_updated` event arrives, roughly 1 second before
+    // the equivalent SendSpin server/state broadcast with the same metadata.
+    private val _queueUpdates = MutableSharedFlow<QueueUpdate>(
+        replay = 0,
+        extraBufferCapacity = 16
+    )
+    val queueUpdates: SharedFlow<QueueUpdate> = _queueUpdates.asSharedFlow()
 
     // Current server info (when connected)
     private var currentServer: UnifiedServer? = null
@@ -212,6 +245,7 @@ object MusicAssistantManager {
         connectJob = null
 
         // Disconnect the persistent transport
+        apiTransport?.setEventListener(null)
         apiTransport?.disconnect()
         apiTransport = null
 
@@ -242,6 +276,7 @@ object MusicAssistantManager {
         clearTokenForServer: String? = null
     ) {
         Log.e(TAG, "$logPrefix failed", e)
+        apiTransport?.setEventListener(null)
         apiTransport?.disconnect()
         apiTransport = null
         commandClient.setTransport(null, null, false)
@@ -261,6 +296,61 @@ object MusicAssistantManager {
         )
     }
 
+    // ========================================================================
+    // Event listener: queue_updated fast metadata path (fix 8a)
+    // ========================================================================
+
+    /**
+     * Receives server-push events from the MA command channel and emits
+     * [QueueUpdate] for `queue_updated` events.
+     *
+     * This provides title/artist/album roughly 1 second before the equivalent
+     * SendSpin `server/state` broadcast arrives. See fix 8a in
+     * docs/architecture/sendspin-ma-metadata-flow.md.
+     */
+    private val queueEventListener = object : MaApiTransport.EventListener {
+        override fun onEvent(event: kotlinx.serialization.json.JsonObject) {
+            try {
+                val eventType = event["event"]?.jsonPrimitive?.contentOrNull
+                if (eventType != "queue_updated") return
+
+                val data = event["data"]?.jsonObject ?: return
+                val currentItem = data["current_item"]?.jsonObject ?: return
+
+                val queueId = data["queue_id"]?.jsonPrimitive?.contentOrNull
+                val currentItemId = data["current_item_id"]?.jsonPrimitive?.contentOrNull
+                val durationMs = currentItem["duration"]?.jsonPrimitive?.longOrNull?.let { it * 1000L }
+
+                val mediaItem = currentItem["media_item"]?.jsonObject
+                val title = mediaItem?.get("name")?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                val artist = mediaItem?.get("artists")?.jsonArray
+                    ?.firstOrNull()?.jsonObject
+                    ?.get("name")?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+                val album = mediaItem?.get("album")?.jsonObject
+                    ?.get("name")?.jsonPrimitive?.contentOrNull
+                    ?.takeIf { it.isNotBlank() }
+
+                val update = QueueUpdate(
+                    queueId = queueId,
+                    currentItemId = currentItemId,
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    durationMs = durationMs
+                )
+                Log.v(TAG, "queue_updated: title=$title artist=$artist album=$album durationMs=$durationMs")
+                _queueUpdates.tryEmit(update)
+            } catch (e: Exception) {
+                Log.v(TAG, "Failed to parse queue_updated event, ignoring", e)
+            }
+        }
+
+        override fun onDisconnected(reason: String) {
+            Log.d(TAG, "Event transport disconnected: $reason")
+        }
+    }
+
     /**
      * Connect a transport and store it for subsequent API calls.
      *
@@ -273,6 +363,7 @@ object MusicAssistantManager {
         serverId: String,
         authenticate: suspend (MaApiTransport) -> Unit
     ): MaServerInfo {
+        apiTransport?.setEventListener(null)
         apiTransport?.disconnect()
         apiTransport = null
 
@@ -282,6 +373,7 @@ object MusicAssistantManager {
         authenticate(transport)
 
         apiTransport = transport
+        transport.setEventListener(queueEventListener)
         val isRemote = apiUrl == MaApiEndpoint.WEBRTC_SENTINEL_URL
         commandClient.setTransport(transport, apiUrl, isRemote)
 
