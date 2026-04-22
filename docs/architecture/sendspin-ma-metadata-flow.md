@@ -219,19 +219,120 @@ Not metadata/artwork, but found while reading other parts of the log: when `Encr
 
 ---
 
-## 7. Open questions / further research
+## 7. Open questions — now with answers
 
-1. **Does MA's command-channel emit a `queue/update` or `player/state_changed` event at track advance?** If yes, timing relative to the SendSpin `server/state`? Check `music_assistant/controllers/player_queues.py` and MA's event bus. Direct answer would inform whether #2 below is worth implementing.
-2. **Can we compute the current queue-item id from audio chunk timestamps?** Probably yes by summing track durations from the queue, but needs validation with gapless / crossfade scenarios.
-3. **On cross-album track changes, is the binary artwork observably delayed vs the `server/state` with the new URL?** If so, there's a window where `currentArtwork` is stale-but-for-the-old-track and URL points to the new one — the opposite of the current bug. Fix candidate B2 (prefer URL) resolves both.
-4. **What resolves `current_item.image` vs `current_media.image_url` to different sources in MA?** Documenting this server-side inconsistency is useful context for any upstream PR.
-5. **Does the SendSpin protocol spec (at `music-assistant/aiosendspin` or `sendspin/spec`) define the expected relationship between the artwork_url in metadata and the binary artwork on channel 0?** If it requires equivalence, MA's current behavior is arguably a bug; if the spec leaves it open, client-side fix is the pragmatic path.
+Original questions retained for traceability. Research findings follow each.
+
+### Q1. Does MA's command-channel emit a track-advance event before `server/state`?
+
+**Yes.** MA publishes `QUEUE_UPDATED` on its command-channel WebSocket, and the event fires substantially earlier than the SendSpin `server/state` broadcast.
+
+Timeline on track advance, cross-referenced to MA source:
+
+```
+T+0ms     Player detects current_media changed
+          — models/player.py:1232 update_state()
+T+0ms     PLAYER_UPDATED fires on command channel
+          — controllers/players/controller.py:1770
+T+500ms   on_player_update fires, _update_queue_from_player detects current_item_id change
+          — controllers/player_queues.py:1134
+T+500ms   QUEUE_UPDATED fires on command channel (full PlayerQueue payload)
+          — controllers/player_queues.py:1790
+T+1000ms  _on_player_media_updated invoked (1-second debounce)
+          — providers/sendspin/player.py:1232
+T+1000ms+ send_current_media_metadata() scheduled; binary artwork fetched async; server/state broadcast
+```
+
+`QUEUE_UPDATED` payload includes the full new `PlayerQueue` object with `current_item.media_item` populated (title, artist, album, image as `MediaItemImage`). No follow-up fetch required. Forwarded to command-channel clients immediately via `controllers/webserver/websocket_client.py:468`.
+
+**Client infrastructure to consume this already exists but is never wired up:**
+
+- `MaApiTransport.EventListener` interface: `MaApiTransport.kt:170-175`
+- Multiplexer dispatches to it: `MaCommandMultiplexer.kt:186` (`eventListener?.onEvent(json)`)
+- But `MaCommandMultiplexer.eventListener: MaApiTransport.EventListener? = null` (line 61) is never set anywhere in the app. No `setEventListener(...)` call.
+
+**Verdict — Q1 is directly actionable.** Registering an `EventListener` in `MusicAssistantManager` that filters for `type == "queue_updated"`, extracts `data.current_item`, and pushes to `_playbackState` gets the client a ~1 second lead on the SendSpin `server/state` broadcast for every track change. That closes the "metadata lags audio" complaint without any server-side change.
+
+### Q2. Can we compute the current queue-item id from audio-chunk timestamps?
+
+Not researched in depth this session. Deferred — Q1's fix (subscribing to `queue_updated`) renders Q2 unnecessary for normal flows. Keep as fallback for pure-SendSpin deployments without MA command-channel access.
+
+### Q3. On cross-album track changes, is binary artwork ordered vs `server/state`?
+
+**Binary always arrives first, on the same sequential task.** No race, no window where old binary + new URL coexist.
+
+From `providers/sendspin/player.py:795-854`, `send_current_media_metadata()` is one coroutine:
+
+```
+await _send_album_artwork(queue_item)        # includes fetch + encode + binary send
+await _send_artist_artwork(queue_item)        # same shape
+metadata_role.set_metadata(metadata)          # synchronous, fires LAST
+```
+
+The `set_metadata` call is not awaited — it's a plain method that dispatches the `server/state` over the WebSocket. It is guaranteed to execute after both artwork sends resolve.
+
+Edge case: if `_on_player_media_updated` fires twice within the 1-second debounce window on separate tasks, the two `send_current_media_metadata` coroutines could interleave during the `to_thread(Image.open, ...)` await, producing out-of-order frames. Low probability; not the primary bug.
+
+### Q4. What resolves `current_item.image` vs `current_media.image_url` to different sources?
+
+**Three different image fields are read by three different call sites in `providers/sendspin/player.py`:**
+
+| Path | Call site | Resolution | Used for |
+|---|---|---|---|
+| A | `player.py:730` — `get_image_url(current_item.image)` | Queue item's snapshot `.image` field (set once at `QueueItem.from_media_item`, never updated). Walks `Track.image` property which prefers `album.image` via `ItemMapping`. | Dedupe check: should we re-send binary? |
+| B | `player.py:736` — `get_image_data_for_item(current_item.media_item)` | Calls `get_image_url_for_item(media_item)` which iterates `media_item.metadata.images` for THUMB, falls back to `album`, then `artist`. `_prepare_next_item` (`controllers/player_queues.py:1594-1602`) can prepend `album.image` to this list, potentially making it diverge from `queue_item.image`. | Fetch binary JPEG bytes for channel 0. |
+| C | `player.py:842` — `current_media.image_url` | `PlayerMedia.image_url`, set from `queue_item.image` in `_create_player_media` (`controllers/player_queues.py:1828-1854`, line 1851). Same underlying `queue_item.image` as Path A, at a different resolution. | `artwork_url` field in `server/state` metadata. |
+
+**Important: the direction of divergence depends on the track's data shape at queue-construction time vs after `_prepare_next_item`.**
+
+For the specific bug the user reported — "app UI shows correct Chicago album cover from URL, lock-screen widget shows unrelated pixel-character image from binary" — the likely resolution was:
+
+- `queue_item.image` (Paths A, C) → `Track.image` property → `album.image` of the `ItemMapping` → **correct Chicago album cover URL** (because at enqueue the library track's album was present).
+- `media_item.metadata.images[0]` (Path B) → THUMB from the provider-returned metadata, which for tracks sourced through a playlist often contains the **playlist context image** rather than the album cover. Binary send fetches this image's bytes → wrong.
+
+In other deployments the opposite direction is possible: `queue_item.image` snapshotted something stale while `_prepare_next_item` enriched `media_item.metadata.images` with the correct album cover. Either way, **the two paths can disagree**, and which is "correct" varies per track.
+
+Canonical fix upstream would unify all three call sites to a single resolver. The most semantically correct candidate is `get_image_url_for_item(media_item)` (the one Path B uses), applied consistently to the dedupe URL and the `artwork_url` metadata field — but only after verifying that path produces the track album cover reliably for non-library / non-enriched tracks (see the "other direction" caveat above).
+
+### Q5. Does the SendSpin spec require `artwork_url` == binary channel 0 content?
+
+**No. The spec is silent; the two streams are architecturally independent.**
+
+From `aiosendspin/server/roles/artwork/v1.py:37-38`:
+
+> "Unlike player, artwork streams are independent of playback — they start on connect and don't clear on pause/stop."
+
+("Independent" describes artwork-vs-audio, not artwork-vs-metadata, but the architectural pattern is the same: separate role families, separate group roles, no shared state.)
+
+- Metadata role: owns `artwork_url` as an opaque string. No validation. `/tmp/aiosendspin/aiosendspin/models/metadata.py`.
+- Artwork role: owns binary channels. Images passed directly as `PIL.Image`, encoded and sent. Never consults `artwork_url`. `/tmp/aiosendspin/aiosendspin/server/roles/artwork/group.py`.
+- Conformance suite (`conformance/src/conformance/scenarios.py`): tests `server-initiated-metadata` and `server-initiated-artwork` as **separate scenarios with unrelated fixture data**. No scenario asserts cross-channel consistency.
+
+**Verdict — spec-silent, MA behavior is an inadvertent app-level bug.** The protocol permits the divergence; no reasonable client expects it.
+
+**Responsibility split:**
+
+- **Upstream (MA):** real fix is to unify the three image resolution paths — see Q4. Report as a bug upstream.
+- **Client-side workaround:** since there's no protocol contract to rely on, the client should formalize its preference. The two research agents disagreed on which path is "usually right" — one said binary, one said URL — consistent with the observation that the divergence direction varies per track. **Practically we have user evidence that in the specific observed case URL was correct and binary was wrong, so "prefer URL when both available" is the pragmatic client default.** That's fix candidate B2 from §6.
+- **Spec clarification:** worth adding a non-normative SHOULD statement that servers "ensure `artwork_url` in `server/state` and the binary payload on the album artwork channel refer to the same image for the same track." Prevents other server implementations from drifting into the same shape.
 
 ---
 
-## 8. Implications for a client-side fix
+## 8. Implications for a client-side fix — informed by the research above
 
-If we decide to fix the widget's stale-artwork symptom purely client-side (the expedient path while waiting for any server-side clarification), the smallest sufficient change is **B2, variant 1** (two separate fields, URL preferred):
+Two client-side fixes are now clearly scoped. Both are small; they address different complaints.
+
+### 8a. Fix for "metadata lags audio" — wire up the MA command-channel event listener
+
+Single change: register a `MaApiTransport.EventListener` via `MaCommandMultiplexer.eventListener = ...` inside `MusicAssistantManager` initialization. The listener filters incoming events for `type == "queue_updated"`, extracts `data.current_item.media_item` (title, artist, album, image), and pushes a synthesized metadata update into `_playbackState` via a new helper on `PlaybackService`.
+
+This beats the SendSpin `server/state` broadcast by roughly 1 second per Q1's timing breakdown. No new network calls, no new permissions. The infrastructure (interface, multiplexer dispatch) already exists and is simply unused.
+
+Risk: double-updates if the later `server/state` broadcast arrives and re-applies stale or conflicting data. Mitigation: `withMetadata`'s preserve-on-null semantics already handle this gracefully — both sources produce the same end state.
+
+### 8b. Fix for "widget shows wrong artwork" — prefer URL over binary
+
+Per Q5, the protocol permits the divergence, so client policy is our call. The user's specific observation (URL correct, binary wrong) plus the Q4 note that the divergence direction can vary per track means the client should pick a default, apply it consistently, and move on.
 
 ```kotlin
 @Volatile private var urlArtwork: Bitmap? = null
@@ -242,16 +343,23 @@ private val effectiveArtwork: Bitmap? get() = urlArtwork ?: binaryArtwork
 // In fetchArtwork success path: urlArtwork = scaled; updateMediaSessionArtwork(effectiveArtwork)
 // In onArtwork: binaryArtwork = scaled; updateMediaSessionArtwork(effectiveArtwork)
 // In onArtworkCleared: binaryArtwork = null; updateMediaSessionArtwork(effectiveArtwork)
-// On track change (title differs): urlArtwork = null (force refetch)
+// On track change (title differs): urlArtwork = null (force re-fetch via fetchArtwork)
 ```
 
-This:
+URL is preferred when available because the app UI already uses URL and is observably correct. Binary stays as a bridge for the pre-URL-fetch window (solves the "Android Auto grey box" concern). On track change we invalidate `urlArtwork` so the fetch re-runs even if the URL string is unchanged — Coil caches the bytes so it's near-free.
+
+### 8c. Upstream fix (MA) — not ours, but worth filing
+
+MA server should unify the three image-resolution paths in `providers/sendspin/player.py` so the dedupe URL, the binary byte source, and the `artwork_url` field all come from one canonical helper. See Q4 for details. Filing an issue against `music-assistant/server` with the Q4 analysis inlined would be appropriate.
+
+The client-side fix in 8b renders us resilient regardless of whether or when MA fixes this. Landing 8b first + filing upstream is the right order.
+
+Additional notes on 8b:
 - Preserves the "grey box on Android Auto" concern: when URL isn't fetched yet but binary is, we still show binary.
 - Eliminates the last-writer race.
 - Gives URL structural priority once available.
 - Pairs well with B1 if we ever expand beyond channel 0.
-
-The per-track-change "invalidate `urlArtwork`" step is what fixes the same-album-but-stale case: Coil's cache returns instantly if the URL repeats, so no extra network cost.
+- The per-track-change "invalidate `urlArtwork`" step is what fixes the same-album-but-stale case: Coil's cache returns instantly if the URL repeats, so no extra network cost.
 
 ---
 
