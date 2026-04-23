@@ -67,7 +67,7 @@ object MessageParser {
     fun parseServerState(payload: JsonObject?): Pair<TrackMetadata?, String?> {
         if (payload == null) return Pair(null, null)
 
-        val metadata = payload["metadata"]?.jsonObject?.let { metadataObj ->
+        val metadata = (payload["metadata"] as? JsonObject)?.let { metadataObj ->
             fun optStringClean(key: String) =
                 metadataObj[key]?.jsonPrimitive?.contentOrNull?.takeUnless { it == "null" } ?: ""
 
@@ -80,7 +80,11 @@ object MessageParser {
             val year = metadataObj.intOrDefault("year", 0)
             val track = metadataObj.intOrDefault("track", 0)
 
-            val progress = metadataObj["progress"]?.jsonObject?.let { progressObj ->
+            // Use `as? JsonObject` rather than `?.jsonObject`: the latter throws
+            // IllegalArgumentException when the field is JsonNull (the server
+            // sometimes sends `"progress": null` in idle metadata). The cast
+            // form treats JsonNull the same as missing, which is what we want.
+            val progress = (metadataObj["progress"] as? JsonObject)?.let { progressObj ->
                 TrackProgress(
                     trackProgress = progressObj.longOrDefault("track_progress", 0),
                     trackDuration = progressObj.longOrDefault("track_duration", 0),
