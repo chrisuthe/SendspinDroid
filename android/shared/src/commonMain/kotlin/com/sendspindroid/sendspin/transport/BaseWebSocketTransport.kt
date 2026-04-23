@@ -89,8 +89,15 @@ abstract class BaseWebSocketTransport(
     }
 
     /**
-     * Check if an error is likely temporary (network glitch) vs. permanent (config error).
-     * Subclasses may override to add transport-specific checks (e.g., auth errors).
+     * Check if an error is likely temporary (network glitch) vs. permanent (config error
+     * or a leaked programming bug). Subclasses may override to add transport-specific
+     * checks (e.g., auth errors).
+     *
+     * Defaults to NOT recoverable for unknown errors. Historically this defaulted to
+     * true, which meant a `RuntimeException` leaking through (NPE, parser bug, etc.)
+     * would trigger infinite reconnect loops against a server that was already fine.
+     * Erring on "give up" for unknowns lets the UI surface the failure and keeps a
+     * misbehaving client from pinging forever.
      */
     protected open fun isRecoverableError(t: Throwable): Boolean {
         val cause = t.cause ?: t
@@ -118,8 +125,10 @@ abstract class BaseWebSocketTransport(
             message.contains("unknown host") -> false
             message.contains("no route") -> false
 
-            // Default to recoverable (optimistic)
-            else -> true
+            else -> {
+                Log.d(tag, "isRecoverableError: unrecognized throwable $causeName msg='$message' -> treating as unrecoverable")
+                false
+            }
         }
     }
 

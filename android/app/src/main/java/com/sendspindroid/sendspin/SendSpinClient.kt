@@ -89,6 +89,13 @@ class SendSpinClient(
         private const val MAX_RECONNECT_DELAY_MS = 10000L // 10 seconds (was 30s)
         private const val HIGH_POWER_RECONNECT_DELAY_MS = 30_000L // 30s steady-state for high power mode
 
+        // Hard ceiling on reconnect attempts per cycle. At the current schedule
+        // (exp backoff for 5, then 30s each) this caps the total try-window at
+        // about 7m45s. Beyond that we surface the failure to the UI via
+        // onDisconnected(wasReconnectExhausted=true) and stop scheduling attempts.
+        // Reset to 0 on every successful handshake.
+        private const val MAX_TOTAL_RECONNECT_ATTEMPTS = 20
+
         // Stall watchdog: while connected+handshake-complete, if no bytes arrive for
         // this long, force-close the transport so the existing reconnect path kicks in.
         // Shorter than Ktor's 30s ping-timeout to beat buffer drain.
@@ -1034,6 +1041,26 @@ class SendSpinClient(
             return
         }
 
+        // Hard cap (L-5 fix): after MAX_TOTAL_RECONNECT_ATTEMPTS, stop scheduling
+        // attempts and surface failure to the UI. The user can manually reconnect
+        // (which clears reconnectAttempts and restarts the cycle).
+        val prior = reconnectAttempts.get()
+        if (prior >= MAX_TOTAL_RECONNECT_ATTEMPTS) {
+            Log.w(TAG, "Reconnect cap reached ($prior >= $MAX_TOTAL_RECONNECT_ATTEMPTS) - giving up")
+            AppLog.Network.w(
+                "[reconnect-exhausted] cap=$MAX_TOTAL_RECONNECT_ATTEMPTS " +
+                    "attempts_total=${reconnectAttemptsTotal.get()} mode=$connectionMode"
+            )
+            reconnecting.set(false)
+            reconnectJob?.cancel()
+            reconnectJob = null
+            _connectionState.value = ConnectionState.Error(
+                "Couldn't reconnect to $savedServerName after $MAX_TOTAL_RECONNECT_ATTEMPTS attempts"
+            )
+            callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
+            return
+        }
+
         val attempts = reconnectAttempts.incrementAndGet()
         // Lifetime counter survives across reconnect cycles. Issue #128.
         reconnectAttemptsTotal.incrementAndGet()
@@ -1163,7 +1190,12 @@ class SendSpinClient(
             cause is UnknownHostException -> false
             cause is SSLHandshakeException -> false
             message.contains("refused") -> false
-            else -> true
+            else -> {
+                // Default to NOT recoverable. A leaked programming bug (NPE, parser
+                // RuntimeException, etc.) must not trigger endless reconnect loops.
+                Log.d(TAG, "isRecoverableError: unrecognized throwable ${cause::class.simpleName} msg='$message' -> unrecoverable")
+                false
+            }
         }
     }
 

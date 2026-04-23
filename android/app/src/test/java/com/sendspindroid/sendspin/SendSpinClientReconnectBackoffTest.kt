@@ -26,10 +26,12 @@ import org.junit.Test
 
 /**
  * Tests that reconnection uses exponential backoff with the correct delays
- * and that both normal and high-power modes retry indefinitely.
+ * and that the total attempt count is bounded by MAX_TOTAL_RECONNECT_ATTEMPTS.
  *
- * Expected delay sequence: 500ms, 1s, 2s, 4s, 8s.
- * Both normal and high-power mode: infinite retries, 30s steady-state after the 5th attempt.
+ * Expected delay sequence: 500ms, 1s, 2s, 4s, 8s (first five), then 30s
+ * steady-state. Retries stop after MAX_TOTAL_RECONNECT_ATTEMPTS (20), at which
+ * point onDisconnected(wasReconnectExhausted=true) fires and the connection
+ * state transitions to Error.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SendSpinClientReconnectBackoffTest {
@@ -139,33 +141,96 @@ class SendSpinClientReconnectBackoffTest {
     }
 
     @Test
-    fun `normal mode retries forever without triggering exhausted error`() {
+    fun `attempts below cap do not trigger exhausted disconnect`() {
         setupForReconnection()
         every { UserSettings.highPowerMode } returns false
 
         val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
-        // Perform 10 attempts - all should succeed in normal mode now
+        // Ten attempts is well under the MAX_TOTAL_RECONNECT_ATTEMPTS (20) cap.
         for (i in 1..10) {
             attemptReconnect.invoke(client)
         }
 
-        // Should NOT have called onDisconnected with wasReconnectExhausted=true
+        verify(exactly = 0) {
+            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
+        }
+        verify(exactly = 10) {
+            mockCallback.onReconnecting(any(), any())
+        }
+        assertTrue(
+            "State should remain Connecting below cap, was: ${client.connectionState.value}",
+            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
+        )
+    }
+
+    @Test
+    fun `reaching MAX_TOTAL_RECONNECT_ATTEMPTS triggers exhausted disconnect`() {
+        setupForReconnection()
+        every { UserSettings.highPowerMode } returns false
+
+        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        attemptReconnect.isAccessible = true
+
+        // Drive attempts up to the cap. At MAX_TOTAL_RECONNECT_ATTEMPTS (20) we
+        // should still be reconnecting; the cap-exceeded check fires on the 21st
+        // entry into attemptReconnect (when reconnectAttempts.get() is already 20).
+        for (i in 1..20) {
+            attemptReconnect.invoke(client)
+        }
+        assertEquals(20, client.getReconnectAttempts())
         verify(exactly = 0) {
             mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
         }
 
-        // All 10 should have been onReconnecting calls
-        verify(exactly = 10) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // The 21st call is the one that should detect the cap and fire exhausted.
+        attemptReconnect.invoke(client)
 
-        // State should remain Connecting (not Error)
+        verify(exactly = 1) {
+            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
+        }
         assertTrue(
-            "State should remain Connecting in normal mode with no cap, was: ${client.connectionState.value}",
-            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
+            "State should transition to Error after cap, was: ${client.connectionState.value}",
+            client.connectionState.value is SendSpinClient.ConnectionState.Error
         )
+    }
+
+    @Test
+    fun `isRecoverableError returns false for unknown throwables`() {
+        val method = SendSpinClient::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
+        method.isAccessible = true
+
+        // A totally generic RuntimeException (the shape a parser bug or NPE takes)
+        // must not be treated as recoverable, to avoid infinite reconnect on
+        // programmer errors.
+        val unknown = RuntimeException("something strange nobody has matched")
+        assertEquals(false, method.invoke(client, unknown))
+    }
+
+    @Test
+    fun `isRecoverableError returns true for known network glitches`() {
+        val method = SendSpinClient::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
+        method.isAccessible = true
+
+        // Sanity: known-recoverable errors still resolve to recoverable.
+        val socketErr = java.net.SocketException("Connection reset by peer")
+        val eofErr = java.io.EOFException("unexpected eof")
+        val timeoutErr = java.net.SocketTimeoutException("read timed out")
+        assertEquals(true, method.invoke(client, socketErr))
+        assertEquals(true, method.invoke(client, eofErr))
+        assertEquals(true, method.invoke(client, timeoutErr))
+    }
+
+    @Test
+    fun `isRecoverableError returns false for known permanent errors`() {
+        val method = SendSpinClient::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
+        method.isAccessible = true
+
+        val unknownHost = java.net.UnknownHostException("no such host")
+        val refused = java.io.IOException("connection refused")
+        assertEquals(false, method.invoke(client, unknownHost))
+        assertEquals(false, method.invoke(client, refused))
     }
 
     @Test
