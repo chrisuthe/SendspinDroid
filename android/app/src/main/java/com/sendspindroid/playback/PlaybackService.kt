@@ -87,13 +87,18 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Background playback service for SendSpinDroid.
@@ -124,6 +129,11 @@ class PlaybackService : MediaLibraryService() {
     private var forwardingPlayer: MetadataForwardingPlayer? = null
     private var sendSpinClient: SendSpinClient? = null
     @Volatile private var syncAudioPlayer: SyncAudioPlayer? = null
+    // Owned exclusively by the decode worker coroutine (serialized on
+    // decodeDispatcher). Single-writer invariant: all mutations happen
+    // inside handleDecodeStartStream / handleDecodeRelease, both of which
+    // run on decodeDispatcher. No volatile / lock needed because no other
+    // thread reads or writes this field.
     private var audioDecoder: AudioDecoder? = null
 
     // When true, the next state/group message should call exitDraining() AFTER processing.
@@ -290,6 +300,19 @@ class PlaybackService : MediaLibraryService() {
 
     // Coroutine scope for background tasks (artwork loading)
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Decode worker: single-thread-equivalent coroutine that owns the
+    // decoder for its lifetime. See
+    // docs/superpowers/specs/2026-04-23-codec-safe-decoder-redesign-design.md
+    // for the H-4 + M-8 rationale.
+    @kotlin.OptIn(ExperimentalCoroutinesApi::class)
+    private val decodeDispatcher = Dispatchers.IO.limitedParallelism(1)
+
+    // Capacity = 1000 ~= 20 seconds at the expected 50 chunks/sec. Sized to
+    // absorb cold-start + pre-buffered bursts (~100 entries) with 10x headroom.
+    private val decodeChannel = Channel<DecodeTask>(capacity = 1000)
+
+    private var decodeJob: Job? = null
 
     // Wake lock to prevent CPU sleep during playback
     private var wakeLock: PowerManager.WakeLock? = null
@@ -669,6 +692,59 @@ class PlaybackService : MediaLibraryService() {
         data class Error(val message: String) : ConnectionState()
     }
 
+    /**
+     * Tasks sent through [decodeChannel] to the single-owner decode worker.
+     *
+     * All decoder lifecycle transitions (StartStream, Flush, Release) travel on
+     * the same channel as Chunk so they respect FIFO ordering with pending
+     * decodes. See
+     * docs/superpowers/specs/2026-04-23-codec-safe-decoder-redesign-design.md
+     * for the H-4 + M-8 rationale.
+     */
+    private sealed class DecodeTask {
+        data class Chunk(val serverTimeMicros: Long, val audioData: ByteArray) : DecodeTask() {
+            // Override equals/hashCode because data classes with ByteArray use
+            // reference equality by default, which is surprising. In practice
+            // DecodeTask instances are only compared in tests.
+            override fun equals(other: Any?): Boolean {
+                if (this === other) return true
+                if (other !is Chunk) return false
+                return serverTimeMicros == other.serverTimeMicros &&
+                    audioData.contentEquals(other.audioData)
+            }
+            override fun hashCode(): Int {
+                var result = serverTimeMicros.hashCode()
+                result = 31 * result + audioData.contentHashCode()
+                return result
+            }
+        }
+        data class StartStream(
+            val codec: String,
+            val sampleRate: Int,
+            val channels: Int,
+            val bitDepth: Int,
+            val codecHeader: ByteArray?,
+        ) : DecodeTask() {
+            override fun equals(other: Any?): Boolean {
+                if (this === other) return true
+                if (other !is StartStream) return false
+                return codec == other.codec && sampleRate == other.sampleRate &&
+                    channels == other.channels && bitDepth == other.bitDepth &&
+                    (codecHeader?.contentEquals(other.codecHeader) ?: (other.codecHeader == null))
+            }
+            override fun hashCode(): Int {
+                var result = codec.hashCode()
+                result = 31 * result + sampleRate
+                result = 31 * result + channels
+                result = 31 * result + bitDepth
+                result = 31 * result + (codecHeader?.contentHashCode() ?: 0)
+                return result
+            }
+        }
+        object Flush : DecodeTask()
+        object Release : DecodeTask()
+    }
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -742,6 +818,12 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
+
+        // Launch the single-owner decode worker. Task 3 scaffolding: no
+        // callback currently sends into decodeChannel. Task 4 flips the
+        // existing onAudioChunk / onStreamStart / onStreamClear / onDestroy
+        // paths over to this channel.
+        startDecodeWorker()
 
         // Initialize network evaluator for passive network monitoring
         networkEvaluator = NetworkEvaluator(this)
@@ -871,6 +953,106 @@ class PlaybackService : MediaLibraryService() {
             Log.e(TAG, "Failed to initialize SendSpinClient", e)
             _connectionState.value = ConnectionState.Error("Failed to initialize: ${e.message}")
         }
+    }
+
+    /**
+     * Launches the single-owner decode worker. The worker consumes
+     * [decodeChannel] sequentially on [decodeDispatcher]; all decoder
+     * lifecycle events (StartStream, Flush, Release) flow through the same
+     * channel as Chunk so they preserve FIFO ordering with pending decodes.
+     *
+     * Task 3 scaffolding: the worker is running but no callback currently
+     * sends into [decodeChannel]. Task 4 flips the callback sites over.
+     */
+    private fun startDecodeWorker() {
+        decodeJob = serviceScope.launch(decodeDispatcher) {
+            for (task in decodeChannel) {
+                try {
+                    when (task) {
+                        is DecodeTask.Chunk -> handleDecodeChunk(task)
+                        is DecodeTask.StartStream -> handleDecodeStartStream(task)
+                        DecodeTask.Flush -> handleDecodeFlush()
+                        DecodeTask.Release -> handleDecodeRelease()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Decode worker error on task ${task::class.simpleName}", e)
+                }
+            }
+        }
+    }
+
+    /**
+     * Decode a single audio chunk. Runs on [decodeDispatcher]; [audioDecoder]
+     * is read from the single-owner thread so no TOCTOU local-ref capture is
+     * needed. Chunks for the "pcm" codec pass through when no decoder is
+     * installed (matches the previous onAudioChunk behavior).
+     */
+    private suspend fun handleDecodeChunk(t: DecodeTask.Chunk) {
+        val decoder = audioDecoder
+        val pcmData: ByteArray = try {
+            when {
+                decoder != null -> decoder.decode(t.audioData)
+                currentCodec == "pcm" -> t.audioData
+                else -> return // compressed codec with no decoder -- drop chunk
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Decode error, dropping chunk", e)
+            return
+        }
+        val player = syncAudioPlayer ?: return
+        player.queueChunk(t.serverTimeMicros, pcmData)
+    }
+
+    /**
+     * Release any prior decoder and create+configure a new one for the new
+     * stream. Runs on [decodeDispatcher] so we're the single owner of
+     * [audioDecoder]. Falls back to a PCM pass-through decoder if the
+     * requested codec can't be created, matching the prior main-thread
+     * behavior.
+     */
+    private suspend fun handleDecodeStartStream(t: DecodeTask.StartStream) {
+        Log.d(
+            TAG,
+            "Stream started: codec=${t.codec}, rate=${t.sampleRate}, " +
+                "channels=${t.channels}, bits=${t.bitDepth}, " +
+                "header=${t.codecHeader?.size ?: 0} bytes"
+        )
+
+        // Release existing decoder and create new one for this stream.
+        audioDecoder?.release()
+        audioDecoder = null
+        try {
+            val decoder = AudioDecoderFactory.create(t.codec)
+            decoder.configure(t.sampleRate, t.channels, t.bitDepth, t.codecHeader)
+            audioDecoder = decoder
+            Log.i(TAG, "Audio decoder created: ${t.codec}")
+            decoderReady = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create decoder for ${t.codec}, falling back to PCM", e)
+            try {
+                val fallback = AudioDecoderFactory.create("pcm")
+                fallback.configure(t.sampleRate, t.channels, t.bitDepth)
+                audioDecoder = fallback
+                Log.i(TAG, "PCM fallback decoder configured")
+                decoderReady = true
+            } catch (fallbackEx: Exception) {
+                Log.e(TAG, "PCM fallback decoder also failed", fallbackEx)
+                audioDecoder = null
+                // decoderReady stays false -- subsequent chunks will be
+                // rejected at the WS-IO fast-path gate.
+                decoderReady = false
+            }
+        }
+    }
+
+    private suspend fun handleDecodeFlush() {
+        audioDecoder?.flush()
+    }
+
+    private suspend fun handleDecodeRelease() {
+        audioDecoder?.release()
+        audioDecoder = null
+        decoderReady = false
     }
 
     /**
@@ -1299,38 +1481,27 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
-            // Mark decoder as not ready IMMEDIATELY (on WebSocket thread) before posting.
-            // This prevents onAudioChunk from using the old (about-to-be-released) decoder.
-            decoderReady = false
-            mainHandler.post {
-                Log.d(TAG, "Stream started: codec=$codec, rate=$sampleRate, channels=$channels, bits=$bitDepth, header=${codecHeader?.size ?: 0} bytes")
+            // Post decoder lifecycle to the single-owner decode worker via the
+            // channel. FIFO ordering between StartStream and any subsequent
+            // Chunk tasks ensures the new decoder is in place before its
+            // chunks are decoded. decoderReady is set optimistically so any
+            // chunk arriving during reconfiguration is still enqueued; it
+            // will decode with the new decoder once the worker drains the
+            // StartStream task ahead of it.
+            decoderReady = true
+            serviceScope.launch {
+                decodeChannel.send(
+                    DecodeTask.StartStream(codec, sampleRate, channels, bitDepth, codecHeader)
+                )
+            }
 
+            // Non-decoder state updates continue to run on the main thread,
+            // where SyncAudioPlayer + foreground-service + lock bookkeeping
+            // live.
+            mainHandler.post {
                 // Safety net: if stream/start arrives before state/group, complete deferred exit
                 completePendingExitDraining()
                 currentCodec = codec
-
-                // Release existing decoder and create new one for this stream
-                audioDecoder?.release()
-                audioDecoder = null
-                try {
-                    audioDecoder = AudioDecoderFactory.create(codec)
-                    audioDecoder?.configure(sampleRate, channels, bitDepth, codecHeader)
-                    Log.i(TAG, "Audio decoder created: $codec")
-                    decoderReady = true
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to create decoder for $codec, falling back to PCM", e)
-                    try {
-                        val fallback = AudioDecoderFactory.create("pcm")
-                        fallback.configure(sampleRate, channels, bitDepth)
-                        audioDecoder = fallback
-                        Log.i(TAG, "PCM fallback decoder configured")
-                        decoderReady = true
-                    } catch (fallbackEx: Exception) {
-                        Log.e(TAG, "PCM fallback decoder also failed", fallbackEx)
-                        audioDecoder = null
-                        // decoderReady stays false -- onAudioChunk will drop chunks
-                    }
-                }
 
                 // Get the time filter from SendSpinClient
                 val timeFilter = sendSpinClient?.getTimeFilter()
@@ -1383,10 +1554,16 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onStreamClear() {
             Log.i(TAG, "[cmd-trace] T2 onStreamClear ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
+            // Decoder flush goes through the channel so it is ordered with
+            // any in-flight Chunk tasks: every chunk enqueued before the
+            // stream/clear message decodes with the pre-flush decoder
+            // state; every chunk enqueued after decodes with the flushed
+            // decoder. Preserves the FIFO guarantee from the design.
+            serviceScope.launch { decodeChannel.send(DecodeTask.Flush) }
+
             mainHandler.post {
                 Log.i(TAG, "[cmd-trace] T3 onStreamClear.post ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
-                Log.d(TAG, "Stream clear - flushing audio and decoder buffers")
-                audioDecoder?.flush()
+                Log.d(TAG, "Stream clear - flushing audio buffer")
                 syncAudioPlayer?.clearBuffer()
             }
         }
@@ -1403,32 +1580,23 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {
-            // Guard: don't try to decode if the decoder is being replaced (race with onStreamStart)
+            // Fast-path gate: once onStreamStart has been observed but before
+            // any audio has been accepted, decoderReady stays false so we
+            // don't pile chunks into the channel for a decoder that will
+            // never exist. Normal steady state sees decoderReady = true.
             if (!decoderReady) return
 
-            // Capture local references to avoid TOCTOU race: the main thread can null
-            // and release these between a null-check and method call.
-            val player = syncAudioPlayer ?: return
-            val decoder = audioDecoder
-
-            // Decode compressed data to PCM, or pass through for PCM codec.
-            // If decoder is null mid-reconfiguration, only PCM raw data is safe
-            // to forward -- compressed bytes (Opus/FLAC) would be garbled.
-            val pcmData = try {
-                if (decoder != null) {
-                    decoder.decode(audioData)
-                } else if (currentCodec == "pcm") {
-                    audioData
-                } else {
-                    return // compressed codec with no decoder -- drop chunk
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Decode error, dropping chunk", e)
-                return
+            // Hand the chunk to the single-owner decode worker via the
+            // channel. Wrapping send() in launch lets this callback return
+            // immediately on WS-IO (fixing H-4); the launched coroutine
+            // suspends on the channel if it is full. We deliberately do
+            // NOT use trySend + drop: dropping compressed chunks mid-frame
+            // corrupts codec state (this is exactly the regression PR #142
+            // introduced via drop-oldest). Suspend-on-full is the
+            // correctness property; see design doc H-4 / M-8 rationale.
+            serviceScope.launch {
+                decodeChannel.send(DecodeTask.Chunk(serverTimeMicros, audioData))
             }
-            if (pcmData == null) return
-            // Queue decoded PCM - SyncAudioPlayer handles threading internally
-            player.queueChunk(serverTimeMicros, pcmData)
         }
 
         override fun onVolumeChanged(volume: Int) {
@@ -3856,12 +4024,26 @@ class PlaybackService : MediaLibraryService() {
         browseDiscoveryManager?.cleanup()
         browseDiscoveryManager = null
 
+        // Send a final Release through the channel so it runs after any
+        // pending decode tasks, then close the channel and wait up to 500 ms
+        // for the worker to drain and exit. trySend (not send) because
+        // onDestroy is non-suspending -- if the channel is somehow full we
+        // don't want to block teardown waiting for the worker to make
+        // progress; handleDecodeRelease still runs if trySend succeeds, or
+        // the worker will release the decoder as it exits when the channel
+        // is closed.
+        decodeChannel.trySend(DecodeTask.Release)
+        decodeChannel.close()
+        runBlocking {
+            withTimeoutOrNull(500) { decodeJob?.join() }
+        }
+
         serviceScope.cancel()
         imageLoader?.shutdown()
 
-        // Release audio decoder and player, then playback locks and foreground notification
-        audioDecoder?.release()
-        audioDecoder = null
+        // audioDecoder is released by handleDecodeRelease on the decode
+        // worker (invariant: only that coroutine mutates the field).
+        // Cancel playback locks and foreground notification.
         syncAudioPlayer?.release()
         syncAudioPlayer = null
         releasePlaybackLocks()
