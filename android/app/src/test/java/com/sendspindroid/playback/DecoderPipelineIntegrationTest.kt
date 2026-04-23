@@ -348,6 +348,120 @@ class DecoderPipelineIntegrationTest {
     }
 
     // =========================================================================
+    // Test 5: stress test -- a burst larger than the production channel
+    // capacity (1000 slots) preserves contiguity and delivers every chunk.
+    //
+    // In production this would exercise the channel-capacity boundary and
+    // trigger producer-side suspend on the last ~200 sends. In the
+    // synchronous simulator there is no channel, so this is a stronger
+    // version of test 1: the logical invariant is zero loss + zero
+    // corruption at any burst size, regardless of queueing strategy.
+    // =========================================================================
+
+    @Test
+    fun `burst of 1200 chunks submitted in rapid succession preserves contiguity`() {
+        simulator.onStreamStart(
+            codec = "flac",
+            sampleRate = 48000,
+            channels = 2,
+            bitDepth = 16,
+            codecHeader = ByteArray(42)
+        )
+
+        // Submit 1200 chunks. In production this would exercise the channel
+        // capacity boundary (1000 slots) and trigger producer-side suspend
+        // on the last ~200 sends. In the simulator it's just a big sequence.
+        val chunkCount = 1200
+        for (i in 0 until chunkCount) {
+            simulator.onAudioChunk(
+                serverTimeMicros = i * 10_000L,
+                audioData = makeChunk(i.toLong())
+            )
+        }
+        simulator.waitForIdle()
+
+        // No drops, no corruption, all in order.
+        assertFalse(
+            "decoder must not see non-contiguous input",
+            fakeDecoder.nonContiguousInputDetected.get()
+        )
+        assertEquals(
+            "all chunks must have been decoded",
+            chunkCount,
+            fakeDecoder.decodeCalls.get()
+        )
+        assertEquals(
+            "all PCM outputs delivered to queueChunk",
+            chunkCount,
+            simulator.queuedChunks.size
+        )
+        // Verify sequence ordering in the queueChunk output stream.
+        simulator.queuedChunks.toList().forEachIndexed { idx, chunk ->
+            val recoveredSeq = readLongBE(chunk.pcm, 0)
+            assertEquals(
+                "chunk at index $idx must carry seq $idx",
+                idx.toLong(),
+                recoveredSeq
+            )
+        }
+    }
+
+    // =========================================================================
+    // Test 6: onDestroy releases the decoder exactly once, after pending
+    // chunks have been processed. Documents the teardown contract added in
+    // Task 4 (real PlaybackService sends a final Release through the channel
+    // and closes it). In the synchronous simulator onDestroy just releases
+    // the captured decoder reference, which is the corresponding behavioral
+    // assertion.
+    // =========================================================================
+
+    @Test
+    fun `onDestroy releases decoder after draining pending chunks`() {
+        simulator.onStreamStart(
+            codec = "flac",
+            sampleRate = 48000,
+            channels = 2,
+            bitDepth = 16,
+            codecHeader = ByteArray(42)
+        )
+
+        // Submit a modest batch.
+        for (i in 0 until 50) {
+            simulator.onAudioChunk(
+                serverTimeMicros = i * 10_000L,
+                audioData = makeChunk(i.toLong())
+            )
+        }
+        simulator.waitForIdle()
+
+        // Before teardown: 50 chunks decoded, no release yet.
+        assertEquals(
+            "50 chunks should have been decoded",
+            50,
+            fakeDecoder.decodeCalls.get()
+        )
+        assertEquals(
+            "decoder should not be released mid-session",
+            0,
+            fakeDecoder.releaseCalls.get()
+        )
+
+        // Teardown: simulator's onDestroy mirrors the real PlaybackService
+        // path -- sending a Release and letting the worker process it.
+        simulator.onDestroy()
+
+        assertEquals(
+            "decoder must be released exactly once on teardown",
+            1,
+            fakeDecoder.releaseCalls.get()
+        )
+        assertFalse(
+            "no contiguity violations during teardown",
+            fakeDecoder.nonContiguousInputDetected.get()
+        )
+    }
+
+    // =========================================================================
     // Test helper: captured queueChunk call.
     // =========================================================================
 
@@ -440,6 +554,23 @@ class DecoderPipelineIntegrationTest {
             // onStreamStart (which releases the prior decoder before creating
             // a new one) or on onDestroy. The simulator has no SyncAudioPlayer
             // to idle, so this handler is intentionally empty.
+        }
+
+        /**
+         * Mirrors the decoder-release portion of PlaybackService.onDestroy.
+         * In the real service this is done via decodeChannel.send(Release)
+         * followed by channel.close() and a bounded join on the decode
+         * worker -- handleDecodeRelease is what actually calls
+         * audioDecoder?.release(). The simulator is synchronous and has no
+         * worker, so it releases the captured decoder directly. We also
+         * clear decoderReady so any post-destroy onAudioChunk calls would
+         * be gated off, matching production's behavior once the channel
+         * is closed.
+         */
+        fun onDestroy() {
+            decoderReady = false
+            audioDecoder?.release()
+            audioDecoder = null
         }
 
         /**
