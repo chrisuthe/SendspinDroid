@@ -1490,6 +1490,16 @@ class SyncAudioPlayer(
      * @return true if we should continue waiting, false if ready to play
      */
     private fun handleStartGatingDacAware(track: AudioTrack): Boolean {
+        // Wind the estimator's timeout clock before checking its status. Once
+        // dacTimestampsStable flips to true, the WAITING_FOR_START branch of
+        // the main loop stops calling preCalibrateDacTiming() -- which was the
+        // only other path that ticked the estimator. Without this call, an
+        // estimator that hasn't accepted 20 samples before DAC stabilises
+        // stays in Measuring indefinitely, and the status check below holds
+        // us in WAITING_FOR_START forever. On-device that surfaces as
+        // MediaSession BUFFERING with a growing chunk queue and no audio.
+        latencyEstimator.tick()
+
         // Measurement-complete clause: don't transition to PLAYING until
         // the latency estimator has converged or timed out. If we don't
         // wait here, an unusually-early server-scheduled start could make
