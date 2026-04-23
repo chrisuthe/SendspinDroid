@@ -129,6 +129,66 @@ import kotlin.math.abs
  * - onBufferExhausted() when buffer runs out
  * New chunks can still be queued (seamlessly spliced via gap/overlap handling).
  */
+/**
+ * Default production [AudioSink] factory for [SyncAudioPlayer].
+ *
+ * Builds an [AudioTrack] with the same configuration that SyncAudioPlayer previously
+ * constructed inline (USAGE_MEDIA / CONTENT_TYPE_MUSIC, MODE_STREAM,
+ * PERFORMANCE_MODE_LOW_LATENCY) and wraps it in an [AudioTrackSink]. The
+ * [bufferSize] is precomputed by the caller; this factory does not query
+ * [AudioTrack.getMinBufferSize].
+ *
+ * Tests inject a FakeAudioSink instead via SyncAudioPlayer's `sinkFactory`
+ * constructor parameter, allowing the player to run off-device without a real
+ * AudioTrack.
+ */
+private fun defaultSinkFactory(
+    sampleRate: Int,
+    channels: Int,
+    bitDepth: Int,
+    bufferSize: Int,
+): AudioSink {
+    val channelConfig = when (channels) {
+        1 -> AudioFormat.CHANNEL_OUT_MONO
+        2 -> AudioFormat.CHANNEL_OUT_STEREO
+        else -> throw IllegalArgumentException("Unsupported channel count: $channels")
+    }
+    val encoding = when (bitDepth) {
+        16 -> AudioFormat.ENCODING_PCM_16BIT
+        24 -> if (Build.VERSION.SDK_INT >= 31) {
+            AudioFormat.ENCODING_PCM_24BIT_PACKED
+        } else {
+            throw IllegalStateException("24-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
+        }
+        32 -> if (Build.VERSION.SDK_INT >= 31) {
+            AudioFormat.ENCODING_PCM_32BIT
+        } else {
+            throw IllegalStateException("32-bit PCM requires API 31+, device is API ${Build.VERSION.SDK_INT}")
+        }
+        else -> throw IllegalArgumentException("Unsupported bit depth: $bitDepth")
+    }
+    val bytesPerFrame = channels * (bitDepth / 8)
+    val track = AudioTrack.Builder()
+        .setAudioAttributes(
+            AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+        )
+        .setAudioFormat(
+            AudioFormat.Builder()
+                .setSampleRate(sampleRate)
+                .setChannelMask(channelConfig)
+                .setEncoding(encoding)
+                .build()
+        )
+        .setBufferSizeInBytes(bufferSize)
+        .setTransferMode(AudioTrack.MODE_STREAM)
+        .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+        .build()
+    return AudioTrackSink(track, bytesPerFrame)
+}
+
 enum class PlaybackState {
     /** Waiting for first audio chunk and time sync to be ready. */
     INITIALIZING,
@@ -202,6 +262,11 @@ class SyncAudioPlayer(
     private val requestClientStateSnapshot: () -> Unit = {},
     // Injectable monotonic clock for testability; production default is System.nanoTime().
     private val nowNs: () -> Long = { System.nanoTime() },
+    // Injectable audio sink factory for testability; production default wraps AudioTrack.
+    // The bufferSize parameter is precomputed (via AudioTrack.getMinBufferSize + multiplier)
+    // and passed in rather than queried inside the factory.
+    private val sinkFactory: (sampleRate: Int, channels: Int, bitDepth: Int, bufferSize: Int) -> AudioSink =
+        ::defaultSinkFactory,
 ) {
     companion object {
         // Sync correction thresholds (microseconds)
@@ -542,25 +607,7 @@ class SyncAudioPlayer(
         val bufferSize = maxOf(minBufferSize * BUFFER_SIZE_MULTIPLIER, sampleRate * bytesPerFrame) // ~1 second
 
         try {
-            val track = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build()
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(channelConfig)
-                        .setEncoding(encoding)
-                        .build()
-                )
-                .setBufferSizeInBytes(bufferSize)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-                .build()
-            audioSink = AudioTrackSink(track, bytesPerFrame)
+            audioSink = sinkFactory(sampleRate, channels, bitDepth, bufferSize)
 
             // Pre-allocate frame buffers for sync correction (avoids GC in audio callback)
             lastOutputFrame = ByteArray(bytesPerFrame)
