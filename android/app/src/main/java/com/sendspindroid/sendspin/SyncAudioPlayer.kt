@@ -342,6 +342,11 @@ class SyncAudioPlayer(
         private const val CHUNK_DROP_LOG_INTERVAL = 100  // Log every Nth dropped chunk when time sync not ready
         private const val DAC_PACING_LOG_INTERVAL_US = 10_000_000L  // Log DAC pacing stats every 10 seconds
 
+        // Stuck-state watchdog: detects when the state machine wedges in a
+        // non-PLAYING state while chunks are arriving (diagnostic only).
+        private const val STUCK_STATE_WARNING_US = 5_000_000L         // 5s
+        private const val STUCK_STATE_WARNING_INTERVAL_US = 10_000_000L  // 10s between warnings
+
         // Pre-sync buffering - buffer chunks while waiting for time sync to be ready
         private const val MAX_PENDING_CHUNKS = 500  // ~10 seconds at 48kHz/20ms chunks
 
@@ -524,6 +529,12 @@ class SyncAudioPlayer(
     @Volatile private var framesDropped = 0L
     @Volatile private var reanchorCount = 0L        // Count of reanchor events
     @Volatile private var bufferUnderrunCount = 0L  // Count of times queue was empty during playback
+
+    // Stuck-state watchdog: tracks when a non-PLAYING state was first entered.
+    // Used by the stats logger to surface state-machine deadlocks.
+    private var stuckStateEnteredAtUs: Long = 0L
+    private var lastObservedState: PlaybackState = PlaybackState.INITIALIZING
+    private var lastStuckWarningAtUs: Long = 0L
 
     // Pre-sync chunk buffer - holds chunks received before time sync is ready.
     // These will be processed once time sync completes. Mutations require the
@@ -2066,8 +2077,10 @@ class SyncAudioPlayer(
                 val pendingToDacUs = if (audioSink != null && dacTimestampsStable)
                     getPendingToDacUs(audioSink!!) else 0L
 
-                // Rate-limited DAC pacing diagnostics
+                // Rate-limited DAC pacing diagnostics. The watchdog shares this
+                // cadence so stuck-state warnings come out on the same log tick.
                 val nowMicros = nowNs() / 1000
+                checkStuckState()
                 if (dacTimestampsStable && nowMicros - lastDacPacingLogTimeUs > DAC_PACING_LOG_INTERVAL_US) {
                     lastDacPacingLogTimeUs = nowMicros
                     AppLog.Sync.d("DAC pacing: pending=${pendingToDacUs/1000}ms, syncErr=${syncErrorUs/1000}ms")
@@ -2094,6 +2107,51 @@ class SyncAudioPlayer(
 
             AppLog.Audio.d("Playback loop ended")
         }
+    }
+
+    /**
+     * Watchdog invoked once per stats-log cycle. Warns if the state machine
+     * has been in a non-PLAYING state for more than STUCK_STATE_WARNING_US
+     * while chunks are arriving (indicating the pipeline is wedged, not
+     * just idle).
+     *
+     * Diagnostic only -- no recovery action.
+     */
+    private fun checkStuckState() {
+        val nowUs = nowNs() / 1000
+        val state = playbackState
+
+        if (state != lastObservedState) {
+            lastObservedState = state
+            stuckStateEnteredAtUs = nowUs
+            return
+        }
+
+        if (state == PlaybackState.PLAYING) return
+
+        val stuckUs = nowUs - stuckStateEnteredAtUs
+        if (stuckUs < STUCK_STATE_WARNING_US) return
+
+        // Don't spam when there's no audio backlog -- that's a genuinely
+        // idle state (e.g. user paused), not a deadlock.
+        if (totalQueuedSamples.get() == 0L) return
+
+        // Rate-limit: once warned, stay quiet for STUCK_STATE_WARNING_INTERVAL_US.
+        // The `lastStuckWarningAtUs != 0L` guard ensures the first warning always
+        // fires -- otherwise `nowUs - 0` is trivially small and the watchdog
+        // would silently suppress its very first report.
+        if (lastStuckWarningAtUs != 0L &&
+            nowUs - lastStuckWarningAtUs < STUCK_STATE_WARNING_INTERVAL_US
+        ) return
+        lastStuckWarningAtUs = nowUs
+
+        val bufferedMs = (totalQueuedSamples.get() * 1000) / sampleRate
+        AppLog.Audio.w(
+            "WATCHDOG: state=$state stuck for ${stuckUs / 1000}ms, " +
+                "buffered=${bufferedMs}ms, chunks=${chunkQueue.size}, " +
+                "estimatorStatus=${latencyEstimator.status}, " +
+                "dacTimestampsStable=$dacTimestampsStable"
+        )
     }
 
     /**

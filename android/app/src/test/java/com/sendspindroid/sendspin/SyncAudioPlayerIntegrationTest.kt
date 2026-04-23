@@ -5,7 +5,9 @@ import com.sendspindroid.sendspin.audio.FakeAudioSink
 import com.sendspindroid.sendspin.latency.OutputLatencyEstimator
 import io.mockk.every
 import io.mockk.mockk
+import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -150,5 +152,77 @@ class SyncAudioPlayerIntegrationTest {
             OutputLatencyEstimator.Status.TimedOut,
             estimator.status,
         )
+    }
+
+    /**
+     * Build a SyncAudioPlayer wired to the shared `nowNs` clock and a
+     * relaxed time-filter mock. Used by the watchdog tests.
+     */
+    private fun newPlayerForWatchdog(): SyncAudioPlayer {
+        val timeFilter = mockk<SendspinTimeFilter>(relaxed = true)
+        every { timeFilter.isReady } returns true
+        every { timeFilter.serverToClient(any()) } answers { firstArg() }
+        every { timeFilter.clientToServer(any()) } answers { firstArg() }
+        every { timeFilter.offsetMicros } returns 0L
+        every { timeFilter.measurementCountValue } returns 10
+
+        val fakeSink = FakeAudioSink()
+        return SyncAudioPlayer(
+            timeFilter = timeFilter,
+            sampleRate = sampleRate,
+            channels = channels,
+            bitDepth = bitDepth,
+            nowNs = nowNs,
+            sinkFactory = { _, _, _, _ -> fakeSink },
+        )
+    }
+
+    /** Invoke the private parameterless checkStuckState() method. */
+    private fun invokeCheckStuckState(player: SyncAudioPlayer) {
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod("checkStuckState")
+        method.isAccessible = true
+        method.invoke(player)
+    }
+
+    @Test
+    fun `watchdog warns when non-PLAYING state persists with chunks arriving`() {
+        now = 0L
+        val player = newPlayerForWatchdog()
+
+        setField(player, "playbackState", PlaybackState.WAITING_FOR_START)
+        // Simulate chunks arriving: set totalQueuedSamples > 0.
+        val totalQueuedSamples = getField<AtomicLong>(player, "totalQueuedSamples")
+        totalQueuedSamples.set(sampleRate.toLong() * 5)  // 5 seconds of audio
+
+        // First tick: establishes baseline, no warning yet.
+        invokeCheckStuckState(player)
+        val warn1: Long = getField(player, "lastStuckWarningAtUs")
+        assertEquals("no warning on first observation", 0L, warn1)
+
+        // Advance clock past the 5 s stuck threshold.
+        now = 6_000_000_000L
+        invokeCheckStuckState(player)
+        val warn2: Long = getField(player, "lastStuckWarningAtUs")
+        assertNotEquals("warning should have fired after 5s stuck", 0L, warn2)
+    }
+
+    @Test
+    fun `watchdog does not warn when non-PLAYING state has no buffered chunks`() {
+        now = 0L
+        val player = newPlayerForWatchdog()
+
+        setField(player, "playbackState", PlaybackState.WAITING_FOR_START)
+        // No buffered audio -- user paused / genuinely idle, not a deadlock.
+        val totalQueuedSamples = getField<AtomicLong>(player, "totalQueuedSamples")
+        totalQueuedSamples.set(0L)
+
+        // First tick: establishes baseline.
+        invokeCheckStuckState(player)
+
+        // Advance past the 5 s threshold; watchdog must STILL stay silent.
+        now = 6_000_000_000L
+        invokeCheckStuckState(player)
+        val warn: Long = getField(player, "lastStuckWarningAtUs")
+        assertEquals("no warning when buffer is empty", 0L, warn)
     }
 }
