@@ -44,6 +44,15 @@ interface AudioSink {
     /** Current state (matches AudioTrack.STATE_* constants). */
     val state: Int
 
+    /**
+     * Runtime playback state. Mirrors AudioTrack.getPlayState() -- values are
+     * AudioTrack.PLAYSTATE_STOPPED (1), PLAYSTATE_PAUSED (2), or
+     * PLAYSTATE_PLAYING (3).
+     *
+     * This is distinct from [state], which is STATE_INITIALIZED etc.
+     */
+    val playState: Int
+
     /** Buffer size in bytes. Mirrors AudioTrack.getBufferSizeInFrames() * bytesPerFrame. */
     val bufferSizeInBytes: Int
 }

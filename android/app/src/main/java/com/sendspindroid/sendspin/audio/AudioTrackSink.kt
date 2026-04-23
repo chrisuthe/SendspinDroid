@@ -40,6 +40,9 @@ class AudioTrackSink(
     override val state: Int
         get() = track.state
 
+    override val playState: Int
+        get() = track.playState
+
     override val bufferSizeInBytes: Int
         get() = track.bufferSizeInFrames * bytesPerFrame
 }

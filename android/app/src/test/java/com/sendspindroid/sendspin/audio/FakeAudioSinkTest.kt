@@ -71,4 +71,12 @@ class FakeAudioSinkTest {
         sink.scriptedPlaybackHeadPosition = 48000
         assertEquals(48000, sink.playbackHeadPosition)
     }
+
+    @Test
+    fun `playState defaults to PLAYSTATE_PLAYING and is scriptable`() {
+        val sink = FakeAudioSink()
+        assertEquals(FakeAudioSink.PLAYSTATE_PLAYING, sink.playState)
+        sink.scriptedPlayState = 2  // PLAYSTATE_PAUSED
+        assertEquals(2, sink.playState)
+    }
 }

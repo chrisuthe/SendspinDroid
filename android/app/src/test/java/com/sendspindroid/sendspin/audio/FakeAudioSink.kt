@@ -27,6 +27,9 @@ class FakeAudioSink(
         // See android.media.AudioTrack source. We report INITIALIZED so callers
         // that guard on state see a healthy sink.
         const val STATE_INITIALIZED = 1
+        // AudioTrack.PLAYSTATE_PLAYING = 3. Default scripted playState so
+        // callers that guard on playState don't trigger unwanted branches.
+        const val PLAYSTATE_PLAYING = 3
     }
 
     val playCallCount = AtomicInteger(0)
@@ -90,4 +93,9 @@ class FakeAudioSink(
         get() = scriptedPlaybackHeadPosition
 
     override val state: Int = STATE_INITIALIZED
+
+    @Volatile var scriptedPlayState: Int = PLAYSTATE_PLAYING
+
+    override val playState: Int
+        get() = scriptedPlayState
 }
