@@ -237,6 +237,51 @@ class MessageParserTest {
         assertEquals("paused", state)
     }
 
+    @Test
+    fun parseServerState_idleMetadataWithNullFields_doesNotThrow() {
+        // Reproduces the on-device exception observed 2026-04-23: server emits
+        // idle metadata with every field JsonNull ("progress": null in particular
+        // triggered IllegalArgumentException: ... is not a JsonObject).
+        // Parser must treat JsonNull the same as absent.
+        val payload = buildJsonObject {
+            put("metadata", buildJsonObject {
+                put("timestamp", 9730008767707L)
+                put("title", JsonPrimitive(null as String?))
+                put("artist", JsonPrimitive(null as String?))
+                put("album_artist", JsonPrimitive(null as String?))
+                put("album", JsonPrimitive(null as String?))
+                put("artwork_url", JsonPrimitive(null as String?))
+                put("year", JsonPrimitive(null as Int?))
+                put("track", JsonPrimitive(null as Int?))
+                put("progress", JsonPrimitive(null as String?))
+                put("repeat", JsonPrimitive(null as String?))
+                put("shuffle", JsonPrimitive(null as String?))
+            })
+        }
+
+        val (metadata, state) = MessageParser.parseServerState(payload)
+
+        assertNotNull("idle metadata should still yield a TrackMetadata", metadata)
+        assertEquals("", metadata!!.title)
+        assertEquals("", metadata.artist)
+        assertEquals(0L, metadata.progress.trackProgress)
+        assertEquals(0L, metadata.progress.trackDuration)
+        assertNull(state)
+    }
+
+    @Test
+    fun parseServerState_nullMetadataField_returnsNullMetadata() {
+        // Defensive: if the server ever sends `{"metadata": null}` instead of
+        // an object, we must treat it like missing rather than throwing.
+        val payload = buildJsonObject {
+            put("metadata", JsonPrimitive(null as String?))
+            put("state", "stopped")
+        }
+        val (metadata, state) = MessageParser.parseServerState(payload)
+        assertNull(metadata)
+        assertEquals("stopped", state)
+    }
+
     // --- parseServerCommand ---
 
     @Test
