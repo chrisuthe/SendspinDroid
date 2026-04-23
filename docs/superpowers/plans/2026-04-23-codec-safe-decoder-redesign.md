@@ -13,7 +13,7 @@ regression.
 **Architecture:** Dedicated decode coroutine on `Dispatchers.IO.limitedParallelism(1)`
 (serialized, single-thread-equivalent). Owns `audioDecoder` exclusively for
 its entire lifetime. All lifecycle events (StartStream, Flush, Release)
-travel through the same `Channel<DecodeTask>(capacity = 500)` as chunks,
+travel through the same `Channel<DecodeTask>(capacity = 1000)` as chunks,
 preserving FIFO ordering.
 
 **Tech Stack:** Kotlin coroutines, existing `AudioDecoder` interface,
@@ -263,10 +263,10 @@ private sealed class DecodeTask {
 // single-thread serialization guarantees without a dedicated thread.
 private val decodeDispatcher = Dispatchers.IO.limitedParallelism(1)
 
-// Capacity = 500 ≈ 10 seconds at the expected 50 chunks/sec. Sized to
-// absorb cold-start + pre-buffered bursts (~100 entries) with 5x headroom.
+// Capacity = 1000 ≈ 20 seconds at the expected 50 chunks/sec. Sized to
+// absorb cold-start + pre-buffered bursts (~100 entries) with 10x headroom.
 // See docs/superpowers/specs/2026-04-23-codec-safe-decoder-redesign-design.md.
-private val decodeChannel = Channel<DecodeTask>(capacity = 500)
+private val decodeChannel = Channel<DecodeTask>(capacity = 1000)
 ```
 
 - [ ] **Step 2: Add the decode coroutine launch in onCreate (or equivalent init path)**
@@ -513,9 +513,9 @@ Broader coverage now that the implementation is in place.
 @Test
 fun `submitting more than channel capacity suspends producer and preserves contiguity`() {
     // Configure fakeDecoder to sleep ~10 ms per decode (simulating real cost).
-    // Submit 600 chunks rapidly (600 > 500 capacity).
+    // Submit 1200 chunks rapidly (1200 > 1000 capacity).
     // Measure: WS-IO sending thread should complete when the last chunk is
-    // successfully sent (i.e. channel drained enough for 600 total); all 600
+    // successfully sent (i.e. channel drained enough for 1200 total); all 1200
     // sequences should appear in decoder output; nonContiguousInputDetected is false.
 }
 ```

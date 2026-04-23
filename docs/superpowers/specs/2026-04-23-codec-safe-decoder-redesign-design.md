@@ -65,15 +65,15 @@ was wrong.
 
 ### Backpressure
 
-- **`Channel<DecodeTask>(capacity = 500)`** between WS-IO and the decode
-  coroutine. 500 slots ≈ 10 seconds at the expected 50 chunks/sec.
+- **`Channel<DecodeTask>(capacity = 1000)`** between WS-IO and the decode
+  coroutine. 1000 slots ≈ 20 seconds at the expected 50 chunks/sec.
 - **`channel.send(...)`** (suspending) on WS-IO. Never drops.
 - Under normal steady-state the channel sits near-empty.
 - Under cold-start + 2-second burst: ~100 entries. Well within bound.
 - Under thermal throttle or GC pause: decoder pauses for up to a few hundred
   ms, queue fills by a few dozen entries, drains when decoder resumes.
 - Pathological sustained stall (decoder permanently slower than realtime):
-  channel fills to 500, WS-IO's `send` suspends. This is the only scenario
+  channel fills to 1000, WS-IO's `send` suspends. This is the only scenario
   where WS-IO pauses. It is acceptable because:
   - It's bounded (the decoder will consume something eventually).
   - It's a real device-capability failure; blocking produces better UX than
