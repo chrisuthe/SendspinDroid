@@ -87,8 +87,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -290,6 +293,19 @@ class PlaybackService : MediaLibraryService() {
 
     // Coroutine scope for background tasks (artwork loading)
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    // Decode worker: single-thread-equivalent coroutine that owns the
+    // decoder for its lifetime. See
+    // docs/superpowers/specs/2026-04-23-codec-safe-decoder-redesign-design.md
+    // for the H-4 + M-8 rationale.
+    @kotlin.OptIn(ExperimentalCoroutinesApi::class)
+    private val decodeDispatcher = Dispatchers.IO.limitedParallelism(1)
+
+    // Capacity = 1000 ~= 20 seconds at the expected 50 chunks/sec. Sized to
+    // absorb cold-start + pre-buffered bursts (~100 entries) with 10x headroom.
+    private val decodeChannel = Channel<DecodeTask>(capacity = 1000)
+
+    private var decodeJob: Job? = null
 
     // Wake lock to prevent CPU sleep during playback
     private var wakeLock: PowerManager.WakeLock? = null
@@ -669,6 +685,59 @@ class PlaybackService : MediaLibraryService() {
         data class Error(val message: String) : ConnectionState()
     }
 
+    /**
+     * Tasks sent through [decodeChannel] to the single-owner decode worker.
+     *
+     * All decoder lifecycle transitions (StartStream, Flush, Release) travel on
+     * the same channel as Chunk so they respect FIFO ordering with pending
+     * decodes. See
+     * docs/superpowers/specs/2026-04-23-codec-safe-decoder-redesign-design.md
+     * for the H-4 + M-8 rationale.
+     */
+    private sealed class DecodeTask {
+        data class Chunk(val serverTimeMicros: Long, val audioData: ByteArray) : DecodeTask() {
+            // Override equals/hashCode because data classes with ByteArray use
+            // reference equality by default, which is surprising. In practice
+            // DecodeTask instances are only compared in tests.
+            override fun equals(other: Any?): Boolean {
+                if (this === other) return true
+                if (other !is Chunk) return false
+                return serverTimeMicros == other.serverTimeMicros &&
+                    audioData.contentEquals(other.audioData)
+            }
+            override fun hashCode(): Int {
+                var result = serverTimeMicros.hashCode()
+                result = 31 * result + audioData.contentHashCode()
+                return result
+            }
+        }
+        data class StartStream(
+            val codec: String,
+            val sampleRate: Int,
+            val channels: Int,
+            val bitDepth: Int,
+            val codecHeader: ByteArray?,
+        ) : DecodeTask() {
+            override fun equals(other: Any?): Boolean {
+                if (this === other) return true
+                if (other !is StartStream) return false
+                return codec == other.codec && sampleRate == other.sampleRate &&
+                    channels == other.channels && bitDepth == other.bitDepth &&
+                    (codecHeader?.contentEquals(other.codecHeader) ?: (other.codecHeader == null))
+            }
+            override fun hashCode(): Int {
+                var result = codec.hashCode()
+                result = 31 * result + sampleRate
+                result = 31 * result + channels
+                result = 31 * result + bitDepth
+                result = 31 * result + (codecHeader?.contentHashCode() ?: 0)
+                return result
+            }
+        }
+        object Flush : DecodeTask()
+        object Release : DecodeTask()
+    }
+
     @OptIn(UnstableApi::class)
     override fun onCreate() {
         super.onCreate()
@@ -742,6 +811,12 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
+
+        // Launch the single-owner decode worker. Task 3 scaffolding: no
+        // callback currently sends into decodeChannel. Task 4 flips the
+        // existing onAudioChunk / onStreamStart / onStreamClear / onDestroy
+        // paths over to this channel.
+        startDecodeWorker()
 
         // Initialize network evaluator for passive network monitoring
         networkEvaluator = NetworkEvaluator(this)
@@ -871,6 +946,48 @@ class PlaybackService : MediaLibraryService() {
             Log.e(TAG, "Failed to initialize SendSpinClient", e)
             _connectionState.value = ConnectionState.Error("Failed to initialize: ${e.message}")
         }
+    }
+
+    /**
+     * Launches the single-owner decode worker. The worker consumes
+     * [decodeChannel] sequentially on [decodeDispatcher]; all decoder
+     * lifecycle events (StartStream, Flush, Release) flow through the same
+     * channel as Chunk so they preserve FIFO ordering with pending decodes.
+     *
+     * Task 3 scaffolding: the worker is running but no callback currently
+     * sends into [decodeChannel]. Task 4 flips the callback sites over.
+     */
+    private fun startDecodeWorker() {
+        decodeJob = serviceScope.launch(decodeDispatcher) {
+            for (task in decodeChannel) {
+                try {
+                    when (task) {
+                        is DecodeTask.Chunk -> handleDecodeChunk(task)
+                        is DecodeTask.StartStream -> handleDecodeStartStream(task)
+                        DecodeTask.Flush -> handleDecodeFlush()
+                        DecodeTask.Release -> handleDecodeRelease()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Decode worker error on task ${task::class.simpleName}", e)
+                }
+            }
+        }
+    }
+
+    private suspend fun handleDecodeChunk(t: DecodeTask.Chunk) {
+        // Implemented in Task 4. Placeholder for scaffolding commit.
+    }
+
+    private suspend fun handleDecodeStartStream(t: DecodeTask.StartStream) {
+        // Implemented in Task 4. Placeholder for scaffolding commit.
+    }
+
+    private suspend fun handleDecodeFlush() {
+        // Implemented in Task 4. Placeholder for scaffolding commit.
+    }
+
+    private suspend fun handleDecodeRelease() {
+        // Implemented in Task 4. Placeholder for scaffolding commit.
     }
 
     /**
