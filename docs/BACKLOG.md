@@ -36,6 +36,35 @@ tick-starvation bug from PR #153 is an example).
 once. Do it after we have the integration harness + a few cycles of
 stable on-device use.
 
+## Reliability (observed, not yet tracked)
+
+### Rapid consecutive skip schedules first chunk ~12 s in the future
+
+**Symptom:** skip once (fine) -> skip again within a few seconds -> second track
+has a multi-second wait before audio starts, then resumes with sample-insert/drop
+glitches as the client catches up to server position.
+
+**Evidence (device log 2026-04-23, post-AudioSink-refactor + tick-starvation fix merged):**
+- First skip: first chunk `scheduled start` 336 ms in the future from `enterIdle`
+  timestamp. Transition to PLAYING within 365 ms total.
+- Second skip: first chunk `scheduled start` 12,052 ms in the future. State
+  machine correctly holds in WAITING_FOR_START and plays silence for 12 s until
+  `startErr` comes down to 42 ms, then transitions. 30 s of buffered audio
+  accumulated in the meantime.
+- Kalman offset drifted only 2 ms across both skips (measurements 296 -> 315),
+  so time sync is not the cause.
+
+**Likely location:** MA server, `music_assistant/providers/sendspin/player.py`.
+The server's first-chunk timestamp after `stream/end` -> `stream/start` appears
+to carry stale position from the previous track, or its `playback_start` offset
+accumulates rather than resets on rapid re-skip.
+
+**Client behaviour is correct:** holding for the scheduled start time preserves
+multi-room sync. Ignoring the startErr would desync groups. Fix must be
+server-side or protocol-level.
+
+**UX priority:** medium-high. Breaks user expectation that skip is instant.
+
 ## Protocol / Upstream
 
 ### File an MA upstream issue on three-image-source inconsistency
