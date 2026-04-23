@@ -3,12 +3,13 @@ package com.sendspindroid.sendspin
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.os.Build
-import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
 import com.sendspindroid.logging.AppLog
+import com.sendspindroid.sendspin.audio.AudioSink
+import com.sendspindroid.sendspin.audio.AudioTrackSink
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -337,7 +338,7 @@ class SyncAudioPlayer(
     )
 
     // Audio output
-    private var audioTrack: AudioTrack? = null
+    private var audioSink: AudioSink? = null
     private val isPlaying = AtomicBoolean(false)
     private val isPaused = AtomicBoolean(false)
 
@@ -376,7 +377,6 @@ class SyncAudioPlayer(
     @Volatile private var streamGeneration = 0  // Incremented on stream/clear to invalidate old chunks
 
     // Sync error tracking
-    private val audioTimestamp = AudioTimestamp()  // Reusable timestamp object
     private var syncUpdateCounter = 0  // Counter for update interval
     private val totalFramesWritten = AtomicLong(0)  // Total frames written to AudioTrack
 
@@ -501,7 +501,7 @@ class SyncAudioPlayer(
         }
 
         stateLock.withLock {
-            if (audioTrack != null) {
+            if (audioSink != null) {
                 AppLog.Audio.w("Already initialized")
                 return
             }
@@ -542,7 +542,7 @@ class SyncAudioPlayer(
         val bufferSize = maxOf(minBufferSize * BUFFER_SIZE_MULTIPLIER, sampleRate * bytesPerFrame) // ~1 second
 
         try {
-            audioTrack = AudioTrack.Builder()
+            val track = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -560,6 +560,7 @@ class SyncAudioPlayer(
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
                 .build()
+            audioSink = AudioTrackSink(track, bytesPerFrame)
 
             // Pre-allocate frame buffers for sync correction (avoids GC in audio callback)
             lastOutputFrame = ByteArray(bytesPerFrame)
@@ -616,7 +617,7 @@ class SyncAudioPlayer(
                 return
             }
 
-            if (audioTrack == null) {
+            if (audioSink == null) {
                 AppLog.Audio.e("AudioTrack not initialized")
                 return
             }
@@ -640,7 +641,7 @@ class SyncAudioPlayer(
                 return
             }
 
-            val track = audioTrack
+            val track = audioSink
             if (track == null) {
                 AppLog.Audio.e("AudioTrack was released during playback loop cancellation")
                 return
@@ -681,8 +682,8 @@ class SyncAudioPlayer(
         stateLock.withLock {
             isPaused.set(true)
             pausedAtUs = nowNs() / 1000
-            audioTrack?.pause()
-            audioTrack?.flush()
+            audioSink?.pause()
+            audioSink?.flush()
             AppLog.Audio.d("Playback paused")
         }
     }
@@ -704,9 +705,9 @@ class SyncAudioPlayer(
             if (!isPaused.get()) {
                 // Even if our flag says not paused, the AudioTrack hardware might still be paused
                 // (e.g., after clearBuffer() was called while paused)
-                if (audioTrack?.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                if (audioSink?.playState != AudioTrack.PLAYSTATE_PLAYING) {
                     AppLog.Audio.i("resume() - isPaused is false but AudioTrack is not playing, forcing play")
-                    audioTrack?.play()
+                    audioSink?.play()
                 } else {
                     AppLog.Audio.d("resume() called but not paused - ignoring")
                 }
@@ -753,7 +754,7 @@ class SyncAudioPlayer(
             playingStateEnteredAtUs = nowUs
 
             isPaused.set(false)
-            audioTrack?.play()
+            audioSink?.play()
             AppLog.Audio.d("Playback resumed after ${pauseDurationUs / 1000}ms pause - sync state reset")
         }
     }
@@ -801,8 +802,8 @@ class SyncAudioPlayer(
         stateLock.withLock {
             // Now safe to manipulate AudioTrack - playback loop has stopped
             isFlushPending.set(false)  // Clear any pending flush since we flush directly below
-            audioTrack?.stop()
-            audioTrack?.flush()
+            audioSink?.stop()
+            audioSink?.flush()
             chunkQueue.clear()
             totalQueuedSamples.set(0)
 
@@ -899,10 +900,10 @@ class SyncAudioPlayer(
             // Signal the playback loop to flush AudioTrack before its next write.
             // We must NOT flush here because the playback loop may be mid-write()
             // on the coroutine thread (H-11).
-            if (audioTrack != null && isPlaying.get()) {
+            if (audioSink != null && isPlaying.get()) {
                 isFlushPending.set(true)
             } else {
-                val track = audioTrack
+                val track = audioSink
                 if (track != null) {
                     try {
                         track.flush()
@@ -1032,13 +1033,13 @@ class SyncAudioPlayer(
 
             // Release AudioTrack
             try {
-                audioTrack?.stop()
+                audioSink?.stop()
             } catch (e: IllegalStateException) {
                 // AudioTrack may already be stopped
                 AppLog.Audio.v("AudioTrack already stopped during release")
             }
-            audioTrack?.release()
-            audioTrack = null
+            audioSink?.release()
+            audioSink = null
 
             // Clear all buffers and state
             chunkQueue.clear()
@@ -1088,11 +1089,11 @@ class SyncAudioPlayer(
             // We must NOT flush here because the playback loop may be mid-write()
             // on the coroutine thread -- concurrent pause()/flush() causes clicks/pops
             // and incorrect frame accounting (H-11).
-            if (audioTrack != null && isPlaying.get()) {
+            if (audioSink != null && isPlaying.get()) {
                 isFlushPending.set(true)
             } else {
                 // Not playing -- safe to flush directly (no concurrent writes)
-                val track = audioTrack
+                val track = audioSink
                 if (track != null) {
                     try {
                         track.flush()
@@ -1104,7 +1105,7 @@ class SyncAudioPlayer(
 
             // Ensure AudioTrack hardware matches software state after clearing pause flag
             if (wasPaused) {
-                audioTrack?.play()
+                audioSink?.play()
             }
 
             lastChunkServerTime = 0L
@@ -1472,7 +1473,7 @@ class SyncAudioPlayer(
      * @return true if we should continue waiting, false if ready to play
      */
     private fun handleStartGating(): Boolean {
-        val track = audioTrack
+        val track = audioSink
         if (track != null && dacTimestampsStable) {
             return handleStartGatingDacAware(track)
         }
@@ -1491,7 +1492,7 @@ class SyncAudioPlayer(
      *
      * @return true if we should continue waiting, false if ready to play
      */
-    private fun handleStartGatingDacAware(track: AudioTrack): Boolean {
+    private fun handleStartGatingDacAware(track: AudioSink): Boolean {
         // Measurement-complete clause: don't transition to PLAYING until
         // the latency estimator has converged or timed out. If we don't
         // wait here, an unusually-early server-scheduled start could make
@@ -1692,7 +1693,7 @@ class SyncAudioPlayer(
      * occur while waiting for calibration.
      */
     private fun preCalibrateDacTiming() {
-        val track = audioTrack ?: return
+        val track = audioSink ?: return
 
         // Write pre-allocated silence (10ms = 480 frames at 48kHz)
         val silenceBytes = silenceBuffer.size
@@ -1711,15 +1712,15 @@ class SyncAudioPlayer(
         latencyEstimator.recordWrite(totalFramesWritten.get(), silenceWriteTimeNs)
 
         // Try to get DAC timestamp for calibration and stability tracking
-        val dacTimestampSuccess = track.getTimestamp(audioTimestamp)
-        if (dacTimestampSuccess) {
-            val dacTimeUs = audioTimestamp.nanoTime / 1000
+        val ts = track.getTimestamp()
+        if (ts != null) {
+            val dacTimeUs = ts.nanoTime / 1000
             val loopTimeUs = nowNs() / 1000
 
             // Sanity check - only store valid timestamps (framePosition > 0 means DAC has started)
-            if (audioTimestamp.framePosition > 0) {
+            if (ts.framePosition > 0) {
                 storeDacCalibration(dacTimeUs, loopTimeUs)
-                latencyEstimator.recordDacTimestamp(audioTimestamp.framePosition, audioTimestamp.nanoTime)
+                latencyEstimator.recordDacTimestamp(ts.framePosition, ts.nanoTime)
 
                 // Track consecutive valid reads for DAC-aware start gating
                 consecutiveValidTimestamps++
@@ -1746,7 +1747,7 @@ class SyncAudioPlayer(
      * This saves CPU during long idle periods while keeping AudioTimestamp valid.
      */
     private fun writeSilenceKeepAlive() {
-        val track = audioTrack ?: return
+        val track = audioSink ?: return
 
         val pendingUs = getPendingToDacUs(track)
         if (pendingUs > SILENCE_KEEPALIVE_THRESHOLD_US) return
@@ -1795,7 +1796,7 @@ class SyncAudioPlayer(
             totalQueuedSamples.set(0)
 
             // Safely flush the AudioTrack
-            val track = audioTrack
+            val track = audioSink
             if (track != null) {
                 try {
                     track.pause()
@@ -1883,7 +1884,7 @@ class SyncAudioPlayer(
                 // Performed here (on the playback thread) rather than on the
                 // main thread to avoid flushing mid-write (H-11).
                 if (isFlushPending.compareAndSet(true, false)) {
-                    val track = audioTrack
+                    val track = audioSink
                     if (track != null) {
                         try {
                             track.pause()
@@ -2004,8 +2005,8 @@ class SyncAudioPlayer(
                 // AudioTrack ring buffer at a target depth. This replaces the old
                 // effectiveLead scheduling which drifted due to Kalman offset changes
                 // between chunk-queue time and chunk-play time.
-                val pendingToDacUs = if (audioTrack != null && dacTimestampsStable)
-                    getPendingToDacUs(audioTrack!!) else 0L
+                val pendingToDacUs = if (audioSink != null && dacTimestampsStable)
+                    getPendingToDacUs(audioSink!!) else 0L
 
                 // Rate-limited DAC pacing diagnostics
                 val nowMicros = nowNs() / 1000
@@ -2224,7 +2225,7 @@ class SyncAudioPlayer(
         chunkQueue.poll() // Remove from queue
         totalQueuedSamples.addAndGet(-chunk.sampleCount.toLong())
 
-        val track = audioTrack ?: return
+        val track = audioSink ?: return
 
         // Track samples consumed for sync error calculation
         samplesReadSinceStart += chunk.sampleCount
@@ -2370,7 +2371,7 @@ class SyncAudioPlayer(
      */
     private var crossfadeScratchBuf = ByteArray(0)
 
-    private fun applyCrossfadeAndWrite(track: AudioTrack, normalFrame: ByteArray, normalOff: Int = 0): Int {
+    private fun applyCrossfadeAndWrite(track: AudioSink, normalFrame: ByteArray, normalOff: Int = 0): Int {
         when (crossfadeState) {
             CrossfadeState.FADING_IN -> {
                 crossfadeProgress++
@@ -2426,7 +2427,7 @@ class SyncAudioPlayer(
      * @param pcmData The raw PCM data
      * @return Total bytes written to AudioTrack
      */
-    private fun writeWithCorrection(track: AudioTrack, pcmData: ByteArray): Int {
+    private fun writeWithCorrection(track: AudioSink, pcmData: ByteArray): Int {
         // For non-16-bit formats, use simplified insert/drop without sample-level crossfade
         if (bitDepth != 16) {
             return writeWithCorrectionSimple(track, pcmData)
@@ -2542,7 +2543,7 @@ class SyncAudioPlayer(
      * sample-level crossfade or interpolation. This avoids needing format-specific
      * sample blending code for 24-bit packed and 32-bit integer encodings.
      */
-    private fun writeWithCorrectionSimple(track: AudioTrack, pcmData: ByteArray): Int {
+    private fun writeWithCorrectionSimple(track: AudioSink, pcmData: ByteArray): Int {
         val inputFrameCount = pcmData.size / bytesPerFrame
         var totalWritten = 0
         var inputOffset = 0
@@ -2608,22 +2609,22 @@ class SyncAudioPlayer(
      *   Negative = DAC is behind expected (playing slow) -> need INSERT
      */
     private fun updateSyncError() {
-        val track = audioTrack ?: return
+        val track = audioSink ?: return
         if (playbackState != PlaybackState.PLAYING) return
 
         try {
             // Query AudioTimestamp on every update
-            val success = track.getTimestamp(audioTimestamp)
-            if (success) {
-                latencyEstimator.recordDacTimestamp(audioTimestamp.framePosition, audioTimestamp.nanoTime)
+            val ts = track.getTimestamp()
+            if (ts != null) {
+                latencyEstimator.recordDacTimestamp(ts.framePosition, ts.nanoTime)
             }
             latencyEstimator.tick()
-            if (!success) {
+            if (ts == null) {
                 return
             }
 
-            val dacTimeMicros = audioTimestamp.nanoTime / 1000
-            val framePosition = audioTimestamp.framePosition
+            val dacTimeMicros = ts.nanoTime / 1000
+            val framePosition = ts.framePosition
             val loopTimeUs = nowNs() / 1000
 
             // Sanity check - framePosition should be reasonable
@@ -2786,10 +2787,10 @@ class SyncAudioPlayer(
      * Compute microseconds between AudioTrack write cursor and DAC output position.
      * Returns 0 if AudioTimestamp is unavailable or invalid.
      */
-    private fun getPendingToDacUs(track: AudioTrack): Long {
-        if (!track.getTimestamp(audioTimestamp)) return 0L
-        if (audioTimestamp.framePosition <= 0) return 0L
-        val pendingFrames = (totalFramesWritten.get() - audioTimestamp.framePosition).coerceAtLeast(0)
+    private fun getPendingToDacUs(track: AudioSink): Long {
+        val ts = track.getTimestamp() ?: return 0L
+        if (ts.framePosition <= 0) return 0L
+        val pendingFrames = (totalFramesWritten.get() - ts.framePosition).coerceAtLeast(0)
         return (pendingFrames * 1_000_000L) / sampleRate
     }
 
