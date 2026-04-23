@@ -206,6 +206,120 @@ class SyncAudioPlayerIntegrationTest {
         assertNotEquals("warning should have fired after 5s stuck", 0L, warn2)
     }
 
+    /**
+     * Put a player into the "waiting for alignment" state. Returns the
+     * FakeAudioSink so the caller can script timestamps.
+     *
+     * To reach the startErr > tolerance branch of handleStartGatingDacAware
+     * we need:
+     *   - audioSink non-null and dacTimestampsStable
+     *   - estimator not Measuring (so the status check doesn't early-return)
+     *   - pendingToDacUs > 0 (non-zero fakeSink.getTimestamp().framePosition
+     *     and totalFramesWritten > framePosition)
+     *   - chunkQueue has a head chunk whose serverTimeMicros is far in the
+     *     future relative to nowMicros, so startErrUs computes positive
+     *     and exceeds START_ALIGN_TOL_US (50 ms)
+     */
+    private fun setupAlignmentWaitState(player: SyncAudioPlayer): FakeAudioSink {
+        // Like the tick-starvation test, SyncAudioPlayer.initialize() is
+        // unavailable in JVM tests (AudioTrack.getMinBufferSize is Android-only),
+        // so we inject the audioSink via reflection instead of going through
+        // the sinkFactory init path.
+        val fakeSink = FakeAudioSink()
+        setField(player, "audioSink", fakeSink)
+        setField(player, "dacTimestampsStable", true)
+        setField(player, "playbackState", PlaybackState.WAITING_FOR_START)
+
+        // Estimator: cancel it so status != Measuring. (Same as TimedOut/Converged
+        // for the purposes of the status check.)
+        val estimator: OutputLatencyEstimator = getField(player, "latencyEstimator")
+        estimator.start { }
+        estimator.cancel()
+
+        // DAC timestamp: framePosition=1 means DAC has produced 1 frame.
+        // totalFramesWritten > 1 so pendingFrames > 0 and pendingToDacUs > 0.
+        fakeSink.scriptTimestamp(framePosition = 1L, nanoTime = 0L)
+        val totalFramesWritten = getField<AtomicLong>(player, "totalFramesWritten")
+        totalFramesWritten.set(sampleRate.toLong())  // 1 s worth so pendingToDacUs > 0
+
+        // Queue a single AudioChunk whose serverTime is 5 s ahead of nowMicros,
+        // so startErrUs will be ~5 s (way above the 50 ms tolerance).
+        val audioChunkClass = SyncAudioPlayer::class.java.declaredClasses
+            .find { it.simpleName == "AudioChunk" }!!
+        val ctor = audioChunkClass.getDeclaredConstructor(
+            Long::class.javaPrimitiveType, Long::class.javaPrimitiveType,
+            ByteArray::class.java, Int::class.javaPrimitiveType,
+        )
+        ctor.isAccessible = true
+        val futureServerTime = (now / 1000) + 5_000_000L
+        val chunk = ctor.newInstance(futureServerTime, 0L, ByteArray(0), 0)
+        @Suppress("UNCHECKED_CAST")
+        val chunkQueue = getField<java.util.Queue<Any>>(player, "chunkQueue")
+        chunkQueue.add(chunk)
+
+        return fakeSink
+    }
+
+    @Test
+    fun `alignment wait log emits entry on first call and not on immediate follow-up`() {
+        now = 0L
+        val player = newPlayerForWatchdog()
+        val sink = setupAlignmentWaitState(player)
+
+        // Initial state: alignment tracking fields are 0.
+        assertEquals(0L, getField<Long>(player, "alignmentWaitStartedAtUs"))
+        assertEquals(0L, getField<Long>(player, "alignmentWaitLastLoggedUs"))
+
+        // First call: entry log fires; fields take the current clock value.
+        now = 100_000_000L  // 100 ms
+        invokeHandleStartGatingDacAware(player, sink)
+        val startedAfterFirst = getField<Long>(player, "alignmentWaitStartedAtUs")
+        val loggedAfterFirst = getField<Long>(player, "alignmentWaitLastLoggedUs")
+        assertNotEquals("entry log must set alignmentWaitStartedAtUs", 0L, startedAfterFirst)
+        assertEquals("on entry the two fields match", startedAfterFirst, loggedAfterFirst)
+
+        // Immediate follow-up (no clock advance): no new log; fields unchanged.
+        invokeHandleStartGatingDacAware(player, sink)
+        invokeHandleStartGatingDacAware(player, sink)
+        invokeHandleStartGatingDacAware(player, sink)
+        assertEquals(
+            "follow-up calls within 1 s must not change alignmentWaitStartedAtUs",
+            startedAfterFirst, getField<Long>(player, "alignmentWaitStartedAtUs"),
+        )
+        assertEquals(
+            "follow-up calls within 1 s must not change alignmentWaitLastLoggedUs",
+            loggedAfterFirst, getField<Long>(player, "alignmentWaitLastLoggedUs"),
+        )
+    }
+
+    @Test
+    fun `alignment wait progress log fires after 1 second while still waiting`() {
+        now = 0L
+        val player = newPlayerForWatchdog()
+        val sink = setupAlignmentWaitState(player)
+
+        // Enter alignment wait at t=0.
+        now = 100_000_000L  // 100 ms clock
+        invokeHandleStartGatingDacAware(player, sink)
+        val startedAt = getField<Long>(player, "alignmentWaitStartedAtUs")
+        val loggedAtEntry = getField<Long>(player, "alignmentWaitLastLoggedUs")
+
+        // Advance clock by 1.1 s so the progress-log gate (1 s interval) fires.
+        // Re-script chunk so it's still in the future relative to the new clock.
+        now = 1_200_000_000L  // 1.2 s
+        invokeHandleStartGatingDacAware(player, sink)
+
+        val loggedAfterProgress = getField<Long>(player, "alignmentWaitLastLoggedUs")
+        assertNotEquals(
+            "progress log must advance alignmentWaitLastLoggedUs after 1 s",
+            loggedAtEntry, loggedAfterProgress,
+        )
+        assertEquals(
+            "alignmentWaitStartedAtUs must not change during progress",
+            startedAt, getField<Long>(player, "alignmentWaitStartedAtUs"),
+        )
+    }
+
     @Test
     fun `watchdog does not warn when non-PLAYING state has no buffered chunks`() {
         now = 0L
