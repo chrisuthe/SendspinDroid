@@ -65,6 +65,18 @@ server-side or protocol-level.
 
 **UX priority:** medium-high. Breaks user expectation that skip is instant.
 
+### DAC-aware start-gating log spam at every track change
+
+`handleStartGatingDacAware` logs `DAC-aware start: waiting for alignment,
+startErr=...ms > 50ms` on every 10 ms poll of the playback loop while
+waiting for the DAC to catch up. For a normal ~2 s alignment wait that's
+~200 debug lines per track change; for the rapid-second-skip 12 s wait it's
+~1200. Harmless at INFO/WARN level (these are DEBUG) but noisy when debug
+logging is on. Rate-limit to once per 100 ms or once per second.
+
+Location: `SyncAudioPlayer.kt` around the `DAC-aware start: waiting for
+alignment` emission in `handleStartGatingDacAware`.
+
 ## Protocol / Upstream
 
 ### File an MA upstream issue on three-image-source inconsistency
