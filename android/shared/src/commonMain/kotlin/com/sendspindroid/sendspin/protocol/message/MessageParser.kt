@@ -49,11 +49,14 @@ object MessageParser {
     fun parseServerTime(payload: JsonObject?, clientReceivedMicros: Long): TimeMeasurement? {
         if (payload == null) return null
 
-        val clientTransmitted = payload.longOrDefault("client_transmitted", 0)
-        val serverReceived = payload.longOrDefault("server_received", 0)
-        val serverTransmitted = payload.longOrDefault("server_transmitted", 0)
+        // Use nullable accessors so an explicit zero is distinguishable from
+        // an absent field. Zero is a valid timestamp value; only an absent
+        // field is grounds for rejection.
+        val clientTransmitted = payload["client_transmitted"]?.jsonPrimitive?.longOrNull
+        val serverReceived = payload["server_received"]?.jsonPrimitive?.longOrNull
+        val serverTransmitted = payload["server_transmitted"]?.jsonPrimitive?.longOrNull
 
-        if (clientTransmitted == 0L || serverReceived == 0L || serverTransmitted == 0L) {
+        if (clientTransmitted == null || serverReceived == null || serverTransmitted == null) {
             Log.w(TAG, "Invalid server/time payload")
             return null
         }

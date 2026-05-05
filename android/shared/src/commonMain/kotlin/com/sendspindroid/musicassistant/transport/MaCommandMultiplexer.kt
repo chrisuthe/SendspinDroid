@@ -137,7 +137,12 @@ class MaCommandMultiplexer {
                         Log.d(TAG, "Partial result for $messageId: +${resultArray!!.size} items (total so far: ${accumulated.size})")
                         return
                     }
-                    // If no pending command matched, fall through to event listener
+                    // Empty partial array, or no matching pending command:
+                    // surface as an event rather than completing the pending
+                    // deferred (a partial frame must not look like a final
+                    // result to downstream consumers).
+                    eventListener?.onEvent(json)
+                    return
                 }
 
                 // Final result or error: remove command + partials atomically
