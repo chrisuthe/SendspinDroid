@@ -11,6 +11,24 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/**
+ * Drives the NTP-style time-sync burst loop and feeds its filter.
+ *
+ * Threading: [start] launches the burst-send loop on the supplied scope
+ * (in production a dedicated single-thread dispatcher). [onServerTime]
+ * is called from the WebSocket transport's receive thread:
+ *   - During a burst window, replies are queued under
+ *     `pendingBurstMeasurements` and processed later on the burst-loop
+ *     thread.
+ *   - Outside a burst window, the reply is fed straight to the filter
+ *     on the receive thread.
+ *
+ * The two paths can therefore both call `timeFilter.addMeasurement` on
+ * different threads. That is safe by design: the filter's internal
+ * mutex serialises both paths, and out-of-burst replies are not in
+ * competition with any burst's best-of-RTT selection (no burst is
+ * active by definition).
+ */
 class TimeSyncManager(
     private val timeFilter: SendspinTimeFilter,
     private val sendClientTime: () -> Unit,

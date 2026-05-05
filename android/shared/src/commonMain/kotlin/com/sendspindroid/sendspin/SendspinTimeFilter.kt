@@ -125,8 +125,12 @@ class SendspinTimeFilter {
     private var p10: Double = 0.0               // drift-offset covariance
     private var p11: Double = 0.0               // drift variance
 
-    // Timing state
-    private var lastUpdateTime: Long = 0
+    // Timing state. lastUpdateTime is @Volatile because [lastUpdateTimeUs]
+    // is read lock-free from non-filter threads (e.g. SendSpinClient.
+    // getLastTimeSyncAgeMs); without it, a 64-bit Long load is not
+    // guaranteed atomic on 32-bit JVMs and visibility is not guaranteed
+    // anywhere.
+    @Volatile private var lastUpdateTime: Long = 0
     private var measurementCount: Int = 0
 
     private var useDrift: Boolean = false
