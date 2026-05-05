@@ -11,7 +11,6 @@ import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 class SendspinTimeFilterTest {
@@ -518,7 +517,6 @@ class SendspinTimeFilterTest {
         val iterations = 1000
         val failed = AtomicBoolean(false)
         val writerDone = AtomicBoolean(false)
-        val readerCount = AtomicInteger(0)
 
         // Seed the filter so it's ready
         filter.addMeasurement(10_000L, 5000L, 1_000_000L)
@@ -537,12 +535,15 @@ class SendspinTimeFilterTest {
             }
         }
 
-        // Reader thread: continuously reads serverToClient
+        // Reader thread: continuously reads serverToClient. Whether the
+        // reader gets time-sliced before the writer completes is a property
+        // of the OS scheduler, not of the production code -- don't assert
+        // on iteration count. Any read that does happen must produce a
+        // sane result (Long, no exception, within plausible bounds).
         val reader = thread(name = "kalman-reader") {
             try {
                 while (!writerDone.get()) {
                     val result = filter.serverToClient(100_000_000L)
-                    readerCount.incrementAndGet()
                     // Result should be roughly 100M - 10K = 99,990,000
                     // Allow wide tolerance since filter state is changing concurrently
                     if (result < 0 || result > 200_000_000L) {
@@ -558,7 +559,6 @@ class SendspinTimeFilterTest {
         reader.join(5000)
 
         assertFalse("Concurrent access should not cause exceptions or invalid values", failed.get())
-        assertTrue("Reader should have executed multiple times", readerCount.get() > 10)
     }
 
     @Test
