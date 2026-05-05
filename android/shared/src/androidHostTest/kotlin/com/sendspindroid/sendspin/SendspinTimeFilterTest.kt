@@ -449,63 +449,63 @@ class SendspinTimeFilterTest {
         )
     }
 
-    // --- Stability score (innovation variance ratio) ---
+    // --- Upstream-aligned algorithm behaviors ---
 
     @Test
-    fun stabilityScore_consistentMeasurements_convergesToOne() {
-        // Feed many consistent measurements so the filter converges fully.
-        // With correct innovation normalization (using predicted P00),
-        // the stability score (mean normalized innovation) should settle near 1.0.
-        // The stale-p00 bug caused this to be systematically > 1.0 because the
-        // denominator was too small (prior posterior instead of predicted covariance).
-        val targetOffset = 50_000L  // 50ms
-        val maxError = 5000L
+    fun secondMeasurement_initializesDriftFromFiniteDifference() {
+        // Two measurements 1s apart with offset increasing by 100us.
+        // Expected drift = 100 / 1_000_000 = 1e-4 = 100 ppm.
+        filter.addMeasurement(0L, 5000L, 1_000_000L)
+        filter.addMeasurement(100L, 5000L, 2_000_000L)
+        assertEquals(100.0, filter.driftPpm, 0.5)
+    }
 
-        // Feed enough measurements to fill the innovation window and let
-        // the adaptive process noise settle. INNOVATION_WINDOW_SIZE is 20,
-        // so we need well beyond that for convergence.
-        for (i in 1..60) {
-            filter.addMeasurement(targetOffset, maxError, i * 1_000_000L)
+    @Test
+    fun stepChange_afterConvergence_recoversViaForgetting() {
+        // Drive the filter through MIN_SAMPLES_FOR_FORGETTING (=100) at offset=0,
+        // then introduce a sustained 50ms step change. The filter must adopt
+        // the new offset given enough measurements; the IQR pre-rejection plus
+        // force-accept-after-3 mechanism gates the rate at which the step
+        // reaches the Kalman update, so allow a generous recovery window.
+        for (i in 1..100) {
+            filter.addMeasurement(0L, 3000L, i * 1_000_000L)
+        }
+        val errorBeforeStep = filter.errorMicros
+        assertTrue("Sanity: filter should be converged before step", errorBeforeStep < 10_000L)
+
+        val stepOffset = 50_000L
+        val baseTime = 101_000_000L
+        for (i in 0 until 30) {
+            filter.addMeasurement(stepOffset, 3000L, baseTime + i * 1_000_000L)
         }
 
-        val score = filter.stability
-        assertTrue(
-            "Stability score should converge near 1.0 with consistent measurements, " +
-                    "but was $score (> 1.0 suggests stale covariance in innovation normalization)",
-            score in 0.5..1.5
+        assertEquals(
+            "Filter must adopt the new offset within 30 post-step measurements",
+            stepOffset.toDouble(),
+            filter.offsetMicros.toDouble(),
+            10_000.0
         )
     }
 
     @Test
-    fun stabilityScore_afterReset_isOne() {
-        // Feed some measurements then reset
+    fun smallEarlyOutlier_doesNotTriggerForgetting() {
+        // Before MIN_SAMPLES_FOR_FORGETTING (=100), a single large residual
+        // must NOT inflate covariance via the forgetting branch. The standard
+        // Kalman gain absorbs it on its own; if forgetting fired, a few early
+        // outliers could wipe the model and prevent initial convergence.
         for (i in 1..10) {
-            filter.addMeasurement(10_000L, 5000L, i * 1_000_000L)
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
         }
-        filter.reset()
-        assertEquals(1.0, filter.stability, 0.001)
-    }
-
-    @Test
-    fun stabilityScore_noisyMeasurements_remainsReasonable() {
-        // Feed measurements with moderate noise (simulating real-world jitter).
-        // Stability score should still be in a reasonable range, not diverging.
-        val baseOffset = 50_000L
-        val maxError = 5000L
-        val jitterAmplitude = 3000L  // Within measurement uncertainty
-
-        for (i in 1..80) {
-            // Alternate jitter pattern: +/- jitterAmplitude
-            val jitter = if (i % 2 == 0) jitterAmplitude else -jitterAmplitude
-            filter.addMeasurement(baseOffset + jitter, maxError, i * 1_000_000L)
+        // Drive a single outlier through the IQR pre-rejection by exhausting
+        // the rejected-count force-accept path: 3 IQR-rejected outliers, then
+        // the 4th is force-accepted into the Kalman update. Since count is
+        // still well under MIN_SAMPLES_FOR_FORGETTING, forgetting must stay off.
+        for (i in 11..14) {
+            filter.addMeasurement(500_000L, 3000L, i * 1_000_000L)
         }
-
-        val score = filter.stability
-        assertTrue(
-            "Stability score should remain in reasonable range with noisy measurements, " +
-                    "but was $score",
-            score in 0.1..5.0
-        )
+        // Filter should still produce a finite, reasonable error rather than
+        // an inflated value from premature forgetting.
+        assertTrue("Filter must remain numerically sane", filter.errorMicros.toLong() < 10_000_000L)
     }
 
     // --- H-01: Thread safety ---
