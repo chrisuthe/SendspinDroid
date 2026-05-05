@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import com.sendspindroid.logging.AppLog
@@ -20,6 +21,10 @@ class SettingsActivity : AppCompatActivity() {
     private val viewModel: SettingsViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Edge-to-edge: must be called before super.onCreate. The
+        // Material3 Scaffold inside SettingsScreen handles system-bar
+        // insets automatically.
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         setContent {

@@ -46,6 +46,7 @@ import android.view.animation.AnimationUtils
 import android.widget.EditText
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -505,6 +506,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Edge-to-edge: must be called before super.onCreate so the
+        // activity is set up to draw behind system bars on Android 15+.
+        // Insets are applied programmatically by setupWindowInsets().
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
         // Initialize on-device logging facade. This also runs one-time pref migration from the
