@@ -490,6 +490,8 @@ class SyncAudioPlayer(
     private var samplesReadSinceStart = 0L        // Total samples consumed since playback started
     @Volatile private var syncErrorUs = 0L        // Current sync error (for display)
 
+    @Volatile private var syncMuted: Boolean = false
+
     // 2D Kalman filter for sync error smoothing (tracks offset + drift)
     // Based on Python reference implementation for optimal noise filtering
     private val syncErrorFilter = SyncErrorFilter(
@@ -840,6 +842,21 @@ class SyncAudioPlayer(
         // AudioTrack plays at full volume; device media stream handles attenuation.
         // This follows Spotify/Plexamp best practices for hardware volume button support.
         AppLog.Audio.d("setVolume called (ignored - using device volume): $volume")
+    }
+
+    /**
+     * Silence audio output without disturbing buffer drain rate or DAC
+     * timing. Used by the protocol layer when reporting `state="error"`
+     * to the server: per Sendspin spec, the client must mute its output
+     * and continue buffering until it can resume synchronized playback.
+     *
+     * Calling with `false` resumes pass-through audio on the next chunk.
+     * Idempotent.
+     */
+    fun setSyncMuted(muted: Boolean) {
+        if (syncMuted == muted) return
+        syncMuted = muted
+        AppLog.Audio.i("Sync mute=$muted")
     }
 
     /**
@@ -2372,6 +2389,10 @@ class SyncAudioPlayer(
         totalQueuedSamples.addAndGet(-chunk.sampleCount.toLong())
 
         val track = audioSink ?: return
+
+        if (syncMuted && chunk.pcmData.isNotEmpty()) {
+            chunk.pcmData.fill(0)
+        }
 
         // Track samples consumed for sync error calculation
         samplesReadSinceStart += chunk.sampleCount

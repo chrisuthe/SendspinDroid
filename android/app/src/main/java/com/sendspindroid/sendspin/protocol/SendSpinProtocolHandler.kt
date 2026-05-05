@@ -36,7 +36,13 @@ abstract class SendSpinProtocolHandler(
     protected var handshakeComplete = false
     protected var currentVolume: Int = 100
     protected var currentMuted: Boolean = false
-    protected var currentSyncState: String = "synchronized"  // "synchronized" or "error"
+    // Per Sendspin spec, a client that has not yet synchronized to the
+    // server timeline reports "error". Updated by [evaluateAndPublishSyncState].
+    protected var currentSyncState: String = "error"
+
+    private val syncStateLock = Any()
+    private var hasEverConverged: Boolean = false
+    private var lastPublishedMute: Boolean = false
 
     // Stream active tracking (mirrors CLI _stream_active)
     private var _streamActive = false
@@ -144,6 +150,17 @@ abstract class SendSpinProtocolHandler(
      */
     protected abstract fun onSyncOffsetApplied(offsetMs: Double, source: String)
 
+    /**
+     * Called when the audio output should be silenced or unsilenced because
+     * the client cannot maintain sync. Per Sendspin spec, clients in the
+     * "error" state must mute their audio output and continue buffering
+     * until they can resume synchronized playback.
+     *
+     * Fires only on transitions, not on every re-evaluation. The argument
+     * is the desired mute state.
+     */
+    protected abstract fun onSyncMuteChanged(muted: Boolean)
+
     // ========== Protocol Message Sending ==========
 
     /**
@@ -239,6 +256,65 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
+     * Recompute the client's sync state from the time filter and publish
+     * any change to the server and to the audio sink.
+     *
+     * Reports "synchronized" once the filter is converged for the first
+     * time, "error" otherwise. Audio mute is requested only after a
+     * successful sync has been established at least once and is then lost
+     * — the initial pre-sync window does not silence playback.
+     *
+     * Idempotent: only fires server / mute notifications on transitions.
+     * Safe to call from any thread.
+     */
+    fun evaluateAndPublishSyncState() {
+        val muteChange: Boolean? = synchronized(syncStateLock) {
+            val filter = getTimeFilter()
+            val converged = filter.isReady && filter.isConverged
+            if (converged) {
+                hasEverConverged = true
+            }
+
+            val desiredState = if (converged) "synchronized" else "error"
+            setSyncState(desiredState)
+
+            val desiredMute = hasEverConverged && desiredState == "error"
+            if (desiredMute != lastPublishedMute) {
+                lastPublishedMute = desiredMute
+                desiredMute
+            } else {
+                null
+            }
+        }
+        if (muteChange != null) {
+            onSyncMuteChanged(muteChange)
+        }
+    }
+
+    /**
+     * Reset all sync-state tracking back to "before any sync has been
+     * achieved on this server." Call this on a fresh connection to a new
+     * server; do NOT call it during a normal reconnect cycle.
+     *
+     * Safe to call from any thread.
+     */
+    fun resetSyncStateTracking() {
+        val needsUnmute = synchronized(syncStateLock) {
+            hasEverConverged = false
+            currentSyncState = "error"
+            if (lastPublishedMute) {
+                lastPublishedMute = false
+                true
+            } else {
+                false
+            }
+        }
+        if (needsUnmute) {
+            onSyncMuteChanged(false)
+        }
+    }
+
+    /**
      * Send a media command (play, pause, next, previous, switch).
      */
     fun sendCommand(command: String) {
@@ -306,6 +382,7 @@ abstract class SendSpinProtocolHandler(
         timeSyncManager = TimeSyncManager(
             timeFilter = timeFilter,
             sendClientTime = { sendClientTime() },
+            onMeasurementApplied = { evaluateAndPublishSyncState() },
             tag = tag
         )
     }

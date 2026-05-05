@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 class TimeSyncManager(
     private val timeFilter: SendspinTimeFilter,
     private val sendClientTime: () -> Unit,
+    private val onMeasurementApplied: () -> Unit = {},
     private val tag: String = "TimeSyncManager"
 ) {
     companion object {
@@ -106,6 +107,7 @@ class TimeSyncManager(
             Log.v(tag, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs")
         }
 
+        onMeasurementApplied()
         return false
     }
 
@@ -170,6 +172,7 @@ class TimeSyncManager(
 
             pendingBurstMeasurements.clear()
         }
+        onMeasurementApplied()
     }
 
     private fun computeMaxError(rtt: Long): Long {

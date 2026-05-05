@@ -5,6 +5,8 @@ import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.TestScope
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -107,6 +109,14 @@ class SendSpinProtocolHandlerTest {
     // ========== Sync State Validation Tests ==========
 
     @Test
+    fun `default sync state is error before any sync measurement`() {
+        // Per spec: a client that has not yet synchronized to the server
+        // timeline must report state="error", not "synchronized".
+        val fresh = TestProtocolHandler()
+        assertEquals("error", fresh.exposedSyncState())
+    }
+
+    @Test
     fun `setSyncState accepts synchronized`() {
         handler.setSyncState("synchronized")
         assertEquals("synchronized", handler.exposedSyncState())
@@ -120,7 +130,7 @@ class SendSpinProtocolHandlerTest {
 
     @Test
     fun `setSyncState rejects invalid value and keeps previous state`() {
-        // Default is "synchronized"
+        handler.setSyncState("synchronized")
         assertEquals("synchronized", handler.exposedSyncState())
 
         handler.setSyncState("invalid_state")
@@ -133,23 +143,127 @@ class SendSpinProtocolHandlerTest {
 
     @Test
     fun `setSyncState rejects empty string`() {
-        handler.setSyncState("error") // Set to a known state first
+        handler.setSyncState("error")
         handler.setSyncState("")
-        assertEquals(
-            "Empty string should be rejected",
-            "error",
-            handler.exposedSyncState()
-        )
+        assertEquals("error", handler.exposedSyncState())
     }
 
     @Test
     fun `setSyncState rejects close misspellings`() {
-        handler.setSyncState("Synchronized") // capital S
+        handler.setSyncState("synchronized")
+        handler.setSyncState("Synchronized")
         assertEquals(
             "Case-sensitive: 'Synchronized' should be rejected",
             "synchronized",
             handler.exposedSyncState()
         )
+    }
+
+    // ========== Filter-driven sync state evaluation ==========
+
+    @Test
+    fun `evaluateAndPublishSyncState reports synchronized once filter converges`() {
+        // Drive the filter to convergence by feeding consistent measurements.
+        val filter = handler.exposedTimeFilter()
+        for (i in 1..30) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        assertTrue("Sanity: filter should be converged", filter.isConverged)
+
+        handler.evaluateAndPublishSyncStateForTest()
+
+        assertEquals("synchronized", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `evaluateAndPublishSyncState stays error while filter not converged`() {
+        // Two measurements -> isReady but not isConverged.
+        val filter = handler.exposedTimeFilter()
+        filter.addMeasurement(10_000L, 3000L, 1_000_000L)
+        filter.addMeasurement(10_000L, 3000L, 2_000_000L)
+
+        handler.evaluateAndPublishSyncStateForTest()
+
+        assertEquals("error", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `mute is requested only after first convergence is lost`() {
+        val filter = handler.exposedTimeFilter()
+
+        // Initial pre-convergence period: state="error" but mute is NOT
+        // requested (we have not yet established a sync to drop).
+        filter.addMeasurement(10_000L, 3000L, 1_000_000L)
+        filter.addMeasurement(10_000L, 3000L, 2_000_000L)
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals("error", handler.exposedSyncState())
+        assertFalse(
+            "Initial pre-sync window must not silence audio",
+            handler.lastMuteDecision()
+        )
+
+        // Converge -> "synchronized", mute released.
+        for (i in 3..30) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals("synchronized", handler.exposedSyncState())
+        assertFalse(handler.lastMuteDecision())
+
+        // Simulate sync loss (reset filter so isConverged drops).
+        filter.reset()
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals("error", handler.exposedSyncState())
+        assertTrue(
+            "After convergence has been established and lost, mute must engage",
+            handler.lastMuteDecision()
+        )
+    }
+
+    @Test
+    fun `resetSyncStateTracking clears mute and returns state to error`() {
+        val filter = handler.exposedTimeFilter()
+        for (i in 1..30) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        handler.evaluateAndPublishSyncStateForTest()
+        filter.reset()
+        handler.evaluateAndPublishSyncStateForTest()
+        assertTrue("Sanity: should be muted after sync loss", handler.lastMuteDecision())
+        val mutesBefore = handler.muteEvents.size
+
+        handler.resetSyncStateTrackingForTest()
+
+        assertEquals("error", handler.exposedSyncState())
+        assertEquals(
+            "Reset must release any active mute via onSyncMuteChanged(false)",
+            mutesBefore + 1,
+            handler.muteEvents.size
+        )
+        assertEquals(false, handler.muteEvents.last())
+    }
+
+    @Test
+    fun `evaluateAndPublishSyncState fires onSyncMuteChanged only on transitions`() {
+        val filter = handler.exposedTimeFilter()
+        for (i in 1..30) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        handler.evaluateAndPublishSyncStateForTest()
+        val initialMuteEvents = handler.muteEvents.size
+
+        // Re-evaluate with no state change -> no new mute event.
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals(initialMuteEvents, handler.muteEvents.size)
+
+        filter.reset()
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals(
+            "Sync loss after convergence must fire one mute=true event",
+            initialMuteEvents + 1,
+            handler.muteEvents.size
+        )
+        assertEquals(true, handler.muteEvents.last())
     }
 
     // ========== Stream Start Dispatch Tests ==========
@@ -248,6 +362,7 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
     val playbackStateChanges = mutableListOf<String>()
     val groupUpdates = mutableListOf<GroupInfo>()
     val streamStarts = mutableListOf<StreamConfig>()
+    val muteEvents = mutableListOf<Boolean>()
 
     fun setHandshakeCompleteForTest() {
         handshakeComplete = true
@@ -255,6 +370,10 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
 
     fun exposedVolume(): Int = currentVolume
     fun exposedSyncState(): String = currentSyncState
+    fun exposedTimeFilter(): SendspinTimeFilter = timeFilter
+    fun lastMuteDecision(): Boolean = muteEvents.lastOrNull() ?: false
+    fun evaluateAndPublishSyncStateForTest() = evaluateAndPublishSyncState()
+    fun resetSyncStateTrackingForTest() = resetSyncStateTracking()
 
     fun handleTextMessageForTest(text: String) {
         handleTextMessage(text)
@@ -309,4 +428,8 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
     override fun onArtwork(channel: Int, payload: ByteArray) {}
 
     override fun onSyncOffsetApplied(offsetMs: Double, source: String) {}
+
+    override fun onSyncMuteChanged(muted: Boolean) {
+        muteEvents.add(muted)
+    }
 }

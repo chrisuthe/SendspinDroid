@@ -1639,6 +1639,12 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        override fun onSyncMuteChanged(muted: Boolean) {
+            mainHandler.post {
+                syncAudioPlayer?.setSyncMuted(muted)
+            }
+        }
+
         override fun onNetworkChanged() {
             mainHandler.post {
                 // Only clear buffer if NOT in DRAINING state

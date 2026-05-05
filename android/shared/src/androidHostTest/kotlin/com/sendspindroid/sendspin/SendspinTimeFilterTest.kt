@@ -16,6 +16,14 @@ import kotlin.concurrent.thread
 
 class SendspinTimeFilterTest {
 
+    private companion object {
+        // Stable identity used by tests that exercise freeze/thaw but do not
+        // care about cross-server detection. The dedicated identity tests use
+        // their own literals.
+        const val TEST_SERVER_NAME = "TestServer"
+        const val TEST_SERVER_ID = "test-server-id"
+    }
+
     private lateinit var filter: SendspinTimeFilter
 
     @Before
@@ -229,7 +237,7 @@ class SendspinTimeFilterTest {
         }
         assertTrue(filter.isReady)
 
-        filter.freeze()
+        filter.freeze(TEST_SERVER_NAME, TEST_SERVER_ID)
         assertTrue(filter.isFrozen)
     }
 
@@ -238,7 +246,7 @@ class SendspinTimeFilterTest {
         filter.addMeasurement(10_000L, 3000L, 1_000_000L)
         assertFalse(filter.isReady)
 
-        filter.freeze()
+        filter.freeze(TEST_SERVER_NAME, TEST_SERVER_ID)
         assertFalse(filter.isFrozen)
     }
 
@@ -251,12 +259,13 @@ class SendspinTimeFilterTest {
         val offsetBeforeFreeze = filter.offsetMicros
         val errorBeforeFreeze = filter.errorMicros
 
-        filter.freeze()
+        filter.freeze(TEST_SERVER_NAME, TEST_SERVER_ID)
         filter.reset()
 
         assertFalse(filter.isReady)
 
-        filter.thaw()
+        val restored = filter.thaw(TEST_SERVER_NAME, TEST_SERVER_ID)
+        assertTrue("thaw with matching identity should restore", restored)
 
         // Offset should be restored
         assertEquals(offsetBeforeFreeze, filter.offsetMicros)
@@ -268,6 +277,101 @@ class SendspinTimeFilterTest {
         assertFalse("Frozen state should be cleared after thaw", filter.isFrozen)
     }
 
+    // --- thaw() server-identity guard ---
+
+    @Test
+    fun thaw_withMatchingIdentity_restoresState() {
+        for (i in 1..5) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        val offsetBefore = filter.offsetMicros
+        filter.freeze("ServerA", "server-id-A")
+        filter.reset()
+
+        val restored = filter.thaw("ServerA", "server-id-A")
+
+        assertTrue("thaw with matching identity should return true", restored)
+        assertEquals("Offset should be restored", offsetBefore, filter.offsetMicros)
+        assertFalse("Frozen state should be cleared after successful thaw", filter.isFrozen)
+    }
+
+    @Test
+    fun thaw_withDifferentServerName_doesNotRestoreAndDiscards() {
+        // Cross-server reconnect: freeze on A, then thaw against B.
+        // We must NOT restore A's clock estimate as if it were B's.
+        for (i in 1..5) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        filter.freeze("ServerA", "server-id-A")
+        filter.reset()
+
+        val restored = filter.thaw("ServerB", "server-id-A")
+
+        assertFalse("thaw with different server name should return false", restored)
+        assertEquals("Offset should NOT be restored", 0L, filter.offsetMicros)
+        assertFalse(
+            "Frozen state should be discarded so a later thaw cannot restore it",
+            filter.isFrozen
+        )
+        // Re-thaw with the original identity should ALSO fail, proving the
+        // discard is real (not just isFrozen flipping because nothing was
+        // captured in the first place).
+        assertFalse(
+            "Frozen state must be truly gone, not merely flagged",
+            filter.thaw("ServerA", "server-id-A")
+        )
+    }
+
+    @Test
+    fun thaw_withDifferentServerId_doesNotRestoreAndDiscards() {
+        // Same display name, different server id.
+        for (i in 1..5) {
+            filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
+        }
+        filter.freeze("HomeStereo", "uuid-old")
+        filter.reset()
+
+        val restored = filter.thaw("HomeStereo", "uuid-new")
+
+        assertFalse("thaw with different server id should return false", restored)
+        assertEquals("Offset should NOT be restored", 0L, filter.offsetMicros)
+        assertFalse(filter.isFrozen)
+        assertFalse(
+            "Frozen state must be truly gone, not merely flagged",
+            filter.thaw("HomeStereo", "uuid-old")
+        )
+    }
+
+    // --- thaw() must restore lastUpdateTime ---
+
+    @Test
+    fun thaw_restoresLastUpdateTime() {
+        // After freeze -> reset -> thaw, the filter must remember its last
+        // measurement time. If it does not, the next addMeasurement computes
+        // dt against zero (epoch) and explodes the covariance prediction.
+        // Use realistic clientTimeMicros (System.nanoTime()/1000-scale) so a
+        // lost lastUpdateTime is visible.
+        val baseTimeUs = 1_000_000_000_000L  // ~11.5 days uptime
+        for (i in 1..10) {
+            filter.addMeasurement(10_000L, 3000L, baseTimeUs + i * 1_000_000L)
+        }
+        val lastUpdateBefore = filter.lastUpdateTimeUs
+        assertTrue("Sanity: lastUpdateTime should be set", lastUpdateBefore > 0L)
+
+        filter.freeze(TEST_SERVER_NAME, TEST_SERVER_ID)
+        filter.reset()
+        assertEquals("reset() zeros lastUpdateTime", 0L, filter.lastUpdateTimeUs)
+
+        val restored = filter.thaw(TEST_SERVER_NAME, TEST_SERVER_ID)
+        assertTrue("thaw with matching identity should restore", restored)
+
+        assertEquals(
+            "thaw() must restore lastUpdateTime so first post-thaw dt is sane",
+            lastUpdateBefore,
+            filter.lastUpdateTimeUs
+        )
+    }
+
     // --- resetAndDiscard ---
 
     @Test
@@ -275,7 +379,7 @@ class SendspinTimeFilterTest {
         for (i in 1..5) {
             filter.addMeasurement(10_000L, 3000L, i * 1_000_000L)
         }
-        filter.freeze()
+        filter.freeze(TEST_SERVER_NAME, TEST_SERVER_ID)
         assertTrue(filter.isFrozen)
 
         filter.resetAndDiscard()
@@ -567,9 +671,9 @@ class SendspinTimeFilterTest {
         val freezeThawer = thread(name = "freeze-thaw") {
             try {
                 repeat(100) {
-                    filter.freeze()
+                    filter.freeze(TEST_SERVER_NAME, TEST_SERVER_ID)
                     Thread.sleep(1)
-                    filter.thaw()
+                    filter.thaw(TEST_SERVER_NAME, TEST_SERVER_ID)
                     // Re-add measurements after thaw
                     filter.addMeasurement(10_000L, 3000L, (it + 11) * 1_000_000L)
                 }

@@ -341,9 +341,12 @@ class SendspinTimeFilter {
         val p11: Double,
         val measurementCount: Int,
         val baselineClientTime: Long,
+        val lastUpdateTime: Long,
         val recentOffsets: DoubleArray,
         val recentOffsetsIndex: Int,
-        val recentOffsetsCount: Int
+        val recentOffsetsCount: Int,
+        val serverName: String?,
+        val serverId: String?
     )
 
     /**
@@ -506,14 +509,14 @@ class SendspinTimeFilter {
         get() = frozenState != null
 
     /**
-     * Freeze the current filter state for reconnection.
-     * Preserves the converged time sync across network drops so playback
-     * can continue from buffer without losing synchronization.
+     * Capture a snapshot of the current sync state so [thaw] can restore it
+     * after a reconnect to the same server. No-op if the filter is not yet
+     * [isReady].
      *
-     * Call this when connection is lost but reconnection will be attempted.
-     * Thread-safe: synchronized to capture a consistent snapshot.
+     * @param serverName Display name of the currently-connected server (from server/hello).
+     * @param serverId   Stable identifier of the currently-connected server (from server/hello).
      */
-    fun freeze() {
+    fun freeze(serverName: String?, serverId: String?) {
         synchronized(lock) {
             if (!isReady) return
 
@@ -526,64 +529,65 @@ class SendspinTimeFilter {
                 p11 = p11,
                 measurementCount = measurementCount,
                 baselineClientTime = baselineClientTime,
+                lastUpdateTime = lastUpdateTime,
                 recentOffsets = recentOffsets.copyOf(),
                 recentOffsetsIndex = recentOffsetsIndex,
-                recentOffsetsCount = recentOffsetsCount
+                recentOffsetsCount = recentOffsetsCount,
+                serverName = serverName,
+                serverId = serverId
             )
         }
     }
 
     /**
-     * Restore frozen state after reconnection.
-     * Increases covariance to allow faster adaptation to potentially
-     * changed network conditions while preserving the general sync estimate.
+     * Restore a frozen sync state captured by [freeze] if and only if the
+     * provided identity matches the one captured at freeze-time. On
+     * identity mismatch the frozen snapshot is discarded.
      *
-     * Call this after successful reconnection, before resuming time sync.
-     * Thread-safe: synchronized to prevent concurrent mutation.
+     * Call this after a reconnect handshake completes, before resuming time
+     * sync.
+     *
+     * @param serverName Display name of the just-handshook server.
+     * @param serverId   Stable identifier of the just-handshook server.
+     * @return true if state was restored, false if no frozen state existed
+     *         or the identity did not match.
      */
-    fun thaw() {
+    fun thaw(serverName: String?, serverId: String?): Boolean {
         synchronized(lock) {
-            val frozen = frozenState ?: return
+            val frozen = frozenState ?: return false
+
+            if (frozen.serverName != serverName || frozen.serverId != serverId) {
+                frozenState = null
+                return false
+            }
 
             offset = frozen.offset
             drift = frozen.drift
 
-            // Increase covariance by 100x to allow rapid re-convergence after
-            // reconnection. The old offset is a reasonable starting point but may
-            // be stale if the server restarted or network conditions changed
-            // significantly. Large covariance lets the filter quickly adopt new
-            // measurements while still benefiting from the prior estimate.
             p00 = frozen.p00 * 100.0
             p01 = frozen.p01 * 10.0
             p10 = frozen.p10 * 10.0
             p11 = frozen.p11 * 100.0
 
-            // Reset measurement count to MIN_MEASUREMENTS so that:
-            // 1. isReady remains true (playback continues from buffer)
-            // 2. isConverged returns false (forces aggressive burst sync)
-            // 3. addMeasurement() takes the Kalman update path (not init path)
-            // This ensures TimeSyncManager uses fast burst parameters until
-            // the filter actually reconverges with fresh measurements.
             measurementCount = MIN_MEASUREMENTS
             baselineClientTime = frozen.baselineClientTime
+            lastUpdateTime = frozen.lastUpdateTime
 
-            // Restore outlier rejection state (offsets are still valid reference)
             frozen.recentOffsets.copyInto(recentOffsets)
             recentOffsetsIndex = frozen.recentOffsetsIndex
             recentOffsetsCount = frozen.recentOffsetsCount
             rejectedCount = 0
 
-            // Reset innovation window (network conditions may have changed)
             innovationWindowIndex = 0
             innovationWindowCount = 0
             adaptiveProcessNoise = BASE_PROCESS_NOISE_OFFSET
 
-            // Reset convergence tracking so it gets re-logged after re-sync
             hasLoggedConvergence = false
             convergenceTimeMs = 0
-            firstMeasurementTimeMs = 0
+            firstMeasurementTimeMs = Platform.currentTimeMillis()
 
             frozenState = null
+            return true
         }
     }
 

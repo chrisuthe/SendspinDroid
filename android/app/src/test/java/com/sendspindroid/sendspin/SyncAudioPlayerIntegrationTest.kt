@@ -155,6 +155,103 @@ class SyncAudioPlayerIntegrationTest {
     }
 
     /**
+     * Build an AudioChunk with the supplied PCM data via reflection (the
+     * data class is private to SyncAudioPlayer).
+     */
+    private fun makeAudioChunkReflective(pcmData: ByteArray, frames: Int): Any {
+        val clazz = Class.forName("com.sendspindroid.sendspin.SyncAudioPlayer\$AudioChunk")
+        val ctor = clazz.declaredConstructors.first()
+        ctor.isAccessible = true
+        return ctor.newInstance(0L, 0L, pcmData, frames)
+    }
+
+    private fun invokePlayChunkWithCorrection(player: SyncAudioPlayer, chunk: Any) {
+        val clazz = Class.forName("com.sendspindroid.sendspin.SyncAudioPlayer\$AudioChunk")
+        val method = SyncAudioPlayer::class.java.getDeclaredMethod(
+            "playChunkWithCorrection", clazz,
+        )
+        method.isAccessible = true
+        method.invoke(player, chunk)
+    }
+
+    @Test
+    fun `setSyncMuted true zero-fills writes through playChunkWithCorrection`() {
+        val timeFilter = mockk<SendspinTimeFilter>(relaxed = true)
+        every { timeFilter.isReady } returns true
+        every { timeFilter.serverToClient(any()) } answers { firstArg() }
+        every { timeFilter.clientToServer(any()) } answers { firstArg() }
+        every { timeFilter.offsetMicros } returns 0L
+        every { timeFilter.measurementCountValue } returns 10
+
+        val fakeSink = FakeAudioSink()
+        val player = SyncAudioPlayer(
+            timeFilter = timeFilter,
+            sampleRate = sampleRate,
+            channels = channels,
+            bitDepth = bitDepth,
+            nowNs = nowNs,
+            sinkFactory = { _, _, _, _ -> fakeSink },
+        )
+        setField(player, "audioSink", fakeSink)
+        // initialize() (which builds lastOutputFrame buffers) calls
+        // Android-only AudioTrack APIs; supply equivalents directly.
+        val bytesPerFrame = channels * (bitDepth / 8)
+        setField(player, "lastOutputFrame", ByteArray(bytesPerFrame))
+        setField(player, "secondLastOutputFrame", ByteArray(bytesPerFrame))
+
+        val frames = 240
+        val pcm = ByteArray(frames * 4) { 0x42 }
+        val chunk = makeAudioChunkReflective(pcm, frames)
+
+        player.setSyncMuted(true)
+        invokePlayChunkWithCorrection(player, chunk)
+
+        val record = fakeSink.writes.firstOrNull()
+            ?: error("expected one write to fake sink")
+        assertTrue(
+            "muted writes must be zero-filled",
+            record.snapshotFirstBytes.all { it == 0.toByte() },
+        )
+    }
+
+    @Test
+    fun `setSyncMuted false leaves PCM bytes untouched in playChunkWithCorrection`() {
+        val timeFilter = mockk<SendspinTimeFilter>(relaxed = true)
+        every { timeFilter.isReady } returns true
+        every { timeFilter.serverToClient(any()) } answers { firstArg() }
+        every { timeFilter.clientToServer(any()) } answers { firstArg() }
+        every { timeFilter.offsetMicros } returns 0L
+        every { timeFilter.measurementCountValue } returns 10
+
+        val fakeSink = FakeAudioSink()
+        val player = SyncAudioPlayer(
+            timeFilter = timeFilter,
+            sampleRate = sampleRate,
+            channels = channels,
+            bitDepth = bitDepth,
+            nowNs = nowNs,
+            sinkFactory = { _, _, _, _ -> fakeSink },
+        )
+        setField(player, "audioSink", fakeSink)
+        val bytesPerFrame = channels * (bitDepth / 8)
+        setField(player, "lastOutputFrame", ByteArray(bytesPerFrame))
+        setField(player, "secondLastOutputFrame", ByteArray(bytesPerFrame))
+
+        val frames = 240
+        val pcm = ByteArray(frames * 4) { 0x42 }
+        val chunk = makeAudioChunkReflective(pcm, frames)
+
+        invokePlayChunkWithCorrection(player, chunk)
+
+        val record = fakeSink.writes.firstOrNull()
+            ?: error("expected one write to fake sink")
+        assertTrue(
+            "unmuted writes must pass PCM through unchanged",
+            record.snapshotFirstBytes.all { it == 0x42.toByte() },
+        )
+    }
+
+    /**
      * Build a SyncAudioPlayer wired to the shared `nowNs` clock and a
      * relaxed time-filter mock. Used by the watchdog tests.
      */

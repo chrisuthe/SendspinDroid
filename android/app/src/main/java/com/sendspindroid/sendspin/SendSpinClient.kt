@@ -154,6 +154,15 @@ class SendSpinClient(
         fun onNetworkChanged()
         fun onReconnecting(attempt: Int, serverName: String)
         fun onReconnected()
+
+        /**
+         * Called when audio output should be silenced or unsilenced because
+         * the client cannot maintain sync. Per Sendspin spec, "error" state
+         * mutes audio while continuing to drain the buffer. Implementations
+         * should forward this to the audio sink. Default no-op for callers
+         * that don't render audio.
+         */
+        fun onSyncMuteChanged(muted: Boolean) {}
     }
 
     /**
@@ -203,6 +212,7 @@ class SendSpinClient(
     private var serverPath: String? = null
     private var remoteId: String? = null
     private var serverName: String? = null
+    private var serverId: String? = null
 
     // Proxy authentication state
     private var authToken: String? = null
@@ -342,14 +352,23 @@ class SendSpinClient(
 
     override fun onHandshakeComplete(serverName: String, serverId: String) {
         this.serverName = serverName
+        this.serverId = serverId
 
         // Check if this is a reconnection
         val wasReconnecting = timeFilter.isFrozen || reconnecting.get()
 
         if (timeFilter.isFrozen) {
-            timeFilter.thaw()
-            Log.i(TAG, "Time filter thawed after reconnection - re-syncing with increased covariance")
+            val thawed = timeFilter.thaw(serverName, serverId)
+            if (thawed) {
+                Log.i(TAG, "Time filter thawed after reconnection - re-syncing with increased covariance")
+            } else {
+                timeFilter.resetAndDiscard()
+                resetSyncStateTracking()
+                Log.i(TAG, "Server identity changed during reconnect; discarded frozen sync state")
+            }
         }
+
+        evaluateAndPublishSyncState()
 
         // Capture telemetry for the structured [reconnect-ok] line before resetting
         // current-cycle counters. Issue #128.
@@ -458,6 +477,10 @@ class SendSpinClient(
 
     override fun onSyncOffsetApplied(offsetMs: Double, source: String) {
         callback.onSyncOffsetApplied(offsetMs, source)
+    }
+
+    override fun onSyncMuteChanged(muted: Boolean) {
+        callback.onSyncMuteChanged(muted)
     }
 
     // ========== Public API ==========
@@ -682,6 +705,7 @@ class SendSpinClient(
         handshakeComplete = false
         awaitingAuthResponse = false
         timeFilter.reset()
+        resetSyncStateTracking()
 
         // Cancel any pending reconnect from previous connection attempt
         reconnectJob?.cancel()
@@ -1095,9 +1119,10 @@ class SendSpinClient(
             return
         }
 
-        // On first reconnection attempt, freeze the time filter
+        // On first reconnection attempt, freeze the time filter so a
+        // successful reconnect to the same server can restore sync.
         if (attempts == 1) {
-            timeFilter.freeze()
+            timeFilter.freeze(serverName, serverId)
             Log.i(TAG, "Time filter frozen for reconnection (had ${timeFilter.measurementCountValue} measurements)")
         }
         stopStallWatchdog()  // watchdog restarts on next successful handshake via onHandshakeComplete
