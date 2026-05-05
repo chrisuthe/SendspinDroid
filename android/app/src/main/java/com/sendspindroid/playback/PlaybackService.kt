@@ -1391,22 +1391,18 @@ class PlaybackService : MediaLibraryService() {
                 // Populate the player's timeline with queue items for native queue UI
                 populatePlayerQueue()
 
-                // Handle artwork URL changes + track changes.
-                //
-                // On title change we invalidate urlArtwork and re-fetch the URL
-                // even when the URL string itself is unchanged. MA reuses the
-                // album URL across tracks on the same album, so without this
-                // invalidation the MediaSession keeps whatever bitmap was set at
-                // the first track of the album (commonly the binary artwork,
-                // which MA may have populated with a playlist-context image
-                // rather than the actual album cover -- see
-                // docs/architecture/sendspin-ma-metadata-flow.md §7 Q4).
-                // Coil caches the URL so re-fetching is essentially free.
+                // Title change invalidates BOTH artwork caches so the
+                // notification doesn't briefly show the prior track's image
+                // alongside the new track's title. The next URL fetch
+                // (kicked off below) or server-pushed binary artwork
+                // (onArtwork) will repopulate. Coil caches by URL so a
+                // re-fetch on the same album is essentially free.
                 val newTitle = title.ifEmpty { null }
                 val titleChanged = newTitle != lastTrackTitle
                 if (titleChanged) {
                     lastTrackTitle = newTitle
                     urlArtwork = null
+                    binaryArtwork = null
                 }
 
                 if (effectiveArtworkUrl.isEmpty()) {
@@ -1416,11 +1412,6 @@ class PlaybackService : MediaLibraryService() {
                     fetchArtwork(effectiveArtworkUrl)
                 }
 
-                // Keep existing artwork as a bridge until new artwork arrives.
-                // Clearing eagerly causes a race: MediaSession gets updated with no
-                // artwork, Android Auto caches that state (grey box), then the binary
-                // artwork arrives too late. The old artwork will be replaced as soon
-                // as onArtwork() or fetchArtwork() delivers the new one.
                 updateMediaMetadata(title, artist, album)
             }
         }
