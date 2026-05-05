@@ -4,7 +4,6 @@ import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.TimeMeasurement
 import com.sendspindroid.shared.log.Log
-import kotlin.math.sqrt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -19,7 +18,6 @@ class TimeSyncManager(
     private val tag: String = "TimeSyncManager"
 ) {
     companion object {
-        private const val BASE_MEASUREMENT_VARIANCE = 1_000_000.0
         private const val MAX_ACCEPTABLE_RTT_US = 10_000_000L
         private const val RTT_HISTORY_SIZE = 15
         private const val BURST_COUNT_HIGH_JITTER = 15
@@ -184,10 +182,7 @@ class TimeSyncManager(
         onMeasurementApplied()
     }
 
-    private fun computeMaxError(rtt: Long): Long {
-        val rttHalf = rtt.toDouble() / 2.0
-        return sqrt(BASE_MEASUREMENT_VARIANCE + rttHalf * rttHalf).toLong().coerceAtLeast(1L)
-    }
+    private fun computeMaxError(rtt: Long): Long = (rtt / 2L).coerceAtLeast(1L)
 
     private fun recordRtt(rtt: Long) {
         rttHistory[rttHistoryIndex] = rtt
