@@ -344,12 +344,12 @@ class SyncAudioPlayerIntegrationTest {
         val audioChunkClass = SyncAudioPlayer::class.java.declaredClasses
             .find { it.simpleName == "AudioChunk" }!!
         val ctor = audioChunkClass.getDeclaredConstructor(
-            Long::class.javaPrimitiveType, Long::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
             ByteArray::class.java, Int::class.javaPrimitiveType,
         )
         ctor.isAccessible = true
         val futureServerTime = (now / 1000) + 5_000_000L
-        val chunk = ctor.newInstance(futureServerTime, 0L, ByteArray(0), 0)
+        val chunk = ctor.newInstance(futureServerTime, ByteArray(0), 0)
         @Suppress("UNCHECKED_CAST")
         val chunkQueue = getField<java.util.Queue<Any>>(player, "chunkQueue")
         chunkQueue.add(chunk)

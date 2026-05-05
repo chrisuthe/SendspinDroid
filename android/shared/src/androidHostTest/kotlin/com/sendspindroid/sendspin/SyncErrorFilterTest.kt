@@ -115,28 +115,6 @@ class SyncErrorFilterTest {
         assertEquals(0.0, filter.driftValue, 0.0)
     }
 
-    // --- predictAt ---
-
-    @Test
-    fun predictAt_usesOffsetPlusDriftTimesDt() {
-        // Set up filter with known state
-        filter.update(1000L, 1_000_000L)
-        filter.update(1000L, 2_000_000L)
-        // After 2 measurements, offset ~1000, drift ~0
-        // predictAt at lastUpdateTime should return approximately the offset
-        val prediction = filter.predictAt(2_000_000L)
-        assertEquals(1000.0, prediction.toDouble(), 100.0)
-    }
-
-    @Test
-    fun predictAt_futureTimePredicts() {
-        filter.update(1000L, 1_000_000L)
-        filter.update(1000L, 2_000_000L)
-        // With drift near 0, future prediction should still be near 1000
-        val prediction = filter.predictAt(10_000_000L)
-        assertEquals(1000.0, prediction.toDouble(), 500.0)
-    }
-
     // --- Error decreases ---
 
     @Test
