@@ -85,6 +85,15 @@ class TimeSyncManager(
         }
     }
 
+    /**
+     * Feed a `server/time` measurement to the manager.
+     *
+     * @return `true` if the measurement was buffered for the in-progress
+     *   burst's best-of-RTT selection. `false` if it was processed
+     *   immediately (out-of-burst path), dropped as stale, or arrived
+     *   while the manager is stopped. Callers that just want to forward
+     *   the measurement can ignore the return value.
+     */
     fun onServerTime(measurement: TimeMeasurement): Boolean {
         if (!running) return false
 

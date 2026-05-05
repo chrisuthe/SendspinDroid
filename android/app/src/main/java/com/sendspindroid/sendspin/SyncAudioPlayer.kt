@@ -362,7 +362,6 @@ class SyncAudioPlayer(
      */
     private data class AudioChunk(
         val serverTimeMicros: Long,
-        val clientPlayTimeMicros: Long,
         val pcmData: ByteArray,
         val sampleCount: Int
     )
@@ -1364,13 +1363,8 @@ class SyncAudioPlayer(
                     val silenceBytes = gapFrames * bytesPerFrame
                     val silenceData = ByteArray(silenceBytes)  // Zeros = silence
 
-                    // Convert the silence's server time to client time
-                    val silenceClientPlayTime = timeFilter.serverToClient(expectedNext)
-
-                    // Queue the silence chunk BEFORE the current chunk
                     val silenceChunk = AudioChunk(
                         serverTimeMicros = expectedNext,
-                        clientPlayTimeMicros = silenceClientPlayTime,
                         pcmData = silenceData,
                         sampleCount = gapFrames
                     )
@@ -1432,13 +1426,10 @@ class SyncAudioPlayer(
             return
         }
 
-        // Convert server time to client time
         val clientPlayTime = timeFilter.serverToClient(workingServerTimeMicros)
 
-        // Create and queue the chunk
         val chunk = AudioChunk(
             serverTimeMicros = workingServerTimeMicros,
-            clientPlayTimeMicros = clientPlayTime,
             pcmData = workingPcmData,
             sampleCount = sampleCount
         )

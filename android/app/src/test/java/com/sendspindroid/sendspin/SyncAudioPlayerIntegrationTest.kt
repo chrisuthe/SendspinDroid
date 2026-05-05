@@ -162,7 +162,7 @@ class SyncAudioPlayerIntegrationTest {
         val clazz = Class.forName("com.sendspindroid.sendspin.SyncAudioPlayer\$AudioChunk")
         val ctor = clazz.declaredConstructors.first()
         ctor.isAccessible = true
-        return ctor.newInstance(0L, 0L, pcmData, frames)
+        return ctor.newInstance(0L, pcmData, frames)
     }
 
     private fun invokePlayChunkWithCorrection(player: SyncAudioPlayer, chunk: Any) {

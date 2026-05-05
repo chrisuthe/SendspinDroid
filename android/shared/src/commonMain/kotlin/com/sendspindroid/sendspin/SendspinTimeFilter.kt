@@ -8,34 +8,33 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * Kalman filter for time synchronization between client and server.
+ * Two-state Kalman filter that estimates server-clock offset (and an
+ * internal drift state) from NTP-style 4-timestamp measurements.
  *
- * Implements a 2D Kalman filter tracking:
- * - offset: Time difference between client and server clocks (microseconds)
- * - drift: Rate of clock divergence (microseconds per microsecond)
+ * ## Public conversion contract
  *
- * ## Algorithm
- * Uses NTP-style measurements to estimate clock offset:
- * ```
- * offset = ((T2 - T1) + (T3 - T4)) / 2
- * ```
- * where:
- * - T1 = client_transmitted
- * - T2 = server_received
- * - T3 = server_transmitted
- * - T4 = client_received
+ * [serverToClient] and [clientToServer] convert by **offset only**; drift
+ * is intentionally not applied. This is a deliberate divergence from
+ * the upstream `Sendspin/time-filter` reference (which applies a
+ * significance-gated drift term in its conversions).
  *
- * The Kalman filter smooths these measurements and tracks drift over time.
+ * On Android, hardware DAC clock control is not exposed to userspace, so
+ * a drift-applied conversion would produce a predicted server-time the
+ * audio renderer cannot achieve, leaving the sample-insert/drop loop to
+ * chase a sustained sync error. The same pattern is used by Spotify
+ * Connect, Roon RAAT, Snapcast, the AirPlay shairport-sync DAC-clock
+ * fallback path, and the Python `sendspin-cli` reference player.
  *
- * ## Time Conversion
- * - Server to Client: T_client = T_server - offset
- * - Client to Server: T_server = T_client + offset
+ * Drift compensation lives downstream in `SyncAudioPlayer`'s
+ * sample-insert/drop loop, with `SyncErrorFilter` smoothing the
+ * measured DAC-vs-expected-server-time error. Do not "fix" the
+ * conversions to apply drift without revisiting that architecture.
  *
- * Note: Drift is tracked but not used in time conversion (matches Python reference).
- * The sync correction feedback loop handles clock rate differences naturally through
- * sample insert/drop operations.
+ * ## Reference
  *
- * Reference: aiosendspin time_sync.py
+ * Algorithm core matches upstream `Sendspin/time-filter` (Apache-2.0)
+ * post-PR #6 (2026-04). Local adaptations are documented at their
+ * respective sites in this file.
  */
 class SendspinTimeFilter {
 
@@ -46,8 +45,7 @@ class SendspinTimeFilter {
         //   - IQR outlier pre-rejection
         //   - +/-500 ppm hard drift cap
         //   - freeze/thaw with covariance inflation across reconnects
-        //   - serverToClient/clientToServer omit drift (handled by sample
-        //     insert/drop in SyncAudioPlayer per Python sendspin-cli model)
+        //   - drift omitted from public conversions (see class KDoc)
 
         // Process-noise diffusion coefficients. Upstream defaults: zero offset
         // random walk (offset evolves only through drift*dt), and a tiny drift
@@ -620,38 +618,25 @@ class SendspinTimeFilter {
     }
 
     /**
-     * Convert server time to client time.
-     * Includes static delay offset for speaker synchronization.
+     * Convert a server timestamp into the client-clock domain. Includes
+     * the auto-measured output-latency and user/server sync-offset
+     * components so the result is the wall-clock instant at which the
+     * audio sink should render the corresponding samples.
      *
-     * NOTE: Drift is intentionally NOT used in time conversion (matching Python reference).
-     * The sync correction feedback loop handles clock rate differences naturally through
-     * sample insert/drop. Using drift here caused sync error oscillation because noisy
-     * drift estimates fed back into the sync error calculation, creating instability.
+     * Offset-only — see the class docstring for why drift is not applied.
      *
-     * Drift is still tracked and displayed in Stats for Nerds for debugging purposes.
-     *
-     * @param serverTimeMicros Server timestamp in microseconds
-     * @return Equivalent client timestamp in microseconds
+     * Lock-free; safe to call from the audio thread.
      */
     fun serverToClient(serverTimeMicros: Long): Long {
-        // Simple offset-only conversion (matches Python sendspin-cli)
-        // Drift is NOT applied here - the sync correction loop handles rate differences
         val baseResult = serverTimeMicros - offset.toLong()
-
-        // Apply static delay: positive delay = play later = higher client time
         return baseResult + autoMeasuredDelayMicros + userSyncOffsetMicros
     }
 
     /**
-     * Convert client time to server time.
-     *
-     * NOTE: Drift is intentionally NOT used (see serverToClient comments).
-     *
-     * @param clientTimeMicros Client timestamp in microseconds
-     * @return Equivalent server timestamp in microseconds
+     * Inverse of [serverToClient]. Offset-only — see the class docstring
+     * for why drift is not applied. Lock-free.
      */
     fun clientToServer(clientTimeMicros: Long): Long {
-        // Simple offset-only conversion (matches Python sendspin-cli)
         return clientTimeMicros + offset.toLong() - autoMeasuredDelayMicros - userSyncOffsetMicros
     }
 }
