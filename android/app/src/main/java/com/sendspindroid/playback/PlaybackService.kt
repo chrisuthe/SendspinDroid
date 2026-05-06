@@ -2191,7 +2191,10 @@ class PlaybackService : MediaLibraryService() {
         server: com.sendspindroid.model.UnifiedServer,
         selectedConnection: ConnectionSelector.SelectedConnection,
     ): Boolean {
-        // Set the active server first so subsequent state observation has context.
+        // Short-circuit if SendSpin client construction failed in onCreate.
+        val client = sendSpinClient ?: return false
+
+        // Set the active server first so observers see context immediately.
         setCurrentServer(server.id, when (selectedConnection) {
             is ConnectionSelector.SelectedConnection.Local -> ConnectionMode.LOCAL
             is ConnectionSelector.SelectedConnection.Remote -> ConnectionMode.REMOTE
@@ -2207,7 +2210,6 @@ class PlaybackService : MediaLibraryService() {
                 connectToProxyServer(selectedConnection.url, selectedConnection.authToken)
         }
 
-        val client = sendSpinClient ?: return false
         return withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
             val terminal = client.connectionState
                 .first {
@@ -2215,7 +2217,11 @@ class PlaybackService : MediaLibraryService() {
                     it is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Error
                 }
             terminal is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Connected
-        } ?: false
+        } ?: run {
+            Log.w(TAG, "connectViaSelectedConnection timed out after ${CONNECT_TIMEOUT_MS}ms; cancelling transport")
+            disconnectFromServer()
+            false
+        }
     }
 
     /**
