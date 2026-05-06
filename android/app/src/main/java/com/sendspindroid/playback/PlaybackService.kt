@@ -67,6 +67,7 @@ import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.QueueUpdate
 import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpinEndpoint
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
@@ -1895,7 +1896,7 @@ class PlaybackService : MediaLibraryService() {
                 _playbackState.value = _playbackState.value.copy(volume = volumePercent)
             }
 
-            sendSpinClient?.connect(address, path)
+            sendSpinClient?.connect(SendSpinEndpoint.Local(address, path))
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to server", e)
             _connectionState.value = ConnectionState.Error("Connection failed: ${e.message}")
@@ -1932,7 +1933,7 @@ class PlaybackService : MediaLibraryService() {
                 _playbackState.value = _playbackState.value.copy(volume = volumePercent)
             }
 
-            sendSpinClient?.connectRemote(remoteId)
+            sendSpinClient?.connect(SendSpinEndpoint.Remote(remoteId))
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to remote server", e)
             _connectionState.value = ConnectionState.Error("Remote connection failed: ${e.message}")
@@ -1973,7 +1974,7 @@ class PlaybackService : MediaLibraryService() {
                 _playbackState.value = _playbackState.value.copy(volume = volumePercent)
             }
 
-            sendSpinClient?.connectProxy(url, authToken)
+            sendSpinClient?.connect(SendSpinEndpoint.Proxy(url, authToken))
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to proxy server", e)
             _connectionState.value = ConnectionState.Error("Proxy connection failed: ${e.message}")
