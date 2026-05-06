@@ -203,6 +203,18 @@ class SendSpinClient(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    /**
+     * When false, transport drops do not trigger the internal attemptReconnect
+     * loop -- onDisconnected is fired and the external owner (e.g.
+     * ConnectionCoordinator) decides whether to retry.
+     *
+     * Defaults to true so pre-Coordinator callers and wizard test instances
+     * keep their original behavior. ConnectionCoordinator sets this to false
+     * after construction in Phase 2B+, ending the dueling-timer problem.
+     */
+    @Volatile
+    var selfReconnectEnabled: Boolean = true
+
     // Transport abstraction - can be WebSocket (local) or WebRTC (remote)
     private var transport: SendSpinTransport? = null
     private var connectionMode: ConnectionMode = ConnectionMode.LOCAL
@@ -1378,7 +1390,14 @@ class SendSpinClient(
                 // handshake state so field triage can still distinguish
                 // "pre-handshake drop" from "post-handshake drop".
                 Log.i(TAG, "Abnormal closure (code=$code, handshakeComplete=$handshakeComplete), attempting reconnection")
-                attemptReconnect()
+                if (selfReconnectEnabled) {
+                    attemptReconnect()
+                } else {
+                    Log.d(TAG, "selfReconnectEnabled=false; not auto-reconnecting after onClosed(code=$code)")
+                    reconnecting.set(false)
+                    _connectionState.value = ConnectionState.Disconnected
+                    callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
+                }
             } else {
                 // Either user-initiated, pre-handshake, or server's normal closure
                 if (isNormalClosure && !userInitiatedDisconnect.get()) {
@@ -1417,7 +1436,14 @@ class SendSpinClient(
 
             if (shouldReconnect) {
                 Log.i(TAG, "Recoverable error, attempting reconnection: ${error.message}")
-                attemptReconnect()
+                if (selfReconnectEnabled) {
+                    attemptReconnect()
+                } else {
+                    Log.d(TAG, "selfReconnectEnabled=false; not auto-reconnecting after onFailure(${error.message})")
+                    reconnecting.set(false)
+                    _connectionState.value = ConnectionState.Disconnected
+                    callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
+                }
             } else {
                 val errorMessage = getSpecificErrorMessage(error)
                 reconnecting.set(false)
