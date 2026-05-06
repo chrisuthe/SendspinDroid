@@ -55,6 +55,7 @@ import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.coordinator.ConnectionCoordinator
 import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.ReconnectStatus
 import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.logging.LogLevel
@@ -835,8 +836,12 @@ class PlaybackService : MediaLibraryService() {
             sendSpinStateFlow = sendSpinClient?.connectionState?.map { it.toTransportState() }
                 ?: flowOf(TransportState.Idle),
             musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
+            reconnectStatusFlow = MutableStateFlow(ReconnectStatus.Idle),
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
+            onConnectRequested = { /* TODO Task 3 */ },
+            onCancelReconnectRequested = { /* TODO Task 3 */ },
+            onNetworkAvailableSignaled = { /* TODO Task 3 */ },
         )
 
         // Launch the single-owner decode worker. Task 3 scaffolding: no
