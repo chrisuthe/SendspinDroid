@@ -53,6 +53,7 @@ import com.sendspindroid.MainActivity
 
 import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.ui.settings.SettingsViewModel
+import com.sendspindroid.coordinator.ConnectionCoordinator
 import com.sendspindroid.coordinator.FailureReason
 import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.logging.AppLog
@@ -153,7 +154,7 @@ class PlaybackService : MediaLibraryService() {
     // Active server as a flow — fed into ConnectionCoordinator in Task 5.
     private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
 
-    private lateinit var coordinator: com.sendspindroid.coordinator.ConnectionCoordinator
+    private lateinit var coordinator: ConnectionCoordinator
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null
@@ -828,7 +829,7 @@ class PlaybackService : MediaLibraryService() {
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
 
-        coordinator = com.sendspindroid.coordinator.ConnectionCoordinator(
+        coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
             sendSpinStateFlow = requireNotNull(sendSpinClient).connectionState.map { it.toTransportState() },
             musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
@@ -2988,7 +2989,7 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 COMMAND_DISCONNECT -> {
-                    disconnectFromServer()
+                    coordinator.disconnect()
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
