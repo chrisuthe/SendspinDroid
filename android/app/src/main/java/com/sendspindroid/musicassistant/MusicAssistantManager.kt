@@ -411,10 +411,14 @@ object MusicAssistantManager {
             runCatching {
                 connectTransport(apiUrl, serverId) { transport -> transport.connect(token) }
             }.onFailure { e ->
+                // Only clear the stored token if the server actually rejected it.
+                // Transient errors (network, transport, generic IO) preserve the token
+                // so the user isn't forced to re-login on a brief WiFi->Cell handover.
+                val authRejected = e is MaApiTransport.AuthenticationException
                 handleConnectionFailure(
                     e as? Exception ?: Exception(e),
                     "Token authentication",
-                    clearTokenForServer = serverId
+                    clearTokenForServer = if (authRejected) serverId else null,
                 )
             }
         }
@@ -496,10 +500,14 @@ object MusicAssistantManager {
                     transport.connect(token)
                 }
             }.map { }.onFailure { e ->
+                // Only clear the stored token if the server actually rejected it.
+                // Transient errors (network, transport, generic IO) preserve the token
+                // so the user isn't forced to re-login on a brief WiFi->Cell handover.
+                val authRejected = e is MaApiTransport.AuthenticationException
                 handleConnectionFailure(
                     e as? Exception ?: Exception(e),
                     "Token auth",
-                    clearTokenForServer = server.id
+                    clearTokenForServer = if (authRejected) server.id else null,
                 )
             }
         }
