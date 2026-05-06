@@ -297,18 +297,6 @@ class ConnectionCoordinator(
         _reconnectStatusFlow.value = ReconnectStatus.Idle
     }
 
-    /**
-     * Called when network becomes available — skips the current backoff delay so the
-     * reconnect loop retries immediately. No-op if not currently reconnecting, or if
-     * the 2s debounce window has not elapsed since the last skip.
-     *
-     * This is still callable externally (COMMAND_NETWORK_AVAILABLE path in PlaybackService);
-     * the NetworkCallback also calls the private equivalent directly.
-     */
-    fun onNetworkAvailable() {
-        triggerNetworkAvailableSkip()
-    }
-
     private fun triggerNetworkAvailableSkip() {
         if (!isReconnecting.get()) return
         val now = System.nanoTime()
