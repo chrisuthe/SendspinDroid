@@ -99,6 +99,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -151,7 +152,7 @@ class PlaybackService : MediaLibraryService() {
     private var currentServerId: String? = null
     private var currentConnectionMode: ConnectionMode = ConnectionMode.LOCAL
 
-    // Active server as a flow — fed into ConnectionCoordinator in Task 5.
+    // Active server as a flow, consumed by ConnectionCoordinator.
     private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
 
     private lateinit var coordinator: ConnectionCoordinator
@@ -831,7 +832,8 @@ class PlaybackService : MediaLibraryService() {
 
         coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
-            sendSpinStateFlow = requireNotNull(sendSpinClient).connectionState.map { it.toTransportState() },
+            sendSpinStateFlow = sendSpinClient?.connectionState?.map { it.toTransportState() }
+                ?: flowOf(TransportState.Idle),
             musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
