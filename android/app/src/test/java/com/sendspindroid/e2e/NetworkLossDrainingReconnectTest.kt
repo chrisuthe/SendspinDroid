@@ -1,6 +1,7 @@
 package com.sendspindroid.e2e
 
 import com.sendspindroid.UserSettings
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import io.mockk.every
@@ -48,7 +49,7 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         val state = client.connectionState.value
         assertTrue(
             "State should be Connecting during reconnection",
-            state is SendSpinClient.ConnectionState.Connecting
+            state is TransportState.Connecting
         )
     }
 
@@ -83,11 +84,11 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         // Should report error
         verify { mockCallback.onError(any()) }
 
-        // Connection state should be Error
+        // Connection state should be Failed
         val state = client.connectionState.value
         assertTrue(
-            "State should be Error for non-recoverable failure",
-            state is SendSpinClient.ConnectionState.Error
+            "State should be Failed for non-recoverable failure",
+            state is TransportState.Failed
         )
     }
 
@@ -106,8 +107,8 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
 
         // Should be disconnected, not reconnecting
         assertTrue(
-            "State should be Disconnected after user disconnect",
-            client.connectionState.value is SendSpinClient.ConnectionState.Disconnected
+            "State should be Idle after user disconnect",
+            client.connectionState.value is TransportState.Idle
         )
 
         // Verify onDisconnected was called with user-initiated flag
@@ -128,8 +129,8 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
 
         // Should be disconnected
         assertTrue(
-            "State should be Disconnected after normal closure",
-            client.connectionState.value is SendSpinClient.ConnectionState.Disconnected
+            "State should be Idle after normal closure",
+            client.connectionState.value is TransportState.Idle
         )
     }
 
@@ -215,7 +216,7 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         val state = client.connectionState.value
         assertTrue(
             "State should remain Connecting with no cap, was: $state",
-            state is SendSpinClient.ConnectionState.Connecting
+            state is TransportState.Connecting
         )
     }
 

@@ -12,8 +12,9 @@ import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.TrackMetadata
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.transport.SendSpinTransport
-import com.sendspindroid.sendspin.transport.TransportState
 import com.sendspindroid.sendspin.transport.WebSocketTransport
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -174,14 +175,6 @@ class SendSpinClient(
         PROXY    // WebSocket via authenticated reverse proxy
     }
 
-    // Connection state
-    sealed class ConnectionState {
-        object Disconnected : ConnectionState()
-        object Connecting : ConnectionState()
-        data class Connected(val serverName: String) : ConnectionState()
-        data class Error(val message: String) : ConnectionState()
-    }
-
     // Dedicated single-thread dispatcher for timer-dominated work: stall
     // watchdog polling, reconnect backoff delays, TimeSyncManager's
     // periodic scheduler. Isolating this from Dispatchers.IO means timer
@@ -200,8 +193,8 @@ class SendSpinClient(
     // transport creation, any other work that may block the thread.
     private val workScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+    private val _connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
+    val connectionState: StateFlow<TransportState> = _connectionState.asStateFlow()
 
     /**
      * When false, transport drops do not trigger the internal attemptReconnect
@@ -283,7 +276,7 @@ class SendSpinClient(
     @Volatile private var lastDisconnectMode: ConnectionMode? = null
 
     val isConnected: Boolean
-        get() = _connectionState.value is ConnectionState.Connected
+        get() = _connectionState.value is TransportState.Ready
 
     /**
      * Get the number of reconnection attempts since last successful connect.
@@ -390,7 +383,7 @@ class SendSpinClient(
         reconnecting.set(false)
         reconnectAttempts.set(0)
         waitingForNetwork.set(false)
-        _connectionState.value = ConnectionState.Connected(serverName)
+        _connectionState.value = TransportState.Ready
 
         // Mark session start for uptime calculation and clear the disconnect marker.
         // Issue #128.
@@ -727,7 +720,7 @@ class SendSpinClient(
      * Common preparation for both local and remote connections.
      */
     private fun prepareForConnection() {
-        _connectionState.value = ConnectionState.Connecting
+        _connectionState.value = TransportState.Connecting
         handshakeComplete = false
         awaitingAuthResponse = false
         timeFilter.reset()
@@ -857,7 +850,7 @@ class SendSpinClient(
         transport?.close(1000, "Reselection")
         transport = null
         handshakeComplete = false
-        _connectionState.value = ConnectionState.Disconnected
+        _connectionState.value = TransportState.Idle
         callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
     }
 
@@ -883,7 +876,7 @@ class SendSpinClient(
         transport?.close(1000, "User disconnect")
         transport = null
         handshakeComplete = false
-        _connectionState.value = ConnectionState.Disconnected
+        _connectionState.value = TransportState.Idle
         callback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
     }
 
@@ -1104,9 +1097,7 @@ class SendSpinClient(
             reconnecting.set(false)
             reconnectJob?.cancel()
             reconnectJob = null
-            _connectionState.value = ConnectionState.Error(
-                "Couldn't reconnect to $savedServerName after $MAX_TOTAL_RECONNECT_ATTEMPTS attempts"
-            )
+            _connectionState.value = TransportState.Failed(FailureReason.Exhausted)
             callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
             return
         }
@@ -1160,7 +1151,7 @@ class SendSpinClient(
             reconnectAttempts.decrementAndGet()
             waitingForNetwork.set(true)
             reconnecting.set(true)
-            _connectionState.value = ConnectionState.Connecting
+            _connectionState.value = TransportState.Connecting
             callback.onReconnecting(attempts.coerceAtLeast(1), savedServerName)
             return
         }
@@ -1177,7 +1168,7 @@ class SendSpinClient(
 
         Log.i(TAG, "Attempting reconnection $attempts in ${delayMs}ms")
         reconnecting.set(true)
-        _connectionState.value = ConnectionState.Connecting
+        _connectionState.value = TransportState.Connecting
 
         callback.onReconnecting(attempts, savedServerName)
 
@@ -1248,6 +1239,34 @@ class SendSpinClient(
                 false
             }
         }
+    }
+
+    /**
+     * Maps a throwable / close-code / response-code triple to a FailureReason.
+     *
+     * Conservative classifier:
+     * - AuthRejected: only on 401/403 from a fully-handshaked transport.
+     * - HandshakeFailed: SSL/DNS errors, "connection refused".
+     * - TransientNetwork: everything else (network flakes, timeouts, generic IO).
+     *
+     * Phase 5 (the WiFi->Cell login fix) depends on AuthRejected being
+     * correctly identified -- a stored MA token is cleared only when this
+     * classifier returns AuthRejected.
+     */
+    private fun classifyFailureReason(
+        throwable: Throwable? = null,
+        closeCode: Int? = null,
+        responseCode: Int? = null,
+    ): FailureReason {
+        if (responseCode == 401 || responseCode == 403) {
+            return FailureReason.AuthRejected
+        }
+        if (throwable is javax.net.ssl.SSLException ||
+            throwable is java.net.UnknownHostException ||
+            throwable?.message?.contains("refused", ignoreCase = true) == true) {
+            return FailureReason.HandshakeFailed
+        }
+        return FailureReason.TransientNetwork
     }
 
     /**
@@ -1409,7 +1428,7 @@ class SendSpinClient(
                 } else {
                     Log.d(TAG, "selfReconnectEnabled=false; not auto-reconnecting after onClosed(code=$code)")
                     reconnecting.set(false)
-                    _connectionState.value = ConnectionState.Disconnected
+                    _connectionState.value = TransportState.Idle
                     callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
                 }
             } else {
@@ -1418,7 +1437,7 @@ class SendSpinClient(
                     Log.i(TAG, "Server closed connection normally (code 1000) - session ended")
                 }
                 reconnecting.set(false)
-                _connectionState.value = ConnectionState.Disconnected
+                _connectionState.value = TransportState.Idle
                 callback.onDisconnected(
                     wasUserInitiated = userInitiatedDisconnect.get(),
                     wasReconnectExhausted = false
@@ -1455,13 +1474,13 @@ class SendSpinClient(
                 } else {
                     Log.d(TAG, "selfReconnectEnabled=false; not auto-reconnecting after onFailure(${error.message})")
                     reconnecting.set(false)
-                    _connectionState.value = ConnectionState.Disconnected
+                    _connectionState.value = TransportState.Idle
                     callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
                 }
             } else {
                 val errorMessage = getSpecificErrorMessage(error)
                 reconnecting.set(false)
-                _connectionState.value = ConnectionState.Error(errorMessage)
+                _connectionState.value = TransportState.Failed(classifyFailureReason(throwable = error))
                 callback.onError(errorMessage)
             }
         }

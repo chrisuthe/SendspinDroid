@@ -1,6 +1,8 @@
 package com.sendspindroid.playback
 
 import android.util.Log
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.SendSpinClient
 import io.mockk.*
 import org.junit.After
@@ -165,19 +167,18 @@ class PlaybackServiceConnectionLifecycleTest {
     }
 
     @Test
-    fun `SendSpinClient ConnectionState enum matches service expectations`() {
-        // Verify SendSpinClient.ConnectionState sealed class has the expected subtypes
-        val disconnected = SendSpinClient.ConnectionState.Disconnected
-        val connecting = SendSpinClient.ConnectionState.Connecting
-        val connected = SendSpinClient.ConnectionState.Connected("Test")
-        val error = SendSpinClient.ConnectionState.Error("err")
+    fun `SendSpinClient connectionState uses coordinator TransportState`() {
+        // Verify the coordinator TransportState sealed class has the expected subtypes
+        val idle = TransportState.Idle
+        val connecting = TransportState.Connecting
+        val ready = TransportState.Ready
+        val failed = TransportState.Failed(FailureReason.TransientNetwork)
 
-        assertTrue(disconnected is SendSpinClient.ConnectionState)
-        assertTrue(connecting is SendSpinClient.ConnectionState)
-        assertTrue(connected is SendSpinClient.ConnectionState)
-        assertEquals("Test", connected.serverName)
-        assertTrue(error is SendSpinClient.ConnectionState)
-        assertEquals("err", error.message)
+        assertTrue(idle is TransportState)
+        assertTrue(connecting is TransportState)
+        assertTrue(ready is TransportState)
+        assertTrue(failed is TransportState)
+        assertTrue(failed.reason is FailureReason.TransientNetwork)
     }
 
     @Test

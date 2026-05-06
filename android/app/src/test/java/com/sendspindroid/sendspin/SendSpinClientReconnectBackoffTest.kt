@@ -6,8 +6,9 @@ import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.transport.SendSpinTransport
-import com.sendspindroid.sendspin.transport.TransportState
+import com.sendspindroid.sendspin.transport.TransportState as TransportLayerState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -84,7 +85,7 @@ class SendSpinClientReconnectBackoffTest {
      */
     private fun setupForReconnection(): SendSpinTransport.Listener {
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -161,7 +162,7 @@ class SendSpinClientReconnectBackoffTest {
         }
         assertTrue(
             "State should remain Connecting below cap, was: ${client.connectionState.value}",
-            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
+            client.connectionState.value is TransportState.Connecting
         )
     }
 
@@ -191,8 +192,8 @@ class SendSpinClientReconnectBackoffTest {
             mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
         }
         assertTrue(
-            "State should transition to Error after cap, was: ${client.connectionState.value}",
-            client.connectionState.value is SendSpinClient.ConnectionState.Error
+            "State should transition to Failed after cap, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Failed
         )
     }
 
@@ -315,7 +316,7 @@ class SendSpinClientReconnectBackoffTest {
         // State should still be Connecting (not Error)
         assertTrue(
             "State should remain Connecting in high power mode, was: ${client.connectionState.value}",
-            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
+            client.connectionState.value is TransportState.Connecting
         )
     }
 

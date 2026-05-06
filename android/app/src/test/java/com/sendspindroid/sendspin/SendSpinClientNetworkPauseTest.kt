@@ -6,8 +6,9 @@ import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.transport.SendSpinTransport
-import com.sendspindroid.sendspin.transport.TransportState
+import com.sendspindroid.sendspin.transport.TransportState as TransportLayerState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -84,7 +85,7 @@ class SendSpinClientNetworkPauseTest {
 
     private fun setupForReconnection() {
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -148,7 +149,7 @@ class SendSpinClientNetworkPauseTest {
         // State should be Connecting (not Error)
         assertTrue(
             "State should be Connecting while paused",
-            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
+            client.connectionState.value is TransportState.Connecting
         )
     }
 
@@ -199,7 +200,7 @@ class SendSpinClientNetworkPauseTest {
         // Should still be in reconnecting state, not Error
         assertFalse(
             "State should NOT be Error while network is unavailable",
-            client.connectionState.value is SendSpinClient.ConnectionState.Error
+            client.connectionState.value is TransportState.Failed
         )
     }
 

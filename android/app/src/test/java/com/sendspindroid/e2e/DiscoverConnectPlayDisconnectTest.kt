@@ -1,5 +1,6 @@
 package com.sendspindroid.e2e
 
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.SendSpinClient
 import io.mockk.verify
 import io.mockk.verifyOrder
@@ -154,19 +155,19 @@ class DiscoverConnectPlayDisconnectTest : E2ETestBase() {
 
         connectAndHandshake()
 
-        // After handshake: Connected
+        // After handshake: Ready
         val state = client.connectionState.value
         assertTrue(
-            "ConnectionState should be Connected after handshake",
-            state is SendSpinClient.ConnectionState.Connected
+            "ConnectionState should be Ready after handshake",
+            state is TransportState.Ready
         )
-        assertEquals("TestServer", (state as SendSpinClient.ConnectionState.Connected).serverName)
+        assertEquals("TestServer", client.getServerName())
 
-        // After disconnect: Disconnected
+        // After disconnect: Idle
         client.disconnect()
         assertTrue(
-            "ConnectionState should be Disconnected after disconnect",
-            client.connectionState.value is SendSpinClient.ConnectionState.Disconnected
+            "ConnectionState should be Idle after disconnect",
+            client.connectionState.value is TransportState.Idle
         )
     }
 

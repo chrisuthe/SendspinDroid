@@ -5,9 +5,10 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import com.sendspindroid.sendspin.transport.SendSpinTransport
-import com.sendspindroid.sendspin.transport.TransportState
+import com.sendspindroid.sendspin.transport.TransportState as TransportLayerState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
@@ -25,8 +26,8 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Tests that SendSpinClient.ConnectionState transitions follow the expected
- * lifecycle: Disconnected -> Connecting -> Connected -> Error.
+ * Tests that SendSpinClient.connectionState transitions follow the expected
+ * lifecycle: Idle -> Connecting -> Ready -> Failed.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SendSpinClientConnectionStateTest {
@@ -74,10 +75,10 @@ class SendSpinClientConnectionStateTest {
     }
 
     @Test
-    fun `initial state is Disconnected`() {
+    fun `initial state is Idle`() {
         assertTrue(
-            "Client should start in Disconnected state",
-            client.connectionState.value is SendSpinClient.ConnectionState.Disconnected
+            "Client should start in Idle state",
+            client.connectionState.value is TransportState.Idle
         )
     }
 
@@ -96,9 +97,9 @@ class SendSpinClientConnectionStateTest {
         // (may have moved to Error if transport creation failed synchronously)
         val state = client.connectionState.value
         assertTrue(
-            "State should be Connecting or Error after connectLocal, was: $state",
-            state is SendSpinClient.ConnectionState.Connecting ||
-                    state is SendSpinClient.ConnectionState.Error
+            "State should be Connecting or Failed after connectLocal, was: $state",
+            state is TransportState.Connecting ||
+                    state is TransportState.Failed
         )
     }
 
@@ -106,7 +107,7 @@ class SendSpinClientConnectionStateTest {
     fun `onHandshakeComplete transitions to Connected`() {
         // Inject a mock transport so the client thinks it has a connection
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -133,20 +134,17 @@ class SendSpinClientConnectionStateTest {
 
         val state = client.connectionState.value
         assertTrue(
-            "State should be Connected after handshake, was: $state",
-            state is SendSpinClient.ConnectionState.Connected
+            "State should be Ready after handshake, was: $state",
+            state is TransportState.Ready
         )
-        assertEquals(
-            "TestServer",
-            (state as SendSpinClient.ConnectionState.Connected).serverName
-        )
+        assertEquals("TestServer", client.getServerName())
     }
 
     @Test
     fun `non-recoverable transport failure transitions to Error`() {
         // Inject transport and set up connection info
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -172,8 +170,8 @@ class SendSpinClientConnectionStateTest {
 
         val state = client.connectionState.value
         assertTrue(
-            "State should be Error after non-recoverable failure, was: $state",
-            state is SendSpinClient.ConnectionState.Error
+            "State should be Failed after non-recoverable failure, was: $state",
+            state is TransportState.Failed
         )
     }
 
@@ -181,7 +179,7 @@ class SendSpinClientConnectionStateTest {
     fun `disconnect transitions from Connected back to Disconnected`() {
         // First get to Connected state
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -204,25 +202,25 @@ class SendSpinClientConnectionStateTest {
         // Get to Connected
         val serverHello = """{"type":"server/hello","payload":{"name":"TestServer","server_id":"srv-1","protocol_version":1,"active_roles":["player"]}}"""
         listener.onMessage(serverHello)
-        assertTrue(client.connectionState.value is SendSpinClient.ConnectionState.Connected)
+        assertTrue(client.connectionState.value is TransportState.Ready)
 
         // Disconnect
         client.disconnect()
 
         assertTrue(
-            "State should be Disconnected after disconnect",
-            client.connectionState.value is SendSpinClient.ConnectionState.Disconnected
+            "State should be Idle after disconnect",
+            client.connectionState.value is TransportState.Idle
         )
     }
 
     @Test
-    fun `full lifecycle Disconnected to Connecting to Connected to Error`() {
+    fun `full lifecycle Idle to Connecting to Ready to Failed`() {
         // Verify initial state
-        assertTrue(client.connectionState.value is SendSpinClient.ConnectionState.Disconnected)
+        assertTrue(client.connectionState.value is TransportState.Idle)
 
         // Set up for connecting
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -236,9 +234,9 @@ class SendSpinClientConnectionStateTest {
         val stateField = SendSpinClient::class.java.getDeclaredField("_connectionState")
         stateField.isAccessible = true
         @Suppress("UNCHECKED_CAST")
-        val stateFlow = stateField.get(client) as kotlinx.coroutines.flow.MutableStateFlow<SendSpinClient.ConnectionState>
-        stateFlow.value = SendSpinClient.ConnectionState.Connecting
-        assertTrue(client.connectionState.value is SendSpinClient.ConnectionState.Connecting)
+        val stateFlow = stateField.get(client) as kotlinx.coroutines.flow.MutableStateFlow<TransportState>
+        stateFlow.value = TransportState.Connecting
+        assertTrue(client.connectionState.value is TransportState.Connecting)
 
         // Inject transport
         val transportField = SendSpinClient::class.java.getDeclaredField("transport")
@@ -252,16 +250,16 @@ class SendSpinClientConnectionStateTest {
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
-        // Transition to Connected
+        // Transition to Ready
         val serverHello = """{"type":"server/hello","payload":{"name":"TestServer","server_id":"srv-1","protocol_version":1,"active_roles":["player"]}}"""
         listener.onMessage(serverHello)
-        assertTrue(client.connectionState.value is SendSpinClient.ConnectionState.Connected)
+        assertTrue(client.connectionState.value is TransportState.Ready)
 
-        // Transition to Error via non-recoverable failure
+        // Transition to Failed via non-recoverable failure
         listener.onFailure(java.net.ConnectException("Connection refused"), isRecoverable = false)
         assertTrue(
-            "State should be Error at end of lifecycle",
-            client.connectionState.value is SendSpinClient.ConnectionState.Error
+            "State should be Failed at end of lifecycle",
+            client.connectionState.value is TransportState.Failed
         )
     }
 }

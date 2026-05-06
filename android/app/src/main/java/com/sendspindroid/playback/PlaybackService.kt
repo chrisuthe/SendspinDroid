@@ -674,8 +674,7 @@ class PlaybackService : MediaLibraryService() {
 
         coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
-            sendSpinStateFlow = sendSpinClient?.connectionState?.map { it.toTransportState() }
-                ?: flowOf(TransportState.Idle),
+            sendSpinStateFlow = sendSpinClient?.connectionState ?: flowOf(TransportState.Idle),
             musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
@@ -730,8 +729,8 @@ class PlaybackService : MediaLibraryService() {
                         sendSpinClient?.onNetworkChanged()
                         val connState = sendSpinClient?.connectionState?.value
                         val shouldReselect =
-                            connState is SendSpinClient.ConnectionState.Connected ||
-                            connState is SendSpinClient.ConnectionState.Connecting
+                            connState is TransportState.Ready ||
+                            connState is TransportState.Connecting
                         if (shouldReselect) {
                             Log.i(TAG, "Triggering connection reselection for new network")
                             sendSpinClient?.disconnectForReselection()
@@ -1031,10 +1030,7 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 // Start debug logging session if enabled
-                val serverAddr = sendSpinClient?.let {
-                    // Get address from connection state or use empty string
-                    (it.connectionState.value as? SendSpinClient.ConnectionState.Connected)?.serverName ?: ""
-                } ?: ""
+                val serverAddr = sendSpinClient?.getServerName() ?: ""
                 AppLog.session.start(serverName, serverAddr)
                 startDebugLogging()
 
@@ -2069,10 +2065,10 @@ class PlaybackService : MediaLibraryService() {
         return withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
             val terminal = client.connectionState
                 .first {
-                    it is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Connected ||
-                    it is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Error
+                    it is TransportState.Ready ||
+                    it is TransportState.Failed
                 }
-            terminal is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Connected
+            terminal is TransportState.Ready
         } ?: run {
             Log.w(TAG, "connectViaSelectedConnection timed out after ${CONNECT_TIMEOUT_MS}ms; cancelling transport")
             disconnectFromServer()
@@ -4052,15 +4048,6 @@ class PlaybackService : MediaLibraryService() {
 // These are file-level so they don't leak coordinator types into PlaybackService's
 // public API surface. Used only by the Coordinator wiring in Task 5.
 // ---------------------------------------------------------------------------
-
-private fun SendSpinClient.ConnectionState.toTransportState(): TransportState = when (this) {
-    is SendSpinClient.ConnectionState.Disconnected -> TransportState.Idle
-    is SendSpinClient.ConnectionState.Connecting   -> TransportState.Connecting
-    is SendSpinClient.ConnectionState.Connected    -> TransportState.Ready
-    // Error carries a message but Phase 1 maps all errors to TransientNetwork;
-    // finer-grained FailureReason classification comes in a later phase.
-    is SendSpinClient.ConnectionState.Error        -> TransportState.Failed(FailureReason.TransientNetwork)
-}
 
 private fun MaConnectionState.toTransportState(): TransportState = when (this) {
     is MaConnectionState.Unavailable -> TransportState.Idle      // MA not applicable to this server

@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import com.sendspindroid.sendspin.transport.SendSpinTransport
@@ -115,9 +116,9 @@ abstract class E2ETestBase {
         authToken: String? = null
     ) {
         // Set connection state to Connecting via the existing MutableStateFlow
-        val stateFlow: kotlinx.coroutines.flow.MutableStateFlow<SendSpinClient.ConnectionState> =
+        val stateFlow: kotlinx.coroutines.flow.MutableStateFlow<TransportState> =
             getField(client, "_connectionState")
-        stateFlow.value = SendSpinClient.ConnectionState.Connecting
+        stateFlow.value = TransportState.Connecting
 
         // Set connection mode
         setField(client, "connectionMode", mode)
