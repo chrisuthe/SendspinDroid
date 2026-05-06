@@ -108,9 +108,9 @@ data class QueueUpdate(
     val durationMs: Long?
 )
 
-object MusicAssistantManager {
+object MusicAssistant {
 
-    private const val TAG = "MusicAssistantManager"
+    private const val TAG = "MusicAssistant"
 
     // Internal mutable state
     private val _connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
@@ -216,7 +216,7 @@ object MusicAssistantManager {
     private var applicationContext: Context? = null
 
     /**
-     * Initialize MusicAssistantManager with application context.
+     * Initialize MusicAssistant with application context.
      * Called during app startup.
      */
     fun initialize(context: Context) {

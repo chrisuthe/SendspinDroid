@@ -16,20 +16,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for the connectJob cancellation pattern used in MusicAssistantManager (H-22).
+ * Tests for the connectJob cancellation pattern used in MusicAssistant (H-22).
  *
- * MusicAssistantManager.connectWithToken() now stores its launched coroutine in
+ * MusicAssistant.connectWithToken() now stores its launched coroutine in
  * a `connectJob` field and cancels any previous job on re-entry. These tests verify
  * that the pattern correctly prevents two concurrent connect attempts from racing.
  *
- * We test the pattern in isolation (not via the MusicAssistantManager singleton)
+ * We test the pattern in isolation (not via the MusicAssistant singleton)
  * because the manager requires Android Context, MaSettings, and real transports.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConnectJobCancellationTest {
 
     /**
-     * Simulates the connect-with-cancel pattern as implemented in MusicAssistantManager.
+     * Simulates the connect-with-cancel pattern as implemented in MusicAssistant.
      * The "winner" is whichever coroutine completes last (since earlier ones get cancelled).
      */
     private class ConnectSimulator(scope: CoroutineScope) {
@@ -48,7 +48,7 @@ class ConnectJobCancellationTest {
         private val scope = scope
 
         /**
-         * Mirrors the MusicAssistantManager.connectWithToken() pattern:
+         * Mirrors the MusicAssistant.connectWithToken() pattern:
          * cancel previous job, then launch a new one that "connects" a transport.
          */
         fun connectWithToken(transportId: String, connectDelay: CompletableDeferred<Unit>? = null) {

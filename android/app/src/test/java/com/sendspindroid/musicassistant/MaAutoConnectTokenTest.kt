@@ -14,12 +14,12 @@ import org.junit.Test
 /**
  * Integration test: PlaybackService auto-connects MA with stored token.
  *
- * Verifies the MusicAssistantManager.onServerConnected flow:
+ * Verifies the MusicAssistant.onServerConnected flow:
  * - When a server has a stored MA token, connectWithToken is triggered
  * - When no token exists, state transitions to Idle and loginRequired fires
  * - When server is not MA, state stays Idle
  *
- * Since MusicAssistantManager is a singleton with Android dependencies,
+ * Since MusicAssistant is a singleton with Android dependencies,
  * we test the decision logic in isolation by reproducing the
  * onServerConnected flow.
  */
@@ -42,7 +42,7 @@ class MaAutoConnectTokenTest {
     }
 
     /**
-     * Reproduces MusicAssistantManager.onServerConnected decision logic.
+     * Reproduces MusicAssistant.onServerConnected decision logic.
      * Returns the resulting state based on server properties and token availability.
      */
     private fun simulateOnServerConnected(

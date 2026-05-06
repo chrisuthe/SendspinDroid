@@ -2,7 +2,7 @@ package com.sendspindroid.musicassistant
 
 /**
  * Endpoint a Music Assistant connection targets. Replaces the implicit
- * URL-derivation in MusicAssistantManager.onServerConnected with a typed
+ * URL-derivation in MusicAssistant.onServerConnected with a typed
  * sealed class.
  *
  * Phase 5 of the ConnectionCoordinator design.

@@ -27,7 +27,7 @@ import org.junit.Test
  * - Queue item selection callback
  *
  * What requires instrumented/manual testing:
- * - MusicAssistantManager.getAlbumTracks() API calls
+ * - MusicAssistant.getAlbumTracks() API calls
  * - MediaLibrarySession.getChildren() browse tree
  * - Android Auto queue display rendering
  */

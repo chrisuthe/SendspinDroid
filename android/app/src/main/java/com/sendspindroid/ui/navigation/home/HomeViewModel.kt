@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaTrack
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -145,7 +145,7 @@ class HomeViewModel : ViewModel() {
         try {
             // Fetch more items than needed to account for grouping
             val fetchLimit = ITEMS_PER_SECTION * 2
-            val result = MusicAssistantManager.getRecentlyPlayed(fetchLimit)
+            val result = MusicAssistant.getRecentlyPlayed(fetchLimit)
             result.fold(
                 onSuccess = { tracks ->
                     Log.d(TAG, "Recently played: ${tracks.size} tracks fetched")
@@ -179,7 +179,7 @@ class HomeViewModel : ViewModel() {
         try {
             // Fetch more items than needed to account for grouping
             val fetchLimit = ITEMS_PER_SECTION * 2
-            val result = MusicAssistantManager.getRecentlyAdded(fetchLimit)
+            val result = MusicAssistant.getRecentlyAdded(fetchLimit)
             result.fold(
                 onSuccess = { tracks ->
                     Log.d(TAG, "Recently added: ${tracks.size} tracks fetched")
@@ -226,7 +226,7 @@ class HomeViewModel : ViewModel() {
         if (uniqueKeys.isEmpty()) return emptyMap()
 
         // Fetch albums from library (limit 100 should cover most cases)
-        val albumsResult = MusicAssistantManager.getAlbums(limit = 100)
+        val albumsResult = MusicAssistant.getAlbums(limit = 100)
         val albums = albumsResult.getOrNull() ?: return emptyMap()
 
         // Build lookup map - album name + artist must both match
@@ -240,7 +240,7 @@ class HomeViewModel : ViewModel() {
      */
     private suspend fun loadPlaylists() {
         try {
-            val result = MusicAssistantManager.getPlaylists(ITEMS_PER_SECTION)
+            val result = MusicAssistant.getPlaylists(ITEMS_PER_SECTION)
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Playlists: ${items.size} items")
@@ -262,7 +262,7 @@ class HomeViewModel : ViewModel() {
      */
     private suspend fun loadAlbums() {
         try {
-            val result = MusicAssistantManager.getAlbums(ITEMS_PER_SECTION)
+            val result = MusicAssistant.getAlbums(ITEMS_PER_SECTION)
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Albums: ${items.size} items")
@@ -284,7 +284,7 @@ class HomeViewModel : ViewModel() {
      */
     private suspend fun loadArtists() {
         try {
-            val result = MusicAssistantManager.getArtists(ITEMS_PER_SECTION)
+            val result = MusicAssistant.getArtists(ITEMS_PER_SECTION)
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Artists: ${items.size} items")
@@ -306,7 +306,7 @@ class HomeViewModel : ViewModel() {
      */
     private suspend fun loadRadioStations() {
         try {
-            val result = MusicAssistantManager.getRadioStations(ITEMS_PER_SECTION)
+            val result = MusicAssistant.getRadioStations(ITEMS_PER_SECTION)
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Radio stations: ${items.size} items")

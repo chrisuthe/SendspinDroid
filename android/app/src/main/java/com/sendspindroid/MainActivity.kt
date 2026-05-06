@@ -83,7 +83,7 @@ import com.sendspindroid.ui.remote.RemoteConnectDialog
 import com.sendspindroid.ui.server.AddServerWizardActivity
 import com.sendspindroid.ui.server.UnifiedServerConnector
 import com.sendspindroid.coordinator.TransportState
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.ui.queue.QueueSheetFragment
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
@@ -2551,7 +2551,7 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Favorite clicked")
 
         lifecycleScope.launch {
-            val result = MusicAssistantManager.favoriteCurrentTrack()
+            val result = MusicAssistant.favoriteCurrentTrack()
             result.fold(
                 onSuccess = { message ->
                     Snackbar.make(snackbarView, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
@@ -2615,14 +2615,14 @@ class MainActivity : AppCompatActivity() {
         maConnectionObserverJob = lifecycleScope.launch {
             // Observe loginRequired events (no-token or auth-rejected) for the login dialog.
             launch {
-                MusicAssistantManager.loginRequired.collect {
+                MusicAssistant.loginRequired.collect {
                     if (!maLoginDialogShowing) {
                         showMaLoginDialog()
                     }
                 }
             }
 
-            MusicAssistantManager.connectionState.collectLatest { state ->
+            MusicAssistant.connectionState.collectLatest { state ->
                 val isMaConnected = state is TransportState.Ready
 
                 // Favorite button visibility
@@ -2738,7 +2738,7 @@ class MainActivity : AppCompatActivity() {
             dialog.setMessage(getString(R.string.ma_login_dialog_logging_in))
 
             lifecycleScope.launch {
-                val result = MusicAssistantManager.login(username, password)
+                val result = MusicAssistant.login(username, password)
                 if (result.isSuccess) {
                     dialog.dismiss()
                 } else {

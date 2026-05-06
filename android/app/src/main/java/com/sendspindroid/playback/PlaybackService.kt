@@ -63,7 +63,7 @@ import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaQueueItem
 import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.QueueUpdate
 import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SendSpinEndpoint
@@ -614,15 +614,15 @@ class PlaybackService : MediaLibraryService() {
         // Initialize UserSettings for player name preference (must be before lowMemoryMode check)
         com.sendspindroid.UserSettings.initialize(this)
 
-        // Initialize MusicAssistantManager for MA API integration
-        MusicAssistantManager.initialize(this)
+        // Initialize MusicAssistant for MA API integration
+        MusicAssistant.initialize(this)
 
         // Fast metadata path: subscribe to MA command-channel queue_updated events
         // to update title/artist/album as soon as the server's queue advances,
         // roughly 1 second before the SendSpin server/state broadcast arrives.
         // See docs/architecture/sendspin-ma-metadata-flow.md section 8a.
         serviceScope.launch {
-            MusicAssistantManager.queueUpdates.collect { update ->
+            MusicAssistant.queueUpdates.collect { update ->
                 applyFastQueueUpdate(update)
             }
         }
@@ -673,7 +673,7 @@ class PlaybackService : MediaLibraryService() {
         coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
             sendSpinStateFlow = sendSpinClient?.connectionState ?: flowOf(TransportState.Idle),
-            musicAssistantStateFlow = MusicAssistantManager.connectionState,
+            musicAssistantStateFlow = MusicAssistant.connectionState,
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
             connectAttempt = { server, method ->
@@ -795,7 +795,7 @@ class PlaybackService : MediaLibraryService() {
                         // Broadcast connection state to controllers (MainActivity)
                         broadcastConnectionState(STATE_CONNECTED, serverName)
 
-                        // Notify MusicAssistantManager of connection
+                        // Notify MusicAssistant of connection
                         // This triggers MA API availability check and token auth if applicable
                         notifyMusicAssistantConnected()
                     }
@@ -847,8 +847,8 @@ class PlaybackService : MediaLibraryService() {
                         // Clear lock screen metadata
                         forwardingPlayer?.clearMetadata()
 
-                        // Notify MusicAssistantManager of disconnection
-                        MusicAssistantManager.onServerDisconnected()
+                        // Notify MusicAssistant of disconnection
+                        MusicAssistant.onServerDisconnected()
                         currentServerId = null
                     }
                     state is TransportState.Failed -> {
@@ -899,8 +899,8 @@ class PlaybackService : MediaLibraryService() {
                             // Clear lock screen metadata
                             forwardingPlayer?.clearMetadata()
 
-                            // Notify MusicAssistantManager of disconnection
-                            MusicAssistantManager.onServerDisconnected()
+                            // Notify MusicAssistant of disconnection
+                            MusicAssistant.onServerDisconnected()
                             currentServerId = null
                         } else {
                             // PORTED FROM onError(message):
@@ -1629,7 +1629,7 @@ class PlaybackService : MediaLibraryService() {
     /**
      * Apply title/artist/album from a Music Assistant `queue_updated` event.
      *
-     * Called from [MusicAssistantManager.queueUpdates] roughly 1 second before
+     * Called from [MusicAssistant.queueUpdates] roughly 1 second before
      * the SendSpin `server/state` broadcast with the same metadata. Updates
      * [_playbackState] and [sendSpinPlayer]'s MediaItem so the lock screen,
      * Android Auto, and Bluetooth AVRCP reflect the new track immediately.
@@ -2124,11 +2124,11 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Notifies MusicAssistantManager that a server connection was established.
+     * Notifies MusicAssistant that a server connection was established.
      * Looks up the server by ID and triggers MA availability check.
      *
      * For REMOTE mode, also passes the WebRTC "ma-api" DataChannel to
-     * MusicAssistantManager so it can create a DataChannel transport.
+     * MusicAssistant so it can create a DataChannel transport.
      */
     private fun notifyMusicAssistantConnected() {
         val serverId = currentServerId
@@ -2143,16 +2143,16 @@ class PlaybackService : MediaLibraryService() {
             return
         }
 
-        // In REMOTE mode, pass the MA API DataChannel to MusicAssistantManager
+        // In REMOTE mode, pass the MA API DataChannel to MusicAssistant
         if (currentConnectionMode == ConnectionMode.REMOTE) {
             val maChannel = sendSpinClient?.getMaApiDataChannel()
             val bufferedMessages = sendSpinClient?.drainMaApiMessageBuffer() ?: emptyList()
             Log.d(TAG, "REMOTE mode: MA API DataChannel ${if (maChannel != null) "available" else "not available"}, buffered=${bufferedMessages.size}")
-            MusicAssistantManager.setMaApiDataChannel(maChannel, bufferedMessages)
+            MusicAssistant.setMaApiDataChannel(maChannel, bufferedMessages)
         }
 
-        Log.d(TAG, "Notifying MusicAssistantManager: server=${server.name}, isMusicAssistant=${server.isMusicAssistant}")
-        MusicAssistantManager.onServerConnected(server, currentConnectionMode)
+        Log.d(TAG, "Notifying MusicAssistant: server=${server.name}, isMusicAssistant=${server.isMusicAssistant}")
+        MusicAssistant.onServerConnected(server, currentConnectionMode)
     }
 
     /**
@@ -2602,8 +2602,8 @@ class PlaybackService : MediaLibraryService() {
 
         // Watch MA connection state to refresh browse tree root when Library appears/disappears
         serviceScope.launch {
-            var wasAvailable = MusicAssistantManager.connectionState.value is TransportState.Ready
-            MusicAssistantManager.connectionState.collect { state ->
+            var wasAvailable = MusicAssistant.connectionState.value is TransportState.Ready
+            MusicAssistant.connectionState.collect { state ->
                 val isNowAvailable = state is TransportState.Ready
                 if (isNowAvailable != wasAvailable) {
                     Log.i(TAG, "MA availability changed: $wasAvailable -> $isNowAvailable")
@@ -2810,7 +2810,7 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<Void>> {
             Log.d(TAG, "onSearch: query='$query'")
 
-            if (MusicAssistantManager.connectionState.value !is TransportState.Ready) {
+            if (MusicAssistant.connectionState.value !is TransportState.Ready) {
                 return Futures.immediateFuture(
                     LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED)
                 )
@@ -2819,7 +2819,7 @@ class PlaybackService : MediaLibraryService() {
             // Execute search async, cache results, notify when done
             serviceScope.launch {
                 try {
-                    val result = MusicAssistantManager.search(
+                    val result = MusicAssistant.search(
                         query = query,
                         limit = 25,
                         libraryOnly = false
@@ -3192,7 +3192,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun getRootChildren(): List<MediaItem> {
         val children = mutableListOf<MediaItem>()
-        val maAvailable = MusicAssistantManager.connectionState.value is TransportState.Ready
+        val maAvailable = MusicAssistant.connectionState.value is TransportState.Ready
 
         // Show "Connect" until MA is available (avoids empty root during MA handshake)
         if (!maAvailable) {
@@ -3536,7 +3536,7 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun getMaPlaylists(): List<MediaItem> {
         maPlaylistsCache?.takeUnless { it.expired(MA_LIST_CACHE_TTL_MS) }?.let { return it.data }
 
-        val result = MusicAssistantManager.getPlaylists(limit = 100)
+        val result = MusicAssistant.getPlaylists(limit = 100)
         val items = result.getOrNull()?.map { createMaPlaylistItem(it) } ?: emptyList()
         maPlaylistsCache = CacheEntry(items)
         return items
@@ -3545,7 +3545,7 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun getMaAlbums(): List<MediaItem> {
         maAlbumsCache?.takeUnless { it.expired(MA_LIST_CACHE_TTL_MS) }?.let { return it.data }
 
-        val result = MusicAssistantManager.getAlbums(limit = 100)
+        val result = MusicAssistant.getAlbums(limit = 100)
         val items = result.getOrNull()?.map { createMaAlbumItem(it) } ?: emptyList()
         maAlbumsCache = CacheEntry(items)
         return items
@@ -3554,7 +3554,7 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun getMaArtists(): List<MediaItem> {
         maArtistsCache?.takeUnless { it.expired(MA_LIST_CACHE_TTL_MS) }?.let { return it.data }
 
-        val result = MusicAssistantManager.getArtists(limit = 100)
+        val result = MusicAssistant.getArtists(limit = 100)
         val items = result.getOrNull()?.map { createMaArtistItem(it) } ?: emptyList()
         maArtistsCache = CacheEntry(items)
         return items
@@ -3563,7 +3563,7 @@ class PlaybackService : MediaLibraryService() {
     private suspend fun getMaRadioStations(): List<MediaItem> {
         maRadioCache?.takeUnless { it.expired(MA_LIST_CACHE_TTL_MS) }?.let { return it.data }
 
-        val result = MusicAssistantManager.getRadioStations(limit = 100)
+        val result = MusicAssistant.getRadioStations(limit = 100)
         val items = result.getOrNull()?.map { createMaRadioItem(it) } ?: emptyList()
         maRadioCache = CacheEntry(items)
         return items
@@ -3578,7 +3578,7 @@ class PlaybackService : MediaLibraryService() {
             ?.takeUnless { it.expired(MA_DETAIL_CACHE_TTL_MS) }
             ?.let { return it.data }
 
-        val result = MusicAssistantManager.getPlaylistTracks(playlistId)
+        val result = MusicAssistant.getPlaylistTracks(playlistId)
         val items = result.getOrNull()?.map { createMaTrackItem(it) } ?: emptyList()
         maPlaylistTracksCache[playlistId] = CacheEntry(items)
         return items
@@ -3589,7 +3589,7 @@ class PlaybackService : MediaLibraryService() {
             ?.takeUnless { it.expired(MA_DETAIL_CACHE_TTL_MS) }
             ?.let { return it.data }
 
-        val result = MusicAssistantManager.getAlbumTracks(albumId)
+        val result = MusicAssistant.getAlbumTracks(albumId)
         val items = result.getOrNull()?.map { createMaTrackItem(it) } ?: emptyList()
         maAlbumTracksCache[albumId] = CacheEntry(items)
         return items
@@ -3600,7 +3600,7 @@ class PlaybackService : MediaLibraryService() {
             ?.takeUnless { it.expired(MA_DETAIL_CACHE_TTL_MS) }
             ?.let { return it.data }
 
-        val result = MusicAssistantManager.getArtistDetails(artistId)
+        val result = MusicAssistant.getArtistDetails(artistId)
         val items = result.getOrNull()?.albums?.map { createMaAlbumItem(it) } ?: emptyList()
         maArtistAlbumsCache[artistId] = CacheEntry(items)
         return items
@@ -3643,13 +3643,13 @@ class PlaybackService : MediaLibraryService() {
      */
     @OptIn(UnstableApi::class)
     private fun populatePlayerQueue() {
-        if (MusicAssistantManager.connectionState.value !is TransportState.Ready) return
+        if (MusicAssistant.connectionState.value !is TransportState.Ready) return
 
         val generation = ++queuePopulateGeneration
 
         serviceScope.launch {
             try {
-                val result = MusicAssistantManager.getQueueItems()
+                val result = MusicAssistant.getQueueItems()
                 val queueState = result.getOrNull() ?: return@launch
 
                 val items = queueState.items.map { queueItem ->
@@ -3686,7 +3686,7 @@ class PlaybackService : MediaLibraryService() {
         query: String,
         originalItems: List<MediaItem>
     ): ListenableFuture<List<MediaItem>> {
-        if (MusicAssistantManager.connectionState.value !is TransportState.Ready) {
+        if (MusicAssistant.connectionState.value !is TransportState.Ready) {
             Log.w(TAG, "Voice search: MA not available, returning items as-is")
             return Futures.immediateFuture(originalItems)
         }
@@ -3696,18 +3696,18 @@ class PlaybackService : MediaLibraryService() {
                 if (query.isBlank()) {
                     // "Play music on SendSpinDroid" - play recently played
                     Log.d(TAG, "Voice search: empty query, playing recent")
-                    val recent = MusicAssistantManager.getRecentlyPlayed(limit = 1)
+                    val recent = MusicAssistant.getRecentlyPlayed(limit = 1)
                     val firstTrack = recent.getOrNull()?.firstOrNull()
                     val recentUri = firstTrack?.uri
                     if (recentUri != null) {
-                        MusicAssistantManager.playMedia(recentUri, mediaType = "track")
+                        MusicAssistant.playMedia(recentUri, mediaType = "track")
                     } else {
                         Log.w(TAG, "Voice search: no recent tracks to play")
                     }
                 } else {
                     // "Play Beatles on SendSpinDroid" - search and play first result
                     Log.d(TAG, "Voice search: searching for '$query'")
-                    val result = MusicAssistantManager.search(
+                    val result = MusicAssistant.search(
                         query = query,
                         limit = 5,
                         libraryOnly = false
@@ -3717,7 +3717,7 @@ class PlaybackService : MediaLibraryService() {
                     val trackUri = firstTrack?.uri
                     if (trackUri != null) {
                         Log.d(TAG, "Voice search: playing track '${firstTrack.name}'")
-                        MusicAssistantManager.playMedia(trackUri, mediaType = "track")
+                        MusicAssistant.playMedia(trackUri, mediaType = "track")
                     } else {
                         // Try playing first playlist or album if no tracks found
                         val firstPlaylist = searchResults?.playlists?.firstOrNull()
@@ -3725,14 +3725,14 @@ class PlaybackService : MediaLibraryService() {
                         when {
                             firstPlaylist != null -> {
                                 Log.d(TAG, "Voice search: playing playlist '${firstPlaylist.name}'")
-                                MusicAssistantManager.playMedia(
+                                MusicAssistant.playMedia(
                                     firstPlaylist.playlistId,
                                     mediaType = "playlist"
                                 )
                             }
                             firstAlbum != null -> {
                                 Log.d(TAG, "Voice search: playing album '${firstAlbum.name}'")
-                                MusicAssistantManager.playMedia(
+                                MusicAssistant.playMedia(
                                     firstAlbum.albumId,
                                     mediaType = "album"
                                 )
@@ -3769,31 +3769,31 @@ class PlaybackService : MediaLibraryService() {
                     mediaId.startsWith(MEDIA_ID_MA_QUEUE_ITEM_PREFIX) -> {
                         val queueItemId = mediaId.removePrefix(MEDIA_ID_MA_QUEUE_ITEM_PREFIX)
                         Log.d(TAG, "MA: Playing queue item id=$queueItemId")
-                        MusicAssistantManager.playQueueItem(queueItemId)
+                        MusicAssistant.playQueueItem(queueItemId)
                     }
                     mediaId.startsWith(MEDIA_ID_MA_TRACK_PREFIX) -> {
                         val encoded = mediaId.removePrefix(MEDIA_ID_MA_TRACK_PREFIX)
                         val uri = decodeMediaUri(encoded)
                         Log.d(TAG, "MA: Playing track uri=$uri")
-                        MusicAssistantManager.playMedia(uri, mediaType = "track")
+                        MusicAssistant.playMedia(uri, mediaType = "track")
                     }
                     mediaId.startsWith(MEDIA_ID_MA_RADIO_ITEM_PREFIX) -> {
                         val encoded = mediaId.removePrefix(MEDIA_ID_MA_RADIO_ITEM_PREFIX)
                         val uri = decodeMediaUri(encoded)
                         Log.d(TAG, "MA: Playing radio uri=$uri")
-                        MusicAssistantManager.playMedia(uri, mediaType = "radio")
+                        MusicAssistant.playMedia(uri, mediaType = "radio")
                     }
                     mediaId.startsWith(MEDIA_ID_MA_PLAYLIST_PREFIX) -> {
                         val playlistId = mediaId.removePrefix(MEDIA_ID_MA_PLAYLIST_PREFIX)
                         val uri = "library://playlist/$playlistId"
                         Log.d(TAG, "MA: Playing playlist uri=$uri")
-                        MusicAssistantManager.playMedia(uri, mediaType = "playlist")
+                        MusicAssistant.playMedia(uri, mediaType = "playlist")
                     }
                     mediaId.startsWith(MEDIA_ID_MA_ALBUM_PREFIX) -> {
                         val albumId = mediaId.removePrefix(MEDIA_ID_MA_ALBUM_PREFIX)
                         val uri = "library://album/$albumId"
                         Log.d(TAG, "MA: Playing album uri=$uri")
-                        MusicAssistantManager.playMedia(uri, mediaType = "album")
+                        MusicAssistant.playMedia(uri, mediaType = "album")
                     }
                     else -> {
                         Log.w(TAG, "MA: Unknown media ID for playback: $mediaId")
@@ -3897,7 +3897,7 @@ class PlaybackService : MediaLibraryService() {
             val queueItemId = mediaId.removePrefix(MEDIA_ID_MA_QUEUE_ITEM_PREFIX)
             Log.d(TAG, "Native queue item selected: $queueItemId")
             serviceScope.launch {
-                MusicAssistantManager.playQueueItem(queueItemId)
+                MusicAssistant.playQueueItem(queueItemId)
             }
         }
         Log.d(TAG, "SendSpinPlayer initialized")

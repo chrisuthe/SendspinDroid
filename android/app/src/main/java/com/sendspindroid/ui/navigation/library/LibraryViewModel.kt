@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.UserSettings
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -323,7 +323,7 @@ class LibraryViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val items = MusicAssistantManager.browse(currentPath).getOrThrow()
+                val items = MusicAssistant.browse(currentPath).getOrThrow()
                 _browseState.value = TabState(
                     items = items,
                     isLoading = false,
@@ -392,38 +392,38 @@ class LibraryViewModel : ViewModel() {
         sort: SortOption
     ): List<MaLibraryItem> {
         val result = when (type) {
-            ContentType.ALBUMS -> MusicAssistantManager.getAlbums(
+            ContentType.ALBUMS -> MusicAssistant.getAlbums(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue
             )
-            ContentType.ARTISTS -> MusicAssistantManager.getArtists(
+            ContentType.ARTISTS -> MusicAssistant.getArtists(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue,
                 albumArtistsOnly = _artistsState.value.albumArtistsOnly
             )
-            ContentType.PLAYLISTS -> MusicAssistantManager.getPlaylists(
+            ContentType.PLAYLISTS -> MusicAssistant.getPlaylists(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue
             )
-            ContentType.TRACKS -> MusicAssistantManager.getTracks(
+            ContentType.TRACKS -> MusicAssistant.getTracks(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue
             )
-            ContentType.RADIO -> MusicAssistantManager.getRadioStations(
+            ContentType.RADIO -> MusicAssistant.getRadioStations(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue
             )
-            ContentType.PODCASTS -> MusicAssistantManager.getPodcasts(
+            ContentType.PODCASTS -> MusicAssistant.getPodcasts(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue
             )
-            ContentType.AUDIOBOOKS -> MusicAssistantManager.getAudiobooks(
+            ContentType.AUDIOBOOKS -> MusicAssistant.getAudiobooks(
                 limit = PAGE_SIZE,
                 offset = offset,
                 orderBy = sort.apiValue

@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaQueueItem
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -79,7 +79,7 @@ class QueueViewModel : ViewModel() {
         }
         viewModelScope.launch {
             Log.d(TAG, "Loading queue items (showLoading=$showLoading)...")
-            val result = MusicAssistantManager.getQueueItems()
+            val result = MusicAssistant.getQueueItems()
             result.fold(
                 onSuccess = { queueState ->
                     val currentIndex = queueState.currentIndex
@@ -140,7 +140,7 @@ class QueueViewModel : ViewModel() {
         viewModelScope.launch {
             _isActionInProgress.value = true
             Log.d(TAG, "Playing queue item: $queueItemId")
-            val result = MusicAssistantManager.playQueueItem(queueItemId)
+            val result = MusicAssistant.playQueueItem(queueItemId)
             result.fold(
                 onSuccess = {
                     Log.i(TAG, "Jumped to queue item: $queueItemId")
@@ -173,7 +173,7 @@ class QueueViewModel : ViewModel() {
                 )
             }
 
-            val result = MusicAssistantManager.removeQueueItem(queueItemId)
+            val result = MusicAssistant.removeQueueItem(queueItemId)
             result.fold(
                 onSuccess = {
                     Log.i(TAG, "Removed queue item: $queueItemId")
@@ -202,7 +202,7 @@ class QueueViewModel : ViewModel() {
             }
             Log.d(TAG, "Moving queue item $queueItemId ${direction.name}")
 
-            val result = MusicAssistantManager.moveQueueItem(queueItemId, posShift)
+            val result = MusicAssistant.moveQueueItem(queueItemId, posShift)
             result.fold(
                 onSuccess = {
                     Log.i(TAG, "Moved queue item: $queueItemId ${direction.name}")
@@ -224,7 +224,7 @@ class QueueViewModel : ViewModel() {
             _isActionInProgress.value = true
             Log.d(TAG, "Clearing queue")
 
-            val result = MusicAssistantManager.clearQueue()
+            val result = MusicAssistant.clearQueue()
             result.fold(
                 onSuccess = {
                     Log.i(TAG, "Queue cleared")
@@ -257,7 +257,7 @@ class QueueViewModel : ViewModel() {
             _uiState.value = currentState.copy(shuffleEnabled = newShuffle)
 
             Log.d(TAG, "Setting shuffle: $newShuffle")
-            val result = MusicAssistantManager.setQueueShuffle(newShuffle)
+            val result = MusicAssistant.setQueueShuffle(newShuffle)
             result.fold(
                 onSuccess = {
                     Log.i(TAG, "Shuffle set to: $newShuffle")
@@ -291,7 +291,7 @@ class QueueViewModel : ViewModel() {
             _uiState.value = currentState.copy(repeatMode = newMode)
 
             Log.d(TAG, "Setting repeat mode: $newMode")
-            val result = MusicAssistantManager.setQueueRepeat(newMode)
+            val result = MusicAssistant.setQueueRepeat(newMode)
             result.fold(
                 onSuccess = {
                     Log.i(TAG, "Repeat mode set to: $newMode")

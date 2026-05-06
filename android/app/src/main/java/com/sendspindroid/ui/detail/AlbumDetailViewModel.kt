@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaTrack
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -64,8 +64,8 @@ class AlbumDetailViewModel : ViewModel() {
             Log.d(TAG, "Loading album details: $albumId")
 
             // Load album metadata and tracks in parallel
-            val albumDeferred = async { MusicAssistantManager.getAlbum(albumId) }
-            val tracksDeferred = async { MusicAssistantManager.getAlbumTracks(albumId) }
+            val albumDeferred = async { MusicAssistant.getAlbum(albumId) }
+            val tracksDeferred = async { MusicAssistant.getAlbumTracks(albumId) }
 
             val albumResult = albumDeferred.await()
             val tracksResult = tracksDeferred.await()
@@ -109,7 +109,7 @@ class AlbumDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing all tracks for album: ${current.album.name}")
-            MusicAssistantManager.playMedia(uri, "album").fold(
+            MusicAssistant.playMedia(uri, "album").fold(
                 onSuccess = {
                     Log.d(TAG, "Started playback for album")
                 },
@@ -132,7 +132,7 @@ class AlbumDetailViewModel : ViewModel() {
         viewModelScope.launch {
             Log.d(TAG, "Shuffling tracks for album: ${current.album.name}")
             // TODO: Add shuffle parameter when MA supports it
-            MusicAssistantManager.playMedia(uri, "album").fold(
+            MusicAssistant.playMedia(uri, "album").fold(
                 onSuccess = {
                     Log.d(TAG, "Started shuffle playback for album")
                 },
@@ -158,7 +158,7 @@ class AlbumDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Adding album to queue: ${current.album.name}")
-            val result = MusicAssistantManager.playMedia(uri, "album", enqueue = true)
+            val result = MusicAssistant.playMedia(uri, "album", enqueue = true)
             result.fold(
                 onSuccess = {
                     Log.d(TAG, "Album added to queue: ${current.album.name}")
@@ -182,7 +182,7 @@ class AlbumDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing track: ${track.name}")
-            MusicAssistantManager.playMedia(uri, "track").fold(
+            MusicAssistant.playMedia(uri, "track").fold(
                 onSuccess = {
                     Log.d(TAG, "Started track playback")
                 },

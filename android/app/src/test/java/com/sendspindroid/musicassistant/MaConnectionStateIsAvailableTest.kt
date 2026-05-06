@@ -16,13 +16,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for TransportState availability semantics used by MusicAssistantManager (C-10).
+ * Tests for TransportState availability semantics used by MusicAssistant (C-10).
  *
  * Verifies that:
  * 1. TransportState.Ready is the sole "available" state
  * 2. A StateFlow<Boolean> derived via map { it is Ready } correctly
  *    reflects connection state transitions -- the exact pattern used in
- *    MusicAssistantManager.connectionState consumers
+ *    MusicAssistant.connectionState consumers
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MaConnectionStateIsAvailableTest {
@@ -59,7 +59,7 @@ class MaConnectionStateIsAvailableTest {
         assertFalse(state is TransportState.Ready)
     }
 
-    // -- Derived StateFlow tests (mirrors MusicAssistantManager consumers) --
+    // -- Derived StateFlow tests (mirrors MusicAssistant consumers) --
 
     @Test
     fun derivedFlow_initiallyFalse() = runTest {
