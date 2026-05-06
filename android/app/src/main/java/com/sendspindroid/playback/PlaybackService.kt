@@ -888,17 +888,27 @@ class PlaybackService : MediaLibraryService() {
             sendSpinStateFlow = sendSpinClient?.connectionState?.map { it.toTransportState() }
                 ?: flowOf(TransportState.Idle),
             musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
-            reconnectStatusFlow = _reconnectStatusFlow,
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
-            onConnectRequested = { server -> autoReconnectManager.startReconnecting(server) },
-            onCancelReconnectRequested = { autoReconnectManager.cancelReconnection() },
-            onNetworkAvailableSignaled = { autoReconnectManager.onNetworkAvailable() },
+            connectAttempt = { server, method ->
+                val selected = when (method) {
+                    com.sendspindroid.model.ConnectionType.LOCAL -> server.local?.let {
+                        ConnectionSelector.SelectedConnection.Local(it.address, it.path)
+                    }
+                    com.sendspindroid.model.ConnectionType.REMOTE -> server.remote?.let {
+                        ConnectionSelector.SelectedConnection.Remote(it.remoteId)
+                    }
+                    com.sendspindroid.model.ConnectionType.PROXY -> server.proxy?.let {
+                        ConnectionSelector.SelectedConnection.Proxy(it.url, it.authToken)
+                    }
+                } ?: return@ConnectionCoordinator false
+                connectViaSelectedConnection(server, selected)
+            },
         )
 
         // Broadcast reconnect status changes to MediaController consumers via session extras.
         serviceScope.launch {
-            _reconnectStatusFlow.collect {
+            coordinator.reconnectStatus.collect {
                 broadcastSessionExtras()
             }
         }
@@ -2031,7 +2041,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             // Reconnect status
-            when (val reconnectStatus = _reconnectStatusFlow.value) {
+            when (val reconnectStatus = coordinator.reconnectStatus.value) {
                 is ReconnectStatus.Idle -> {
                     putString(EXTRA_RECONNECT_STATUS, RECONNECT_IDLE)
                 }

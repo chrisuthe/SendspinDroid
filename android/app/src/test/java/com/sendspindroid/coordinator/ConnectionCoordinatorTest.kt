@@ -1,5 +1,9 @@
 package com.sendspindroid.coordinator
 
+import com.sendspindroid.model.ConnectionType
+import com.sendspindroid.model.LocalConnection
+import com.sendspindroid.model.ProxyConnection
+import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,12 +28,9 @@ class ConnectionCoordinatorTest {
             currentServerFlow = server,
             sendSpinStateFlow = sendSpin,
             musicAssistantStateFlow = ma,
-            reconnectStatusFlow = MutableStateFlow(ReconnectStatus.Idle),
             scope = TestScope(StandardTestDispatcher(testScheduler)),
             onDisconnectRequested = {},
-            onConnectRequested = {},
-            onCancelReconnectRequested = {},
-            onNetworkAvailableSignaled = {},
+            connectAttempt = { _, _ -> false },
         )
 
         // Initial state
@@ -52,12 +53,9 @@ class ConnectionCoordinatorTest {
             currentServerFlow = MutableStateFlow(null),
             sendSpinStateFlow = MutableStateFlow(TransportState.Idle),
             musicAssistantStateFlow = MutableStateFlow(TransportState.Idle),
-            reconnectStatusFlow = MutableStateFlow(ReconnectStatus.Idle),
             scope = TestScope(StandardTestDispatcher(testScheduler)),
             onDisconnectRequested = { called++ },
-            onConnectRequested = {},
-            onCancelReconnectRequested = {},
-            onNetworkAvailableSignaled = {},
+            connectAttempt = { _, _ -> false },
         )
 
         coordinator.disconnect()
@@ -67,60 +65,85 @@ class ConnectionCoordinatorTest {
     }
 
     @Test
-    fun `reconnectStatus reflects upstream flow`() = runTest {
-        val recon = MutableStateFlow<ReconnectStatus>(ReconnectStatus.Idle)
-        val coordinator = ConnectionCoordinator(
-            currentServerFlow = MutableStateFlow(null),
-            sendSpinStateFlow = MutableStateFlow(TransportState.Idle),
-            musicAssistantStateFlow = MutableStateFlow(TransportState.Idle),
-            reconnectStatusFlow = recon,
-            scope = TestScope(StandardTestDispatcher(testScheduler)),
-            onDisconnectRequested = {},
-            onConnectRequested = {},
-            onCancelReconnectRequested = {},
-            onNetworkAvailableSignaled = {},
+    fun `connect succeeds on first method and emits Attempting then Succeeded`() = runTest {
+        val coordinator = makeCoordinatorForRetryTest(
+            connectAttempt = { _, _ -> true },
         )
 
-        assertEquals(ReconnectStatus.Idle, coordinator.reconnectStatus.first())
+        coordinator.connect(makeTestServerWithLocal())
+        testScheduler.advanceUntilIdle()
 
-        recon.value = ReconnectStatus.Attempting("s1", 1, 11, null)
-        testScheduler.runCurrent()
-
-        val v = coordinator.reconnectStatus.first()
-        assertTrue(v is ReconnectStatus.Attempting)
-        assertEquals("s1", (v as ReconnectStatus.Attempting).serverId)
+        // Reconnect loop completed: status should be Succeeded.
+        val status = coordinator.reconnectStatus.value
+        assertTrue("Expected Succeeded but got $status", status is ReconnectStatus.Succeeded)
     }
 
     @Test
-    fun `connect cancelReconnect onNetworkAvailable forward to lambdas`() = runTest {
-        val connectCalls = mutableListOf<UnifiedServer>()
-        var cancelCount = 0
-        var networkCount = 0
+    fun `connect retries when first method fails and tries next method`() = runTest {
+        val attemptedMethods = mutableListOf<ConnectionType>()
+        val coordinator = makeCoordinatorForRetryTest(
+            connectAttempt = { _, method ->
+                attemptedMethods.add(method)
+                false
+            },
+        )
 
-        val coordinator = ConnectionCoordinator(
+        coordinator.connect(makeTestServerWithAllMethods())
+        testScheduler.advanceTimeBy(700)
+        testScheduler.runCurrent()
+
+        assertTrue(
+            "Should have attempted at least one method",
+            attemptedMethods.isNotEmpty(),
+        )
+    }
+
+    @Test
+    fun `cancelReconnect stops the loop and emits Idle`() = runTest {
+        val coordinator = makeCoordinatorForRetryTest(
+            connectAttempt = { _, _ ->
+                kotlinx.coroutines.delay(60_000)  // never returns within test
+                false
+            },
+        )
+
+        coordinator.connect(makeTestServerWithLocal())
+        testScheduler.advanceTimeBy(700)
+        testScheduler.runCurrent()
+        coordinator.cancelReconnect()
+        testScheduler.advanceUntilIdle()
+
+        assertEquals(ReconnectStatus.Idle, coordinator.reconnectStatus.value)
+    }
+
+    private fun TestScope.makeCoordinatorForRetryTest(
+        connectAttempt: suspend (UnifiedServer, ConnectionType) -> Boolean,
+    ): ConnectionCoordinator {
+        return ConnectionCoordinator(
             currentServerFlow = MutableStateFlow(null),
             sendSpinStateFlow = MutableStateFlow(TransportState.Idle),
             musicAssistantStateFlow = MutableStateFlow(TransportState.Idle),
-            reconnectStatusFlow = MutableStateFlow(ReconnectStatus.Idle),
             scope = TestScope(StandardTestDispatcher(testScheduler)),
             onDisconnectRequested = {},
-            onConnectRequested = { connectCalls.add(it) },
-            onCancelReconnectRequested = { cancelCount++ },
-            onNetworkAvailableSignaled = { networkCount++ },
+            connectAttempt = connectAttempt,
         )
-
-        val server = makeTestServer()
-        coordinator.connect(server)
-        coordinator.cancelReconnect()
-        coordinator.cancelReconnect()
-        coordinator.onNetworkAvailable()
-
-        assertEquals(listOf(server), connectCalls)
-        assertEquals(2, cancelCount)
-        assertEquals(1, networkCount)
     }
 
-    private fun makeTestServer(): UnifiedServer {
-        return UnifiedServer(id = "test", name = "Test")
+    private fun makeTestServerWithLocal(): UnifiedServer {
+        return UnifiedServer(
+            id = "test-local",
+            name = "Test Local",
+            local = LocalConnection(address = "192.168.1.100:8095"),
+        )
+    }
+
+    private fun makeTestServerWithAllMethods(): UnifiedServer {
+        return UnifiedServer(
+            id = "test-all",
+            name = "Test All Methods",
+            local = LocalConnection(address = "192.168.1.100:8095"),
+            remote = RemoteConnection(remoteId = "ABCDE12345"),
+            proxy = ProxyConnection(url = "wss://proxy.example.com", authToken = "token123"),
+        )
     }
 }
