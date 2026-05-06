@@ -53,6 +53,8 @@ import com.sendspindroid.MainActivity
 
 import com.sendspindroid.SyncOffsetPreference
 import com.sendspindroid.ui.settings.SettingsViewModel
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.model.PlaybackState
@@ -67,6 +69,7 @@ import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.QueueUpdate
+import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.UnifiedServerRepository
@@ -95,13 +98,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import com.sendspindroid.coordinator.FailureReason
-import com.sendspindroid.coordinator.TransportState
-import com.sendspindroid.musicassistant.model.MaConnectionState
 
 /**
  * Background playback service for SendSpinDroid.
@@ -151,6 +152,8 @@ class PlaybackService : MediaLibraryService() {
 
     // Active server as a flow — fed into ConnectionCoordinator in Task 5.
     private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
+
+    private lateinit var coordinator: com.sendspindroid.coordinator.ConnectionCoordinator
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null
@@ -824,6 +827,14 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
+
+        coordinator = com.sendspindroid.coordinator.ConnectionCoordinator(
+            currentServerFlow = _currentServerFlow,
+            sendSpinStateFlow = requireNotNull(sendSpinClient).connectionState.map { it.toTransportState() },
+            musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
+            scope = serviceScope,
+            onDisconnectRequested = { disconnectFromServer() },
+        )
 
         // Launch the single-owner decode worker. Task 3 scaffolding: no
         // callback currently sends into decodeChannel. Task 4 flips the
