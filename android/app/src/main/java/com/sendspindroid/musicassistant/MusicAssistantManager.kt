@@ -43,6 +43,33 @@ private fun ConnectionMode.toMaMode(): MaConnectionMode = when (this) {
 }
 
 /**
+ * Derive the MA API WebSocket URL for this endpoint.
+ *
+ * LOCAL  -> ws://<host>:<port>/ws  (via WebSocketUrlBuilder for correct IPv6 handling)
+ * PROXY  -> strips /sendspin suffix, converts http->ws, appends /ws
+ * REMOTE -> sentinel URL "webrtc://ma-api" (signals DataChannel transport)
+ */
+private fun MaEndpoint.toApiUrl(): String = when (this) {
+    is MaEndpoint.Local -> {
+        val host = com.sendspindroid.network.WebSocketUrlBuilder.extractHost(address)
+        com.sendspindroid.network.WebSocketUrlBuilder.buildFromHostPort(host, port, "/ws")
+    }
+    is MaEndpoint.Proxy -> {
+        val stripped = baseUrl
+            .removeSuffix("/sendspin")
+            .trimEnd('/')
+        val ws = when {
+            stripped.startsWith("https://") -> stripped.replaceFirst("https://", "wss://")
+            stripped.startsWith("http://") -> stripped.replaceFirst("http://", "ws://")
+            stripped.startsWith("wss://") || stripped.startsWith("ws://") -> stripped
+            else -> "wss://$stripped"
+        }
+        "$ws/ws"
+    }
+    is MaEndpoint.Remote -> MaApiEndpoint.WEBRTC_SENTINEL_URL
+}
+
+/**
  * Global singleton managing Music Assistant API availability.
  *
  * Provides a single source of truth for whether MA features should be
@@ -205,6 +232,58 @@ object MusicAssistantManager {
     }
 
     /**
+     * Connect to the given Music Assistant endpoint, optionally with a stored token.
+     *
+     * Single entry point that internally derives the apiUrl and dispatches to
+     * connectWithToken when a token is present. With no token, transitions to
+     * Idle and fires loginRequired so the UI prompts the user.
+     *
+     * The server must already be set on [currentServer] before calling this
+     * (onServerConnected does this). Callers external to onServerConnected
+     * (e.g., the setup wizard test path in Phase 6) must also ensure
+     * [currentServer] and [currentConnectionMode] are set.
+     */
+    suspend fun connect(endpoint: MaEndpoint, token: String?) {
+        val apiUrl = endpoint.toApiUrl()
+        currentApiUrl = apiUrl
+        Log.d(TAG, "MA API URL derived: $apiUrl")
+
+        val server = currentServer
+        if (token != null && server != null) {
+            connectWithToken(apiUrl, token, server.id)
+        } else {
+            Log.w(TAG, "No token stored for MA server - user needs to re-authenticate")
+            currentServerInfo = null
+            _connectionState.value = TransportState.Idle
+            _loginRequired.tryEmit(Unit)
+        }
+    }
+
+    /**
+     * Map a UnifiedServer + ConnectionMode to an MaEndpoint.
+     * Returns null if the server has no configuration for the given mode.
+     */
+    private fun serverToMaEndpoint(server: UnifiedServer, mode: ConnectionMode): MaEndpoint? =
+        when (mode) {
+            ConnectionMode.LOCAL -> server.local?.let {
+                MaEndpoint.Local(it.address, MaSettings.getDefaultPort())
+            }
+            ConnectionMode.PROXY -> server.proxy?.let {
+                MaEndpoint.Proxy(it.url)
+            }
+            ConnectionMode.REMOTE -> {
+                val remote = server.remote
+                if (remote != null) {
+                    MaEndpoint.Remote(remote.remoteId)
+                } else {
+                    // No remote config: fall back to local or proxy if available
+                    server.local?.let { MaEndpoint.Local(it.address, MaSettings.getDefaultPort()) }
+                        ?: server.proxy?.let { MaEndpoint.Proxy(it.url) }
+                }
+            }
+        }
+
+    /**
      * Called by PlaybackService when a server connection is established.
      *
      * Checks if MA API should be available for this server and connection mode,
@@ -232,25 +311,17 @@ object MusicAssistantManager {
         }
 
         // Check 2: Can we reach the MA API?
-        val apiUrl = MaApiEndpoint.deriveUrl(server, connectionMode.toMaMode(), MaSettings.getDefaultPort())
-        if (apiUrl == null) {
+        val endpoint = serverToMaEndpoint(server, connectionMode)
+        if (endpoint == null) {
             Log.d(TAG, "No MA API endpoint available for connection mode $connectionMode")
             _connectionState.value = TransportState.Idle
             return
         }
 
-        currentApiUrl = apiUrl
-        Log.d(TAG, "MA API URL derived: $apiUrl")
-
-        // Check 3: Do we have a stored token?
+        // Check 3: Do we have a stored token? Facade handles the token/no-token split.
         val token = MaSettings.getTokenForServer(server.id)
-        if (token != null) {
-            Log.d(TAG, "Found stored token, attempting authentication")
-            connectWithToken(apiUrl, token, server.id)
-        } else {
-            Log.w(TAG, "No token stored for MA server - user needs to re-authenticate")
-            _connectionState.value = TransportState.Idle
-            _loginRequired.tryEmit(Unit)
+        scope.launch {
+            connect(endpoint, token)
         }
     }
 
