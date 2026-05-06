@@ -644,12 +644,26 @@ class PlaybackService : MediaLibraryService() {
         // Session extras keys for group info
         const val EXTRA_GROUP_NAME = "group_name"
 
+        // Session extras keys for reconnect status
+        const val EXTRA_RECONNECT_STATUS = "reconnect_status"
+        const val EXTRA_RECONNECT_SERVER_ID = "reconnect_server_id"
+        const val EXTRA_RECONNECT_ATTEMPT = "reconnect_attempt"
+        const val EXTRA_RECONNECT_MAX_ATTEMPTS = "reconnect_max_attempts"
+        const val EXTRA_RECONNECT_METHOD = "reconnect_method"
+        const val EXTRA_RECONNECT_ERROR = "reconnect_error"
+
         // Connection state values
         const val STATE_DISCONNECTED = "disconnected"
         const val STATE_CONNECTING = "connecting"
         const val STATE_CONNECTED = "connected"
         const val STATE_RECONNECTING = "reconnecting"
         const val STATE_ERROR = "error"
+
+        // Reconnect status values
+        const val RECONNECT_IDLE = "idle"
+        const val RECONNECT_ATTEMPTING = "attempting"
+        const val RECONNECT_SUCCEEDED = "succeeded"
+        const val RECONNECT_FAILED = "failed"
 
         // Android Auto browse tree media IDs
         // Max artwork bitmap dimension (px) for MediaMetadata / notifications.
@@ -881,6 +895,13 @@ class PlaybackService : MediaLibraryService() {
             onCancelReconnectRequested = { autoReconnectManager.cancelReconnection() },
             onNetworkAvailableSignaled = { autoReconnectManager.onNetworkAvailable() },
         )
+
+        // Broadcast reconnect status changes to MediaController consumers via session extras.
+        serviceScope.launch {
+            _reconnectStatusFlow.collect {
+                broadcastSessionExtras()
+            }
+        }
 
         // Launch the single-owner decode worker. Task 3 scaffolding: no
         // callback currently sends into decodeChannel. Task 4 flips the
@@ -2007,6 +2028,29 @@ class PlaybackService : MediaLibraryService() {
             if (lastSyncOffsetMs != 0.0) {
                 putDouble("sync_offset_ms", lastSyncOffsetMs)
                 putString("sync_offset_source", lastSyncOffsetSource)
+            }
+
+            // Reconnect status
+            when (val reconnectStatus = _reconnectStatusFlow.value) {
+                is ReconnectStatus.Idle -> {
+                    putString(EXTRA_RECONNECT_STATUS, RECONNECT_IDLE)
+                }
+                is ReconnectStatus.Attempting -> {
+                    putString(EXTRA_RECONNECT_STATUS, RECONNECT_ATTEMPTING)
+                    putString(EXTRA_RECONNECT_SERVER_ID, reconnectStatus.serverId)
+                    putInt(EXTRA_RECONNECT_ATTEMPT, reconnectStatus.attempt)
+                    putInt(EXTRA_RECONNECT_MAX_ATTEMPTS, reconnectStatus.maxAttempts)
+                    putString(EXTRA_RECONNECT_METHOD, reconnectStatus.method?.name)
+                }
+                is ReconnectStatus.Succeeded -> {
+                    putString(EXTRA_RECONNECT_STATUS, RECONNECT_SUCCEEDED)
+                    putString(EXTRA_RECONNECT_SERVER_ID, reconnectStatus.serverId)
+                }
+                is ReconnectStatus.Failed -> {
+                    putString(EXTRA_RECONNECT_STATUS, RECONNECT_FAILED)
+                    putString(EXTRA_RECONNECT_SERVER_ID, reconnectStatus.serverId)
+                    putString(EXTRA_RECONNECT_ERROR, reconnectStatus.error)
+                }
             }
         }
 
