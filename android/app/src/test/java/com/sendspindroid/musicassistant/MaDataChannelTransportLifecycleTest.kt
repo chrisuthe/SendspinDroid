@@ -18,7 +18,7 @@ import java.lang.reflect.Modifier
  * these tests verify the structural contract and lifecycle decisions.
  *
  * The flow:
- * 1. SendSpinClient connects via WebRTC (REMOTE mode)
+ * 1. SendSpin connects via WebRTC (REMOTE mode)
  * 2. WebRTCTransport opens a "ma-api" DataChannel
  * 3. PlaybackService calls MusicAssistantManager.setMaApiDataChannel(channel)
  * 4. MusicAssistantManager creates MaDataChannelTransport eagerly

@@ -34,11 +34,11 @@ import org.junit.Test
  * state transitions to Error.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientReconnectBackoffTest {
+class SendSpinReconnectBackoffTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -68,7 +68,7 @@ class SendSpinClientReconnectBackoffTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
     }
 
     @After
@@ -95,27 +95,27 @@ class SendSpinClientReconnectBackoffTest {
         }
 
         // Set serverAddress so reconnection is valid for LOCAL mode
-        val addrField = SendSpinClient::class.java.getDeclaredField("serverAddress")
+        val addrField = SendSpin::class.java.getDeclaredField("serverAddress")
         addrField.isAccessible = true
         addrField.set(client, "127.0.0.1:8080")
 
-        val pathField = SendSpinClient::class.java.getDeclaredField("serverPath")
+        val pathField = SendSpin::class.java.getDeclaredField("serverPath")
         pathField.isAccessible = true
         pathField.set(client, "/sendspin")
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
         // Complete handshake so onClosed triggers reconnection
-        val handshakeField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val handshakeField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         handshakeField.isAccessible = true
         handshakeField.set(client, true)
 
         // Create the TransportEventListener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         return constructor.newInstance(client) as SendSpinTransport.Listener
     }
@@ -125,7 +125,7 @@ class SendSpinClientReconnectBackoffTest {
         setupForReconnection()
 
         // Trigger reconnection via attemptReconnect (via transport closure)
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         assertEquals(0, client.getReconnectAttempts())
@@ -145,7 +145,7 @@ class SendSpinClientReconnectBackoffTest {
         setupForReconnection()
         every { UserSettings.highPowerMode } returns false
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Ten attempts is well under the MAX_TOTAL_RECONNECT_ATTEMPTS (20) cap.
@@ -164,7 +164,7 @@ class SendSpinClientReconnectBackoffTest {
         setupForReconnection()
         every { UserSettings.highPowerMode } returns false
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Drive attempts up to the cap. At MAX_TOTAL_RECONNECT_ATTEMPTS (20) we
@@ -190,7 +190,7 @@ class SendSpinClientReconnectBackoffTest {
 
     @Test
     fun `isRecoverableError returns false for unknown throwables`() {
-        val method = SendSpinClient::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
+        val method = SendSpin::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
         method.isAccessible = true
 
         // A totally generic RuntimeException (the shape a parser bug or NPE takes)
@@ -202,7 +202,7 @@ class SendSpinClientReconnectBackoffTest {
 
     @Test
     fun `isRecoverableError returns true for known network glitches`() {
-        val method = SendSpinClient::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
+        val method = SendSpin::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
         method.isAccessible = true
 
         // Sanity: known-recoverable errors still resolve to recoverable.
@@ -216,7 +216,7 @@ class SendSpinClientReconnectBackoffTest {
 
     @Test
     fun `isRecoverableError returns false for known permanent errors`() {
-        val method = SendSpinClient::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
+        val method = SendSpin::class.java.getDeclaredMethod("isRecoverableError", Throwable::class.java)
         method.isAccessible = true
 
         val unknownHost = java.net.UnknownHostException("no such host")
@@ -228,7 +228,7 @@ class SendSpinClientReconnectBackoffTest {
     @Test
     fun `normal mode uses 30s steady-state delay after attempt 5`() {
         // Verify the delay formula selects the steady-state path for attempts > 5
-        // regardless of highPowerMode setting. The formula we expect in SendSpinClient:
+        // regardless of highPowerMode setting. The formula we expect in SendSpin:
         //   val delayMs = if (attempts > MAX_RECONNECT_ATTEMPTS) HIGH_POWER_RECONNECT_DELAY_MS
         //                 else (INITIAL_RECONNECT_DELAY_MS * (1 shl (attempts - 1)))
         //                         .coerceAtMost(MAX_RECONNECT_DELAY_MS)
@@ -286,7 +286,7 @@ class SendSpinClientReconnectBackoffTest {
         setupForReconnection()
         every { UserSettings.highPowerMode } returns true
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Perform 6 attempts - in high power mode, attempt 6 should NOT trigger error
@@ -306,7 +306,7 @@ class SendSpinClientReconnectBackoffTest {
         setupForReconnection()
         every { UserSettings.highPowerMode } returns true
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Perform 10 attempts - all should succeed in high power mode
@@ -327,7 +327,7 @@ class SendSpinClientReconnectBackoffTest {
         // Simulate user disconnect
         client.disconnect()
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         attemptReconnect.invoke(client)

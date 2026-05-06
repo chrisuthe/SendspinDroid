@@ -22,16 +22,16 @@ import java.util.concurrent.CopyOnWriteArrayList
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import android.os.SystemClock
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 
 /**
- * Custom Player implementation for MediaSession that bridges to SendSpinClient.
+ * Custom Player implementation for MediaSession that bridges to SendSpin.
  *
  * This replaces ExoPlayer as the underlying player for MediaSession. It:
  * - Reports playback state based on connection/audio player status
- * - Forwards transport commands (play/pause/seek/next/previous) to SendSpinClient
+ * - Forwards transport commands (play/pause/seek/next/previous) to SendSpin
  * - Tracks position and duration from playback state updates
  *
  * Note: This player does NOT actually play audio. Audio playback is handled by
@@ -40,7 +40,7 @@ import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
  *
  * ## Architecture
  * ```
- * MediaSession ─── SendSpinPlayer (this) ─── SendSpinClient ─── WebSocket
+ * MediaSession ─── SendSpinPlayer (this) ─── SendSpin ─── WebSocket
  *                         │
  *                    Wrapped by
  *                         │
@@ -55,7 +55,7 @@ class SendSpinPlayer : Player {
     }
 
     // External components (set after construction)
-    private var sendSpinClient: SendSpinClient? = null
+    private var sendSpinClient: SendSpin? = null
     private var syncAudioPlayer: SyncAudioPlayer? = null
 
     /**
@@ -101,10 +101,10 @@ class SendSpinPlayer : Player {
     // ========================================================================
 
     /**
-     * Sets the SendSpinClient for command forwarding.
+     * Sets the SendSpin client for command forwarding.
      * Called by PlaybackService after client initialization.
      */
-    fun setSendSpinClient(client: SendSpinClient?) {
+    fun setSendSpinClient(client: SendSpin?) {
         sendSpinClient = client
     }
 

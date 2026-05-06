@@ -66,7 +66,7 @@ import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.QueueUpdate
 import com.sendspindroid.musicassistant.model.MaConnectionState
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SendSpinEndpoint
 import com.sendspindroid.discovery.NsdDiscoveryManager
 import com.sendspindroid.UnifiedServerRepository
@@ -118,7 +118,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * MainActivity --MediaController--> PlaybackService
  *                                        |
  *                                   +----+----+
- *                                   | SendSpinClient  |
+ *                                   | SendSpin        |
  *                                   | SyncAudioPlayer |
  *                                   | MediaSession    |
  *                                   +-----------------+
@@ -130,7 +130,7 @@ class PlaybackService : MediaLibraryService() {
     private var mediaSession: MediaLibrarySession? = null
     private var sendSpinPlayer: SendSpinPlayer? = null
     private var forwardingPlayer: MetadataForwardingPlayer? = null
-    private var sendSpinClient: SendSpinClient? = null
+    private var sendSpinClient: SendSpin? = null
     @Volatile private var syncAudioPlayer: SyncAudioPlayer? = null
     // Owned exclusively by the decode worker coroutine (serialized on
     // decodeDispatcher). Single-writer invariant: all mutations happen
@@ -745,7 +745,7 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
-        // Drives the work formerly in SendSpinClientCallback.onConnected /
+        // Drives the work formerly in SendSpin.Callback.onConnected /
         // onDisconnected / onError / onReconnecting / onReconnected. Phase 4 Task 5
         // removed those callbacks; consumers observe the StateFlow instead.
         var prevSendSpinState: TransportState = TransportState.Idle
@@ -913,7 +913,7 @@ class PlaybackService : MediaLibraryService() {
                                 is FailureReason.ProtocolError -> "Protocol error"
                                 else -> "Connection error"
                             }
-                            Log.e(TAG, "SendSpinClient error: $message")
+                            Log.e(TAG, "SendSpin error: $message")
                             _connectionState.value = ConnectionState.Error(message)
 
                             // Show error on Android Auto
@@ -1043,16 +1043,16 @@ class PlaybackService : MediaLibraryService() {
         try {
             // Use user-configured player name, falls back to device model
             val playerName = com.sendspindroid.UserSettings.getPlayerName()
-            sendSpinClient = SendSpinClient(
+            sendSpinClient = SendSpin(
                 context = applicationContext,
                 deviceName = playerName,
                 callback = SendSpinClientCallback()
             )
             sendSpinClient?.selfReconnectEnabled = false
             sendSpinPlayer?.setSendSpinClient(sendSpinClient)
-            Log.d(TAG, "SendSpinClient initialized with name: $playerName")
+            Log.d(TAG, "SendSpin initialized with name: $playerName")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize SendSpinClient", e)
+            Log.e(TAG, "Failed to initialize SendSpin", e)
             _connectionState.value = ConnectionState.Error("Failed to initialize: ${e.message}")
         }
     }
@@ -1204,9 +1204,9 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Callback for SendSpinClient events.
+     * Callback for SendSpin events.
      */
-    private inner class SendSpinClientCallback : SendSpinClient.Callback {
+    private inner class SendSpinClientCallback : SendSpin.Callback {
 
         override fun onServerDiscovered(name: String, address: String) {
             Log.d(TAG, "Server discovered (ignored in service): $name at $address")
@@ -1466,7 +1466,7 @@ class PlaybackService : MediaLibraryService() {
                 completePendingExitDraining()
                 currentCodec = codec
 
-                // Get the time filter from SendSpinClient
+                // Get the time filter from SendSpin
                 val timeFilter = sendSpinClient?.getTimeFilter()
                 if (timeFilter == null) {
                     Log.e(TAG, "Cannot start audio: time filter not available")
@@ -2084,7 +2084,7 @@ class PlaybackService : MediaLibraryService() {
      * Suspend-friendly connection wrapper used by the service-scoped
      * AutoReconnectManager. Kicks off the appropriate connectToServer/
      * connectToRemoteServer/connectToProxyServer call, then awaits the
-     * SendSpinClient.connectionState transition to a terminal state.
+     * SendSpin.connectionState transition to a terminal state.
      *
      * Returns true on Connected, false on Error or timeout.
      */
@@ -3049,13 +3049,13 @@ class PlaybackService : MediaLibraryService() {
     }
 
     /**
-     * Collects current stats from SyncAudioPlayer and SendSpinClient.
+     * Collects current stats from SyncAudioPlayer and SendSpin.
      * Returns a Bundle containing all stats for Stats for Nerds display.
      */
     private fun getStats(): Bundle {
         val bundle = Bundle()
 
-        // Get connection info from SendSpinClient
+        // Get connection info from SendSpin
         sendSpinClient?.let { client ->
             bundle.putString("server_name", client.getServerName())
             bundle.putString("server_address", client.getServerAddress())
@@ -3121,7 +3121,7 @@ class PlaybackService : MediaLibraryService() {
             bundle.putBoolean("is_playing", false)
         }
 
-        // Get stats from SendSpinClient (clock sync)
+        // Get stats from SendSpin (clock sync)
         sendSpinClient?.let { client ->
             val timeFilter = client.getTimeFilter()
             bundle.putBoolean("clock_ready", timeFilter.isReady)

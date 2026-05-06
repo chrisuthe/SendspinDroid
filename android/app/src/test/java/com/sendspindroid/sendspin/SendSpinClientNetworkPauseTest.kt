@@ -38,11 +38,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Resume reconnection immediately via onNetworkAvailable()
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientNetworkPauseTest {
+class SendSpinNetworkPauseTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -72,7 +72,7 @@ class SendSpinClientNetworkPauseTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
     }
 
     @After
@@ -94,31 +94,31 @@ class SendSpinClientNetworkPauseTest {
             override fun destroy() {}
         }
 
-        val addrField = SendSpinClient::class.java.getDeclaredField("serverAddress")
+        val addrField = SendSpin::class.java.getDeclaredField("serverAddress")
         addrField.isAccessible = true
         addrField.set(client, "127.0.0.1:8080")
 
-        val pathField = SendSpinClient::class.java.getDeclaredField("serverPath")
+        val pathField = SendSpin::class.java.getDeclaredField("serverPath")
         pathField.isAccessible = true
         pathField.set(client, "/sendspin")
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
-        val handshakeField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val handshakeField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         handshakeField.isAccessible = true
         handshakeField.set(client, true)
     }
 
     private fun getWaitingForNetwork(): Boolean {
-        val field = SendSpinClient::class.java.getDeclaredField("waitingForNetwork")
+        val field = SendSpin::class.java.getDeclaredField("waitingForNetwork")
         field.isAccessible = true
         return (field.get(client) as AtomicBoolean).get()
     }
 
     private fun getReconnecting(): Boolean {
-        val field = SendSpinClient::class.java.getDeclaredField("reconnecting")
+        val field = SendSpin::class.java.getDeclaredField("reconnecting")
         field.isAccessible = true
         return (field.get(client) as AtomicBoolean).get()
     }
@@ -130,7 +130,7 @@ class SendSpinClientNetworkPauseTest {
         // Mark network as unavailable
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
@@ -159,7 +159,7 @@ class SendSpinClientNetworkPauseTest {
         // Set network unavailable and trigger a paused reconnect
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
@@ -179,7 +179,7 @@ class SendSpinClientNetworkPauseTest {
         setupForReconnection()
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Try 3 times while offline
@@ -208,7 +208,7 @@ class SendSpinClientNetworkPauseTest {
         setupForReconnection()
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 

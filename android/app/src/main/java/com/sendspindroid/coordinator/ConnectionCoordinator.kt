@@ -72,7 +72,7 @@ sealed class NetworkEvent {
  * Phase 3: Owns the ConnectivityManager.NetworkCallback. PlaybackService observes
  * [networkState] and [networkEvents] to dispatch side effects.
  *
- * SendSpinClient.selfReconnectEnabled is set to false externally so it no longer
+ * SendSpin.selfReconnectEnabled is set to false externally so it no longer
  * runs its own reconnect loop -- this Coordinator is the only retry driver.
  *
  * See docs/superpowers/specs/2026-05-05-connection-coordinator-design.md

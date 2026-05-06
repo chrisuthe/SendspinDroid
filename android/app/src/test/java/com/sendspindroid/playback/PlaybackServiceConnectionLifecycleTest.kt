@@ -3,7 +3,7 @@ package com.sendspindroid.playback
 import android.util.Log
 import com.sendspindroid.coordinator.FailureReason
 import com.sendspindroid.coordinator.TransportState
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import io.mockk.*
 import org.junit.After
 import org.junit.Assert.*
@@ -11,11 +11,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Integration test: PlaybackService + SendSpinClient connection lifecycle.
+ * Integration test: PlaybackService + SendSpin connection lifecycle.
  *
  * Verifies that connectToServer creates a client, transitions through Connecting
  * state, and that the callback interface bridges events correctly between
- * SendSpinClient and PlaybackService state.
+ * SendSpin and PlaybackService state.
  *
  * Since PlaybackService is tightly coupled to Android framework (MediaLibraryService),
  * these tests exercise the callback interface and state transitions in isolation
@@ -83,7 +83,7 @@ class PlaybackServiceConnectionLifecycleTest {
         // Simulate connectToServer
         connectionState = ConnectionState.Connecting
 
-        // Simulate SendSpinClient.Callback.onConnected (triggered by handshake)
+        // Simulate SendSpin.Callback.onConnected (triggered by handshake)
         val serverName = "Living Room"
         connectionState = ConnectionState.Connected(serverName)
 
@@ -98,7 +98,7 @@ class PlaybackServiceConnectionLifecycleTest {
         // Simulate connectToServer
         connectionState = ConnectionState.Connecting
 
-        // Simulate SendSpinClient.Callback.onError
+        // Simulate SendSpin.Callback.onError
         connectionState = ConnectionState.Error("Connection refused")
 
         assertTrue(connectionState is ConnectionState.Error)
@@ -167,7 +167,7 @@ class PlaybackServiceConnectionLifecycleTest {
     }
 
     @Test
-    fun `SendSpinClient connectionState uses coordinator TransportState`() {
+    fun `SendSpin connectionState uses coordinator TransportState`() {
         // Verify the coordinator TransportState sealed class has the expected subtypes
         val idle = TransportState.Idle
         val connecting = TransportState.Connecting
@@ -186,7 +186,7 @@ class PlaybackServiceConnectionLifecycleTest {
         // Verify the Callback interface has the streaming/metadata methods PlaybackService depends on.
         // State lifecycle methods (onConnected, onDisconnected, onError, onReconnecting, onReconnected)
         // have been removed -- PlaybackService now observes connectionState StateFlow instead.
-        val callbackClass = SendSpinClient.Callback::class.java
+        val callbackClass = SendSpin.Callback::class.java
         val methodNames = callbackClass.methods.map { it.name }
 
         assertTrue("Should have onStateChanged", "onStateChanged" in methodNames)

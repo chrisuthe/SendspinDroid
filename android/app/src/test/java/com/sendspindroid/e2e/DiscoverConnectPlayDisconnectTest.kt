@@ -1,7 +1,7 @@
 package com.sendspindroid.e2e
 
 import com.sendspindroid.coordinator.TransportState
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import io.mockk.verify
 import org.junit.Assert.*
 import org.junit.Test

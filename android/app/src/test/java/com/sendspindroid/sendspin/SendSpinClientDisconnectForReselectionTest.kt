@@ -25,11 +25,11 @@ import org.junit.Test
 import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientDisconnectForReselectionTest {
+class SendSpinDisconnectForReselectionTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
     private lateinit var fakeTransport: FakeTransport
 
     private class FakeTransport : SendSpinTransport {
@@ -79,19 +79,19 @@ class SendSpinClientDisconnectForReselectionTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
         fakeTransport = FakeTransport()
 
         // Seed connected-state so disconnectForReselection has something to tear down.
-        val addrField = SendSpinClient::class.java.getDeclaredField("serverAddress")
+        val addrField = SendSpin::class.java.getDeclaredField("serverAddress")
         addrField.isAccessible = true
         addrField.set(client, "127.0.0.1:8080")
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
-        val handshakeField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val handshakeField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         handshakeField.isAccessible = true
         handshakeField.set(client, true)
     }
@@ -130,7 +130,7 @@ class SendSpinClientDisconnectForReselectionTest {
 
     @Test
     fun `disconnectForReselection cancels in-flight reconnect coroutine`() {
-        val reconnectingField = SendSpinClient::class.java.getDeclaredField("reconnecting")
+        val reconnectingField = SendSpin::class.java.getDeclaredField("reconnecting")
         reconnectingField.isAccessible = true
         (reconnectingField.get(client) as AtomicBoolean).set(true)
 
@@ -144,7 +144,7 @@ class SendSpinClientDisconnectForReselectionTest {
     fun `disconnectForReselection does not set userInitiatedDisconnect`() {
         client.disconnectForReselection()
 
-        val userInitiatedField = SendSpinClient::class.java.getDeclaredField("userInitiatedDisconnect")
+        val userInitiatedField = SendSpin::class.java.getDeclaredField("userInitiatedDisconnect")
         userInitiatedField.isAccessible = true
         assertFalse("userInitiatedDisconnect must stay false so MainActivity auto-reconnects",
             (userInitiatedField.get(client) as AtomicBoolean).get())

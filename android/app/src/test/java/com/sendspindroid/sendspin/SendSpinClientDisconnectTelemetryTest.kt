@@ -41,11 +41,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * + not-user-initiated.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientDisconnectTelemetryTest {
+class SendSpinDisconnectTelemetryTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -80,12 +80,12 @@ class SendSpinClientDisconnectTelemetryTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
 
         // Seed connection info so the disconnect paths execute fully.
         setField("serverAddress", "127.0.0.1:8080")
         setField("serverPath", "/sendspin")
-        setField("connectionMode", SendSpinClient.ConnectionMode.LOCAL)
+        setField("connectionMode", SendSpin.ConnectionMode.LOCAL)
 
         val fakeTransport = object : SendSpinTransport {
             override val state = TransportState.Connected
@@ -182,7 +182,7 @@ class SendSpinClientDisconnectTelemetryTest {
 
         // Triggering attemptReconnect directly via reflection bypasses the listener
         // so we can assert the counter in isolation.
-        val m = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val m = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         m.isAccessible = true
         m.invoke(client)
         m.invoke(client)
@@ -210,7 +210,7 @@ class SendSpinClientDisconnectTelemetryTest {
     @Test
     fun `isStallWatchdogArmed is false while reconnecting`() {
         setHandshakeComplete(true)
-        val reconnectingField = SendSpinClient::class.java.getDeclaredField("reconnecting")
+        val reconnectingField = SendSpin::class.java.getDeclaredField("reconnecting")
         reconnectingField.isAccessible = true
         (reconnectingField.get(client) as AtomicBoolean).set(true)
         assertFalse(client.isStallWatchdogArmed())
@@ -219,7 +219,7 @@ class SendSpinClientDisconnectTelemetryTest {
     @Test
     fun `isStallWatchdogArmed is false after user-initiated disconnect`() {
         setHandshakeComplete(true)
-        val userField = SendSpinClient::class.java.getDeclaredField("userInitiatedDisconnect")
+        val userField = SendSpin::class.java.getDeclaredField("userInitiatedDisconnect")
         userField.isAccessible = true
         (userField.get(client) as AtomicBoolean).set(true)
         assertFalse(client.isStallWatchdogArmed())
@@ -232,7 +232,7 @@ class SendSpinClientDisconnectTelemetryTest {
     @Test
     fun `getLastByteReceivedAgoMs returns positive elapsed time from lastByteReceivedAtMs`() {
         // Force the timestamp to ~5 seconds ago via reflection.
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as java.util.concurrent.atomic.AtomicLong
         atomicLong.set(System.currentTimeMillis() - 5_000L)
@@ -244,27 +244,27 @@ class SendSpinClientDisconnectTelemetryTest {
     // --- helpers ---
 
     private fun buildTransportListener(): SendSpinTransport.Listener {
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         return constructor.newInstance(client) as SendSpinTransport.Listener
     }
 
     private fun setField(name: String, value: Any?) {
-        val f = SendSpinClient::class.java.getDeclaredField(name)
+        val f = SendSpin::class.java.getDeclaredField(name)
         f.isAccessible = true
         f.set(client, value)
     }
 
     private fun getField(name: String): Any? {
-        val f = SendSpinClient::class.java.getDeclaredField(name)
+        val f = SendSpin::class.java.getDeclaredField(name)
         f.isAccessible = true
         return f.get(client)
     }
 
     private fun setHandshakeComplete(value: Boolean) {
-        val f = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val f = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         f.isAccessible = true
         f.set(client, value)
     }

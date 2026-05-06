@@ -9,15 +9,15 @@ import org.junit.Test
 import java.util.concurrent.Executors
 
 /**
- * Regression coverage for audit finding M-4: verify that SendSpinClient's
+ * Regression coverage for audit finding M-4: verify that SendSpin's
  * two-scope split actually routes timer and IO work to different threads.
  *
- * This test does not construct a SendSpinClient (its constructor requires
+ * This test does not construct a SendSpin (its constructor requires
  * several Android-specific collaborators). Instead it exercises the same
  * primitives the production code uses, confirming the dispatcher pattern
  * produces the expected thread separation.
  */
-class SendSpinClientScopeSplitTest {
+class SendSpinScopeSplitTest {
 
     @Test
     fun `single-thread executor dispatcher routes to named thread`() {

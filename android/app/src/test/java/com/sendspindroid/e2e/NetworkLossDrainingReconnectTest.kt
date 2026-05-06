@@ -2,7 +2,7 @@ package com.sendspindroid.e2e
 
 import com.sendspindroid.UserSettings
 import com.sendspindroid.coordinator.TransportState
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import io.mockk.every
 import io.mockk.verify

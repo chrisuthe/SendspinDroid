@@ -23,7 +23,7 @@ import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Tests for the LOCAL -> PROXY internal fallback in SendSpinClient.attemptReconnect.
+ * Tests for the LOCAL -> PROXY internal fallback in SendSpin.attemptReconnect.
  *
  * Covers issue #126: when LOCAL reconnect has failed [LOCAL_RECONNECT_FALLBACK_THRESHOLD]
  * times in a row and a PROXY fallback has been configured via setProxyFallback(),
@@ -34,11 +34,11 @@ import java.util.concurrent.atomic.AtomicInteger
  * connectionMode / serverAddress / authToken fields to confirm the switch happens.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientLocalFallbackTest {
+class SendSpinLocalFallbackTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -68,12 +68,12 @@ class SendSpinClientLocalFallbackTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
 
         // Seed connection info so canReconnect passes and attemptReconnect proceeds
         setField("serverAddress", "192.168.1.42:8927")
         setField("serverPath", "/sendspin")
-        setField("connectionMode", SendSpinClient.ConnectionMode.LOCAL)
+        setField("connectionMode", SendSpin.ConnectionMode.LOCAL)
     }
 
     @After
@@ -95,7 +95,7 @@ class SendSpinClientLocalFallbackTest {
 
         assertEquals(
             "connectionMode should switch to PROXY after exceeding threshold",
-            SendSpinClient.ConnectionMode.PROXY,
+            SendSpin.ConnectionMode.PROXY,
             getField("connectionMode")
         )
         assertEquals(
@@ -125,7 +125,7 @@ class SendSpinClientLocalFallbackTest {
 
         assertEquals(
             "connectionMode should remain LOCAL below threshold",
-            SendSpinClient.ConnectionMode.LOCAL,
+            SendSpin.ConnectionMode.LOCAL,
             getField("connectionMode")
         )
     }
@@ -139,7 +139,7 @@ class SendSpinClientLocalFallbackTest {
 
         assertEquals(
             "connectionMode should remain LOCAL when no PROXY fallback is available",
-            SendSpinClient.ConnectionMode.LOCAL,
+            SendSpin.ConnectionMode.LOCAL,
             getField("connectionMode")
         )
     }
@@ -153,7 +153,7 @@ class SendSpinClientLocalFallbackTest {
 
         assertEquals(
             "connectionMode should remain LOCAL when fallback is incomplete",
-            SendSpinClient.ConnectionMode.LOCAL,
+            SendSpin.ConnectionMode.LOCAL,
             getField("connectionMode")
         )
     }
@@ -168,7 +168,7 @@ class SendSpinClientLocalFallbackTest {
 
         assertEquals(
             "connectionMode should remain LOCAL after fallback is cleared",
-            SendSpinClient.ConnectionMode.LOCAL,
+            SendSpin.ConnectionMode.LOCAL,
             getField("connectionMode")
         )
     }
@@ -176,7 +176,7 @@ class SendSpinClientLocalFallbackTest {
     @Test
     fun `does not switch when already in PROXY mode`() {
         // Simulating a stuck PROXY retry; fallback logic is LOCAL-only.
-        setField("connectionMode", SendSpinClient.ConnectionMode.PROXY)
+        setField("connectionMode", SendSpin.ConnectionMode.PROXY)
         setField("authToken", "existing-token")
         client.setProxyFallback("wss://other-proxy.example.com/sendspin", "token-xyz")
         getAtomicInt("reconnectAttempts").set(10)
@@ -185,7 +185,7 @@ class SendSpinClientLocalFallbackTest {
 
         assertEquals(
             "connectionMode should stay PROXY; fallback does not override an in-progress PROXY connection",
-            SendSpinClient.ConnectionMode.PROXY,
+            SendSpin.ConnectionMode.PROXY,
             getField("connectionMode")
         )
     }
@@ -193,25 +193,25 @@ class SendSpinClientLocalFallbackTest {
     // --- helpers ---
 
     private fun invokeAttemptReconnect() {
-        val m = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val m = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         m.isAccessible = true
         m.invoke(client)
     }
 
     private fun setField(name: String, value: Any?) {
-        val f = SendSpinClient::class.java.getDeclaredField(name)
+        val f = SendSpin::class.java.getDeclaredField(name)
         f.isAccessible = true
         f.set(client, value)
     }
 
     private fun getField(name: String): Any? {
-        val f = SendSpinClient::class.java.getDeclaredField(name)
+        val f = SendSpin::class.java.getDeclaredField(name)
         f.isAccessible = true
         return f.get(client)
     }
 
     private fun getAtomicInt(name: String): AtomicInteger {
-        val f = SendSpinClient::class.java.getDeclaredField(name)
+        val f = SendSpin::class.java.getDeclaredField(name)
         f.isAccessible = true
         return f.get(client) as AtomicInteger
     }

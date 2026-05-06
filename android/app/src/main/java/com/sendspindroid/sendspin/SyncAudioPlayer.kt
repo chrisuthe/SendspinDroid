@@ -246,7 +246,7 @@ interface SyncAudioPlayerCallback {
  *
  * ## Architecture
  * ```
- * SendSpinClient ──┬── Audio chunks (timestamped) ──► SyncAudioPlayer
+ * SendSpin ──┬── Audio chunks (timestamped) ──► SyncAudioPlayer
  *                  │                                        │
  *                  └── TimeFilter ◄─────────────────────────┘
  *                         │
@@ -1501,7 +1501,7 @@ class SyncAudioPlayer(
                     // PLAYING: Standard operation, chunks added to queue for playback.
                     // DRAINING: Reconnected! New chunks arrive and are seamlessly spliced
                     //           into the existing buffer via gap/overlap handling above.
-                    //           The exitDraining() call (from SendSpinClient) will
+                    //           The exitDraining() call (from SendSpin) will
                     //           transition back to PLAYING once stream is stable.
                 }
             }

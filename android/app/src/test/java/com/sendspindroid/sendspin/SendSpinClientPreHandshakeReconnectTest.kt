@@ -40,11 +40,11 @@ import java.net.UnknownHostException
  * backoff handles the "server is broken" case without spinning.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientPreHandshakeReconnectTest {
+class SendSpinPreHandshakeReconnectTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -74,12 +74,12 @@ class SendSpinClientPreHandshakeReconnectTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
 
         // Seed connection info so canReconnect / hasConnectionInfo checks pass.
         setField("serverAddress", "127.0.0.1:8080")
         setField("serverPath", "/sendspin")
-        setField("connectionMode", SendSpinClient.ConnectionMode.LOCAL)
+        setField("connectionMode", SendSpin.ConnectionMode.LOCAL)
 
         // Fake transport so onClosed's reconnect path can advance past the
         // hasConnectionInfo check without touching real networking.
@@ -200,22 +200,22 @@ class SendSpinClientPreHandshakeReconnectTest {
     // --- helpers ---
 
     private fun buildTransportListener(): SendSpinTransport.Listener {
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         return constructor.newInstance(client) as SendSpinTransport.Listener
     }
 
     private fun setField(name: String, value: Any?) {
-        val f = SendSpinClient::class.java.getDeclaredField(name)
+        val f = SendSpin::class.java.getDeclaredField(name)
         f.isAccessible = true
         f.set(client, value)
     }
 
     private fun setHandshakeComplete(value: Boolean) {
         // Declared on the SendSpinProtocolHandler superclass.
-        val f = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val f = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         f.isAccessible = true
         f.set(client, value)
     }

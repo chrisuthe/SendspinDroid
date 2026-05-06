@@ -26,15 +26,15 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Tests that SendSpinClient.connectionState transitions follow the expected
+ * Tests that SendSpin.connectionState transitions follow the expected
  * lifecycle: Idle -> Connecting -> Ready -> Failed.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientConnectionStateTest {
+class SendSpinConnectionStateTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -64,7 +64,7 @@ class SendSpinClientConnectionStateTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
     }
 
     @After
@@ -117,14 +117,14 @@ class SendSpinClientConnectionStateTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
         // Create the inner TransportEventListener and send a server/hello
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
@@ -154,14 +154,14 @@ class SendSpinClientConnectionStateTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
         // Create the TransportEventListener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
@@ -189,13 +189,13 @@ class SendSpinClientConnectionStateTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
@@ -231,7 +231,7 @@ class SendSpinClientConnectionStateTest {
         }
 
         // Manually set state to Connecting (as prepareForConnection does)
-        val stateField = SendSpinClient::class.java.getDeclaredField("_connectionState")
+        val stateField = SendSpin::class.java.getDeclaredField("_connectionState")
         stateField.isAccessible = true
         @Suppress("UNCHECKED_CAST")
         val stateFlow = stateField.get(client) as kotlinx.coroutines.flow.MutableStateFlow<TransportState>
@@ -239,14 +239,14 @@ class SendSpinClientConnectionStateTest {
         assertTrue(client.connectionState.value is TransportState.Connecting)
 
         // Inject transport
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
         // Create listener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 

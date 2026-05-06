@@ -11,12 +11,12 @@ import org.junit.Test
 /**
  * Integration test: MetadataForwardingPlayer -> MediaSession chain.
  *
- * Verifies the end-to-end flow of metadata from SendSpinClient callback
+ * Verifies the end-to-end flow of metadata from SendSpin callback
  * through MetadataForwardingPlayer to MediaSession listeners. This is the
  * chain that drives lock screen, notifications, and Android Auto display.
  *
  * The flow:
- * 1. SendSpinClient.Callback.onMetadataUpdate fires (from server)
+ * 1. SendSpin.Callback.onMetadataUpdate fires (from server)
  * 2. PlaybackService calls forwardingPlayer.updateMetadata(title, artist, album)
  * 3. MetadataForwardingPlayer updates cached metadata
  * 4. MetadataForwardingPlayer notifies listeners (MediaSession)

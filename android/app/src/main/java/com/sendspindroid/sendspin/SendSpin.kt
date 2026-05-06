@@ -71,14 +71,14 @@ import javax.net.ssl.SSLHandshakeException
  * - Reconnection with exponential backoff
  * - Time filter freeze/thaw during reconnection
  */
-class SendSpinClient(
+class SendSpin(
     private val context: Context,
     private val deviceName: String,
     private val callback: Callback
 ) : SendSpinProtocolHandler(TAG) {
 
     companion object {
-        private const val TAG = "SendSpinClient"
+        private const val TAG = "SendSpin"
 
         // Reconnection configuration
         // Short initial delay (500ms) to maximize reconnect attempts during buffer drain

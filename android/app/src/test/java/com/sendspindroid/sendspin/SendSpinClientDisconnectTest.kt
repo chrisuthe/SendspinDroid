@@ -30,17 +30,17 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Tests for SendSpinClient disconnect and proxy auth fixes.
+ * Tests for SendSpin disconnect and proxy auth fixes.
  *
  * H-02: Verifies disconnect() does not fire onDisconnected twice.
  * H-04: Verifies proxy auth-ack is consumed and not forwarded to protocol handler.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientDisconnectTest {
+class SendSpinDisconnectTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -77,7 +77,7 @@ class SendSpinClientDisconnectTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
     }
 
     @After
@@ -99,7 +99,7 @@ class SendSpinClientDisconnectTest {
         every { mockTransport.isConnected } returns true
 
         // Inject the mock transport via reflection
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, mockTransport)
 
@@ -141,7 +141,7 @@ class SendSpinClientDisconnectTest {
         }
 
         // Register a listener (as the real code does during connect)
-        val listenerField = SendSpinClient::class.java.getDeclaredField("transport")
+        val listenerField = SendSpin::class.java.getDeclaredField("transport")
         listenerField.isAccessible = true
         listenerField.set(client, racyTransport)
 
@@ -159,7 +159,7 @@ class SendSpinClientDisconnectTest {
     @Test
     fun `disconnect with null transport does not crash`() {
         // Ensure transport is null
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, null)
 
@@ -194,22 +194,22 @@ class SendSpinClientDisconnectTest {
         // and inject our mock transport to capture the listener.
 
         // Set connection mode to PROXY
-        val modeField = SendSpinClient::class.java.getDeclaredField("connectionMode")
+        val modeField = SendSpin::class.java.getDeclaredField("connectionMode")
         modeField.isAccessible = true
-        modeField.set(client, SendSpinClient.ConnectionMode.PROXY)
+        modeField.set(client, SendSpin.ConnectionMode.PROXY)
 
         // Set auth token
-        val authField = SendSpinClient::class.java.getDeclaredField("authToken")
+        val authField = SendSpin::class.java.getDeclaredField("authToken")
         authField.isAccessible = true
         authField.set(client, "test-auth-token")
 
         // Set awaitingAuthResponse to true (simulating post-auth-message state)
-        val awaitingField = SendSpinClient::class.java.getDeclaredField("awaitingAuthResponse")
+        val awaitingField = SendSpin::class.java.getDeclaredField("awaitingAuthResponse")
         awaitingField.isAccessible = true
         awaitingField.set(client, true)
 
         // Set transport
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, mockTransport)
 
@@ -236,7 +236,7 @@ class SendSpinClientDisconnectTest {
         // with a URL that won't actually connect, and capture the listener.
 
         // Reset state for a clean connect
-        val stateField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val stateField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         stateField.isAccessible = true
         stateField.set(client, false)
 
@@ -264,7 +264,7 @@ class SendSpinClientDisconnectTest {
 
         // Now simulate the connectProxy flow manually:
         // 1. Set connection mode to PROXY
-        modeField.set(client, SendSpinClient.ConnectionMode.PROXY)
+        modeField.set(client, SendSpin.ConnectionMode.PROXY)
         // 2. Set auth token
         authField.set(client, "test-auth-token")
         // 3. Set awaitingAuthResponse to true
@@ -275,12 +275,12 @@ class SendSpinClientDisconnectTest {
         // We need to get the actual TransportEventListener. Use connectProxy which
         // creates a ProxyWebSocketTransport - but that will replace our fake transport.
         // Instead, let's use reflection to create the inner class directly.
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }
         assertNotNull("TransportEventListener inner class must exist", listenerClass)
 
         // Create instance of inner class (needs outer class reference)
-        val constructor = listenerClass!!.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass!!.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
@@ -316,19 +316,19 @@ class SendSpinClientDisconnectTest {
     @Test
     fun `proxy auth-ack with auth_ok type is consumed`() {
         // Set up client in proxy mode
-        val stateField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val stateField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         stateField.isAccessible = true
         stateField.set(client, false)
 
-        val modeField = SendSpinClient::class.java.getDeclaredField("connectionMode")
+        val modeField = SendSpin::class.java.getDeclaredField("connectionMode")
         modeField.isAccessible = true
-        modeField.set(client, SendSpinClient.ConnectionMode.PROXY)
+        modeField.set(client, SendSpin.ConnectionMode.PROXY)
 
-        val authField = SendSpinClient::class.java.getDeclaredField("authToken")
+        val authField = SendSpin::class.java.getDeclaredField("authToken")
         authField.isAccessible = true
         authField.set(client, "test-token")
 
-        val awaitingField = SendSpinClient::class.java.getDeclaredField("awaitingAuthResponse")
+        val awaitingField = SendSpin::class.java.getDeclaredField("awaitingAuthResponse")
         awaitingField.isAccessible = true
         awaitingField.set(client, true)
 
@@ -345,14 +345,14 @@ class SendSpinClientDisconnectTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
         // Create the inner TransportEventListener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
@@ -376,20 +376,20 @@ class SendSpinClientDisconnectTest {
     @Test
     fun `non-auth messages in proxy mode still forwarded to protocol handler after auth`() {
         // After auth completes, normal messages should still be forwarded
-        val stateField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val stateField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         stateField.isAccessible = true
         stateField.set(client, false)
 
-        val modeField = SendSpinClient::class.java.getDeclaredField("connectionMode")
+        val modeField = SendSpin::class.java.getDeclaredField("connectionMode")
         modeField.isAccessible = true
-        modeField.set(client, SendSpinClient.ConnectionMode.PROXY)
+        modeField.set(client, SendSpin.ConnectionMode.PROXY)
 
-        val authField = SendSpinClient::class.java.getDeclaredField("authToken")
+        val authField = SendSpin::class.java.getDeclaredField("authToken")
         authField.isAccessible = true
         authField.set(client, "test-token")
 
         // awaitingAuthResponse is FALSE (auth already completed)
-        val awaitingField = SendSpinClient::class.java.getDeclaredField("awaitingAuthResponse")
+        val awaitingField = SendSpin::class.java.getDeclaredField("awaitingAuthResponse")
         awaitingField.isAccessible = true
         awaitingField.set(client, false)
 
@@ -406,14 +406,14 @@ class SendSpinClientDisconnectTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
         // Create the inner TransportEventListener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
