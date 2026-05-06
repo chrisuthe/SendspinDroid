@@ -82,8 +82,8 @@ import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
 import com.sendspindroid.ui.server.AddServerWizardActivity
 import com.sendspindroid.ui.server.UnifiedServerConnector
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.musicassistant.MusicAssistantManager
-import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.ui.queue.QueueSheetFragment
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
@@ -2613,8 +2613,17 @@ class MainActivity : AppCompatActivity() {
         // (setupUI() is called again in onConfigurationChanged)
         maConnectionObserverJob?.cancel()
         maConnectionObserverJob = lifecycleScope.launch {
+            // Observe loginRequired events (no-token or auth-rejected) for the login dialog.
+            launch {
+                MusicAssistantManager.loginRequired.collect {
+                    if (!maLoginDialogShowing) {
+                        showMaLoginDialog()
+                    }
+                }
+            }
+
             MusicAssistantManager.connectionState.collectLatest { state ->
-                val isMaConnected = state is MaConnectionState.Connected
+                val isMaConnected = state is TransportState.Ready
 
                 // Favorite button visibility
                 binding.favoriteButton.visibility = if (isMaConnected) View.VISIBLE else View.GONE
@@ -2629,11 +2638,6 @@ class MainActivity : AppCompatActivity() {
                 // If MA disconnects while showing navigation content, return to full player
                 if (!isMaConnected && isNavigationContentVisible) {
                     hideNavigationContent()
-                }
-
-                // Show login dialog when MA server detected but no token stored
-                if (state is MaConnectionState.NeedsAuth && !maLoginDialogShowing) {
-                    showMaLoginDialog()
                 }
 
                 // Update ViewModel for Compose UI
@@ -2744,12 +2748,7 @@ class MainActivity : AppCompatActivity() {
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                     dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
 
-                    val errorState = MusicAssistantManager.connectionState.value
-                    val errorMsg = if (errorState is MaConnectionState.Error) {
-                        errorState.message
-                    } else {
-                        "Unknown error"
-                    }
+                    val errorMsg = "Invalid username or password"
                     dialog.setMessage(getString(R.string.ma_login_dialog_failed, errorMsg))
                 }
             }

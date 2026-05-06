@@ -65,7 +65,6 @@ import com.sendspindroid.musicassistant.MaRadio
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistantManager
 import com.sendspindroid.musicassistant.QueueUpdate
-import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SendSpinEndpoint
 import com.sendspindroid.discovery.NsdDiscoveryManager
@@ -97,7 +96,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -675,7 +673,7 @@ class PlaybackService : MediaLibraryService() {
         coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
             sendSpinStateFlow = sendSpinClient?.connectionState ?: flowOf(TransportState.Idle),
-            musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
+            musicAssistantStateFlow = MusicAssistantManager.connectionState,
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
             connectAttempt = { server, method ->
@@ -2604,9 +2602,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Watch MA connection state to refresh browse tree root when Library appears/disappears
         serviceScope.launch {
-            var wasAvailable = MusicAssistantManager.connectionState.value.isAvailable
+            var wasAvailable = MusicAssistantManager.connectionState.value is TransportState.Ready
             MusicAssistantManager.connectionState.collect { state ->
-                val isNowAvailable = state.isAvailable
+                val isNowAvailable = state is TransportState.Ready
                 if (isNowAvailable != wasAvailable) {
                     Log.i(TAG, "MA availability changed: $wasAvailable -> $isNowAvailable")
                     wasAvailable = isNowAvailable
@@ -2812,7 +2810,7 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<Void>> {
             Log.d(TAG, "onSearch: query='$query'")
 
-            if (!MusicAssistantManager.connectionState.value.isAvailable) {
+            if (MusicAssistantManager.connectionState.value !is TransportState.Ready) {
                 return Futures.immediateFuture(
                     LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED)
                 )
@@ -3194,7 +3192,7 @@ class PlaybackService : MediaLibraryService() {
 
     private fun getRootChildren(): List<MediaItem> {
         val children = mutableListOf<MediaItem>()
-        val maAvailable = MusicAssistantManager.connectionState.value.isAvailable
+        val maAvailable = MusicAssistantManager.connectionState.value is TransportState.Ready
 
         // Show "Connect" until MA is available (avoids empty root during MA handshake)
         if (!maAvailable) {
@@ -3645,7 +3643,7 @@ class PlaybackService : MediaLibraryService() {
      */
     @OptIn(UnstableApi::class)
     private fun populatePlayerQueue() {
-        if (!MusicAssistantManager.connectionState.value.isAvailable) return
+        if (MusicAssistantManager.connectionState.value !is TransportState.Ready) return
 
         val generation = ++queuePopulateGeneration
 
@@ -3688,7 +3686,7 @@ class PlaybackService : MediaLibraryService() {
         query: String,
         originalItems: List<MediaItem>
     ): ListenableFuture<List<MediaItem>> {
-        if (!MusicAssistantManager.connectionState.value.isAvailable) {
+        if (MusicAssistantManager.connectionState.value !is TransportState.Ready) {
             Log.w(TAG, "Voice search: MA not available, returning items as-is")
             return Futures.immediateFuture(originalItems)
         }
@@ -4092,17 +4090,3 @@ class PlaybackService : MediaLibraryService() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Coordinator input-flow mapping helpers (Task 4)
-// These are file-level so they don't leak coordinator types into PlaybackService's
-// public API surface. Used only by the Coordinator wiring in Task 5.
-// ---------------------------------------------------------------------------
-
-private fun MaConnectionState.toTransportState(): TransportState = when (this) {
-    is MaConnectionState.Unavailable -> TransportState.Idle      // MA not applicable to this server
-    is MaConnectionState.NeedsAuth   -> TransportState.Idle      // No token yet; not yet attempting
-    is MaConnectionState.Connecting  -> TransportState.Connecting
-    is MaConnectionState.Connected   -> TransportState.Ready
-    // Error.isAuthError would map to FailureReason.AuthRejected in a later phase.
-    is MaConnectionState.Error       -> TransportState.Failed(FailureReason.TransientNetwork)
-}

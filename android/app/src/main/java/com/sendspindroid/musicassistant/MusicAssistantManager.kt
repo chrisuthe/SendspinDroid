@@ -5,7 +5,8 @@ import android.util.Log
 import com.sendspindroid.UserSettings
 import com.sendspindroid.UserSettings.ConnectionMode
 import com.sendspindroid.model.UnifiedServer
-import com.sendspindroid.musicassistant.model.MaConnectionState
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
 import com.sendspindroid.musicassistant.model.MaPlayer
@@ -85,13 +86,31 @@ object MusicAssistantManager {
     private const val TAG = "MusicAssistantManager"
 
     // Internal mutable state
-    private val _connectionState = MutableStateFlow<MaConnectionState>(MaConnectionState.Unavailable)
+    private val _connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
 
     /**
-     * Detailed connection state for UI components that need to handle
-     * different scenarios (error messages, re-login prompts, etc.).
+     * Transport connection state, unified with SendSpin's state type.
+     *
+     * Idle     - MA not applicable to this server, or no token yet
+     * Connecting - authentication in progress
+     * Ready    - successfully connected and authenticated; see [currentServerInfo]
+     * Failed   - connection/auth failed; reason distinguishes auth vs transient
      */
-    val connectionState: StateFlow<MaConnectionState> = _connectionState.asStateFlow()
+    val connectionState: StateFlow<TransportState> = _connectionState.asStateFlow()
+
+    /**
+     * Emits once each time user authentication is required (no token stored for
+     * an MA server, or a token was rejected). Observers should show a login UI.
+     */
+    private val _loginRequired = MutableSharedFlow<Unit>(replay = 0, extraBufferCapacity = 1)
+    val loginRequired: SharedFlow<Unit> = _loginRequired.asSharedFlow()
+
+    /**
+     * Server info for the currently connected MA session.
+     * Non-null only when [connectionState] is [TransportState.Ready].
+     */
+    var currentServerInfo: MaServerInfo? = null
+        private set
 
     // Queue update events from the MA command-channel (fix 8a).
     // Emitted when a `queue_updated` event arrives, roughly 1 second before
@@ -205,7 +224,7 @@ object MusicAssistantManager {
         val hasMaApiChannel = maApiDataChannel != null
         if (!server.isMusicAssistant && !hasStoredToken && !hasMaApiChannel) {
             Log.d(TAG, "Server is not marked as Music Assistant, no stored token, no ma-api channel")
-            _connectionState.value = MaConnectionState.Unavailable
+            _connectionState.value = TransportState.Idle
             return
         }
         if (!server.isMusicAssistant) {
@@ -216,7 +235,7 @@ object MusicAssistantManager {
         val apiUrl = MaApiEndpoint.deriveUrl(server, connectionMode.toMaMode(), MaSettings.getDefaultPort())
         if (apiUrl == null) {
             Log.d(TAG, "No MA API endpoint available for connection mode $connectionMode")
-            _connectionState.value = MaConnectionState.Unavailable
+            _connectionState.value = TransportState.Idle
             return
         }
 
@@ -230,7 +249,8 @@ object MusicAssistantManager {
             connectWithToken(apiUrl, token, server.id)
         } else {
             Log.w(TAG, "No token stored for MA server - user needs to re-authenticate")
-            _connectionState.value = MaConnectionState.NeedsAuth
+            _connectionState.value = TransportState.Idle
+            _loginRequired.tryEmit(Unit)
         }
     }
 
@@ -259,41 +279,46 @@ object MusicAssistantManager {
         currentServer = null
         currentConnectionMode = null
         currentApiUrl = null
-        _connectionState.value = MaConnectionState.Unavailable
+        currentServerInfo = null
+        _connectionState.value = TransportState.Idle
     }
 
     /**
      * Handle a connection/auth failure by tearing down the transport and
      * updating [_connectionState].
      *
+     * Classifies the exception internally: [MaApiTransport.AuthenticationException]
+     * maps to [FailureReason.AuthRejected] and clears the stored token; all other
+     * exceptions map to [FailureReason.TransientNetwork] and preserve the token.
+     *
      * @param e The exception that caused the failure
      * @param logPrefix Label for the log message (e.g. "Token auth", "Login")
-     * @param clearTokenForServer If non-null, clears the stored token for this server ID
      */
     private fun handleConnectionFailure(
         e: Exception,
         logPrefix: String,
-        clearTokenForServer: String? = null
     ) {
         Log.e(TAG, "$logPrefix failed", e)
         apiTransport?.setEventListener(null)
         apiTransport?.disconnect()
         apiTransport = null
         commandClient.setTransport(null, null, false)
-        clearTokenForServer?.let { MaSettings.clearTokenForServer(it) }
 
-        val isAuthError = e is MaApiTransport.AuthenticationException
-        val message = when (e) {
-            is MaApiTransport.AuthenticationException ->
-                if (clearTokenForServer != null) "Authentication expired. Please log in again."
-                else "Invalid username or password"
-            is MaTransportException, is IOException -> "Network error: ${e.message}"
-            else -> e.message ?: "Unknown error"
+        val reason: FailureReason = when (e) {
+            is MaApiTransport.AuthenticationException -> FailureReason.AuthRejected
+            is MaTransportException, is IOException -> FailureReason.TransientNetwork
+            else -> FailureReason.TransientNetwork
         }
-        _connectionState.value = MaConnectionState.Error(
-            message = message,
-            isAuthError = isAuthError
-        )
+
+        // Single token-clearing site: ONLY on confirmed auth rejection.
+        val server = currentServer
+        if (reason == FailureReason.AuthRejected && server != null) {
+            MaSettings.clearTokenForServer(server.id)
+            _loginRequired.tryEmit(Unit)
+        }
+
+        currentServerInfo = null
+        _connectionState.value = TransportState.Failed(reason)
     }
 
     // ========================================================================
@@ -385,7 +410,8 @@ object MusicAssistantManager {
         )
 
         Log.i(TAG, "MA API connected successfully (server ${transport.serverVersion})")
-        _connectionState.value = MaConnectionState.Connected(serverInfo)
+        currentServerInfo = serverInfo
+        _connectionState.value = TransportState.Ready
 
         commandClient.autoSelectPlayer(serverId).fold(
             onSuccess = { playerId -> Log.i(TAG, "Auto-selected player for playback: $playerId") },
@@ -403,7 +429,7 @@ object MusicAssistantManager {
      * All subsequent API calls are multiplexed over this single connection.
      */
     private fun connectWithToken(apiUrl: String, token: String, serverId: String) {
-        _connectionState.value = MaConnectionState.Connecting
+        _connectionState.value = TransportState.Connecting
 
         // Cancel any in-flight connect attempt to prevent racing on apiTransport (H-22)
         connectJob?.cancel()
@@ -411,14 +437,9 @@ object MusicAssistantManager {
             runCatching {
                 connectTransport(apiUrl, serverId) { transport -> transport.connect(token) }
             }.onFailure { e ->
-                // Only clear the stored token if the server actually rejected it.
-                // Transient errors (network, transport, generic IO) preserve the token
-                // so the user isn't forced to re-login on a brief WiFi->Cell handover.
-                val authRejected = e is MaApiTransport.AuthenticationException
                 handleConnectionFailure(
                     e as? Exception ?: Exception(e),
                     "Token authentication",
-                    clearTokenForServer = if (authRejected) serverId else null,
                 )
             }
         }
@@ -468,7 +489,7 @@ object MusicAssistantManager {
         val apiUrl = currentApiUrl
             ?: return Result.failure(IllegalStateException("No MA API URL available"))
 
-        _connectionState.value = MaConnectionState.Connecting
+        _connectionState.value = TransportState.Connecting
 
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -477,7 +498,8 @@ object MusicAssistantManager {
                     MaSettings.setTokenForServer(server.id, loginResult.accessToken)
                     Log.i(TAG, "MA login successful for user: ${loginResult.userName}")
                 }
-            }.map { }.onFailure { e ->
+                Unit
+            }.onFailure { e ->
                 handleConnectionFailure(e as? Exception ?: Exception(e), "Login")
             }
         }
@@ -492,22 +514,18 @@ object MusicAssistantManager {
         val apiUrl = currentApiUrl
             ?: return Result.failure(IllegalStateException("No MA API URL available"))
 
-        _connectionState.value = MaConnectionState.Connecting
+        _connectionState.value = TransportState.Connecting
 
         return withContext(Dispatchers.IO) {
             runCatching {
                 connectTransport(apiUrl, server.id) { transport ->
                     transport.connect(token)
                 }
-            }.map { }.onFailure { e ->
-                // Only clear the stored token if the server actually rejected it.
-                // Transient errors (network, transport, generic IO) preserve the token
-                // so the user isn't forced to re-login on a brief WiFi->Cell handover.
-                val authRejected = e is MaApiTransport.AuthenticationException
+                Unit
+            }.onFailure { e ->
                 handleConnectionFailure(
                     e as? Exception ?: Exception(e),
                     "Token auth",
-                    clearTokenForServer = if (authRejected) server.id else null,
                 )
             }
         }
@@ -520,7 +538,9 @@ object MusicAssistantManager {
         currentServer?.let { server ->
             MaSettings.clearTokenForServer(server.id)
         }
-        _connectionState.value = MaConnectionState.NeedsAuth
+        currentServerInfo = null
+        _connectionState.value = TransportState.Idle
+        _loginRequired.tryEmit(Unit)
     }
 
     /**
