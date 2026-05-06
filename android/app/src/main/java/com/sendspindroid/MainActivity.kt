@@ -17,10 +17,6 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.Build.VERSION_CODES
 import android.os.Bundle
@@ -151,6 +147,7 @@ class MainActivity : AppCompatActivity() {
     // (to avoid duplicates since Activity handles configChanges manually)
     private var scanningPollJob: Job? = null
     private var maConnectionObserverJob: Job? = null
+    private var networkStateObserverJob: Job? = null
 
     // ViewModel for managing UI state (survives configuration changes)
     private val viewModel: MainActivityViewModel by viewModels()
@@ -202,24 +199,6 @@ class MainActivity : AppCompatActivity() {
 
     // Charging state receiver for adaptive ping intervals
     private var chargingReceiver: BroadcastReceiver? = null
-
-    // Network state monitoring
-    private val connectivityManager by lazy {
-        getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    }
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
-
-    // Tracks NET_CAPABILITY_VALIDATED transitions on the Activity's network callback
-    // so we can surface a "no internet access" snackbar when WiFi is associated but
-    // has no upstream (captive portal, walked out of range, DNS hijack). The
-    // PlaybackService callback owns the actual reconnect-pause side effect; this
-    // field is UI-only.
-    //
-    // @Volatile: written from a binder thread (NetworkCallback) and read from the
-    // main looper via runOnUiThread. Null means "no prior state" -- first callback,
-    // no transition to compare against yet.
-    @Volatile
-    private var lastActivityValidatedState: Boolean? = null
 
     // Volume control - uses device STREAM_MUSIC (Spotify-style)
     private val audioManager by lazy {
@@ -767,6 +746,10 @@ class MainActivity : AppCompatActivity() {
         // Observe MA connection state to show/hide MA-dependent UI elements
         observeMaConnectionState()
 
+        // Observe network state from PlaybackService/Coordinator for pinger callbacks
+        // and network-loss snackbars (replaces the deleted ConnectivityManager.NetworkCallback).
+        observeNetworkState()
+
         // Volume slider - controls device STREAM_MUSIC (Spotify-style)
         // Initialize slider to current device volume
         syncSliderWithDeviceVolume()
@@ -1170,7 +1153,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        registerNetworkCallback()
         registerVolumeObserver()
         // Notify pinger of foreground state for adaptive intervals
         defaultServerPinger?.onForegroundChanged(true)
@@ -1178,7 +1160,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        unregisterNetworkCallback()
         unregisterVolumeObserver()
         // Notify pinger of background state for adaptive intervals
         defaultServerPinger?.onForegroundChanged(false)
@@ -1217,98 +1198,6 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         // Re-sync UI state with MediaController
         syncUIWithPlayerState()
-    }
-
-    // ============================================================================
-    // Network State Monitoring
-    // ============================================================================
-
-    /**
-     * Registers a network callback to monitor connectivity changes.
-     * Shows error when network is lost while connected to a server.
-     */
-    private fun registerNetworkCallback() {
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                Log.d(TAG, "Network available")
-                runOnUiThread {
-                    // If auto-reconnecting, trigger immediate retry (skip backoff delay)
-                    // The command handler in PlaybackService no-ops when not reconnecting.
-                    Log.i(TAG, "Network available - notifying service")
-                    sendCommandNetworkAvailable()
-                    // Notify default server pinger of network change (may trigger immediate ping)
-                    defaultServerPinger?.onNetworkChanged()
-                }
-            }
-
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                // Network type may have changed (WiFi <-> cellular) - notify pinger
-                // This triggers re-evaluation of connection priority
-                networkEvaluator?.evaluateCurrentNetwork(network)
-                defaultServerPinger?.onNetworkChanged()
-
-                // Detect NET_CAPABILITY_VALIDATED dropping. Android can keep INTERNET
-                // set while removing VALIDATED (captive portal, out of WiFi range with
-                // association still up, etc.), in which case onLost() never fires and
-                // the user would see no UI feedback. PlaybackService handles the
-                // reconnect-pause side effect in its own callback; here we just show
-                // the snackbar if the user is connected or actively connecting.
-                val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                if (lastActivityValidatedState == true && !isValidated) {
-                    Log.w(TAG, "Activity: network lost VALIDATED")
-                    runOnUiThread {
-                        if (connectionState is AppConnectionState.Connected ||
-                            connectionState is AppConnectionState.Connecting) {
-                            showErrorSnackbar(
-                                message = "Network has no internet access",
-                                errorType = ErrorType.NETWORK
-                            )
-                        }
-                    }
-                }
-                lastActivityValidatedState = isValidated
-            }
-
-            override fun onLost(network: Network) {
-                Log.w(TAG, "Network lost")
-                runOnUiThread {
-                    // Only show error if we're connected or connecting to a server
-                    if (connectionState is AppConnectionState.Connected ||
-                        connectionState is AppConnectionState.Connecting) {
-                        showErrorSnackbar(
-                            message = "Network connection lost",
-                            errorType = ErrorType.NETWORK
-                        )
-                    }
-                }
-            }
-        }
-
-        networkCallback = callback
-
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-
-        try {
-            connectivityManager.registerNetworkCallback(request, callback)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register network callback", e)
-        }
-    }
-
-    /**
-     * Unregisters the network callback to prevent leaks.
-     */
-    private fun unregisterNetworkCallback() {
-        networkCallback?.let {
-            try {
-                connectivityManager.unregisterNetworkCallback(it)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to unregister network callback", e)
-            }
-        }
-        networkCallback = null
     }
 
     // ============================================================================
@@ -2756,6 +2645,46 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Observes PlaybackService.networkState (mirrored from ConnectionCoordinator) to:
+     * - Notify DefaultServerPinger of every network change so it can trigger an immediate ping.
+     * - Show a "Network connection lost" snackbar when the network goes away while the user
+     *   is connected or connecting to a server.
+     *
+     * This replaces the deleted ConnectivityManager.NetworkCallback that MainActivity
+     * registered directly. The Coordinator owns the single NetworkCallback; both the
+     * validation-loss debounce and full link-loss paths emit isConnected=false, so a
+     * single snackbar message covers both cases.
+     */
+    private fun observeNetworkState() {
+        // Cancel any previous observer to prevent duplicates on config change
+        // (setupUI() is called again in onConfigurationChanged)
+        networkStateObserverJob?.cancel()
+        networkStateObserverJob = lifecycleScope.launch {
+            var prevConnected: Boolean? = null
+            PlaybackService.networkState.collect { state ->
+                // Notify pinger on every emission (matches the unconditional onAvailable /
+                // onCapabilitiesChanged behavior of the deleted networkCallback).
+                defaultServerPinger?.onNetworkChanged()
+
+                val connected = state.isConnected
+                if (prevConnected == true && !connected) {
+                    // Network was connected and is now gone (covers both full link-loss and
+                    // validation-loss-after-debounce paths in the Coordinator).
+                    Log.w(TAG, "networkState: connection lost (isConnected false)")
+                    if (connectionState is AppConnectionState.Connected ||
+                        connectionState is AppConnectionState.Connecting) {
+                        showErrorSnackbar(
+                            message = "Network connection lost",
+                            errorType = ErrorType.NETWORK
+                        )
+                    }
+                }
+                prevConnected = connected
+            }
+        }
+    }
+
+    /**
      * Show a login dialog for Music Assistant authentication.
      *
      * Displayed when the app detects an MA server but has no stored token
@@ -2951,12 +2880,6 @@ class MainActivity : AppCompatActivity() {
     private fun sendCommandCancelReconnect() {
         val controller = mediaController ?: return
         val command = SessionCommand(PlaybackService.COMMAND_CANCEL_RECONNECT, Bundle.EMPTY)
-        controller.sendCustomCommand(command, Bundle.EMPTY)
-    }
-
-    private fun sendCommandNetworkAvailable() {
-        val controller = mediaController ?: return
-        val command = SessionCommand(PlaybackService.COMMAND_NETWORK_AVAILABLE, Bundle.EMPTY)
         controller.sendCustomCommand(command, Bundle.EMPTY)
     }
 

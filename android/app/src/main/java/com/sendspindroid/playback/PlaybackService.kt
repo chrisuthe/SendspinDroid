@@ -412,7 +412,6 @@ class PlaybackService : MediaLibraryService() {
         const val COMMAND_DISCONNECT = "com.sendspindroid.DISCONNECT"
         const val COMMAND_SET_VOLUME = "com.sendspindroid.SET_VOLUME"
         const val COMMAND_NEXT = "com.sendspindroid.NEXT"
-        const val COMMAND_NETWORK_AVAILABLE = "com.sendspindroid.NETWORK_AVAILABLE"
         const val COMMAND_PREVIOUS = "com.sendspindroid.PREVIOUS"
         const val COMMAND_SWITCH_GROUP = "com.sendspindroid.SWITCH_GROUP"
         const val COMMAND_GET_STATS = "com.sendspindroid.GET_STATS"
@@ -518,6 +517,11 @@ class PlaybackService : MediaLibraryService() {
         // MA cache TTLs
         private const val MA_LIST_CACHE_TTL_MS = 5 * 60 * 1000L   // 5 minutes
         private const val MA_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000L // 10 minutes
+
+        // Exposes the coordinator's network state for in-process observers (e.g. MainActivity).
+        // Updated by the service's existing coordinator.networkState collector.
+        private val _networkState = MutableStateFlow(NetworkState())
+        val networkState: StateFlow<NetworkState> = _networkState.asStateFlow()
     }
 
     /**
@@ -699,10 +703,12 @@ class PlaybackService : MediaLibraryService() {
         }
 
         // Network-state observer: dispatches the side effects formerly inline in networkCallback.
-        // Observes the Coordinator's NetworkState to call setNetworkAvailable on the client.
+        // Observes the Coordinator's NetworkState to call setNetworkAvailable on the client,
+        // and mirrors the state into the companion flow for in-process observers (MainActivity).
         serviceScope.launch {
             var prevConnected: Boolean? = null
             coordinator.networkState.collect { state ->
+                _networkState.value = state
                 val connected = state.isConnected
                 // Only dispatch when the connected flag actually changes to avoid redundant calls.
                 if (connected != prevConnected) {
@@ -2845,7 +2851,6 @@ class PlaybackService : MediaLibraryService() {
                 .add(SessionCommand(COMMAND_CONNECT_PROXY, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_DISCONNECT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CANCEL_RECONNECT, Bundle.EMPTY))
-                .add(SessionCommand(COMMAND_NETWORK_AVAILABLE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_VOLUME, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_NEXT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_PREVIOUS, Bundle.EMPTY))
@@ -2950,11 +2955,6 @@ class PlaybackService : MediaLibraryService() {
 
                 COMMAND_CANCEL_RECONNECT -> {
                     coordinator.cancelReconnect()
-                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-                }
-
-                COMMAND_NETWORK_AVAILABLE -> {
-                    coordinator.onNetworkAvailable()
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
