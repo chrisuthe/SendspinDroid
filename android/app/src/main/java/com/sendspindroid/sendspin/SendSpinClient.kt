@@ -609,6 +609,20 @@ class SendSpinClient(
     }
 
     /**
+     * Connect to the given endpoint. Single entry point that replaces the
+     * three explicit connectLocal/Remote/Proxy methods. Phase 4 introduces
+     * this facade; the underlying methods stay for now (Task 3 migrates
+     * callers; legacy methods may be made private after the rename in Task 6).
+     */
+    fun connect(endpoint: SendSpinEndpoint) {
+        when (endpoint) {
+            is SendSpinEndpoint.Local -> connectLocal(endpoint.address, endpoint.path)
+            is SendSpinEndpoint.Proxy -> connectProxy(endpoint.url, endpoint.authToken)
+            is SendSpinEndpoint.Remote -> connectRemote(endpoint.remoteId)
+        }
+    }
+
+    /**
      * Configure a PROXY fallback for LOCAL mode. When set, the client will switch
      * internally to PROXY after [LOCAL_RECONNECT_FALLBACK_THRESHOLD] consecutive
      * LOCAL-mode reconnect failures, instead of retrying the dead LAN address
