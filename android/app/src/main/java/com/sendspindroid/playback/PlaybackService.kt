@@ -99,6 +99,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
+import com.sendspindroid.musicassistant.model.MaConnectionState
 
 /**
  * Background playback service for SendSpinDroid.
@@ -145,6 +148,9 @@ class PlaybackService : MediaLibraryService() {
     // Current server connection info (for MA integration)
     private var currentServerId: String? = null
     private var currentConnectionMode: ConnectionMode = ConnectionMode.LOCAL
+
+    // Active server as a flow — fed into ConnectionCoordinator in Task 5.
+    private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null
@@ -2106,6 +2112,8 @@ class PlaybackService : MediaLibraryService() {
         currentConnectionMode = connectionMode
         Log.d(TAG, "Set current server: $serverId, mode=$connectionMode")
 
+        _currentServerFlow.value = serverId?.let { UnifiedServerRepository.getServer(it) }
+
         // Configure PROXY fallback for internal LOCAL->PROXY switchover in the
         // reconnect loop. Only applies when connecting in LOCAL mode with a server
         // that also has a PROXY config; cleared (null/null) otherwise so a later
@@ -4061,4 +4069,28 @@ class PlaybackService : MediaLibraryService() {
 
         super.onDestroy()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Coordinator input-flow mapping helpers (Task 4)
+// These are file-level so they don't leak coordinator types into PlaybackService's
+// public API surface. Used only by the Coordinator wiring in Task 5.
+// ---------------------------------------------------------------------------
+
+private fun SendSpinClient.ConnectionState.toTransportState(): TransportState = when (this) {
+    is SendSpinClient.ConnectionState.Disconnected -> TransportState.Idle
+    is SendSpinClient.ConnectionState.Connecting   -> TransportState.Connecting
+    is SendSpinClient.ConnectionState.Connected    -> TransportState.Ready
+    // Error carries a message but Phase 1 maps all errors to TransientNetwork;
+    // finer-grained FailureReason classification comes in a later phase.
+    is SendSpinClient.ConnectionState.Error        -> TransportState.Failed(FailureReason.TransientNetwork)
+}
+
+private fun MaConnectionState.toTransportState(): TransportState = when (this) {
+    is MaConnectionState.Unavailable -> TransportState.Idle      // MA not applicable to this server
+    is MaConnectionState.NeedsAuth   -> TransportState.Idle      // No token yet; not yet attempting
+    is MaConnectionState.Connecting  -> TransportState.Connecting
+    is MaConnectionState.Connected   -> TransportState.Ready
+    // Error.isAuthError would map to FailureReason.AuthRejected in a later phase.
+    is MaConnectionState.Error       -> TransportState.Failed(FailureReason.TransientNetwork)
 }
