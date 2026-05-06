@@ -13,12 +13,6 @@ import android.media.AudioManager
 import android.provider.Settings
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.ConnectivityManager
-import android.net.LinkAddress
-import android.net.LinkProperties
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
@@ -383,40 +377,7 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
-    // Network change detection - resets time filter when network changes
-    private var connectivityManager: ConnectivityManager? = null
-
-    // @Volatile: written only from a binder thread (NetworkCallback.onAvailable) and
-    // may be read from other threads (future reconnect-coroutine paths). Single-writer
-    // contract: all writes occur inside onAvailable. -1 means "no prior network seen".
-    @Volatile
-    private var lastNetworkId: Int = -1
     private var networkEvaluator: NetworkEvaluator? = null
-
-    // Link-addresses tracking for detecting meaningful link-property changes
-    // (DHCP renewal on same AP, IPv4/IPv6 stack swap) that don't come through
-    // onAvailable because the Network identity is unchanged. The address set
-    // is the minimal high-signal indicator -- DNS reorders and MTU changes fire
-    // through the same callback as noise. Reset to null on network-identity
-    // change so a fresh network starts with a clean baseline. Issue #130.
-    //
-    // @Volatile: written from the binder callback thread, read from the same.
-    // Nullable: null means "no baseline yet", and the first onLinkPropertiesChanged
-    // after onAvailable takes no action (just records the baseline).
-    @Volatile
-    private var lastLinkAddresses: Set<LinkAddress>? = null
-
-    // VALIDATED capability tracking: Android may keep NET_CAPABILITY_INTERNET set
-    // while dropping NET_CAPABILITY_VALIDATED (e.g., WiFi associated but no upstream,
-    // captive portal, DNS hijack). onLost() does not fire in that case, so we watch
-    // for a VALIDATED=true->false transition in onCapabilitiesChanged and debounce
-    // briefly to ride through roaming probe flickers.
-    //
-    // @Volatile: written from a binder thread (NetworkCallback) and read from the
-    // main looper (validationLossRunnable). Null means "no prior state" -- first
-    // callback, no transition to compare against yet.
-    @Volatile
-    private var lastValidatedState: Boolean? = null
 
     // AudioManager for device volume control (Spotify-style hybrid approach)
     private var audioManager: AudioManager? = null
@@ -427,147 +388,6 @@ class PlaybackService : MediaLibraryService() {
     // Audio focus management - required for Android Auto to hand over audio output
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus: Boolean = false
-
-    // Runnable fired after VALIDATION_LOSS_DEBOUNCE_MS if VALIDATED has stayed false.
-    // Posted from onCapabilitiesChanged and cancelled if VALIDATED returns true before
-    // the debounce elapses (which is common during WiFi roaming / probe retries).
-    private val validationLossRunnable = Runnable {
-        if (lastValidatedState == false) {
-            Log.w(TAG, "Validation loss confirmed after debounce - notifying client")
-            sendSpinClient?.setNetworkAvailable(false)
-        }
-    }
-
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            val networkId = network.hashCode()
-            Log.d(TAG, "Network available: id=$networkId (last=$lastNetworkId)")
-
-            // Evaluate network conditions
-            networkEvaluator?.evaluateCurrentNetwork(network)
-
-            // Notify client that network is available - this handles both:
-            // 1. Resuming paused reconnection (waitingForNetwork)
-            // 2. Cancelling backoff for immediate retry (existing onNetworkAvailable behavior)
-            sendSpinClient?.setNetworkAvailable(true)
-            coordinator.onNetworkAvailable()
-
-            // Only trigger time filter reset + reselection if we had a previous network
-            // and it changed (not the very first callback on connect).
-            if (lastNetworkId != -1 && lastNetworkId != networkId) {
-                Log.i(TAG, "Network changed from $lastNetworkId to $networkId")
-                // Fresh network: drop the link-addresses baseline so the next
-                // onLinkPropertiesChanged establishes a new one rather than comparing
-                // against the old network's addresses. Issue #130.
-                lastLinkAddresses = null
-                sendSpinClient?.onNetworkChanged()
-
-                // A network identity change means the old transport address may no
-                // longer be reachable (typical case: WiFi -> Cellular while a LAN
-                // LOCAL connection is in use). The inner reconnect loop would retry
-                // the old mode forever; instead, cleanly yield so the outer
-                // AutoReconnectManager loop re-runs ConnectionSelector against the
-                // new network and picks the right mode. Unconditional because the
-                // cost of an unnecessary reselection is one extra reconnect cycle,
-                // while the cost of a missed reselection is ~50s of blackout.
-                val connState = sendSpinClient?.connectionState?.value
-                val shouldReselect = connState is SendSpinClient.ConnectionState.Connected ||
-                                     connState is SendSpinClient.ConnectionState.Connecting
-                if (shouldReselect) {
-                    Log.i(TAG, "Triggering connection reselection for new network")
-                    sendSpinClient?.disconnectForReselection()
-                }
-            }
-            lastNetworkId = networkId
-        }
-
-        override fun onLost(network: Network) {
-            Log.d(TAG, "Network lost: id=${network.hashCode()}")
-            // Don't reset lastNetworkId here - we want to detect when a new network comes up
-            // Update network evaluator to reflect disconnected state only if nothing else is up
-            val stillHaveNetwork = connectivityManager?.activeNetwork != null
-            networkEvaluator?.evaluateCurrentNetwork(
-                if (stillHaveNetwork) connectivityManager?.activeNetwork else null
-            )
-            // Cancel any pending validation-loss debounce; onLost is authoritative.
-            mainHandler.removeCallbacks(validationLossRunnable)
-            // Only signal unavailability if we have no active network. During a
-            // transport handover (WiFi -> Cellular), onLost(WiFi) fires AFTER
-            // onAvailable(Cellular); blindly calling setNetworkAvailable(false)
-            // there would pause the reconnect loop despite having a working
-            // network, making the observable blackout longer.
-            if (!stillHaveNetwork) {
-                Log.i(TAG, "No active network remaining - pausing client reconnect")
-                sendSpinClient?.setNetworkAvailable(false)
-                // No active network means no link-addresses baseline is meaningful.
-                // Leave lastNetworkId as-is (we want to detect a new network later),
-                // but clear addresses so onLinkPropertiesChanged after the next
-                // onAvailable starts fresh. Issue #130.
-                lastLinkAddresses = null
-            } else {
-                Log.d(TAG, "Another network still active - keeping client reconnect running")
-            }
-        }
-
-        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            // Re-evaluate network conditions when capabilities change (e.g., signal strength)
-            Log.d(TAG, "Network capabilities changed: id=${network.hashCode()}")
-            networkEvaluator?.evaluateCurrentNetwork(network)
-
-            // Track NET_CAPABILITY_VALIDATED. A true->false transition means the
-            // network is still associated but Android's validation probe failed --
-            // e.g., walked out of WiFi range (association persists briefly),
-            // captive portal, DNS hijack, or upstream outage. In that case onLost()
-            // will not fire, so without this check the WebSocket sits open until
-            // ping timeout (~30s) long after the audio buffer drained.
-            val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            val wasValidated = lastValidatedState
-            lastValidatedState = isValidated
-
-            // Skip transition logic on the first callback (wasValidated == null) - we have
-            // no "previous state" to compare against, so there is no transition yet.
-            if (wasValidated == true && !isValidated) {
-                Log.w(TAG, "Network lost VALIDATED - debouncing ${VALIDATION_LOSS_DEBOUNCE_MS}ms")
-                mainHandler.removeCallbacks(validationLossRunnable)
-                mainHandler.postDelayed(validationLossRunnable, VALIDATION_LOSS_DEBOUNCE_MS)
-            } else if (wasValidated == false && isValidated) {
-                Log.i(TAG, "Network regained VALIDATED")
-                mainHandler.removeCallbacks(validationLossRunnable)
-                // setNetworkAvailable(true) triggers immediate reconnect via
-                // onNetworkAvailable() per SendSpinClient.kt (no-op if already connected).
-                sendSpinClient?.setNetworkAvailable(true)
-            }
-        }
-
-        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            // Only care about link-property changes on the currently-active network.
-            // Changes on a different network are either about-to-replace-us (handled
-            // by onAvailable) or already-departed (handled by onLost).
-            if (network.hashCode() != lastNetworkId) return
-
-            val prev = lastLinkAddresses
-            val current = linkProperties.linkAddresses.toSet()
-            lastLinkAddresses = current
-
-            // First callback after onAvailable establishes the baseline -- no action.
-            if (prev == null) return
-            // Filter out callback noise: DNS reorders, MTU changes, and route updates
-            // all fire this callback but don't change the visible address set.
-            if (prev == current) return
-
-            Log.i(TAG, "Link addresses changed on active network: $prev -> $current")
-
-            // Soft refresh: drop the stale RTT baseline. onNetworkChanged() internally
-            // no-ops during active reconnection / frozen filter, so this call is safe
-            // unconditionally. Issue #130.
-            sendSpinClient?.onNetworkChanged()
-
-            // Refresh the multicast lock if mDNS discovery is active. Link changes can
-            // silently invalidate the existing lock, leaving discovery unable to
-            // receive any further announcements. No-op when discovery isn't running.
-            browseDiscoveryManager?.refreshMulticastLockIfActive()
-        }
-    }
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -581,12 +401,6 @@ class PlaybackService : MediaLibraryService() {
 
         // Debug logging interval (1 sample per second)
         private const val DEBUG_LOG_INTERVAL_MS = 1000L
-
-        // Debounce before acting on NET_CAPABILITY_VALIDATED loss. Android's
-        // validation probe can flicker briefly during WiFi roaming or captive-portal
-        // probes; 3s rides through those while still firing well before the ~30s
-        // WebSocket ping timeout would otherwise notice a silent WiFi drop.
-        private const val VALIDATION_LOSS_DEBOUNCE_MS = 3_000L
 
         // Timeout for awaiting a terminal connection state in connectViaSelectedConnection.
         private const val CONNECT_TIMEOUT_MS = 15_000L
@@ -884,6 +698,47 @@ class PlaybackService : MediaLibraryService() {
             }
         }
 
+        // Network-state observer: dispatches the side effects formerly inline in networkCallback.
+        // Observes the Coordinator's NetworkState to call setNetworkAvailable on the client.
+        serviceScope.launch {
+            var prevConnected: Boolean? = null
+            coordinator.networkState.collect { state ->
+                val connected = state.isConnected
+                // Only dispatch when the connected flag actually changes to avoid redundant calls.
+                if (connected != prevConnected) {
+                    prevConnected = connected
+                    sendSpinClient?.setNetworkAvailable(connected)
+                    Log.d(TAG, "networkState observer: setNetworkAvailable($connected)")
+                }
+            }
+        }
+
+        // NetworkEvent observer: dispatches Android-specific events (identity/link-address changes)
+        // that cannot be encoded in the platform-neutral NetworkState.
+        serviceScope.launch {
+            coordinator.networkEvents.collect { event ->
+                when (event) {
+                    is com.sendspindroid.coordinator.NetworkEvent.IdentityChanged -> {
+                        Log.i(TAG, "networkEvent: IdentityChanged handle=${event.networkHandle}")
+                        sendSpinClient?.onNetworkChanged()
+                        val connState = sendSpinClient?.connectionState?.value
+                        val shouldReselect =
+                            connState is SendSpinClient.ConnectionState.Connected ||
+                            connState is SendSpinClient.ConnectionState.Connecting
+                        if (shouldReselect) {
+                            Log.i(TAG, "Triggering connection reselection for new network")
+                            sendSpinClient?.disconnectForReselection()
+                        }
+                    }
+                    is com.sendspindroid.coordinator.NetworkEvent.LinkAddressesChanged -> {
+                        Log.i(TAG, "networkEvent: LinkAddressesChanged")
+                        sendSpinClient?.onNetworkChanged()
+                        browseDiscoveryManager?.refreshMulticastLockIfActive()
+                    }
+                }
+            }
+        }
+
         // Launch the single-owner decode worker. Task 3 scaffolding: no
         // callback currently sends into decodeChannel. Task 4 flips the
         // existing onAudioChunk / onStreamStart / onStreamClear / onDestroy
@@ -892,9 +747,6 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize network evaluator for passive network monitoring
         networkEvaluator = NetworkEvaluator(this)
-
-        // Register network callback to detect network changes
-        registerNetworkCallback()
 
         // Perform initial network evaluation
         networkEvaluator?.evaluateCurrentNetwork()
@@ -964,39 +816,6 @@ class PlaybackService : MediaLibraryService() {
         volumeObserverRegistered = true
 
         Log.d(TAG, "Volume control initialized - using device STREAM_MUSIC")
-    }
-
-    /**
-     * Registers a network callback to detect when the network changes.
-     * When the network changes (e.g., WiFi AP handoff, WiFi→mobile), we reset
-     * the time filter to force re-synchronization since latency may have changed.
-     */
-    private fun registerNetworkCallback() {
-        try {
-            connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val request = NetworkRequest.Builder()
-                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                .build()
-            connectivityManager?.registerNetworkCallback(request, networkCallback)
-            Log.d(TAG, "Network callback registered")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register network callback", e)
-        }
-    }
-
-    /**
-     * Unregisters the network callback.
-     */
-    private fun unregisterNetworkCallback() {
-        // Cancel any pending validation-loss debounce so it cannot fire after
-        // the service has torn down its callback/client state.
-        mainHandler.removeCallbacks(validationLossRunnable)
-        try {
-            connectivityManager?.unregisterNetworkCallback(networkCallback)
-            Log.d(TAG, "Network callback unregistered")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to unregister network callback", e)
-        }
     }
 
     /**
@@ -4163,9 +3982,6 @@ class PlaybackService : MediaLibraryService() {
         // Stop debug logging (also removes callbacks, but flag is set above)
         stopDebugLogging()
 
-        // Unregister network callback
-        unregisterNetworkCallback()
-
         // Unregister sync offset receiver
         LocalBroadcastManager.getInstance(this).unregisterReceiver(syncOffsetReceiver)
 
@@ -4201,6 +4017,7 @@ class PlaybackService : MediaLibraryService() {
             withTimeoutOrNull(500) { decodeJob?.join() }
         }
 
+        if (::coordinator.isInitialized) coordinator.close()
         serviceScope.cancel()
         imageLoader?.shutdown()
 
