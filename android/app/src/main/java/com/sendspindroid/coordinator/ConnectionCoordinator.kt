@@ -3,7 +3,7 @@ package com.sendspindroid.coordinator
 import com.sendspindroid.model.ConnectionType
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.network.ConnectionSelector
-import com.sendspindroid.network.TransportType
+import com.sendspindroid.network.NetworkState
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +45,7 @@ class ConnectionCoordinator(
     private val scope: CoroutineScope,
     private val onDisconnectRequested: () -> Unit,
     private val connectAttempt: suspend (UnifiedServer, ConnectionType) -> Boolean,
+    private val context: android.content.Context,
 ) {
     companion object {
         private val BACKOFF_DELAYS = listOf(
@@ -70,6 +71,9 @@ class ConnectionCoordinator(
 
     private val _reconnectStatusFlow = MutableStateFlow<ReconnectStatus>(ReconnectStatus.Idle)
     val reconnectStatus: StateFlow<ReconnectStatus> = _reconnectStatusFlow
+
+    private val _networkState = MutableStateFlow<NetworkState>(NetworkState())
+    val networkState: StateFlow<NetworkState> = _networkState
 
     private var reconnectJob: Job? = null
     private var reconnectingServer: UnifiedServer? = null
@@ -142,7 +146,7 @@ class ConnectionCoordinator(
             if (skippedByNetwork) delay(MIN_DELAY_AFTER_NETWORK_SKIP_MS)
             coroutineContext.ensureActive()
 
-            val methods = ConnectionSelector.getPriorityOrder(TransportType.UNKNOWN)
+            val methods = priorityMethodsForCurrentNetwork()
             var succeeded = false
             for (method in methods) {
                 coroutineContext.ensureActive()
@@ -183,6 +187,10 @@ class ConnectionCoordinator(
         isReconnecting.set(false)
         reconnectingServer = null
         currentAttempt.set(0)
+    }
+
+    private fun priorityMethodsForCurrentNetwork(): List<ConnectionType> {
+        return ConnectionSelector.getPriorityOrder(_networkState.value.transportType)
     }
 
     private fun serverHasMethod(server: UnifiedServer, method: ConnectionType): Boolean = when (method) {

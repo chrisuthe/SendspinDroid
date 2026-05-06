@@ -1,10 +1,12 @@
 package com.sendspindroid.coordinator
 
+import android.content.Context
 import com.sendspindroid.model.ConnectionType
 import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
+import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -31,6 +33,7 @@ class ConnectionCoordinatorTest {
             scope = TestScope(StandardTestDispatcher(testScheduler)),
             onDisconnectRequested = {},
             connectAttempt = { _, _ -> false },
+            context = mockk(relaxed = true),
         )
 
         // Initial state
@@ -56,6 +59,7 @@ class ConnectionCoordinatorTest {
             scope = TestScope(StandardTestDispatcher(testScheduler)),
             onDisconnectRequested = { called++ },
             connectAttempt = { _, _ -> false },
+            context = mockk(relaxed = true),
         )
 
         coordinator.disconnect()
@@ -126,6 +130,7 @@ class ConnectionCoordinatorTest {
             scope = TestScope(StandardTestDispatcher(testScheduler)),
             onDisconnectRequested = {},
             connectAttempt = connectAttempt,
+            context = mockk(relaxed = true),
         )
     }
 

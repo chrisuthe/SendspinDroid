@@ -874,6 +874,7 @@ class PlaybackService : MediaLibraryService() {
                 } ?: return@ConnectionCoordinator false
                 connectViaSelectedConnection(server, selected)
             },
+            context = applicationContext,
         )
 
         // Broadcast reconnect status changes to MediaController consumers via session extras.
