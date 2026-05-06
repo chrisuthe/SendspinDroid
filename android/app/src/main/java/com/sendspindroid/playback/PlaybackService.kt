@@ -83,7 +83,6 @@ import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
-import com.sendspindroid.network.AutoReconnectManager
 import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.NetworkState
@@ -157,10 +156,8 @@ class PlaybackService : MediaLibraryService() {
 
     // Active server as a flow, consumed by ConnectionCoordinator.
     private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
-    private val _reconnectStatusFlow = MutableStateFlow<ReconnectStatus>(ReconnectStatus.Idle)
 
     private lateinit var coordinator: ConnectionCoordinator
-    private lateinit var autoReconnectManager: AutoReconnectManager
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null
@@ -856,33 +853,6 @@ class PlaybackService : MediaLibraryService() {
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
 
-        autoReconnectManager = AutoReconnectManager(
-            context = this,
-            onAttempt = { serverId, attempt, maxAttempts, method ->
-                _reconnectStatusFlow.value = ReconnectStatus.Attempting(
-                    serverId = serverId,
-                    attempt = attempt,
-                    maxAttempts = maxAttempts,
-                    method = method,
-                )
-            },
-            onMethodAttempt = { serverId, method ->
-                val current = _reconnectStatusFlow.value
-                if (current is ReconnectStatus.Attempting && current.serverId == serverId) {
-                    _reconnectStatusFlow.value = current.copy(method = method)
-                }
-            },
-            onSuccess = { serverId ->
-                _reconnectStatusFlow.value = ReconnectStatus.Succeeded(serverId)
-            },
-            onFailure = { serverId, error ->
-                _reconnectStatusFlow.value = ReconnectStatus.Failed(serverId, error)
-            },
-            connectToServer = { server, selectedConnection ->
-                connectViaSelectedConnection(server, selectedConnection)
-            },
-        )
-
         coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
             sendSpinStateFlow = sendSpinClient?.connectionState?.map { it.toTransportState() }
@@ -1041,6 +1011,7 @@ class PlaybackService : MediaLibraryService() {
                 deviceName = playerName,
                 callback = SendSpinClientCallback()
             )
+            sendSpinClient?.selfReconnectEnabled = false
             sendSpinPlayer?.setSendSpinClient(sendSpinClient)
             Log.d(TAG, "SendSpinClient initialized with name: $playerName")
         } catch (e: Exception) {
@@ -4229,9 +4200,6 @@ class PlaybackService : MediaLibraryService() {
             withTimeoutOrNull(500) { decodeJob?.join() }
         }
 
-        if (::autoReconnectManager.isInitialized) {
-            autoReconnectManager.destroy()
-        }
         serviceScope.cancel()
         imageLoader?.shutdown()
 
