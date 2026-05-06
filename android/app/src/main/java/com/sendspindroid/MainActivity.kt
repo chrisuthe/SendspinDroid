@@ -1231,12 +1231,14 @@ class MainActivity : AppCompatActivity() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 Log.d(TAG, "Network available")
-                // If auto-reconnecting, trigger immediate retry (skip backoff delay)
-                // The command handler in PlaybackService no-ops when not reconnecting.
-                Log.i(TAG, "Network available - notifying service")
-                sendCommandNetworkAvailable()
-                // Notify default server pinger of network change (may trigger immediate ping)
-                defaultServerPinger?.onNetworkChanged()
+                runOnUiThread {
+                    // If auto-reconnecting, trigger immediate retry (skip backoff delay)
+                    // The command handler in PlaybackService no-ops when not reconnecting.
+                    Log.i(TAG, "Network available - notifying service")
+                    sendCommandNetworkAvailable()
+                    // Notify default server pinger of network change (may trigger immediate ping)
+                    defaultServerPinger?.onNetworkChanged()
+                }
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
