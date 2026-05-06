@@ -453,6 +453,7 @@ class PlaybackService : MediaLibraryService() {
             // 1. Resuming paused reconnection (waitingForNetwork)
             // 2. Cancelling backoff for immediate retry (existing onNetworkAvailable behavior)
             sendSpinClient?.setNetworkAvailable(true)
+            coordinator.onNetworkAvailable()
 
             // Only trigger time filter reset + reselection if we had a previous network
             // and it changed (not the very first callback on connect).
@@ -594,10 +595,13 @@ class PlaybackService : MediaLibraryService() {
         private const val CONNECT_TIMEOUT_MS = 15_000L
 
         // Custom session commands
+        const val COMMAND_CANCEL_RECONNECT = "com.sendspindroid.CANCEL_RECONNECT"
         const val COMMAND_CONNECT = "com.sendspindroid.CONNECT"
+        const val COMMAND_CONNECT_AUTO = "com.sendspindroid.CONNECT_AUTO"
         const val COMMAND_DISCONNECT = "com.sendspindroid.DISCONNECT"
         const val COMMAND_SET_VOLUME = "com.sendspindroid.SET_VOLUME"
         const val COMMAND_NEXT = "com.sendspindroid.NEXT"
+        const val COMMAND_NETWORK_AVAILABLE = "com.sendspindroid.NETWORK_AVAILABLE"
         const val COMMAND_PREVIOUS = "com.sendspindroid.PREVIOUS"
         const val COMMAND_SWITCH_GROUP = "com.sendspindroid.SWITCH_GROUP"
         const val COMMAND_GET_STATS = "com.sendspindroid.GET_STATS"
@@ -2991,9 +2995,12 @@ class PlaybackService : MediaLibraryService() {
             // commands needed by Android Auto and other MediaBrowserCompat clients.
             val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
                 .add(SessionCommand(COMMAND_CONNECT, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_CONNECT_AUTO, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CONNECT_REMOTE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_CONNECT_PROXY, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_DISCONNECT, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_CANCEL_RECONNECT, Bundle.EMPTY))
+                .add(SessionCommand(COMMAND_NETWORK_AVAILABLE, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_SET_VOLUME, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_NEXT, Bundle.EMPTY))
                 .add(SessionCommand(COMMAND_PREVIOUS, Bundle.EMPTY))
@@ -3076,6 +3083,33 @@ class PlaybackService : MediaLibraryService() {
 
                 COMMAND_DISCONNECT -> {
                     coordinator.disconnect()
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                COMMAND_CONNECT_AUTO -> {
+                    val serverId = args.getString(ARG_SERVER_ID)
+                    if (serverId != null) {
+                        val server = UnifiedServerRepository.getServer(serverId)
+                        if (server != null) {
+                            coordinator.connect(server)
+                            Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                        } else {
+                            Log.w(TAG, "COMMAND_CONNECT_AUTO: unknown server id $serverId")
+                            Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                        }
+                    } else {
+                        Log.w(TAG, "COMMAND_CONNECT_AUTO: missing $ARG_SERVER_ID")
+                        Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                    }
+                }
+
+                COMMAND_CANCEL_RECONNECT -> {
+                    coordinator.cancelReconnect()
+                    Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
+                COMMAND_NETWORK_AVAILABLE -> {
+                    coordinator.onNetworkAvailable()
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
 
