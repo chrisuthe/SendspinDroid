@@ -14,7 +14,6 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -154,12 +153,6 @@ class SendSpinClientReconnectBackoffTest {
             attemptReconnect.invoke(client)
         }
 
-        verify(exactly = 0) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
-        verify(exactly = 10) {
-            mockCallback.onReconnecting(any(), any())
-        }
         assertTrue(
             "State should remain Connecting below cap, was: ${client.connectionState.value}",
             client.connectionState.value is TransportState.Connecting
@@ -181,16 +174,14 @@ class SendSpinClientReconnectBackoffTest {
             attemptReconnect.invoke(client)
         }
         assertEquals(20, client.getReconnectAttempts())
-        verify(exactly = 0) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
+        assertFalse(
+            "State should NOT be Failed before cap is hit, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Failed
+        )
 
         // The 21st call is the one that should detect the cap and fire exhausted.
         attemptReconnect.invoke(client)
 
-        verify(exactly = 1) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
         assertTrue(
             "State should transition to Failed after cap, was: ${client.connectionState.value}",
             client.connectionState.value is TransportState.Failed
@@ -303,17 +294,7 @@ class SendSpinClientReconnectBackoffTest {
             attemptReconnect.invoke(client)
         }
 
-        // Should NOT have called onDisconnected with wasReconnectExhausted=true
-        verify(exactly = 0) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
-
-        // All 6 should have been onReconnecting calls
-        verify(exactly = 6) {
-            mockCallback.onReconnecting(any(), any())
-        }
-
-        // State should still be Connecting (not Error)
+        // State should still be Connecting (not Failed)
         assertTrue(
             "State should remain Connecting in high power mode, was: ${client.connectionState.value}",
             client.connectionState.value is TransportState.Connecting
@@ -333,13 +314,10 @@ class SendSpinClientReconnectBackoffTest {
             attemptReconnect.invoke(client)
         }
 
-        verify(exactly = 0) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
-
-        verify(exactly = 10) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        assertFalse(
+            "State should NOT be Failed in high power mode after 10 attempts, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Failed
+        )
     }
 
     @Test
@@ -354,9 +332,10 @@ class SendSpinClientReconnectBackoffTest {
 
         attemptReconnect.invoke(client)
 
-        // Should not have called onReconnecting (the disconnect callback is from disconnect())
-        verify(exactly = 0) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // User-initiated disconnect blocks reconnection; state should be Idle (not Connecting)
+        assertFalse(
+            "State should NOT be Connecting after user-initiated disconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
     }
 }

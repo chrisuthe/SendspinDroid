@@ -157,7 +157,10 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
 
         // Should be connected
         assertTrue("Should be connected after remote handshake", client.isConnected)
-        verify { mockCallback.onConnected("TestServer") }
+        assertTrue(
+            "State should be Ready after remote handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
+        )
     }
 
     @Test
@@ -194,9 +197,10 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
         client.disconnect()
 
         assertFalse("Should be disconnected", client.isConnected)
-        verify {
-            mockCallback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
-        }
+        assertTrue(
+            "State should be Idle after user disconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Idle
+        )
     }
 
     @Test
@@ -215,7 +219,10 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // Should attempt reconnection (remote ID is saved)
-        verify { mockCallback.onReconnecting(1, any()) }
+        // Should attempt reconnection (remote ID is saved, state transitions to Connecting)
+        assertTrue(
+            "State should be Connecting during reconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Connecting
+        )
     }
 }

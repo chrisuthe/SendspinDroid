@@ -18,6 +18,7 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
+import com.sendspindroid.coordinator.TransportState as CoordinatorTransportState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -113,7 +114,7 @@ class SendSpinClientDisconnectTest {
     }
 
     @Test
-    fun `disconnect fires onDisconnected exactly once even if transport onClosed races`() {
+    fun `disconnect transitions to Idle exactly once even if transport onClosed races`() {
         // Create a transport that synchronously fires onClosed when close() is called,
         // simulating the worst-case race condition that H-02 describes.
         var capturedListener: SendSpinTransport.Listener? = null
@@ -144,19 +145,15 @@ class SendSpinClientDisconnectTest {
         listenerField.isAccessible = true
         listenerField.set(client, racyTransport)
 
-        // Now simulate what happens: the transport has a listener set
-        // (the real connect flow sets it via TransportEventListener)
-        // We need to set the listener to a real TransportEventListener, but since
-        // it's an inner class we can't instantiate directly. However, after the fix,
-        // setListener(null) is called before close(), so the race can't happen.
-
         // Call disconnect
         client.disconnect()
 
-        // Verify onDisconnected was called exactly once
-        verify(exactly = 1) {
-            mockCallback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
-        }
+        // StateFlow naturally deduplicates: even if both the disconnect() path and
+        // the raced onClosed() path write Idle, the observable state is Idle once.
+        assertTrue(
+            "State should be Idle after disconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Idle
+        )
     }
 
     @Test
@@ -169,10 +166,11 @@ class SendSpinClientDisconnectTest {
         // Should not throw
         client.disconnect()
 
-        // Callback should still be fired once
-        verify(exactly = 1) {
-            mockCallback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
-        }
+        // State should still transition to Idle
+        assertTrue(
+            "State should be Idle after disconnect with null transport, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Idle
+        )
     }
 
     // =========================================================================
@@ -429,7 +427,10 @@ class SendSpinClientDisconnectTest {
             stateField.get(client) as Boolean
         )
 
-        // onConnected callback should have been fired
-        verify { mockCallback.onConnected("TestServer") }
+        // State should be Ready (handshake completed, connection flow ran)
+        assertTrue(
+            "State should be Ready after server/hello, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Ready
+        )
     }
 }

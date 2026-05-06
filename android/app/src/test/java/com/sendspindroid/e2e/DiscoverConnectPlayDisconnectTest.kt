@@ -3,7 +3,6 @@ package com.sendspindroid.e2e
 import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.SendSpinClient
 import io.mockk.verify
-import io.mockk.verifyOrder
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -30,7 +29,10 @@ class DiscoverConnectPlayDisconnectTest : E2ETestBase() {
         // Verify handshake
         assertTrue("Client should be connected", client.isConnected)
         assertEquals("TestServer", client.getServerName())
-        verify { mockCallback.onConnected("TestServer") }
+        assertTrue(
+            "State should be Ready after handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Ready
+        )
 
         // Step 3: Server starts audio stream
         fakeServer.sendStreamStart(codec = "pcm", sampleRate = 48000, channels = 2, bitDepth = 16)
@@ -68,10 +70,11 @@ class DiscoverConnectPlayDisconnectTest : E2ETestBase() {
         assertEquals(1000, fakeTransport.closeCode)
         assertFalse("Client should not be connected after disconnect", client.isConnected)
 
-        // onDisconnected should fire exactly once, user-initiated
-        verify(exactly = 1) {
-            mockCallback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
-        }
+        // State should be Idle after user disconnect
+        assertTrue(
+            "State should be Idle after user disconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Idle
+        )
     }
 
     @Test

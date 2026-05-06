@@ -118,7 +118,10 @@ class ProxyConnectAuthTest : E2ETestBase() {
 
         // Should be connected now
         assertTrue("Should be connected after proxy handshake", client.isConnected)
-        verify { mockCallback.onConnected("TestServer") }
+        assertTrue(
+            "State should be Ready after proxy handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
+        )
     }
 
     @Test
@@ -134,8 +137,12 @@ class ProxyConnectAuthTest : E2ETestBase() {
         // Server rejects auth
         fakeServer.sendAuthFailed("Invalid token")
 
-        // Should report error
-        verify { mockCallback.onError(any()) }
+        // State should transition to Failed (auth rejected)
+        assertTrue(
+            "State should be Failed after auth rejection, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Failed ||
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Idle
+        )
     }
 
     @Test
@@ -181,8 +188,11 @@ class ProxyConnectAuthTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // Should attempt reconnection (auth token and address are preserved)
-        verify { mockCallback.onReconnecting(1, any()) }
+        // Should attempt reconnection (state transitions to Connecting)
+        assertTrue(
+            "State should be Connecting during proxy reconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Connecting
+        )
 
         // Connection mode should still be PROXY
         assertEquals(SendSpinClient.ConnectionMode.PROXY, client.getConnectionMode())

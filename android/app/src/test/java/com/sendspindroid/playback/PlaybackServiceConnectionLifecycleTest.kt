@@ -182,19 +182,24 @@ class PlaybackServiceConnectionLifecycleTest {
     }
 
     @Test
-    fun `callback interface declares all required connection lifecycle methods`() {
-        // Verify the Callback interface has the methods PlaybackService depends on
+    fun `callback interface declares all required streaming and metadata methods`() {
+        // Verify the Callback interface has the streaming/metadata methods PlaybackService depends on.
+        // State lifecycle methods (onConnected, onDisconnected, onError, onReconnecting, onReconnected)
+        // have been removed -- PlaybackService now observes connectionState StateFlow instead.
         val callbackClass = SendSpinClient.Callback::class.java
         val methodNames = callbackClass.methods.map { it.name }
 
-        assertTrue("Should have onConnected", "onConnected" in methodNames)
-        assertTrue("Should have onDisconnected", "onDisconnected" in methodNames)
-        assertTrue("Should have onError", "onError" in methodNames)
         assertTrue("Should have onStateChanged", "onStateChanged" in methodNames)
         assertTrue("Should have onStreamStart", "onStreamStart" in methodNames)
         assertTrue("Should have onStreamEnd", "onStreamEnd" in methodNames)
         assertTrue("Should have onAudioChunk", "onAudioChunk" in methodNames)
-        assertTrue("Should have onReconnecting", "onReconnecting" in methodNames)
-        assertTrue("Should have onReconnected", "onReconnected" in methodNames)
+        assertTrue("Should have onMetadataUpdate", "onMetadataUpdate" in methodNames)
+
+        // Verify removed state-lifecycle methods are gone
+        assertFalse("onConnected should be removed", "onConnected" in methodNames)
+        assertFalse("onDisconnected should be removed", "onDisconnected" in methodNames)
+        assertFalse("onError should be removed", "onError" in methodNames)
+        assertFalse("onReconnecting should be removed", "onReconnecting" in methodNames)
+        assertFalse("onReconnected should be removed", "onReconnected" in methodNames)
     }
 }

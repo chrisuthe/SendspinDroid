@@ -13,7 +13,6 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -105,15 +104,13 @@ class SendSpinClientDisconnectForReselectionTest {
     }
 
     @Test
-    fun `disconnectForReselection fires onDisconnected with wasUserInitiated false and wasReconnectExhausted false`() {
+    fun `disconnectForReselection transitions to Idle state`() {
         client.disconnectForReselection()
 
-        verify(exactly = 1) {
-            mockCallback.onDisconnected(
-                wasUserInitiated = false,
-                wasReconnectExhausted = false
-            )
-        }
+        assertTrue(
+            "State should be Idle after reselection disconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Idle
+        )
     }
 
     @Test

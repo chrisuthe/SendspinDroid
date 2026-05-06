@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.coordinator.TransportState as CoordinatorTransportState
 import com.sendspindroid.sendspin.transport.SendSpinTransport
 import com.sendspindroid.sendspin.transport.TransportState
 import io.mockk.every
@@ -13,7 +14,6 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -116,7 +116,10 @@ class SendSpinClientPreHandshakeReconnectTest {
 
         listener.onClosed(code = 1006, reason = "abnormal")
 
-        verify(atLeast = 1) { mockCallback.onReconnecting(any(), any()) }
+        assertTrue(
+            "State should be Connecting after abnormal pre-handshake close, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Connecting
+        )
     }
 
     @Test
@@ -128,8 +131,10 @@ class SendSpinClientPreHandshakeReconnectTest {
 
         listener.onClosed(code = 1000, reason = "normal")
 
-        verify(exactly = 0) { mockCallback.onReconnecting(any(), any()) }
-        verify(atLeast = 1) { mockCallback.onDisconnected(any(), any()) }
+        assertTrue(
+            "State should be Idle after normal closure pre-handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Idle
+        )
     }
 
     @Test
@@ -140,7 +145,10 @@ class SendSpinClientPreHandshakeReconnectTest {
 
         listener.onClosed(code = 1006, reason = "abnormal post-handshake")
 
-        verify(atLeast = 1) { mockCallback.onReconnecting(any(), any()) }
+        assertTrue(
+            "State should be Connecting after abnormal post-handshake close, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Connecting
+        )
     }
 
     @Test
@@ -151,8 +159,10 @@ class SendSpinClientPreHandshakeReconnectTest {
 
         listener.onClosed(code = 1000, reason = "server shutdown")
 
-        verify(exactly = 0) { mockCallback.onReconnecting(any(), any()) }
-        verify(atLeast = 1) { mockCallback.onDisconnected(any(), any()) }
+        assertTrue(
+            "State should be Idle after normal closure post-handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Idle
+        )
     }
 
     // =========================================================================
@@ -166,7 +176,10 @@ class SendSpinClientPreHandshakeReconnectTest {
 
         listener.onFailure(SocketException("connection reset"), isRecoverable = true)
 
-        verify(atLeast = 1) { mockCallback.onReconnecting(any(), any()) }
+        assertTrue(
+            "State should be Connecting after recoverable failure, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Connecting
+        )
     }
 
     @Test
@@ -178,8 +191,10 @@ class SendSpinClientPreHandshakeReconnectTest {
 
         listener.onFailure(UnknownHostException("no such host"), isRecoverable = false)
 
-        verify(exactly = 0) { mockCallback.onReconnecting(any(), any()) }
-        verify(atLeast = 1) { mockCallback.onError(any()) }
+        assertTrue(
+            "State should be Failed after non-recoverable failure, was: ${client.connectionState.value}",
+            client.connectionState.value is CoordinatorTransportState.Failed
+        )
     }
 
     // --- helpers ---

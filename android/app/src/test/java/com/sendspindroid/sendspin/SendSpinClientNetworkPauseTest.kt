@@ -14,7 +14,6 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -205,7 +204,7 @@ class SendSpinClientNetworkPauseTest {
     }
 
     @Test
-    fun `onReconnecting callback fires with paused state when network unavailable`() {
+    fun `state transitions to Connecting when paused due to network unavailable`() {
         setupForReconnection()
         client.setNetworkAvailable(false)
 
@@ -213,10 +212,11 @@ class SendSpinClientNetworkPauseTest {
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
-        // Even when paused, the UI should be notified that we're reconnecting
-        verify(exactly = 1) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // Even when paused, state should be Connecting (not Idle or Failed)
+        assertTrue(
+            "State should be Connecting while paused for network, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
     }
 
     @Test
@@ -224,9 +224,11 @@ class SendSpinClientNetworkPauseTest {
         // No reconnection in progress - should not crash or trigger reconnect
         client.setNetworkAvailable(true)
 
-        verify(exactly = 0) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // State should remain Idle (no reconnection triggered)
+        assertTrue(
+            "State should stay Idle when no reconnection was in progress, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Idle
+        )
     }
 
     @Test
@@ -234,9 +236,10 @@ class SendSpinClientNetworkPauseTest {
         client.setNetworkAvailable(false)
         client.setNetworkAvailable(true)
 
-        // No reconnection was triggered
-        verify(exactly = 0) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // No reconnection was triggered - state stays Idle
+        assertTrue(
+            "State should stay Idle when no reconnection was triggered, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Idle
+        )
     }
 }

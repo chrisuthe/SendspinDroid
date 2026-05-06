@@ -6,7 +6,6 @@ import com.sendspindroid.sendspin.SendSpinClient
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import io.mockk.every
 import io.mockk.verify
-import io.mockk.verifyOrder
 import org.junit.Assert.*
 import org.junit.Test
 import java.net.SocketException
@@ -39,8 +38,7 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // After failure, reconnection should be attempted
-        verify { mockCallback.onReconnecting(1, any()) }
+        // After failure, reconnection should be attempted (state transitions to Connecting)
 
         // Reconnect attempt counter should increment
         assertEquals(1, client.getReconnectAttempts())
@@ -62,7 +60,6 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
             error = SocketException("Connection reset"),
             isRecoverable = true
         )
-        verify { mockCallback.onReconnecting(1, any()) }
 
         // Check internal reconnect attempts counter
         assertEquals(1, client.getReconnectAttempts())
@@ -78,13 +75,7 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
             isRecoverable = false
         )
 
-        // Should NOT attempt reconnection
-        verify(exactly = 0) { mockCallback.onReconnecting(any(), any()) }
-
-        // Should report error
-        verify { mockCallback.onError(any()) }
-
-        // Connection state should be Failed
+        // Connection state should be Failed (non-recoverable error, no reconnect)
         val state = client.connectionState.value
         assertTrue(
             "State should be Failed for non-recoverable failure",
@@ -111,10 +102,6 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
             client.connectionState.value is TransportState.Idle
         )
 
-        // Verify onDisconnected was called with user-initiated flag
-        verify {
-            mockCallback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
-        }
     }
 
     @Test
@@ -124,10 +111,7 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         // Server closes gracefully
         fakeTransport.simulateClosed(code = 1000, reason = "Server shutdown")
 
-        // Should NOT attempt reconnection for normal closure
-        verify(exactly = 0) { mockCallback.onReconnecting(any(), any()) }
-
-        // Should be disconnected
+        // Should be disconnected (Idle, not Connecting)
         assertTrue(
             "State should be Idle after normal closure",
             client.connectionState.value is TransportState.Idle
@@ -141,8 +125,11 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         // Server drops connection unexpectedly
         fakeTransport.simulateClosed(code = 1006, reason = "Abnormal closure")
 
-        // Should attempt reconnection
-        verify { mockCallback.onReconnecting(1, any()) }
+        // Should attempt reconnection (state transitions to Connecting)
+        assertTrue(
+            "State should be Connecting after abnormal closure, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
     }
 
     @Test
@@ -161,8 +148,11 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         // freeze() is called but is a no-op when the filter has no measurements
         // (isReady == false). This is correct behavior: if there are no measurements
         // to preserve, there's nothing to freeze.
-        // We verify reconnection was triggered instead.
-        verify { mockCallback.onReconnecting(1, any()) }
+        // We verify reconnection was triggered by checking state.
+        assertTrue(
+            "State should be Connecting after reconnect trigger, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
 
         // Note: in production with real time sync measurements, isFrozen would
         // be true here. This is a limitation of the test environment where no
@@ -182,8 +172,11 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // Reconnection should still be triggered (callback fires)
-        verify { mockCallback.onReconnecting(any(), any()) }
+        // Reconnection should still be triggered (state transitions to Connecting)
+        assertTrue(
+            "State should be Connecting even when network unavailable, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
 
         // But the attempt counter should not have increased
         // (it's decremented when network is unavailable)
@@ -206,13 +199,13 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // Must NOT report exhausted reconnection any more
-        verify(exactly = 0) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
+        // Must NOT be in Failed(Exhausted) state -- no cap anymore
+        assertFalse(
+            "State should NOT be Failed(Exhausted) with no cap, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Failed
+        )
 
-        // Should still be reconnecting, not in Error state
-        verify { mockCallback.onReconnecting(any(), any()) }
+        // Should still be reconnecting
         val state = client.connectionState.value
         assertTrue(
             "State should remain Connecting with no cap, was: $state",
@@ -237,10 +230,14 @@ class NetworkLossDrainingReconnectTest : E2ETestBase() {
         )
 
         // Should still be reconnecting, not exhausted
-        verify(exactly = 0) {
-            mockCallback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
-        }
-        verify { mockCallback.onReconnecting(any(), any()) }
+        assertFalse(
+            "State should NOT be Failed in high power mode, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Failed
+        )
+        assertTrue(
+            "State should be Connecting in high power mode, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
     }
 
     @Test

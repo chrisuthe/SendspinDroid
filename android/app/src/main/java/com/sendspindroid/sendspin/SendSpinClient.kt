@@ -38,8 +38,6 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import java.net.ConnectException
-import java.net.NoRouteToHostException
 import java.net.SocketException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -124,13 +122,6 @@ class SendSpinClient(
      */
     interface Callback {
         fun onServerDiscovered(name: String, address: String)
-        fun onConnected(serverName: String)
-        /**
-         * Called when disconnected from the server.
-         * @param wasUserInitiated true if the user explicitly requested disconnect
-         * @param wasReconnectExhausted true if internal reconnect attempts were exhausted
-         */
-        fun onDisconnected(wasUserInitiated: Boolean = false, wasReconnectExhausted: Boolean = false)
         fun onStateChanged(state: String)
         fun onGroupUpdate(groupId: String, groupName: String, playbackState: String)
         fun onMetadataUpdate(
@@ -144,7 +135,6 @@ class SendSpinClient(
         )
         fun onArtwork(imageData: ByteArray)
         fun onArtworkCleared()
-        fun onError(message: String)
         fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?)
         fun onStreamClear()
         fun onStreamEnd()
@@ -153,8 +143,6 @@ class SendSpinClient(
         fun onMutedChanged(muted: Boolean)
         fun onSyncOffsetApplied(offsetMs: Double, source: String)
         fun onNetworkChanged()
-        fun onReconnecting(attempt: Int, serverName: String)
-        fun onReconnected()
 
         /**
          * Called when audio output should be silenced or unsilenced because
@@ -404,11 +392,9 @@ class SendSpinClient(
                     )
                 )
             }
-            callback.onReconnected()
             Log.i(TAG, "Reconnection successful")
         }
 
-        callback.onConnected(serverName)
         streamActive.set(false)  // fresh handshake - wait for server to announce stream state
         startStallWatchdog()  // (re)start watchdog now that we have a live handshake-complete session
     }
@@ -851,7 +837,6 @@ class SendSpinClient(
         transport = null
         handshakeComplete = false
         _connectionState.value = TransportState.Idle
-        callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
     }
 
     /**
@@ -877,7 +862,6 @@ class SendSpinClient(
         transport = null
         handshakeComplete = false
         _connectionState.value = TransportState.Idle
-        callback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
     }
 
     fun play() = sendCommand("play")
@@ -1098,7 +1082,6 @@ class SendSpinClient(
             reconnectJob?.cancel()
             reconnectJob = null
             _connectionState.value = TransportState.Failed(FailureReason.Exhausted)
-            callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = true)
             return
         }
 
@@ -1152,7 +1135,6 @@ class SendSpinClient(
             waitingForNetwork.set(true)
             reconnecting.set(true)
             _connectionState.value = TransportState.Connecting
-            callback.onReconnecting(attempts.coerceAtLeast(1), savedServerName)
             return
         }
 
@@ -1169,8 +1151,6 @@ class SendSpinClient(
         Log.i(TAG, "Attempting reconnection $attempts in ${delayMs}ms")
         reconnecting.set(true)
         _connectionState.value = TransportState.Connecting
-
-        callback.onReconnecting(attempts, savedServerName)
 
         // Store the job so it can be cancelled if user disconnects during the delay
         reconnectJob = timerScope.launch {
@@ -1269,35 +1249,6 @@ class SendSpinClient(
         return FailureReason.TransientNetwork
     }
 
-    /**
-     * Map exception to user-friendly error message.
-     */
-    private fun getSpecificErrorMessage(t: Throwable): String {
-        val cause = t.cause ?: t
-
-        return when (cause) {
-            is ConnectException -> "Server refused connection. Check if SendSpin is running."
-            is UnknownHostException -> "Server not found. Check the address."
-            is SocketTimeoutException -> "Connection timeout. Server not responding."
-            is NoRouteToHostException -> "Network unreachable. Check WiFi connection."
-            is SSLHandshakeException -> "Secure connection failed."
-            is SocketException -> "Connection lost. Check your network."
-            else -> {
-                val message = t.message?.lowercase() ?: ""
-                when {
-                    message.contains("refused") -> "Server refused connection. Check if SendSpin is running."
-                    message.contains("timeout") -> "Connection timeout. Server not responding."
-                    message.contains("unreachable") -> "Network unreachable. Check WiFi connection."
-                    message.contains("host") -> "Server not found. Check the address."
-                    message.contains("abort") -> "Connection dropped. Reconnecting..."
-                    message.contains("reset") -> "Connection reset. Reconnecting..."
-                    message.contains("broken pipe") -> "Connection lost. Reconnecting..."
-                    else -> t.message ?: "Connection failed"
-                }
-            }
-        }
-    }
-
     // ========== Transport Event Listener ==========
 
     /**
@@ -1342,7 +1293,7 @@ class SendSpinClient(
             } else if (connectionMode == ConnectionMode.PROXY && authToken.isNullOrBlank()) {
                 // Proxy mode but no token available - auth will fail
                 Log.e(TAG, "Proxy connection has no auth token - server will reject")
-                callback.onError("No auth token available. Please re-configure the server with valid credentials.")
+                _connectionState.value = TransportState.Failed(FailureReason.AuthRejected)
                 disconnect()
             } else {
                 // Local/Remote mode: proceed directly with hello
@@ -1361,7 +1312,7 @@ class SendSpinClient(
                         val msg = json["message"]?.jsonPrimitive?.contentOrNull ?: "Authentication failed"
                         Log.e(TAG, "Proxy auth failed: $msg")
                         awaitingAuthResponse = false
-                        callback.onError("Authentication failed: $msg")
+                        _connectionState.value = TransportState.Failed(FailureReason.AuthRejected)
                         disconnect()
                         return
                     }
@@ -1429,7 +1380,6 @@ class SendSpinClient(
                     Log.d(TAG, "selfReconnectEnabled=false; not auto-reconnecting after onClosed(code=$code)")
                     reconnecting.set(false)
                     _connectionState.value = TransportState.Idle
-                    callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
                 }
             } else {
                 // Either user-initiated, pre-handshake, or server's normal closure
@@ -1438,10 +1388,6 @@ class SendSpinClient(
                 }
                 reconnecting.set(false)
                 _connectionState.value = TransportState.Idle
-                callback.onDisconnected(
-                    wasUserInitiated = userInitiatedDisconnect.get(),
-                    wasReconnectExhausted = false
-                )
             }
         }
 
@@ -1475,13 +1421,10 @@ class SendSpinClient(
                     Log.d(TAG, "selfReconnectEnabled=false; not auto-reconnecting after onFailure(${error.message})")
                     reconnecting.set(false)
                     _connectionState.value = TransportState.Idle
-                    callback.onDisconnected(wasUserInitiated = false, wasReconnectExhausted = false)
                 }
             } else {
-                val errorMessage = getSpecificErrorMessage(error)
                 reconnecting.set(false)
                 _connectionState.value = TransportState.Failed(classifyFailureReason(throwable = error))
-                callback.onError(errorMessage)
             }
         }
     }

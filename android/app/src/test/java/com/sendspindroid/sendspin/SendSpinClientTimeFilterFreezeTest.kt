@@ -242,7 +242,7 @@ class SendSpinClientTimeFilterFreezeTest {
     }
 
     @Test
-    fun `onReconnected callback fires when handshake completes after freeze`() {
+    fun `state transitions to Ready when handshake completes after freeze`() {
         seedTimeFilter()
         setupForReconnection()
 
@@ -279,6 +279,9 @@ class SendSpinClientTimeFilterFreezeTest {
         val serverHello = """{"type":"server/hello","payload":{"name":"TestServer","server_id":"srv-1","protocol_version":1,"active_roles":["player"]}}"""
         listener.onMessage(serverHello)
 
-        io.mockk.verify(exactly = 1) { mockCallback.onReconnected() }
+        assertTrue(
+            "State should be Ready after reconnect handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
+        )
     }
 }
