@@ -83,6 +83,7 @@ import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import com.sendspindroid.sendspin.decoder.AudioDecoder
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.network.AutoReconnectManager
 import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.NetworkState
@@ -100,6 +101,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -155,8 +157,10 @@ class PlaybackService : MediaLibraryService() {
 
     // Active server as a flow, consumed by ConnectionCoordinator.
     private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
+    private val _reconnectStatusFlow = MutableStateFlow<ReconnectStatus>(ReconnectStatus.Idle)
 
     private lateinit var coordinator: ConnectionCoordinator
+    private lateinit var autoReconnectManager: AutoReconnectManager
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null
@@ -586,6 +590,9 @@ class PlaybackService : MediaLibraryService() {
         // WebSocket ping timeout would otherwise notice a silent WiFi drop.
         private const val VALIDATION_LOSS_DEBOUNCE_MS = 3_000L
 
+        // Timeout for awaiting a terminal connection state in connectViaSelectedConnection.
+        private const val CONNECT_TIMEOUT_MS = 15_000L
+
         // Custom session commands
         const val COMMAND_CONNECT = "com.sendspindroid.CONNECT"
         const val COMMAND_DISCONNECT = "com.sendspindroid.DISCONNECT"
@@ -831,17 +838,44 @@ class PlaybackService : MediaLibraryService() {
         // Initialize native Kotlin SendSpin client
         initializeSendSpinClient()
 
+        autoReconnectManager = AutoReconnectManager(
+            context = this,
+            onAttempt = { serverId, attempt, maxAttempts, method ->
+                _reconnectStatusFlow.value = ReconnectStatus.Attempting(
+                    serverId = serverId,
+                    attempt = attempt,
+                    maxAttempts = maxAttempts,
+                    method = method,
+                )
+            },
+            onMethodAttempt = { serverId, method ->
+                val current = _reconnectStatusFlow.value
+                if (current is ReconnectStatus.Attempting && current.serverId == serverId) {
+                    _reconnectStatusFlow.value = current.copy(method = method)
+                }
+            },
+            onSuccess = { serverId ->
+                _reconnectStatusFlow.value = ReconnectStatus.Succeeded(serverId)
+            },
+            onFailure = { serverId, error ->
+                _reconnectStatusFlow.value = ReconnectStatus.Failed(serverId, error)
+            },
+            connectToServer = { server, selectedConnection ->
+                connectViaSelectedConnection(server, selectedConnection)
+            },
+        )
+
         coordinator = ConnectionCoordinator(
             currentServerFlow = _currentServerFlow,
             sendSpinStateFlow = sendSpinClient?.connectionState?.map { it.toTransportState() }
                 ?: flowOf(TransportState.Idle),
             musicAssistantStateFlow = MusicAssistantManager.connectionState.map { it.toTransportState() },
-            reconnectStatusFlow = MutableStateFlow(ReconnectStatus.Idle),
+            reconnectStatusFlow = _reconnectStatusFlow,
             scope = serviceScope,
             onDisconnectRequested = { disconnectFromServer() },
-            onConnectRequested = { /* TODO Task 3 */ },
-            onCancelReconnectRequested = { /* TODO Task 3 */ },
-            onNetworkAvailableSignaled = { /* TODO Task 3 */ },
+            onConnectRequested = { server -> autoReconnectManager.startReconnecting(server) },
+            onCancelReconnectRequested = { autoReconnectManager.cancelReconnection() },
+            onNetworkAvailableSignaled = { autoReconnectManager.onNetworkAvailable() },
         )
 
         // Launch the single-owner decode worker. Task 3 scaffolding: no
@@ -2143,6 +2177,45 @@ class PlaybackService : MediaLibraryService() {
             null
         }
         sendSpinClient?.setProxyFallback(proxy?.url, proxy?.authToken)
+    }
+
+    /**
+     * Suspend-friendly connection wrapper used by the service-scoped
+     * AutoReconnectManager. Kicks off the appropriate connectToServer/
+     * connectToRemoteServer/connectToProxyServer call, then awaits the
+     * SendSpinClient.connectionState transition to a terminal state.
+     *
+     * Returns true on Connected, false on Error or timeout.
+     */
+    private suspend fun connectViaSelectedConnection(
+        server: com.sendspindroid.model.UnifiedServer,
+        selectedConnection: ConnectionSelector.SelectedConnection,
+    ): Boolean {
+        // Set the active server first so subsequent state observation has context.
+        setCurrentServer(server.id, when (selectedConnection) {
+            is ConnectionSelector.SelectedConnection.Local -> ConnectionMode.LOCAL
+            is ConnectionSelector.SelectedConnection.Remote -> ConnectionMode.REMOTE
+            is ConnectionSelector.SelectedConnection.Proxy -> ConnectionMode.PROXY
+        })
+
+        when (selectedConnection) {
+            is ConnectionSelector.SelectedConnection.Local ->
+                connectToServer(selectedConnection.address, selectedConnection.path)
+            is ConnectionSelector.SelectedConnection.Remote ->
+                connectToRemoteServer(selectedConnection.remoteId)
+            is ConnectionSelector.SelectedConnection.Proxy ->
+                connectToProxyServer(selectedConnection.url, selectedConnection.authToken)
+        }
+
+        val client = sendSpinClient ?: return false
+        return withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
+            val terminal = client.connectionState
+                .first {
+                    it is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Connected ||
+                    it is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Error
+                }
+            terminal is com.sendspindroid.sendspin.SendSpinClient.ConnectionState.Connected
+        } ?: false
     }
 
     /**
@@ -4062,6 +4135,9 @@ class PlaybackService : MediaLibraryService() {
             withTimeoutOrNull(500) { decodeJob?.join() }
         }
 
+        if (::autoReconnectManager.isInitialized) {
+            autoReconnectManager.destroy()
+        }
         serviceScope.cancel()
         imageLoader?.shutdown()
 
