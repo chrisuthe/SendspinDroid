@@ -272,13 +272,16 @@ class PlaybackService : MediaLibraryService() {
     @Volatile
     private var decoderReady = false
 
-    // Connection state exposed as StateFlow for observers
-    private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected())
-    val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     // Playback state exposed as StateFlow (like Python CLI's AppState)
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
+
+    // Tracks whether the most recent disconnect was user-initiated (via COMMAND_DISCONNECT).
+    // Set to true in the COMMAND_DISCONNECT handler; reset to false on each new connect attempt.
+    // Used to populate EXTRA_WAS_USER_INITIATED in broadcastSessionExtras.
+    @Volatile
+    private var lastDisconnectUserInitiated: Boolean = false
 
     // Sync offset state (included in broadcastSessionExtras to avoid bare-bundle overwrites)
     private var lastSyncOffsetMs: Double = 0.0
@@ -523,25 +526,6 @@ class PlaybackService : MediaLibraryService() {
         val networkState: StateFlow<NetworkState> = _networkState.asStateFlow()
     }
 
-    /**
-     * Connection state for the service.
-     */
-    sealed class ConnectionState {
-        /**
-         * Disconnected from server.
-         * @param wasUserInitiated true if user explicitly requested disconnect
-         * @param wasReconnectExhausted true if internal reconnect attempts were exhausted
-         */
-        data class Disconnected(
-            val wasUserInitiated: Boolean = false,
-            val wasReconnectExhausted: Boolean = false
-        ) : ConnectionState()
-        object Connecting : ConnectionState()
-        data class Connected(val serverName: String) : ConnectionState()
-        /** Connection lost, reconnecting - playback continues from buffer */
-        data class Reconnecting(val serverName: String, val attempt: Int) : ConnectionState()
-        data class Error(val message: String) : ConnectionState()
-    }
 
     /**
      * Tasks sent through [decodeChannel] to the single-owner decode worker.
@@ -763,7 +747,6 @@ class PlaybackService : MediaLibraryService() {
                             pendingExitDraining = true
                         }
                         Log.d(TAG, "Connected to: $serverName")
-                        _connectionState.value = ConnectionState.Connected(serverName)
                         sendSpinPlayer?.updateConnectionState(true, serverName)
                         sendSpinPlayer?.clearError()
                         // Restore MediaSession metadata / playback state after any reconnect.
@@ -829,8 +812,6 @@ class PlaybackService : MediaLibraryService() {
 
                         sendSpinPlayer?.updateConnectionState(false, null)
 
-                        _connectionState.value = ConnectionState.Disconnected()
-
                         // Refresh browse tree root so "Connect" reappears
                         mediaSession?.notifyChildrenChanged(MEDIA_ID_ROOT, 0, null)
 
@@ -878,11 +859,6 @@ class PlaybackService : MediaLibraryService() {
                             // Show error on Android Auto since reconnect attempts were exhausted
                             sendSpinPlayer?.setError("Connection lost")
 
-                            _connectionState.value = ConnectionState.Disconnected(
-                                wasUserInitiated = false,
-                                wasReconnectExhausted = true
-                            )
-
                             // Refresh browse tree root so "Connect" reappears
                             mediaSession?.notifyChildrenChanged(MEDIA_ID_ROOT, 0, null)
 
@@ -909,10 +885,9 @@ class PlaybackService : MediaLibraryService() {
                                 is FailureReason.HandshakeFailed -> "Could not establish connection"
                                 is FailureReason.TransientNetwork -> "Network error"
                                 is FailureReason.ProtocolError -> "Protocol error"
-                                else -> "Connection error"
+                                is FailureReason.Exhausted -> "Connection lost after multiple attempts"
                             }
                             Log.e(TAG, "SendSpin error: $message")
-                            _connectionState.value = ConnectionState.Error(message)
 
                             // Show error on Android Auto
                             sendSpinPlayer?.setError(message)
@@ -936,9 +911,6 @@ class PlaybackService : MediaLibraryService() {
                             // enterDraining() is thread-safe (guarded by stateLock).
                             syncAudioPlayer?.enterDraining()
                             pendingExitDraining = false  // Clear any stale flag
-
-                            // Update connection state for UI (shows "Reconnecting..." indicator)
-                            _connectionState.value = ConnectionState.Reconnecting(serverName, 1)
 
                             // Broadcast to UI
                             broadcastConnectionState(STATE_RECONNECTING, serverName)
@@ -1051,7 +1023,6 @@ class PlaybackService : MediaLibraryService() {
             Log.d(TAG, "SendSpin initialized with name: $playerName")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize SendSpin", e)
-            _connectionState.value = ConnectionState.Error("Failed to initialize: ${e.message}")
         }
     }
 
@@ -1185,8 +1156,7 @@ class PlaybackService : MediaLibraryService() {
                 syncAudioPlayer?.stop()
                 releasePlaybackLocks()
 
-                // Update connection state to error
-                _connectionState.value = ConnectionState.Error("Connection lost. Buffer exhausted.")
+                // Broadcast state after buffer exhausted
                 broadcastConnectionState(STATE_ERROR, errorMessage = "Connection lost")
 
                 // Clear playback state
@@ -1829,33 +1799,50 @@ class PlaybackService : MediaLibraryService() {
      */
     private fun broadcastSessionExtras() {
         val playbackState = _playbackState.value
-        val connState = _connectionState.value
+        val sessionState = coordinator.sessionState.value
+        val reconnectStatus = coordinator.reconnectStatus.value
+
+        val connectionStateString = when {
+            reconnectStatus is ReconnectStatus.Attempting -> STATE_RECONNECTING
+            sessionState.sendSpin is TransportState.Failed -> STATE_ERROR
+            sessionState.sendSpin is TransportState.Ready -> STATE_CONNECTED
+            sessionState.sendSpin is TransportState.Connecting -> STATE_CONNECTING
+            else -> STATE_DISCONNECTED
+        }
+
+        val serverName: String? = sessionState.server?.name
+
+        val errorMessage: String? = when (val s = sessionState.sendSpin) {
+            is TransportState.Failed -> failureReasonToMessage(s.reason)
+            else -> null
+        }
 
         val extras = Bundle().apply {
             // Connection state
-            when (connState) {
-                is ConnectionState.Disconnected -> {
+            when (connectionStateString) {
+                STATE_DISCONNECTED -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_DISCONNECTED)
-                    putBoolean(EXTRA_WAS_USER_INITIATED, connState.wasUserInitiated)
-                    putBoolean(EXTRA_WAS_RECONNECT_EXHAUSTED, connState.wasReconnectExhausted)
+                    putBoolean(EXTRA_WAS_USER_INITIATED, lastDisconnectUserInitiated)
+                    // wasReconnectExhausted: Exhausted failures go through Failed(Exhausted),
+                    // not Idle, so STATE_DISCONNECTED never corresponds to an exhausted reconnect.
+                    putBoolean(EXTRA_WAS_RECONNECT_EXHAUSTED, false)
                 }
-                is ConnectionState.Connecting -> putString(EXTRA_CONNECTION_STATE, STATE_CONNECTING)
-                is ConnectionState.Connected -> {
+                STATE_CONNECTING -> putString(EXTRA_CONNECTION_STATE, STATE_CONNECTING)
+                STATE_CONNECTED -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_CONNECTED)
-                    putString(EXTRA_SERVER_NAME, connState.serverName)
+                    serverName?.let { putString(EXTRA_SERVER_NAME, it) }
                 }
-                is ConnectionState.Reconnecting -> {
+                STATE_RECONNECTING -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_RECONNECTING)
-                    putString(EXTRA_SERVER_NAME, connState.serverName)
-                    putInt("reconnect_attempt", connState.attempt)
+                    serverName?.let { putString(EXTRA_SERVER_NAME, it) }
                     // Include buffer info if available
                     syncAudioPlayer?.getBufferedDurationMs()?.let {
                         putLong("buffer_remaining_ms", it)
                     }
                 }
-                is ConnectionState.Error -> {
+                STATE_ERROR -> {
                     putString(EXTRA_CONNECTION_STATE, STATE_ERROR)
-                    putString(EXTRA_ERROR_MESSAGE, connState.message)
+                    errorMessage?.let { putString(EXTRA_ERROR_MESSAGE, it) }
                 }
             }
 
@@ -1882,7 +1869,7 @@ class PlaybackService : MediaLibraryService() {
             }
 
             // Reconnect status
-            when (val reconnectStatus = coordinator.reconnectStatus.value) {
+            when (reconnectStatus) {
                 is ReconnectStatus.Idle -> {
                     putString(EXTRA_RECONNECT_STATUS, RECONNECT_IDLE)
                 }
@@ -1908,6 +1895,14 @@ class PlaybackService : MediaLibraryService() {
         mediaSession?.setSessionExtras(extras)
     }
 
+    private fun failureReasonToMessage(reason: FailureReason): String = when (reason) {
+        is FailureReason.AuthRejected -> "Authentication failed"
+        is FailureReason.HandshakeFailed -> "Could not establish connection"
+        is FailureReason.TransientNetwork -> "Network error"
+        is FailureReason.ProtocolError -> "Protocol error"
+        is FailureReason.Exhausted -> "Connection lost after multiple attempts"
+    }
+
     /**
      * Connects to a SendSpin server.
      *
@@ -1916,7 +1911,7 @@ class PlaybackService : MediaLibraryService() {
      */
     fun connectToServer(address: String, path: String = "/sendspin") {
         Log.d(TAG, "Connecting to server: $address path=$path")
-        _connectionState.value = ConnectionState.Connecting
+        lastDisconnectUserInitiated = false
 
         // Broadcast connecting state to controllers (MainActivity)
         broadcastConnectionState(STATE_CONNECTING)
@@ -1942,7 +1937,6 @@ class PlaybackService : MediaLibraryService() {
             sendSpinClient?.connect(SendSpinEndpoint.Local(address, path))
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to server", e)
-            _connectionState.value = ConnectionState.Error("Connection failed: ${e.message}")
             broadcastConnectionState(STATE_ERROR, errorMessage = "Connection failed: ${e.message}")
         }
     }
@@ -1954,7 +1948,7 @@ class PlaybackService : MediaLibraryService() {
      */
     fun connectToRemoteServer(remoteId: String) {
         Log.d(TAG, "Connecting to remote server via Remote ID: $remoteId")
-        _connectionState.value = ConnectionState.Connecting
+        lastDisconnectUserInitiated = false
 
         // Broadcast connecting state to controllers (MainActivity)
         broadcastConnectionState(STATE_CONNECTING)
@@ -1979,7 +1973,6 @@ class PlaybackService : MediaLibraryService() {
             sendSpinClient?.connect(SendSpinEndpoint.Remote(remoteId))
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to remote server", e)
-            _connectionState.value = ConnectionState.Error("Remote connection failed: ${e.message}")
             broadcastConnectionState(STATE_ERROR, errorMessage = "Remote connection failed: ${e.message}")
         }
     }
@@ -1995,7 +1988,7 @@ class PlaybackService : MediaLibraryService() {
      */
     fun connectToProxyServer(url: String, authToken: String) {
         Log.d(TAG, "Connecting to proxy server: $url")
-        _connectionState.value = ConnectionState.Connecting
+        lastDisconnectUserInitiated = false
 
         // Broadcast connecting state to controllers (MainActivity)
         broadcastConnectionState(STATE_CONNECTING)
@@ -2020,7 +2013,6 @@ class PlaybackService : MediaLibraryService() {
             sendSpinClient?.connect(SendSpinEndpoint.Proxy(url, authToken))
         } catch (e: Exception) {
             Log.e(TAG, "Error connecting to proxy server", e)
-            _connectionState.value = ConnectionState.Error("Proxy connection failed: ${e.message}")
             broadcastConnectionState(STATE_ERROR, errorMessage = "Proxy connection failed: ${e.message}")
         }
     }
@@ -2272,7 +2264,7 @@ class PlaybackService : MediaLibraryService() {
      * Checks if we are currently connected to a server.
      */
     private fun isConnected(): Boolean {
-        return _connectionState.value is ConnectionState.Connected
+        return coordinator.sessionState.value.sendSpin is TransportState.Ready
     }
 
     /**
@@ -2976,6 +2968,7 @@ class PlaybackService : MediaLibraryService() {
                 }
 
                 COMMAND_DISCONNECT -> {
+                    lastDisconnectUserInitiated = true
                     coordinator.disconnect()
                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                 }
@@ -2985,6 +2978,7 @@ class PlaybackService : MediaLibraryService() {
                     if (serverId != null) {
                         val server = UnifiedServerRepository.getServer(serverId)
                         if (server != null) {
+                            lastDisconnectUserInitiated = false
                             coordinator.connect(server)
                             Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                         } else {
@@ -3996,7 +3990,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Keep alive if auto-start is enabled and we're connected (even if idle)
         val autoStartKeepAlive = UserSettings.autoStartOnBoot &&
-            _connectionState.value is ConnectionState.Connected
+            coordinator.sessionState.value.sendSpin is TransportState.Ready
 
         Log.d(TAG, "onTaskRemoved (playing=$isPlaying, autoStart=$autoStartKeepAlive, state=$audioPlayerState)")
 
