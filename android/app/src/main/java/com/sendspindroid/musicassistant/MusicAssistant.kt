@@ -70,6 +70,60 @@ private fun MaEndpoint.toApiUrl(): String = when (this) {
 }
 
 /**
+ * Credentials for a Music Assistant authentication attempt.
+ *
+ * Phase 6 of the ConnectionCoordinator design.
+ */
+sealed class MaCredentials {
+    data class Token(val token: String) : MaCredentials()
+    data class UsernamePassword(val username: String, val password: String) : MaCredentials()
+}
+
+/**
+ * Stateless one-shot helper for wizard tests. Creates a temporary MaApiTransport,
+ * authenticates with the provided credentials, and returns success or failure.
+ * Does NOT touch MusicAssistant singleton state -- safe to call while a live MA
+ * session is active.
+ *
+ * Returns [MaAuthHelper.LoginResult] which carries the access token and server
+ * metadata needed by the wizard to store the token and pre-populate server name.
+ *
+ * Phase 6 of the ConnectionCoordinator design.
+ */
+suspend fun testMaAuth(
+    endpoint: MaEndpoint,
+    credentials: MaCredentials,
+): Result<MaAuthHelper.LoginResult> {
+    val apiUrl = endpoint.toApiUrl()
+    return try {
+        val result = when (credentials) {
+            is MaCredentials.Token -> {
+                // Token auth: connect and derive a LoginResult from transport metadata.
+                val transport = MaWebSocketTransport(apiUrl)
+                try {
+                    transport.connect(credentials.token)
+                    MaAuthHelper.LoginResult(
+                        accessToken = credentials.token,
+                        userId = "",
+                        userName = "",
+                        serverVersion = transport.serverVersion ?: "unknown",
+                        maServerId = transport.maServerId ?: "",
+                        baseUrl = transport.baseUrl ?: ""
+                    )
+                } finally {
+                    try { transport.disconnect() } catch (_: Exception) { /* swallow on cleanup */ }
+                }
+            }
+            is MaCredentials.UsernamePassword ->
+                MaAuthHelper.loginForToken(apiUrl, credentials.username, credentials.password)
+        }
+        Result.success(result)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
+
+/**
  * Global singleton managing Music Assistant API availability.
  *
  * Provides a single source of truth for whether MA features should be
