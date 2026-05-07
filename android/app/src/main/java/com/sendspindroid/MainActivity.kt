@@ -187,9 +187,6 @@ class MainActivity : AppCompatActivity() {
     // Reconnecting indicator - persists while reconnection is in progress
     private var reconnectingSnackbar: Snackbar? = null
 
-    // Last known reconnect status from PlaybackService (updated via session extras)
-    private var lastReconnectStatus: ReconnectStatus = ReconnectStatus.Idle
-
     // Server being reconnected to (for tracking during auto-reconnect)
     private var reconnectingToServer: UnifiedServer? = null
 
@@ -1373,7 +1370,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Don't auto-connect if auto-reconnect is in progress
-        if (lastReconnectStatus is ReconnectStatus.Attempting) {
+        if (PlaybackService.reconnectStatus.value is ReconnectStatus.Attempting) {
             Log.d(TAG, "Skipping auto-connect on discovery - auto-reconnect in progress")
             return
         }
@@ -1522,7 +1519,7 @@ class MainActivity : AppCompatActivity() {
                     // Only connect if conditions still allow
                     if (!userManuallyDisconnected &&
                         connectionState == AppConnectionState.ServerList &&
-                        lastReconnectStatus !is ReconnectStatus.Attempting) {
+                        PlaybackService.reconnectStatus.value !is ReconnectStatus.Attempting) {
                         Log.i(TAG, "Default server reachable via ping - auto-connecting to ${server.name}")
                         onUnifiedServerSelected(server)
                     } else {
@@ -1952,11 +1949,10 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Handles reconnect status changes broadcast from PlaybackService via session extras.
-     * Updates lastReconnectStatus and drives the reconnect UI (toolbar subtitle, snackbar, etc.).
+     * Drives the reconnect UI (toolbar subtitle, snackbar, etc.).
      * Must be called on the main thread.
      */
     private fun handleReconnectStatusChange(status: ReconnectStatus) {
-        lastReconnectStatus = status
         when (status) {
             ReconnectStatus.Idle -> {
                 // No-op: the UI clears reconnect overlays via the Connected/Disconnected path.
@@ -2356,7 +2352,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Cancel any ongoing auto-reconnect if user taps a different server
-        val reconnectingId = (lastReconnectStatus as? ReconnectStatus.Attempting)?.serverId
+        val reconnectingId = (PlaybackService.reconnectStatus.value as? ReconnectStatus.Attempting)?.serverId
         if (reconnectingId != null && reconnectingId != server.id) {
             Log.i(TAG, "User selected different server - cancelling auto-reconnect for $reconnectingId")
             sendCommandCancelReconnect()

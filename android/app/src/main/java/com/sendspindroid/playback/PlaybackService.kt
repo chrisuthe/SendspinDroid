@@ -524,6 +524,11 @@ class PlaybackService : MediaLibraryService() {
         // Updated by the service's existing coordinator.networkState collector.
         private val _networkState = MutableStateFlow(NetworkState())
         val networkState: StateFlow<NetworkState> = _networkState.asStateFlow()
+
+        // Exposes the coordinator's reconnect status for in-process observers (e.g. MainActivity).
+        // Updated by the service's existing coordinator.reconnectStatus collector.
+        private val _reconnectStatusRelay = MutableStateFlow<ReconnectStatus>(ReconnectStatus.Idle)
+        val reconnectStatus: StateFlow<ReconnectStatus> = _reconnectStatusRelay.asStateFlow()
     }
 
 
@@ -698,6 +703,14 @@ class PlaybackService : MediaLibraryService() {
                     sendSpinClient?.setNetworkAvailable(connected)
                     Log.d(TAG, "networkState observer: setNetworkAvailable($connected)")
                 }
+            }
+        }
+
+        // Reconnect-status relay: mirrors the coordinator's reconnect status into the
+        // companion flow for in-process observers (e.g. MainActivity).
+        serviceScope.launch {
+            coordinator.reconnectStatus.collect { status ->
+                _reconnectStatusRelay.value = status
             }
         }
 
