@@ -45,7 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaPlaylist
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.ui.detail.components.BulkAddState
 import kotlinx.coroutines.delay
 
@@ -101,7 +101,7 @@ fun SaveQueueAsPlaylistDialog(
     LaunchedEffect(loadRetryCount) {
         playlists = null
         loadError = null
-        MusicAssistantManager.getPlaylists().fold(
+        MusicAssistant.getPlaylists().fold(
             onSuccess = { playlists = it },
             onFailure = { loadError = it.message ?: "" }
         )
@@ -576,7 +576,7 @@ private suspend fun executeAppend(
 ) {
     onStateChange(BulkAddState.Loading("Adding ${trackUris.size} tracks\u2026"))
 
-    MusicAssistantManager.addPlaylistTracks(playlist.playlistId, trackUris).fold(
+    MusicAssistant.addPlaylistTracks(playlist.playlistId, trackUris).fold(
         onSuccess = {
             onStateChange(BulkAddState.Success("Saved ${trackUris.size} tracks to ${playlist.name}"))
         },
@@ -597,7 +597,7 @@ private suspend fun executeOverwrite(
     // 1. Get existing tracks to know how many to remove
     onStateChange(BulkAddState.Loading("Loading existing tracks\u2026"))
 
-    val existingTracks = MusicAssistantManager.getPlaylistTracks(playlist.playlistId).getOrElse {
+    val existingTracks = MusicAssistant.getPlaylistTracks(playlist.playlistId).getOrElse {
         onStateChange(BulkAddState.Error("Failed to load existing tracks"))
         return
     }
@@ -606,7 +606,7 @@ private suspend fun executeOverwrite(
     if (existingTracks.isNotEmpty()) {
         onStateChange(BulkAddState.Loading("Removing existing tracks\u2026"))
         val positions = (1..existingTracks.size).toList()
-        MusicAssistantManager.removePlaylistTracks(playlist.playlistId, positions).getOrElse {
+        MusicAssistant.removePlaylistTracks(playlist.playlistId, positions).getOrElse {
             onStateChange(BulkAddState.Error("Failed to remove existing tracks"))
             return
         }
@@ -615,7 +615,7 @@ private suspend fun executeOverwrite(
     // 3. Add queue tracks
     onStateChange(BulkAddState.Loading("Adding ${trackUris.size} tracks\u2026"))
 
-    MusicAssistantManager.addPlaylistTracks(playlist.playlistId, trackUris).fold(
+    MusicAssistant.addPlaylistTracks(playlist.playlistId, trackUris).fold(
         onSuccess = {
             onStateChange(BulkAddState.Success("Saved ${trackUris.size} tracks to ${playlist.name}"))
         },
@@ -636,7 +636,7 @@ private suspend fun executeCreateNew(
     // 1. Create the playlist
     onStateChange(BulkAddState.Loading("Creating playlist\u2026"))
 
-    val newPlaylist = MusicAssistantManager.createPlaylist(playlistName).getOrElse {
+    val newPlaylist = MusicAssistant.createPlaylist(playlistName).getOrElse {
         onStateChange(BulkAddState.Error("Failed to create playlist"))
         return
     }
@@ -644,7 +644,7 @@ private suspend fun executeCreateNew(
     // 2. Add tracks
     onStateChange(BulkAddState.Loading("Adding ${trackUris.size} tracks\u2026"))
 
-    MusicAssistantManager.addPlaylistTracks(newPlaylist.playlistId, trackUris).fold(
+    MusicAssistant.addPlaylistTracks(newPlaylist.playlistId, trackUris).fold(
         onSuccess = {
             onStateChange(BulkAddState.Success("Saved ${trackUris.size} tracks to $playlistName"))
         },

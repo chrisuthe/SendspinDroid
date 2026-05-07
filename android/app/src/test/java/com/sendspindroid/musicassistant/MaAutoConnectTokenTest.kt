@@ -1,9 +1,9 @@
 package com.sendspindroid.musicassistant
 
 import android.util.Log
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.UnifiedServer
-import com.sendspindroid.musicassistant.model.MaConnectionState
 import com.sendspindroid.UserSettings.ConnectionMode
 import io.mockk.*
 import org.junit.After
@@ -14,12 +14,12 @@ import org.junit.Test
 /**
  * Integration test: PlaybackService auto-connects MA with stored token.
  *
- * Verifies the MusicAssistantManager.onServerConnected flow:
+ * Verifies the MusicAssistant.onServerConnected flow:
  * - When a server has a stored MA token, connectWithToken is triggered
- * - When no token exists, state transitions to NeedsAuth
- * - When server is not MA, state stays Unavailable
+ * - When no token exists, state transitions to Idle and loginRequired fires
+ * - When server is not MA, state stays Idle
  *
- * Since MusicAssistantManager is a singleton with Android dependencies,
+ * Since MusicAssistant is a singleton with Android dependencies,
  * we test the decision logic in isolation by reproducing the
  * onServerConnected flow.
  */
@@ -42,7 +42,7 @@ class MaAutoConnectTokenTest {
     }
 
     /**
-     * Reproduces MusicAssistantManager.onServerConnected decision logic.
+     * Reproduces MusicAssistant.onServerConnected decision logic.
      * Returns the resulting state based on server properties and token availability.
      */
     private fun simulateOnServerConnected(
@@ -54,25 +54,26 @@ class MaAutoConnectTokenTest {
     ): SimulatedResult {
         // Check 1: Is this server a Music Assistant server?
         if (!server.isMusicAssistant && !hasStoredToken && !hasMaApiChannel) {
-            return SimulatedResult(MaConnectionState.Unavailable, connectWithTokenCalled = false)
+            return SimulatedResult(TransportState.Idle, connectWithTokenCalled = false, loginRequired = false)
         }
 
         // Check 2: Can we reach the MA API?
         if (!hasApiEndpoint) {
-            return SimulatedResult(MaConnectionState.Unavailable, connectWithTokenCalled = false)
+            return SimulatedResult(TransportState.Idle, connectWithTokenCalled = false, loginRequired = false)
         }
 
         // Check 3: Do we have a stored token?
         return if (hasStoredToken) {
-            SimulatedResult(MaConnectionState.Connecting, connectWithTokenCalled = true)
+            SimulatedResult(TransportState.Connecting, connectWithTokenCalled = true, loginRequired = false)
         } else {
-            SimulatedResult(MaConnectionState.NeedsAuth, connectWithTokenCalled = false)
+            SimulatedResult(TransportState.Idle, connectWithTokenCalled = false, loginRequired = true)
         }
     }
 
     data class SimulatedResult(
-        val state: MaConnectionState,
-        val connectWithTokenCalled: Boolean
+        val state: TransportState,
+        val connectWithTokenCalled: Boolean,
+        val loginRequired: Boolean
     )
 
     @Test
@@ -93,13 +94,13 @@ class MaAutoConnectTokenTest {
         assertTrue("connectWithToken should be called", result.connectWithTokenCalled)
         assertEquals(
             "State should be Connecting",
-            MaConnectionState.Connecting,
+            TransportState.Connecting,
             result.state
         )
     }
 
     @Test
-    fun `MA server without token transitions to NeedsAuth`() {
+    fun `MA server without token transitions to Idle and fires loginRequired`() {
         val server = UnifiedServer(
             id = "server-2",
             name = "MA Server No Token",
@@ -115,14 +116,15 @@ class MaAutoConnectTokenTest {
 
         assertFalse("connectWithToken should NOT be called", result.connectWithTokenCalled)
         assertEquals(
-            "State should be NeedsAuth",
-            MaConnectionState.NeedsAuth,
+            "State should be Idle",
+            TransportState.Idle,
             result.state
         )
+        assertTrue("loginRequired should fire", result.loginRequired)
     }
 
     @Test
-    fun `non-MA server without token or channel stays Unavailable`() {
+    fun `non-MA server without token or channel stays Idle`() {
         val server = UnifiedServer(
             id = "server-3",
             name = "Regular Server",
@@ -139,10 +141,11 @@ class MaAutoConnectTokenTest {
 
         assertFalse("connectWithToken should NOT be called", result.connectWithTokenCalled)
         assertEquals(
-            "State should be Unavailable",
-            MaConnectionState.Unavailable,
+            "State should be Idle",
+            TransportState.Idle,
             result.state
         )
+        assertFalse("loginRequired should NOT fire for non-MA server", result.loginRequired)
     }
 
     @Test
@@ -180,16 +183,17 @@ class MaAutoConnectTokenTest {
             hasMaApiChannel = true
         )
 
-        // hasMaApiChannel passes the first check, but with no token -> NeedsAuth
+        // hasMaApiChannel passes the first check, but with no token -> Idle + loginRequired
         assertEquals(
-            "Should reach NeedsAuth since no token",
-            MaConnectionState.NeedsAuth,
+            "Should reach Idle since no token",
+            TransportState.Idle,
             result.state
         )
+        assertTrue("loginRequired should fire since no token", result.loginRequired)
     }
 
     @Test
-    fun `MA server with no API endpoint stays Unavailable`() {
+    fun `MA server with no API endpoint stays Idle`() {
         val server = UnifiedServer(
             id = "server-6",
             name = "No API",
@@ -206,31 +210,23 @@ class MaAutoConnectTokenTest {
 
         assertFalse("connectWithToken should NOT be called", result.connectWithTokenCalled)
         assertEquals(
-            "State should be Unavailable when no API endpoint",
-            MaConnectionState.Unavailable,
+            "State should be Idle when no API endpoint",
+            TransportState.Idle,
             result.state
         )
     }
 
     @Test
-    fun `MaConnectionState isAvailable only when Connected`() {
-        assertFalse(MaConnectionState.Unavailable.isAvailable)
-        assertFalse(MaConnectionState.NeedsAuth.isAvailable)
-        assertFalse(MaConnectionState.Connecting.isAvailable)
-        assertFalse(MaConnectionState.Error("err").isAvailable)
-
-        // Connected requires MaServerInfo
-        val info = com.sendspindroid.musicassistant.model.MaServerInfo(
-            serverId = "s1", serverVersion = "2.0", apiUrl = "ws://localhost:8095"
+    fun `TransportState isReady only when Ready`() {
+        val nonReadyStates: List<TransportState> = listOf(
+            TransportState.Idle,
+            TransportState.Connecting,
+            TransportState.Failed(com.sendspindroid.coordinator.FailureReason.TransientNetwork),
         )
-        assertTrue(MaConnectionState.Connected(info).isAvailable)
-    }
-
-    @Test
-    fun `MaConnectionState needsUserAction for NeedsAuth and auth errors`() {
-        assertTrue(MaConnectionState.NeedsAuth.needsUserAction)
-        assertTrue(MaConnectionState.Error("expired", isAuthError = true).needsUserAction)
-        assertFalse(MaConnectionState.Error("network error", isAuthError = false).needsUserAction)
-        assertFalse(MaConnectionState.Unavailable.needsUserAction)
+        for (state in nonReadyStates) {
+            assertFalse("${state::class.simpleName} should not be Ready", state is TransportState.Ready)
+        }
+        val ready: TransportState = TransportState.Ready
+        assertTrue(ready is TransportState.Ready)
     }
 }

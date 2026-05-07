@@ -24,10 +24,12 @@ import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.musicassistant.MaSettings
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.network.NetworkEvaluator
 import com.sendspindroid.network.TransportType
-import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.remote.RemoteConnection
+import com.sendspindroid.sendspin.SendSpin
+import com.sendspindroid.sendspin.SendSpinEndpoint
 import com.sendspindroid.musicassistant.MaAuthHelper
 import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.ui.remote.QrScannerDialog
@@ -41,16 +43,11 @@ import com.sendspindroid.ui.wizard.WizardStep
 import com.sendspindroid.ui.wizard.WizardStepAction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.IOException
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.Response
-import okhttp3.WebSocket
-import okhttp3.WebSocketListener
 
 /**
  * Full-screen wizard Activity for adding or editing unified servers.
@@ -69,6 +66,31 @@ class AddServerWizardActivity : FragmentActivity() {
 
         // Result extras
         const val RESULT_SERVER_ID = "server_id"
+
+        // Timeout for transient connection tests
+        private const val TEST_TIMEOUT_MS = 6_000L
+    }
+
+    // No-op callback for transient SendSpin instances used in wizard connection tests.
+    // All methods are intentionally empty — the wizard only cares about connectionState.
+    private val noopSendSpinCallback = object : SendSpin.Callback {
+        override fun onServerDiscovered(name: String, address: String) {}
+        override fun onStateChanged(state: String) {}
+        override fun onGroupUpdate(groupId: String, groupName: String, playbackState: String) {}
+        override fun onMetadataUpdate(
+            title: String, artist: String, album: String,
+            artworkUrl: String, durationMs: Long, positionMs: Long, playbackSpeed: Int
+        ) {}
+        override fun onArtwork(imageData: ByteArray) {}
+        override fun onArtworkCleared() {}
+        override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {}
+        override fun onStreamClear() {}
+        override fun onStreamEnd() {}
+        override fun onAudioChunk(serverTimeMicros: Long, audioData: ByteArray) {}
+        override fun onVolumeChanged(volume: Int) {}
+        override fun onMutedChanged(muted: Boolean) {}
+        override fun onSyncOffsetApplied(offsetMs: Double, source: String) {}
+        override fun onNetworkChanged() {}
     }
 
     private val viewModel: AddServerWizardViewModel by viewModels()
@@ -356,61 +378,32 @@ class AddServerWizardActivity : FragmentActivity() {
     }
 
     private suspend fun testLocalConnection(address: String): Result<Int> {
-        return withContext(Dispatchers.IO) {
-            try {
-                // Use the shared builder - it handles IPv4, hostnames, and IPv6 literals
-                // (bracket-wraps when needed per RFC 3986). If the user did not specify
-                // a port (no colon in non-IPv6 input), append the default.
-                val addressWithPort = WebSocketUrlBuilder.ensureDefaultPort(address, defaultPort = 8927)
-                val wsUrl = WebSocketUrlBuilder.build(addressWithPort, "/sendspin")
-
-                Log.d(TAG, "Testing WebSocket connection to: $wsUrl")
-
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(5, TimeUnit.SECONDS)
-                    .readTimeout(5, TimeUnit.SECONDS)
-                    .build()
-
-                val request = Request.Builder()
-                    .url(wsUrl)
-                    .build()
-
-                var resultCode = 0
-                var connectionSuccess = false
-                var errorMessage: String? = null
-                val latch = CountDownLatch(1)
-
-                val listener = object : WebSocketListener() {
-                    override fun onOpen(webSocket: WebSocket, response: Response) {
-                        Log.d(TAG, "WebSocket connection opened, code: ${response.code}")
-                        resultCode = response.code
-                        connectionSuccess = true
-                        webSocket.close(1000, "Test complete")
-                        latch.countDown()
-                    }
-
-                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                        Log.d(TAG, "WebSocket connection failed: ${t.message}, response code: ${response?.code}")
-                        resultCode = response?.code ?: 0
-                        errorMessage = t.message
-                        connectionSuccess = response != null
-                        latch.countDown()
-                    }
+        Log.d(TAG, "Testing local connection to: $address")
+        val transient = SendSpin(
+            context = applicationContext,
+            deviceName = android.os.Build.MODEL,
+            callback = noopSendSpinCallback,
+        )
+        transient.selfReconnectEnabled = false
+        transient.connect(SendSpinEndpoint.Local(address))
+        return try {
+            val terminal = withTimeoutOrNull(TEST_TIMEOUT_MS) {
+                transient.connectionState.first {
+                    it is TransportState.Ready || it is TransportState.Failed
                 }
-
-                client.newWebSocket(request, listener)
-                latch.await(6, TimeUnit.SECONDS)
-                client.dispatcher.executorService.shutdown()
-
-                if (connectionSuccess) {
-                    Result.success(resultCode)
-                } else {
-                    Result.failure(IOException(errorMessage ?: "Connection failed"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Connection test exception", e)
-                Result.failure(e)
             }
+            when (terminal) {
+                is TransportState.Ready ->
+                    Result.success(101) // 101 Switching Protocols — WebSocket upgrade succeeded
+                is TransportState.Failed ->
+                    Result.failure(IOException("Connection failed: ${terminal.reason::class.simpleName}"))
+                null ->
+                    Result.failure(IOException("Connection timed out"))
+                else ->
+                    Result.failure(IOException("Unexpected state: $terminal"))
+            }
+        } finally {
+            transient.destroy()
         }
     }
 
@@ -523,62 +516,33 @@ class AddServerWizardActivity : FragmentActivity() {
     }
 
     private suspend fun testProxyTokenConnection(): Result<String> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
-
-                val wsUrl = normalizedUrl
-                    .replace("https://", "wss://")
-                    .replace("http://", "ws://")
-
-                Log.d(TAG, "Testing WebSocket proxy connection to: $wsUrl")
-
-                val clientBuilder = OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(10, TimeUnit.SECONDS)
-
-                val client = clientBuilder.build()
-
-                val requestBuilder = Request.Builder()
-                    .url(wsUrl)
-
-                if (viewModel.proxyToken.isNotBlank()) {
-                    requestBuilder.addHeader("Authorization", "Bearer ${viewModel.proxyToken}")
+        val normalizedUrl = viewModel.normalizeProxyUrl(viewModel.proxyUrl)
+        Log.d(TAG, "Testing proxy token connection to: $normalizedUrl")
+        val transient = SendSpin(
+            context = applicationContext,
+            deviceName = android.os.Build.MODEL,
+            callback = noopSendSpinCallback,
+        )
+        transient.selfReconnectEnabled = false
+        transient.connect(SendSpinEndpoint.Proxy(url = normalizedUrl, authToken = viewModel.proxyToken))
+        return try {
+            val terminal = withTimeoutOrNull(TEST_TIMEOUT_MS) {
+                transient.connectionState.first {
+                    it is TransportState.Ready || it is TransportState.Failed
                 }
-
-                var connectionSuccess = false
-                var errorMessage: String? = null
-                val latch = CountDownLatch(1)
-
-                val listener = object : WebSocketListener() {
-                    override fun onOpen(webSocket: WebSocket, response: Response) {
-                        Log.d(TAG, "Proxy WebSocket connection opened, code: ${response.code}")
-                        connectionSuccess = true
-                        webSocket.close(1000, "Test complete")
-                        latch.countDown()
-                    }
-
-                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                        Log.d(TAG, "Proxy WebSocket connection failed: ${t.message}, response code: ${response?.code}")
-                        errorMessage = t.message
-                        connectionSuccess = response != null
-                        latch.countDown()
-                    }
-                }
-
-                client.newWebSocket(requestBuilder.build(), listener)
-                latch.await(11, TimeUnit.SECONDS)
-                client.dispatcher.executorService.shutdown()
-
-                if (connectionSuccess) {
-                    Result.success("Proxy connection successful")
-                } else {
-                    Result.failure(IOException(errorMessage ?: "Proxy connection failed"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Proxy test exception", e)
-                Result.failure(e)
             }
+            when (terminal) {
+                is TransportState.Ready ->
+                    Result.success("Proxy connection successful")
+                is TransportState.Failed ->
+                    Result.failure(IOException("Proxy connection failed: ${terminal.reason::class.simpleName}"))
+                null ->
+                    Result.failure(IOException("Proxy connection timed out"))
+                else ->
+                    Result.failure(IOException("Unexpected state: $terminal"))
+            }
+        } finally {
+            transient.destroy()
         }
     }
 

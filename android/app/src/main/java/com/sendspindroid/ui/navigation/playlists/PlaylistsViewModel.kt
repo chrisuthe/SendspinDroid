@@ -4,7 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaPlaylist
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,7 +67,7 @@ class PlaylistsViewModel : ViewModel() {
             }
 
             Log.d(TAG, "Loading playlists...")
-            val result = MusicAssistantManager.getPlaylists(limit = 500)
+            val result = MusicAssistant.getPlaylists(limit = 500)
 
             result.fold(
                 onSuccess = { playlists ->
@@ -94,7 +94,7 @@ class PlaylistsViewModel : ViewModel() {
     fun createPlaylist(name: String) {
         viewModelScope.launch {
             Log.d(TAG, "Creating playlist: $name")
-            val result = MusicAssistantManager.createPlaylist(name)
+            val result = MusicAssistant.createPlaylist(name)
             result.fold(
                 onSuccess = {
                     Log.d(TAG, "Playlist created: ${it.name}")
@@ -142,7 +142,7 @@ class PlaylistsViewModel : ViewModel() {
             executeDelete = {
                 viewModelScope.launch {
                     Log.d(TAG, "Executing server-side deletion of playlist: $playlistId")
-                    val result = MusicAssistantManager.deletePlaylist(playlistId)
+                    val result = MusicAssistant.deletePlaylist(playlistId)
                     result.fold(
                         onSuccess = {
                             Log.d(TAG, "Playlist deleted from server")

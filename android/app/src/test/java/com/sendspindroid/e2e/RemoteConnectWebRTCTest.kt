@@ -1,7 +1,7 @@
 package com.sendspindroid.e2e
 
 import com.sendspindroid.remote.RemoteConnection
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import io.mockk.verify
 import org.junit.Assert.*
 import org.junit.Test
@@ -14,7 +14,7 @@ import org.junit.Test
  *
  * What IS testable here (unit test level):
  * - Remote ID validation and parsing (various formats)
- * - SendSpinClient.connectRemote() state transitions
+ * - SendSpin.connectRemote() state transitions
  * - Transport injection with REMOTE mode
  * - Full protocol handshake over fake transport
  * - Audio chunk delivery through remote transport
@@ -126,20 +126,20 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
     @Test
     fun `remote connect sets mode to REMOTE and stores remote ID`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.REMOTE,
+            mode = SendSpin.ConnectionMode.REMOTE,
             remoteId = "VVPN3TLP34YMGIZDINCEKQKSIR",
             serverAddress = null,
             serverPath = null
         )
 
-        assertEquals(SendSpinClient.ConnectionMode.REMOTE, client.getConnectionMode())
+        assertEquals(SendSpin.ConnectionMode.REMOTE, client.getConnectionMode())
         assertEquals("VVPN3TLP34YMGIZDINCEKQKSIR", client.getRemoteId())
     }
 
     @Test
     fun `remote handshake completes with server hello`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.REMOTE,
+            mode = SendSpin.ConnectionMode.REMOTE,
             remoteId = "VVPN3TLP34YMGIZDINCEKQKSIR",
             serverAddress = null,
             serverPath = null
@@ -157,13 +157,16 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
 
         // Should be connected
         assertTrue("Should be connected after remote handshake", client.isConnected)
-        verify { mockCallback.onConnected("TestServer") }
+        assertTrue(
+            "State should be Ready after remote handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
+        )
     }
 
     @Test
     fun `remote audio chunk delivery works through fake transport`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.REMOTE,
+            mode = SendSpin.ConnectionMode.REMOTE,
             remoteId = "VVPN3TLP34YMGIZDINCEKQKSIR",
             serverAddress = null,
             serverPath = null
@@ -184,7 +187,7 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
     @Test
     fun `remote disconnect is clean`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.REMOTE,
+            mode = SendSpin.ConnectionMode.REMOTE,
             remoteId = "VVPN3TLP34YMGIZDINCEKQKSIR",
             serverAddress = null,
             serverPath = null
@@ -194,15 +197,16 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
         client.disconnect()
 
         assertFalse("Should be disconnected", client.isConnected)
-        verify {
-            mockCallback.onDisconnected(wasUserInitiated = true, wasReconnectExhausted = false)
-        }
+        assertTrue(
+            "State should be Idle after user disconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Idle
+        )
     }
 
     @Test
     fun `remote reconnection stores remote ID for retry`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.REMOTE,
+            mode = SendSpin.ConnectionMode.REMOTE,
             remoteId = "VVPN3TLP34YMGIZDINCEKQKSIR",
             serverAddress = null,
             serverPath = null
@@ -215,7 +219,10 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // Should attempt reconnection (remote ID is saved)
-        verify { mockCallback.onReconnecting(1, any()) }
+        // Should attempt reconnection (remote ID is saved, state transitions to Connecting)
+        assertTrue(
+            "State should be Connecting during reconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Connecting
+        )
     }
 }

@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,8 +61,8 @@ class PlaylistDetailViewModel : ViewModel() {
             Log.d(TAG, "Loading playlist details: $playlistId")
 
             // Load playlist metadata and tracks in parallel
-            val playlistDeferred = async { MusicAssistantManager.getPlaylist(playlistId) }
-            val tracksDeferred = async { MusicAssistantManager.getPlaylistTracks(playlistId) }
+            val playlistDeferred = async { MusicAssistant.getPlaylist(playlistId) }
+            val tracksDeferred = async { MusicAssistant.getPlaylistTracks(playlistId) }
 
             val playlistResult = playlistDeferred.await()
             val tracksResult = tracksDeferred.await()
@@ -106,7 +106,7 @@ class PlaylistDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing all tracks for playlist: ${current.playlist.name}")
-            MusicAssistantManager.playMedia(uri, "playlist").fold(
+            MusicAssistant.playMedia(uri, "playlist").fold(
                 onSuccess = {
                     Log.d(TAG, "Started playback for playlist")
                 },
@@ -128,7 +128,7 @@ class PlaylistDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Shuffling tracks for playlist: ${current.playlist.name}")
-            MusicAssistantManager.playMedia(uri, "playlist").fold(
+            MusicAssistant.playMedia(uri, "playlist").fold(
                 onSuccess = {
                     Log.d(TAG, "Started shuffle playback for playlist")
                 },
@@ -147,7 +147,7 @@ class PlaylistDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing track: ${track.name}")
-            MusicAssistantManager.playMedia(uri, "track").fold(
+            MusicAssistant.playMedia(uri, "track").fold(
                 onSuccess = {
                     Log.d(TAG, "Started track playback")
                 },
@@ -195,7 +195,7 @@ class PlaylistDetailViewModel : ViewModel() {
             executeRemove = {
                 viewModelScope.launch {
                     Log.d(TAG, "Executing server-side removal of track at position $position")
-                    val result = MusicAssistantManager.removePlaylistTracks(
+                    val result = MusicAssistant.removePlaylistTracks(
                         current.playlist.playlistId,
                         listOf(position)
                     )

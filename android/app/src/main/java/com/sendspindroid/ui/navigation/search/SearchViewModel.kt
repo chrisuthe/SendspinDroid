@@ -3,7 +3,7 @@ package com.sendspindroid.ui.navigation.search
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaMediaType
 import kotlinx.coroutines.Job
@@ -195,7 +195,7 @@ class SearchViewModel : ViewModel() {
             currentState.activeFilters.toList()
         }
 
-        val result = MusicAssistantManager.search(
+        val result = MusicAssistant.search(
             query = query,
             mediaTypes = mediaTypes,
             limit = RESULTS_PER_TYPE,

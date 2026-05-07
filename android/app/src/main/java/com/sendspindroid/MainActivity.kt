@@ -17,10 +17,6 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.os.Build
 import android.os.Build.VERSION_CODES
 import android.os.Bundle
@@ -74,11 +70,11 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.sendspindroid.databinding.ActivityMainBinding
 import com.sendspindroid.discovery.NsdDiscoveryManager
+import com.sendspindroid.coordinator.ReconnectStatus
 import com.sendspindroid.model.AppConnectionState
 import com.sendspindroid.playback.PlaybackService
 import com.sendspindroid.model.UnifiedServer
 import com.sendspindroid.model.ConnectionType
-import com.sendspindroid.network.AutoReconnectManager
 import com.sendspindroid.network.ConnectionSelector
 import com.sendspindroid.network.DefaultServerPinger
 import com.sendspindroid.network.NetworkEvaluator
@@ -86,8 +82,8 @@ import com.sendspindroid.ui.remote.ProxyConnectDialog
 import com.sendspindroid.ui.remote.RemoteConnectDialog
 import com.sendspindroid.ui.server.AddServerWizardActivity
 import com.sendspindroid.ui.server.UnifiedServerConnector
-import com.sendspindroid.musicassistant.MusicAssistantManager
-import com.sendspindroid.musicassistant.model.MaConnectionState
+import com.sendspindroid.coordinator.TransportState
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.ui.queue.QueueSheetFragment
 import androidx.activity.viewModels
 import androidx.fragment.app.Fragment
@@ -151,6 +147,7 @@ class MainActivity : AppCompatActivity() {
     // (to avoid duplicates since Activity handles configChanges manually)
     private var scanningPollJob: Job? = null
     private var maConnectionObserverJob: Job? = null
+    private var networkStateObserverJob: Job? = null
 
     // ViewModel for managing UI state (survives configuration changes)
     private val viewModel: MainActivityViewModel by viewModels()
@@ -190,9 +187,6 @@ class MainActivity : AppCompatActivity() {
     // Reconnecting indicator - persists while reconnection is in progress
     private var reconnectingSnackbar: Snackbar? = null
 
-    // Auto-reconnect manager for persistent reconnection from ServerList UI
-    private var autoReconnectManager: AutoReconnectManager? = null
-
     // Server being reconnected to (for tracking during auto-reconnect)
     private var reconnectingToServer: UnifiedServer? = null
 
@@ -202,24 +196,6 @@ class MainActivity : AppCompatActivity() {
 
     // Charging state receiver for adaptive ping intervals
     private var chargingReceiver: BroadcastReceiver? = null
-
-    // Network state monitoring
-    private val connectivityManager by lazy {
-        getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    }
-    private var networkCallback: ConnectivityManager.NetworkCallback? = null
-
-    // Tracks NET_CAPABILITY_VALIDATED transitions on the Activity's network callback
-    // so we can surface a "no internet access" snackbar when WiFi is associated but
-    // has no upstream (captive portal, walked out of range, DNS hijack). The
-    // PlaybackService callback owns the actual reconnect-pause side effect; this
-    // field is UI-only.
-    //
-    // @Volatile: written from a binder thread (NetworkCallback) and read from the
-    // main looper via runOnUiThread. Null means "no prior state" -- first callback,
-    // no transition to compare against yet.
-    @Volatile
-    private var lastActivityValidatedState: Boolean? = null
 
     // Volume control - uses device STREAM_MUSIC (Spotify-style)
     private val audioManager by lazy {
@@ -539,7 +515,6 @@ class MainActivity : AppCompatActivity() {
         // Initialize discovery manager BEFORE setupUI, because setupUI calls
         // showSearchingView() which starts auto-discovery
         initializeDiscoveryManager()
-        initializeAutoReconnectManager()
         initializeDefaultServerPinger()
         initializeMediaController()
         setupUI()
@@ -767,6 +742,10 @@ class MainActivity : AppCompatActivity() {
 
         // Observe MA connection state to show/hide MA-dependent UI elements
         observeMaConnectionState()
+
+        // Observe network state from PlaybackService/Coordinator for pinger callbacks
+        // and network-loss snackbars (replaces the deleted ConnectivityManager.NetworkCallback).
+        observeNetworkState()
 
         // Volume slider - controls device STREAM_MUSIC (Spotify-style)
         // Initialize slider to current device volume
@@ -1171,7 +1150,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        registerNetworkCallback()
         registerVolumeObserver()
         // Notify pinger of foreground state for adaptive intervals
         defaultServerPinger?.onForegroundChanged(true)
@@ -1179,7 +1157,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        unregisterNetworkCallback()
         unregisterVolumeObserver()
         // Notify pinger of background state for adaptive intervals
         defaultServerPinger?.onForegroundChanged(false)
@@ -1218,97 +1195,6 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         // Re-sync UI state with MediaController
         syncUIWithPlayerState()
-    }
-
-    // ============================================================================
-    // Network State Monitoring
-    // ============================================================================
-
-    /**
-     * Registers a network callback to monitor connectivity changes.
-     * Shows error when network is lost while connected to a server.
-     */
-    private fun registerNetworkCallback() {
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                Log.d(TAG, "Network available")
-                // If auto-reconnecting, trigger immediate retry (skip backoff delay)
-                if (autoReconnectManager?.isReconnecting() == true) {
-                    Log.i(TAG, "Network available during auto-reconnect - triggering immediate retry")
-                    autoReconnectManager?.onNetworkAvailable()
-                }
-                // Notify default server pinger of network change (may trigger immediate ping)
-                defaultServerPinger?.onNetworkChanged()
-            }
-
-            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                // Network type may have changed (WiFi <-> cellular) - notify pinger
-                // This triggers re-evaluation of connection priority
-                networkEvaluator?.evaluateCurrentNetwork(network)
-                defaultServerPinger?.onNetworkChanged()
-
-                // Detect NET_CAPABILITY_VALIDATED dropping. Android can keep INTERNET
-                // set while removing VALIDATED (captive portal, out of WiFi range with
-                // association still up, etc.), in which case onLost() never fires and
-                // the user would see no UI feedback. PlaybackService handles the
-                // reconnect-pause side effect in its own callback; here we just show
-                // the snackbar if the user is connected or actively connecting.
-                val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                if (lastActivityValidatedState == true && !isValidated) {
-                    Log.w(TAG, "Activity: network lost VALIDATED")
-                    runOnUiThread {
-                        if (connectionState is AppConnectionState.Connected ||
-                            connectionState is AppConnectionState.Connecting) {
-                            showErrorSnackbar(
-                                message = "Network has no internet access",
-                                errorType = ErrorType.NETWORK
-                            )
-                        }
-                    }
-                }
-                lastActivityValidatedState = isValidated
-            }
-
-            override fun onLost(network: Network) {
-                Log.w(TAG, "Network lost")
-                runOnUiThread {
-                    // Only show error if we're connected or connecting to a server
-                    if (connectionState is AppConnectionState.Connected ||
-                        connectionState is AppConnectionState.Connecting) {
-                        showErrorSnackbar(
-                            message = "Network connection lost",
-                            errorType = ErrorType.NETWORK
-                        )
-                    }
-                }
-            }
-        }
-
-        networkCallback = callback
-
-        val request = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-
-        try {
-            connectivityManager.registerNetworkCallback(request, callback)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to register network callback", e)
-        }
-    }
-
-    /**
-     * Unregisters the network callback to prevent leaks.
-     */
-    private fun unregisterNetworkCallback() {
-        networkCallback?.let {
-            try {
-                connectivityManager.unregisterNetworkCallback(it)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to unregister network callback", e)
-            }
-        }
-        networkCallback = null
     }
 
     // ============================================================================
@@ -1484,7 +1370,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Don't auto-connect if auto-reconnect is in progress
-        if (autoReconnectManager?.isReconnecting() == true) {
+        if (PlaybackService.reconnectStatus.value is ReconnectStatus.Attempting) {
             Log.d(TAG, "Skipping auto-connect on discovery - auto-reconnect in progress")
             return
         }
@@ -1614,68 +1500,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Initializes the AutoReconnectManager for persistent auto-reconnection.
-     *
-     * When connection is lost unexpectedly (not user-initiated), this manager
-     * handles progressive backoff reconnection from the ServerList UI.
-     */
-    private fun initializeAutoReconnectManager() {
-        autoReconnectManager = AutoReconnectManager(
-            context = this,
-            onAttempt = { serverId, attempt, maxAttempts, connectionType ->
-                runOnUiThread {
-                    Log.d(TAG, "Auto-reconnect attempt $attempt/$maxAttempts for server $serverId")
-
-                    // Update toolbar subtitle
-                    supportActionBar?.subtitle = getString(R.string.reconnecting_toolbar_subtitle)
-
-                    // Announce for accessibility
-                    announceForAccessibility(getString(R.string.accessibility_reconnecting, attempt, maxAttempts))
-                }
-            },
-            onMethodAttempt = { serverId, method ->
-                runOnUiThread {
-                    val methodName = when (method) {
-                        ConnectionType.LOCAL -> getString(R.string.connection_method_local)
-                        ConnectionType.REMOTE -> getString(R.string.connection_method_remote)
-                        ConnectionType.PROXY -> getString(R.string.connection_method_proxy)
-                    }
-                    Log.d(TAG, "Auto-reconnect trying $methodName for server $serverId")
-                    val currentProgress = autoReconnectManager?.getCurrentAttempt() ?: 1
-                }
-            },
-            onSuccess = { serverId ->
-                runOnUiThread {
-                    Log.i(TAG, "Auto-reconnect succeeded for server $serverId")
-                    reconnectingToServer = null
-                    supportActionBar?.subtitle = null
-                    hideReconnectingIndicator()
-                    // Note: Connection success will be handled by handleConnectionStateChange
-                }
-            },
-            onFailure = { serverId, error ->
-                runOnUiThread {
-                    Log.w(TAG, "Auto-reconnect failed for server $serverId: $error")
-                    reconnectingToServer = null
-                    supportActionBar?.subtitle = null
-                    hideReconnectingIndicator()
-                    // NOTE: We do NOT set userManuallyDisconnected here - if the server
-                    // reappears on mDNS later, we still want to auto-connect to it.
-                    showErrorSnackbar(
-                        message = getString(R.string.reconnecting_failed, AutoReconnectManager.MAX_ATTEMPTS),
-                        errorType = ErrorType.CONNECTION
-                    )
-                }
-            },
-            connectToServer = { server, selectedConnection ->
-                // This is called from a coroutine - perform the actual connection
-                performAutoReconnect(server, selectedConnection)
-            }
-        )
-        Log.d(TAG, "AutoReconnectManager initialized")
-    }
-
-    /**
      * Initializes the DefaultServerPinger for remote/proxy auto-connect.
      *
      * When the default server isn't discovered via mDNS (user on cellular,
@@ -1695,7 +1519,7 @@ class MainActivity : AppCompatActivity() {
                     // Only connect if conditions still allow
                     if (!userManuallyDisconnected &&
                         connectionState == AppConnectionState.ServerList &&
-                        autoReconnectManager?.isReconnecting() != true) {
+                        PlaybackService.reconnectStatus.value !is ReconnectStatus.Attempting) {
                         Log.i(TAG, "Default server reachable via ping - auto-connecting to ${server.name}")
                         onUnifiedServerSelected(server)
                     } else {
@@ -1930,6 +1754,33 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Group name update received: $groupName")
             updateGroupName(groupName)
         }
+
+        // Handle reconnect status updates
+        val reconnectStatusStr = extras.getString(PlaybackService.EXTRA_RECONNECT_STATUS)
+        if (reconnectStatusStr != null) {
+            val status: ReconnectStatus = when (reconnectStatusStr) {
+                PlaybackService.RECONNECT_IDLE -> ReconnectStatus.Idle
+                PlaybackService.RECONNECT_ATTEMPTING -> ReconnectStatus.Attempting(
+                    serverId = extras.getString(PlaybackService.EXTRA_RECONNECT_SERVER_ID).orEmpty(),
+                    attempt = extras.getInt(PlaybackService.EXTRA_RECONNECT_ATTEMPT, 0),
+                    maxAttempts = extras.getInt(PlaybackService.EXTRA_RECONNECT_MAX_ATTEMPTS, 0),
+                    method = extras.getString(PlaybackService.EXTRA_RECONNECT_METHOD)
+                        ?.let {
+                            try { com.sendspindroid.model.ConnectionType.valueOf(it) }
+                            catch (_: IllegalArgumentException) { null }
+                        },
+                )
+                PlaybackService.RECONNECT_SUCCEEDED -> ReconnectStatus.Succeeded(
+                    serverId = extras.getString(PlaybackService.EXTRA_RECONNECT_SERVER_ID).orEmpty(),
+                )
+                PlaybackService.RECONNECT_FAILED -> ReconnectStatus.Failed(
+                    serverId = extras.getString(PlaybackService.EXTRA_RECONNECT_SERVER_ID).orEmpty(),
+                    error = extras.getString(PlaybackService.EXTRA_RECONNECT_ERROR).orEmpty(),
+                )
+                else -> return
+            }
+            handleReconnectStatusChange(status)
+        }
     }
 
     /**
@@ -1976,7 +1827,7 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 // Cancel any auto-reconnect in progress (we're now connected)
-                autoReconnectManager?.cancelReconnection()
+                sendCommandCancelReconnect()
                 reconnectingToServer?.let { server ->
                 }
                 reconnectingToServer = null
@@ -2063,8 +1914,8 @@ class MainActivity : AppCompatActivity() {
 
                         // Update adapter to show reconnecting status
 
-                        // Start auto-reconnect manager
-                        autoReconnectManager?.startReconnecting(server)
+                        // Start auto-reconnect via Coordinator
+                        sendCommandConnectAuto(server.id)
                     } else {
                         Log.w(TAG, "Cannot start auto-reconnect: no server info available")
                     }
@@ -2090,6 +1941,54 @@ class MainActivity : AppCompatActivity() {
 
                 showErrorSnackbar(
                     message = errorMessage,
+                    errorType = ErrorType.CONNECTION
+                )
+            }
+        }
+    }
+
+    /**
+     * Handles reconnect status changes broadcast from PlaybackService via session extras.
+     * Drives the reconnect UI (toolbar subtitle, snackbar, etc.).
+     * Must be called on the main thread.
+     */
+    private fun handleReconnectStatusChange(status: ReconnectStatus) {
+        when (status) {
+            ReconnectStatus.Idle -> {
+                // No-op: the UI clears reconnect overlays via the Connected/Disconnected path.
+            }
+            is ReconnectStatus.Attempting -> {
+                Log.d(TAG, "Auto-reconnect attempt ${status.attempt}/${status.maxAttempts} for server ${status.serverId}")
+                // Update toolbar subtitle
+                supportActionBar?.subtitle = getString(R.string.reconnecting_toolbar_subtitle)
+                // Announce for accessibility
+                announceForAccessibility(getString(R.string.accessibility_reconnecting, status.attempt, status.maxAttempts))
+                // Log the method being tried, if known
+                if (status.method != null) {
+                    val methodName = when (status.method) {
+                        ConnectionType.LOCAL -> getString(R.string.connection_method_local)
+                        ConnectionType.REMOTE -> getString(R.string.connection_method_remote)
+                        ConnectionType.PROXY -> getString(R.string.connection_method_proxy)
+                    }
+                    Log.d(TAG, "Auto-reconnect trying $methodName for server ${status.serverId}")
+                }
+            }
+            is ReconnectStatus.Succeeded -> {
+                Log.i(TAG, "Auto-reconnect succeeded for server ${status.serverId}")
+                reconnectingToServer = null
+                supportActionBar?.subtitle = null
+                hideReconnectingIndicator()
+                // Connection success is also handled by handleConnectionStateChange via STATE_CONNECTED.
+            }
+            is ReconnectStatus.Failed -> {
+                Log.w(TAG, "Auto-reconnect failed for server ${status.serverId}: ${status.error}")
+                reconnectingToServer = null
+                supportActionBar?.subtitle = null
+                hideReconnectingIndicator()
+                // NOTE: We do NOT set userManuallyDisconnected here - if the server
+                // reappears on mDNS later, we still want to auto-connect to it.
+                showErrorSnackbar(
+                    message = status.error,
                     errorType = ErrorType.CONNECTION
                 )
             }
@@ -2453,10 +2352,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Cancel any ongoing auto-reconnect if user taps a different server
-        val reconnectingId = autoReconnectManager?.getReconnectingServerId()
+        val reconnectingId = (PlaybackService.reconnectStatus.value as? ReconnectStatus.Attempting)?.serverId
         if (reconnectingId != null && reconnectingId != server.id) {
             Log.i(TAG, "User selected different server - cancelling auto-reconnect for $reconnectingId")
-            autoReconnectManager?.cancelReconnection()
+            sendCommandCancelReconnect()
             reconnectingToServer = null
         } else if (reconnectingId == server.id) {
             // User tapped the server we're reconnecting to - let auto-reconnect continue
@@ -2648,7 +2547,7 @@ class MainActivity : AppCompatActivity() {
         Log.d(TAG, "Favorite clicked")
 
         lifecycleScope.launch {
-            val result = MusicAssistantManager.favoriteCurrentTrack()
+            val result = MusicAssistant.favoriteCurrentTrack()
             result.fold(
                 onSuccess = { message ->
                     Snackbar.make(snackbarView, R.string.favorite_added, Snackbar.LENGTH_SHORT).show()
@@ -2710,8 +2609,17 @@ class MainActivity : AppCompatActivity() {
         // (setupUI() is called again in onConfigurationChanged)
         maConnectionObserverJob?.cancel()
         maConnectionObserverJob = lifecycleScope.launch {
-            MusicAssistantManager.connectionState.collectLatest { state ->
-                val isMaConnected = state is MaConnectionState.Connected
+            // Observe loginRequired events (no-token or auth-rejected) for the login dialog.
+            launch {
+                MusicAssistant.loginRequired.collect {
+                    if (!maLoginDialogShowing) {
+                        showMaLoginDialog()
+                    }
+                }
+            }
+
+            MusicAssistant.connectionState.collectLatest { state ->
+                val isMaConnected = state is TransportState.Ready
 
                 // Favorite button visibility
                 binding.favoriteButton.visibility = if (isMaConnected) View.VISIBLE else View.GONE
@@ -2728,15 +2636,50 @@ class MainActivity : AppCompatActivity() {
                     hideNavigationContent()
                 }
 
-                // Show login dialog when MA server detected but no token stored
-                if (state is MaConnectionState.NeedsAuth && !maLoginDialogShowing) {
-                    showMaLoginDialog()
-                }
-
                 // Update ViewModel for Compose UI
                 viewModel.setMaConnected(isMaConnected)
 
                 Log.d(TAG, "MA connection state changed: $state, MA-dependent UI visible: $isMaConnected")
+            }
+        }
+    }
+
+    /**
+     * Observes PlaybackService.networkState (mirrored from ConnectionCoordinator) to:
+     * - Notify DefaultServerPinger of every network change so it can trigger an immediate ping.
+     * - Show a "Network connection lost" snackbar when the network goes away while the user
+     *   is connected or connecting to a server.
+     *
+     * This replaces the deleted ConnectivityManager.NetworkCallback that MainActivity
+     * registered directly. The Coordinator owns the single NetworkCallback; both the
+     * validation-loss debounce and full link-loss paths emit isConnected=false, so a
+     * single snackbar message covers both cases.
+     */
+    private fun observeNetworkState() {
+        // Cancel any previous observer to prevent duplicates on config change
+        // (setupUI() is called again in onConfigurationChanged)
+        networkStateObserverJob?.cancel()
+        networkStateObserverJob = lifecycleScope.launch {
+            var prevConnected: Boolean? = null
+            PlaybackService.networkState.collect { state ->
+                // Notify pinger on every emission (matches the unconditional onAvailable /
+                // onCapabilitiesChanged behavior of the deleted networkCallback).
+                defaultServerPinger?.onNetworkChanged()
+
+                val connected = state.isConnected
+                if (prevConnected == true && !connected) {
+                    // Network was connected and is now gone (covers both full link-loss and
+                    // validation-loss-after-debounce paths in the Coordinator).
+                    Log.w(TAG, "networkState: connection lost (isConnected false)")
+                    if (connectionState is AppConnectionState.Connected ||
+                        connectionState is AppConnectionState.Connecting) {
+                        showErrorSnackbar(
+                            message = "Network connection lost",
+                            errorType = ErrorType.NETWORK
+                        )
+                    }
+                }
+                prevConnected = connected
             }
         }
     }
@@ -2791,7 +2734,7 @@ class MainActivity : AppCompatActivity() {
             dialog.setMessage(getString(R.string.ma_login_dialog_logging_in))
 
             lifecycleScope.launch {
-                val result = MusicAssistantManager.login(username, password)
+                val result = MusicAssistant.login(username, password)
                 if (result.isSuccess) {
                     dialog.dismiss()
                 } else {
@@ -2801,12 +2744,7 @@ class MainActivity : AppCompatActivity() {
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = true
                     dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true
 
-                    val errorState = MusicAssistantManager.connectionState.value
-                    val errorMsg = if (errorState is MaConnectionState.Error) {
-                        errorState.message
-                    } else {
-                        "Unknown error"
-                    }
+                    val errorMsg = "Invalid username or password"
                     dialog.setMessage(getString(R.string.ma_login_dialog_failed, errorMsg))
                 }
             }
@@ -2923,6 +2861,21 @@ class MainActivity : AppCompatActivity() {
         }
         val command = SessionCommand(PlaybackService.COMMAND_SET_VOLUME, Bundle.EMPTY)
         controller.sendCustomCommand(command, args)
+    }
+
+    private fun sendCommandConnectAuto(serverId: String) {
+        val controller = mediaController ?: return
+        val args = Bundle().apply {
+            putString(PlaybackService.ARG_SERVER_ID, serverId)
+        }
+        val command = SessionCommand(PlaybackService.COMMAND_CONNECT_AUTO, Bundle.EMPTY)
+        controller.sendCustomCommand(command, args)
+    }
+
+    private fun sendCommandCancelReconnect() {
+        val controller = mediaController ?: return
+        val command = SessionCommand(PlaybackService.COMMAND_CANCEL_RECONNECT, Bundle.EMPTY)
+        controller.sendCustomCommand(command, Bundle.EMPTY)
     }
 
     /**
@@ -3542,10 +3495,6 @@ class MainActivity : AppCompatActivity() {
         // Cleanup NsdDiscoveryManager (handles multicast lock internally)
         discoveryManager?.cleanup()
         discoveryManager = null
-
-        // Cleanup AutoReconnectManager
-        autoReconnectManager?.destroy()
-        autoReconnectManager = null
 
         // Cleanup DefaultServerPinger and charging receiver
         defaultServerPinger?.destroy()

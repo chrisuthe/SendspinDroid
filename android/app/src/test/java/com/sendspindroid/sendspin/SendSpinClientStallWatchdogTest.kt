@@ -26,11 +26,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientStallWatchdogTest {
+class SendSpinStallWatchdogTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
     private lateinit var fakeTransport: FakeTransport
 
     private class FakeTransport : SendSpinTransport {
@@ -77,19 +77,19 @@ class SendSpinClientStallWatchdogTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
         fakeTransport = FakeTransport()
 
         // Put client in a "connected + handshake complete" state
-        val addrField = SendSpinClient::class.java.getDeclaredField("serverAddress")
+        val addrField = SendSpin::class.java.getDeclaredField("serverAddress")
         addrField.isAccessible = true
         addrField.set(client, "127.0.0.1:8080")
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
-        val handshakeField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val handshakeField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         handshakeField.isAccessible = true
         handshakeField.set(client, true)
     }
@@ -103,7 +103,7 @@ class SendSpinClientStallWatchdogTest {
 
     @Test
     fun `lastByteReceivedAtMs is updated on text message`() {
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
 
@@ -120,7 +120,7 @@ class SendSpinClientStallWatchdogTest {
 
     @Test
     fun `lastByteReceivedAtMs is updated on binary message`() {
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
 
@@ -137,15 +137,15 @@ class SendSpinClientStallWatchdogTest {
 
     @Test
     fun `checkStall forces transport close when stalled past timeout`() {
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 60_000L)  // 60s in the past
-        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        val streamActiveField = SendSpin::class.java.getDeclaredField("streamActive")
         streamActiveField.isAccessible = true
         (streamActiveField.get(client) as AtomicBoolean).set(true)
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -155,12 +155,12 @@ class SendSpinClientStallWatchdogTest {
 
     @Test
     fun `checkStall does not close when recently active`() {
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis())  // just now
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -169,17 +169,17 @@ class SendSpinClientStallWatchdogTest {
 
     @Test
     fun `checkStall does not close during active reconnection`() {
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 60_000L)
 
-        val reconnectingField = SendSpinClient::class.java.getDeclaredField("reconnecting")
+        val reconnectingField = SendSpin::class.java.getDeclaredField("reconnecting")
         reconnectingField.isAccessible = true
         val reconnecting = reconnectingField.get(client) as AtomicBoolean
         reconnecting.set(true)
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -193,23 +193,23 @@ class SendSpinClientStallWatchdogTest {
 
         // Force-start the watchdog (as if from a prior connect), then stop it (as if from
         // attemptReconnect at line 776).
-        val startWatchdog = SendSpinClient::class.java.getDeclaredMethod("startStallWatchdog")
+        val startWatchdog = SendSpin::class.java.getDeclaredMethod("startStallWatchdog")
         startWatchdog.isAccessible = true
         startWatchdog.invoke(client)
 
-        val stopWatchdog = SendSpinClient::class.java.getDeclaredMethod("stopStallWatchdog")
+        val stopWatchdog = SendSpin::class.java.getDeclaredMethod("stopStallWatchdog")
         stopWatchdog.isAccessible = true
         stopWatchdog.invoke(client)
 
         // Verify the job is null after stop
-        val jobField = SendSpinClient::class.java.getDeclaredField("stallWatchdogJob")
+        val jobField = SendSpin::class.java.getDeclaredField("stallWatchdogJob")
         jobField.isAccessible = true
         assertNull("stallWatchdogJob should be null after stop", jobField.get(client))
 
         // Now simulate onHandshakeComplete firing - this is what happens after a
         // reconnect succeeds. We call it through the superclass since the method is
-        // declared on SendSpinProtocolHandler and overridden in SendSpinClient.
-        val handshakeMethod = SendSpinClient::class.java.getDeclaredMethod(
+        // declared on SendSpinProtocolHandler and overridden in SendSpin.
+        val handshakeMethod = SendSpin::class.java.getDeclaredMethod(
             "onHandshakeComplete", String::class.java, String::class.java
         )
         handshakeMethod.isAccessible = true
@@ -227,17 +227,17 @@ class SendSpinClientStallWatchdogTest {
         // Idle threshold is 20s; 15s stale should NOT trip. Issue #127: idle watchdog
         // uses a longer threshold than streaming to accommodate TimeSyncManager burst
         // cadence, but still detects genuine server death well inside the 30s buffer.
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 15_000L)  // 15s stale — under idle threshold
 
-        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        val streamActiveField = SendSpin::class.java.getDeclaredField("streamActive")
         streamActiveField.isAccessible = true
         val streamActive = streamActiveField.get(client) as AtomicBoolean
         streamActive.set(false)
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -248,17 +248,17 @@ class SendSpinClientStallWatchdogTest {
     @Test
     fun `checkStall closes during idle when past idle threshold`() {
         // Idle threshold is 20s; 25s stale should trip even with no stream active. Issue #127.
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 25_000L)  // 25s stale — past idle threshold
 
-        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        val streamActiveField = SendSpin::class.java.getDeclaredField("streamActive")
         streamActiveField.isAccessible = true
         val streamActive = streamActiveField.get(client) as AtomicBoolean
         streamActive.set(false)
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -271,17 +271,17 @@ class SendSpinClientStallWatchdogTest {
     fun `checkStall does not close streaming within streaming threshold`() {
         // Streaming threshold is 7s; 5s stale should NOT trip. Regression guard against
         // accidental tightening of the streaming threshold.
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 5_000L)  // 5s stale — under streaming threshold
 
-        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        val streamActiveField = SendSpin::class.java.getDeclaredField("streamActive")
         streamActiveField.isAccessible = true
         val streamActive = streamActiveField.get(client) as AtomicBoolean
         streamActive.set(true)
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -292,18 +292,18 @@ class SendSpinClientStallWatchdogTest {
     @Test
     fun `checkStall closes when stream is active and stalled`() {
         // Seed a stale timestamp
-        val lastByteField = SendSpinClient::class.java.getDeclaredField("lastByteReceivedAtMs")
+        val lastByteField = SendSpin::class.java.getDeclaredField("lastByteReceivedAtMs")
         lastByteField.isAccessible = true
         val atomicLong = lastByteField.get(client) as AtomicLong
         atomicLong.set(System.currentTimeMillis() - 60_000L)
 
         // Activate the stream
-        val streamActiveField = SendSpinClient::class.java.getDeclaredField("streamActive")
+        val streamActiveField = SendSpin::class.java.getDeclaredField("streamActive")
         streamActiveField.isAccessible = true
         val streamActive = streamActiveField.get(client) as AtomicBoolean
         streamActive.set(true)
 
-        val checkStall = SendSpinClient::class.java.getDeclaredMethod("checkStall")
+        val checkStall = SendSpin::class.java.getDeclaredMethod("checkStall")
         checkStall.isAccessible = true
         checkStall.invoke(client)
 
@@ -313,9 +313,9 @@ class SendSpinClientStallWatchdogTest {
     }
 
     private fun buildTransportListener(): SendSpinTransport.Listener {
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         return constructor.newInstance(client) as SendSpinTransport.Listener
     }

@@ -53,7 +53,7 @@ class MaProxyImageFetcher(
     }
 
     override suspend fun fetch(): FetchResult {
-        val transport = MusicAssistantManager.getApiTransport()
+        val transport = MusicAssistant.getApiTransport()
             ?: throw IOException("MA API transport not connected - cannot fetch proxied image")
 
         Log.d(TAG, "Fetching proxied image: $path")

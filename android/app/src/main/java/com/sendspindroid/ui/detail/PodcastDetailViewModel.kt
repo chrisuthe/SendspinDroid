@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaPodcast
 import com.sendspindroid.musicassistant.MaPodcastEpisode
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -85,7 +85,7 @@ class PodcastDetailViewModel : ViewModel() {
         viewModelScope.launch {
             Log.d(TAG, "Loading podcast details: $podcastId")
 
-            val episodesResult = MusicAssistantManager.getPodcastEpisodes(podcastId)
+            val episodesResult = MusicAssistant.getPodcastEpisodes(podcastId)
 
             when {
                 episodesResult.isFailure -> {
@@ -152,7 +152,7 @@ class PodcastDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing episode: ${episode.name}")
-            MusicAssistantManager.playMedia(uri, "podcast_episode").fold(
+            MusicAssistant.playMedia(uri, "podcast_episode").fold(
                 onSuccess = {
                     Log.d(TAG, "Started episode playback")
                 },
@@ -174,7 +174,7 @@ class PodcastDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing all episodes for podcast: ${current.podcast.name}")
-            MusicAssistantManager.playMedia(uri, "podcast").fold(
+            MusicAssistant.playMedia(uri, "podcast").fold(
                 onSuccess = {
                     Log.d(TAG, "Started podcast playback")
                 },
@@ -196,7 +196,7 @@ class PodcastDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Adding podcast to queue: ${current.podcast.name}")
-            MusicAssistantManager.playMedia(uri, "podcast", enqueue = true).fold(
+            MusicAssistant.playMedia(uri, "podcast", enqueue = true).fold(
                 onSuccess = {
                     Log.d(TAG, "Podcast added to queue")
                 },

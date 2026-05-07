@@ -13,7 +13,7 @@ import org.junit.Test
  * introduced by issue #132. The overlay substitutes
  * "Reconnecting to {server}..." for the title and forces
  * [Player.STATE_BUFFERING] so lock screen / Android Auto / AVRCP render a
- * recovering indicator while [SendSpinClient] is in the `Reconnecting` state.
+ * recovering indicator while [SendSpin] is in the `Reconnecting` state.
  */
 class MetadataForwardingPlayerReconnectingTest {
 

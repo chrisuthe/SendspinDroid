@@ -7,7 +7,7 @@ import com.sendspindroid.sendspin.PlaybackState
  * Data class holding all synchronization statistics for display in Stats for Nerds.
  *
  * This aggregates data from:
- * - SendSpinClient (connection info)
+ * - SendSpin (connection info)
  * - SendspinTimeFilter (clock synchronization)
  * - SyncAudioPlayer (buffer and playback stats)
  * - SyncErrorFilter (sync error smoothing)

@@ -38,7 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaPlaylist
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.delay
 
 /**
@@ -80,7 +80,7 @@ fun PlaylistPickerDialog(
     // Load playlists only when showing the picker (no operation state)
     LaunchedEffect(operationState) {
         if (operationState == null && playlists == null && error == null) {
-            MusicAssistantManager.getPlaylists().fold(
+            MusicAssistant.getPlaylists().fold(
                 onSuccess = { playlists = it },
                 onFailure = { error = it.message ?: "Failed to load playlists" }
             )

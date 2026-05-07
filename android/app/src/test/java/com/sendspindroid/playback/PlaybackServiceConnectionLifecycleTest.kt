@@ -1,7 +1,9 @@
 package com.sendspindroid.playback
 
 import android.util.Log
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
+import com.sendspindroid.sendspin.SendSpin
 import io.mockk.*
 import org.junit.After
 import org.junit.Assert.*
@@ -9,11 +11,11 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Integration test: PlaybackService + SendSpinClient connection lifecycle.
+ * Integration test: PlaybackService + SendSpin connection lifecycle.
  *
  * Verifies that connectToServer creates a client, transitions through Connecting
  * state, and that the callback interface bridges events correctly between
- * SendSpinClient and PlaybackService state.
+ * SendSpin and PlaybackService state.
  *
  * Since PlaybackService is tightly coupled to Android framework (MediaLibraryService),
  * these tests exercise the callback interface and state transitions in isolation
@@ -81,7 +83,7 @@ class PlaybackServiceConnectionLifecycleTest {
         // Simulate connectToServer
         connectionState = ConnectionState.Connecting
 
-        // Simulate SendSpinClient.Callback.onConnected (triggered by handshake)
+        // Simulate SendSpin.Callback.onConnected (triggered by handshake)
         val serverName = "Living Room"
         connectionState = ConnectionState.Connected(serverName)
 
@@ -96,7 +98,7 @@ class PlaybackServiceConnectionLifecycleTest {
         // Simulate connectToServer
         connectionState = ConnectionState.Connecting
 
-        // Simulate SendSpinClient.Callback.onError
+        // Simulate SendSpin.Callback.onError
         connectionState = ConnectionState.Error("Connection refused")
 
         assertTrue(connectionState is ConnectionState.Error)
@@ -165,35 +167,39 @@ class PlaybackServiceConnectionLifecycleTest {
     }
 
     @Test
-    fun `SendSpinClient ConnectionState enum matches service expectations`() {
-        // Verify SendSpinClient.ConnectionState sealed class has the expected subtypes
-        val disconnected = SendSpinClient.ConnectionState.Disconnected
-        val connecting = SendSpinClient.ConnectionState.Connecting
-        val connected = SendSpinClient.ConnectionState.Connected("Test")
-        val error = SendSpinClient.ConnectionState.Error("err")
+    fun `SendSpin connectionState uses coordinator TransportState`() {
+        // Verify the coordinator TransportState sealed class has the expected subtypes
+        val idle = TransportState.Idle
+        val connecting = TransportState.Connecting
+        val ready = TransportState.Ready
+        val failed = TransportState.Failed(FailureReason.TransientNetwork)
 
-        assertTrue(disconnected is SendSpinClient.ConnectionState)
-        assertTrue(connecting is SendSpinClient.ConnectionState)
-        assertTrue(connected is SendSpinClient.ConnectionState)
-        assertEquals("Test", connected.serverName)
-        assertTrue(error is SendSpinClient.ConnectionState)
-        assertEquals("err", error.message)
+        assertTrue(idle is TransportState)
+        assertTrue(connecting is TransportState)
+        assertTrue(ready is TransportState)
+        assertTrue(failed is TransportState)
+        assertTrue(failed.reason is FailureReason.TransientNetwork)
     }
 
     @Test
-    fun `callback interface declares all required connection lifecycle methods`() {
-        // Verify the Callback interface has the methods PlaybackService depends on
-        val callbackClass = SendSpinClient.Callback::class.java
+    fun `callback interface declares all required streaming and metadata methods`() {
+        // Verify the Callback interface has the streaming/metadata methods PlaybackService depends on.
+        // State lifecycle methods (onConnected, onDisconnected, onError, onReconnecting, onReconnected)
+        // have been removed -- PlaybackService now observes connectionState StateFlow instead.
+        val callbackClass = SendSpin.Callback::class.java
         val methodNames = callbackClass.methods.map { it.name }
 
-        assertTrue("Should have onConnected", "onConnected" in methodNames)
-        assertTrue("Should have onDisconnected", "onDisconnected" in methodNames)
-        assertTrue("Should have onError", "onError" in methodNames)
         assertTrue("Should have onStateChanged", "onStateChanged" in methodNames)
         assertTrue("Should have onStreamStart", "onStreamStart" in methodNames)
         assertTrue("Should have onStreamEnd", "onStreamEnd" in methodNames)
         assertTrue("Should have onAudioChunk", "onAudioChunk" in methodNames)
-        assertTrue("Should have onReconnecting", "onReconnecting" in methodNames)
-        assertTrue("Should have onReconnected", "onReconnected" in methodNames)
+        assertTrue("Should have onMetadataUpdate", "onMetadataUpdate" in methodNames)
+
+        // Verify removed state-lifecycle methods are gone
+        assertFalse("onConnected should be removed", "onConnected" in methodNames)
+        assertFalse("onDisconnected should be removed", "onDisconnected" in methodNames)
+        assertFalse("onError should be removed", "onError" in methodNames)
+        assertFalse("onReconnecting should be removed", "onReconnecting" in methodNames)
+        assertFalse("onReconnected should be removed", "onReconnected" in methodNames)
     }
 }

@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaTrack
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaMediaType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -84,7 +84,7 @@ fun AddTracksBottomSheet(
         }
         isSearching = true
         delay(300)
-        MusicAssistantManager.search(
+        MusicAssistant.search(
             query = query,
             mediaTypes = listOf(MaMediaType.TRACK),
             limit = 25
@@ -188,7 +188,7 @@ fun AddTracksBottomSheet(
                                         val uri = track.uri ?: return@AddTrackItem
                                         addedTracks[track.itemId] = true
                                         scope.launch {
-                                            MusicAssistantManager.addPlaylistTracks(
+                                            MusicAssistant.addPlaylistTracks(
                                                 playlistId,
                                                 listOf(uri)
                                             ).fold(
