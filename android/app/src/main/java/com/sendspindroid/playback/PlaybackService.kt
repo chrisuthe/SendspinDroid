@@ -1049,6 +1049,38 @@ class PlaybackService : MediaLibraryService() {
         audioDecoder?.flush()
     }
 
+    /**
+     * Drains all currently-queued tasks from [decodeChannel] via tryReceive.
+     *
+     * Called from [SendSpinClient.Callback.onStreamEnd] and
+     * [SendSpinClient.Callback.onStreamStart] to drop pre-buffered chunks
+     * belonging to the ending stream. Without this, the backlog of pre-
+     * buffered chunks (~30 seconds at typical server look-ahead) ties up the
+     * decode worker at real-time rate before StartStream can be processed,
+     * producing the 30-seconds-of-stale-audio symptom in issue #114.
+     *
+     * The drain races with the decode worker's own receive loop on
+     * [decodeDispatcher], but this is acceptable: the worker may consume a
+     * few chunks concurrently with the drain, but the bulk of the backlog is
+     * removed within microseconds. Net: instead of 30 seconds of stale-chunk
+     * decoding at real-time rate, the queue is cleared near-immediately.
+     *
+     * Loses any Flush/Release tasks that happen to be in the channel during
+     * drain. In normal operation those don't coincide: Flush only arrives via
+     * stream/clear (its own callback path that drains synchronously), and
+     * Release only fires on service tear-down (which precludes further
+     * stream events).
+     */
+    private fun drainPendingDecodeChunks(): Int {
+        var dropped = 0
+        while (true) {
+            val r = decodeChannel.tryReceive()
+            if (!r.isSuccess) break
+            dropped++
+        }
+        return dropped
+    }
+
     private suspend fun handleDecodeRelease() {
         audioDecoder?.release()
         audioDecoder = null
@@ -1472,18 +1504,30 @@ class PlaybackService : MediaLibraryService() {
         }
 
         override fun onStreamStart(codec: String, sampleRate: Int, channels: Int, bitDepth: Int, codecHeader: ByteArray?) {
-            // Post decoder lifecycle to the single-owner decode worker via the
-            // channel. FIFO ordering between StartStream and any subsequent
-            // Chunk tasks ensures the new decoder is in place before its
-            // chunks are decoded. decoderReady is set optimistically so any
-            // chunk arriving during reconfiguration is still enqueued; it
-            // will decode with the new decoder once the worker drains the
-            // StartStream task ahead of it.
-            decoderReady = true
+            Log.i(TAG, "[cmd-trace] T2 onStreamStart ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
+
+            // Drain any pending tasks from the previous stream BEFORE queueing
+            // the new StartStream. The decode worker is rate-limited by
+            // syncAudioPlayer's buffer (queueChunk blocks at real-time rate),
+            // so a backlog of pre-buffered old-stream chunks would take its
+            // full real-time duration to drain ahead of StartStream. On a
+            // ~30-second server pre-buffer that produced the 30-second
+            // delay-of-decoder-reconfigure described in issue #114.
+            //
+            // decoderReady is held false until the new StartStream is in the
+            // channel, so any chunk callbacks arriving during this transition
+            // are dropped at the WS-IO fast-path gate rather than racing into
+            // the channel ahead of the StartStream task.
+            decoderReady = false
+            val drained = drainPendingDecodeChunks()
+            if (drained > 0) {
+                Log.i(TAG, "Drained $drained pending decode tasks on stream/start (issue #114)")
+            }
             serviceScope.launch {
                 decodeChannel.send(
                     DecodeTask.StartStream(codec, sampleRate, channels, bitDepth, codecHeader)
                 )
+                decoderReady = true
             }
 
             // Non-decoder state updates continue to run on the main thread,
@@ -1561,6 +1605,18 @@ class PlaybackService : MediaLibraryService() {
 
         override fun onStreamEnd() {
             Log.i(TAG, "[cmd-trace] T2 onStreamEnd ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
+
+            // Gate further chunks at the WS-IO fast-path level and drain the
+            // backlog of pre-buffered chunks queued ahead of this stream/end.
+            // Without this, those chunks would tie up the decode worker at
+            // real-time rate even though they're for the now-ended stream.
+            // See issue #114.
+            decoderReady = false
+            val drained = drainPendingDecodeChunks()
+            if (drained > 0) {
+                Log.i(TAG, "Drained $drained pending decode tasks on stream/end (issue #114)")
+            }
+
             mainHandler.post {
                 Log.i(TAG, "[cmd-trace] T3 onStreamEnd.post ts=${System.nanoTime() / 1_000_000} thread=${Thread.currentThread().name}")
                 Log.i(TAG, "Stream end - server terminated playback")
