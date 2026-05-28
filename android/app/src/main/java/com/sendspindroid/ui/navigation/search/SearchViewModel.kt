@@ -199,7 +199,7 @@ class SearchViewModel : ViewModel() {
             query = query,
             mediaTypes = mediaTypes,
             limit = RESULTS_PER_TYPE,
-            libraryOnly = true
+            libraryOnly = false
         )
 
         result.fold(

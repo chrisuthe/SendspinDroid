@@ -41,6 +41,7 @@ class AlbumDetailViewModel : ViewModel() {
     val uiState: StateFlow<AlbumDetailUiState> = _uiState.asStateFlow()
 
     private var currentAlbumId: String? = null
+    private var currentProvider: String = "library"
 
     companion object {
         private const val TAG = "AlbumDetailViewModel"
@@ -50,22 +51,24 @@ class AlbumDetailViewModel : ViewModel() {
      * Load album details for the given album ID.
      *
      * @param albumId The MA album item_id
+     * @param provider The provider instance ID (e.g., "library", "spotify")
      */
-    fun loadAlbum(albumId: String) {
-        // Don't reload if same album
-        if (albumId == currentAlbumId && _uiState.value is AlbumDetailUiState.Success) {
+    fun loadAlbum(albumId: String, provider: String = "library") {
+        // Don't reload if same album and provider
+        if (albumId == currentAlbumId && provider == currentProvider && _uiState.value is AlbumDetailUiState.Success) {
             return
         }
 
         currentAlbumId = albumId
+        currentProvider = provider
         _uiState.value = AlbumDetailUiState.Loading
 
         viewModelScope.launch {
-            Log.d(TAG, "Loading album details: $albumId")
+            Log.d(TAG, "Loading album details: $albumId from provider: $provider")
 
             // Load album metadata and tracks in parallel
-            val albumDeferred = async { MusicAssistant.getAlbum(albumId) }
-            val tracksDeferred = async { MusicAssistant.getAlbumTracks(albumId) }
+            val albumDeferred = async { MusicAssistant.getAlbum(albumId, provider) }
+            val tracksDeferred = async { MusicAssistant.getAlbumTracks(albumId, provider) }
 
             val albumResult = albumDeferred.await()
             val tracksResult = tracksDeferred.await()

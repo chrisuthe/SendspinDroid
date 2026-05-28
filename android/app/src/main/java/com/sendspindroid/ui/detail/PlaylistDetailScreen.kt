@@ -49,6 +49,7 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * so the parent can show an undo snackbar.
  *
  * @param playlistId The MA playlist item_id to display
+ * @param provider The provider instance ID (e.g., "library", "spotify")
  * @param onTrackRemoved Called with the RemoveAction after a track is optimistically removed,
  *        allowing the parent to show undo UI. Defaults to auto-executing the removal immediately.
  * @param viewModel The ViewModel managing playlist state
@@ -57,11 +58,12 @@ import com.sendspindroid.ui.theme.SendSpinTheme
 @Composable
 fun PlaylistDetailScreen(
     playlistId: String,
+    provider: String = "library",
     onTrackRemoved: (PlaylistDetailViewModel.RemoveAction) -> Unit = { it.executeRemove() },
     viewModel: PlaylistDetailViewModel = viewModel()
 ) {
-    LaunchedEffect(playlistId) {
-        viewModel.loadPlaylist(playlistId)
+    LaunchedEffect(playlistId, provider) {
+        viewModel.loadPlaylist(playlistId, provider)
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

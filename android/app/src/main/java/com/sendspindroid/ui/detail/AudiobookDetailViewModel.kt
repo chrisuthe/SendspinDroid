@@ -72,6 +72,7 @@ class AudiobookDetailViewModel : ViewModel() {
     val uiState: StateFlow<AudiobookDetailUiState> = _uiState.asStateFlow()
 
     private var currentAudiobookId: String? = null
+    private var currentProviderInstanceId: String = "library"
 
     companion object {
         private const val TAG = "AudiobookDetailVM"
@@ -80,19 +81,20 @@ class AudiobookDetailViewModel : ViewModel() {
     /**
      * Load audiobook details for the given audiobook ID.
      */
-    fun loadAudiobook(audiobookId: String) {
-        // Don't reload if same audiobook
-        if (audiobookId == currentAudiobookId && _uiState.value is AudiobookDetailUiState.Success) {
+    fun loadAudiobook(audiobookId: String, providerInstanceId: String = "library") {
+        // Don't reload if same audiobook and provider
+        if (audiobookId == currentAudiobookId && providerInstanceId == currentProviderInstanceId && _uiState.value is AudiobookDetailUiState.Success) {
             return
         }
 
         currentAudiobookId = audiobookId
+        currentProviderInstanceId = providerInstanceId
         _uiState.value = AudiobookDetailUiState.Loading
 
         viewModelScope.launch {
-            Log.d(TAG, "Loading audiobook details: $audiobookId")
+            Log.d(TAG, "Loading audiobook details: $audiobookId from provider: $providerInstanceId")
 
-            MusicAssistant.getAudiobook(audiobookId).fold(
+            MusicAssistant.getAudiobook(audiobookId, providerInstanceId).fold(
                 onSuccess = { audiobook ->
                     Log.d(TAG, "Loaded audiobook: ${audiobook.name} (${audiobook.chapters.size} chapters)")
                     _uiState.value = AudiobookDetailUiState.Success(audiobook = audiobook)
@@ -257,8 +259,10 @@ class AudiobookDetailViewModel : ViewModel() {
      */
     fun refresh() {
         currentAudiobookId?.let { audiobookId ->
+            val providerInstanceId = currentProviderInstanceId
             currentAudiobookId = null // Force reload
-            loadAudiobook(audiobookId)
+            currentProviderInstanceId = "library"
+            loadAudiobook(audiobookId, providerInstanceId)
         }
     }
 }

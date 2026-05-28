@@ -303,20 +303,20 @@ private fun ConnectedShell(
     }
 
     // Detail navigation callbacks (push onto ViewModel back stack)
-    val onAlbumClick: (String, String) -> Unit = { albumId, albumName ->
-        viewModel.navigateToDetail(DetailDestination.Album(albumId, albumName))
+    val onAlbumClick: (String, String, String) -> Unit = { albumId, albumName, provider ->
+        viewModel.navigateToDetail(DetailDestination.Album(albumId, albumName, provider))
     }
-    val onArtistClick: (String, String) -> Unit = { artistId, artistName ->
-        viewModel.navigateToDetail(DetailDestination.Artist(artistId, artistName))
+    val onArtistClick: (String, String, String) -> Unit = { artistId, artistName, provider ->
+        viewModel.navigateToDetail(DetailDestination.Artist(artistId, artistName, provider))
     }
-    val onPlaylistDetailClick: (String, String) -> Unit = { playlistId, playlistName ->
-        viewModel.navigateToDetail(DetailDestination.Playlist(playlistId, playlistName))
+    val onPlaylistDetailClick: (String, String, String) -> Unit = { playlistId, playlistName, provider ->
+        viewModel.navigateToDetail(DetailDestination.Playlist(playlistId, playlistName, provider))
     }
-    val onPodcastDetailClick: (String, String, String?, String?, Int) -> Unit = { podcastId, podcastName, imageUri, publisher, totalEpisodes ->
-        viewModel.navigateToDetail(DetailDestination.Podcast(podcastId, podcastName, imageUri, publisher, totalEpisodes))
+    val onPodcastDetailClick: (String, String, String?, String?, Int, String) -> Unit = { podcastId, podcastName, imageUri, publisher, totalEpisodes, provider ->
+        viewModel.navigateToDetail(DetailDestination.Podcast(podcastId, podcastName, imageUri, publisher, totalEpisodes, provider))
     }
-    val onAudiobookDetailClick: (String, String, String?, String?) -> Unit = { audiobookId, audiobookName, imageUri, author ->
-        viewModel.navigateToDetail(DetailDestination.Audiobook(audiobookId, audiobookName, imageUri, author))
+    val onAudiobookDetailClick: (String, String, String?, String?, String) -> Unit = { audiobookId, audiobookName, imageUri, author, provider ->
+        viewModel.navigateToDetail(DetailDestination.Audiobook(audiobookId, audiobookName, imageUri, author, provider))
     }
 
     // Server name for the toolbar subtitle
@@ -736,11 +736,11 @@ private fun ConnectedShell(
 @Composable
 private fun BrowseContent(
     selectedNavTab: NavTab?,
-    onAlbumClick: (albumId: String, albumName: String) -> Unit,
-    onArtistClick: (artistId: String, artistName: String) -> Unit,
-    onPlaylistDetailClick: (playlistId: String, playlistName: String) -> Unit,
-    onPodcastDetailClick: (podcastId: String, podcastName: String, imageUri: String?, publisher: String?, totalEpisodes: Int) -> Unit,
-    onAudiobookDetailClick: (audiobookId: String, audiobookName: String, imageUri: String?, author: String?) -> Unit,
+    onAlbumClick: (albumId: String, albumName: String, provider: String) -> Unit,
+    onArtistClick: (artistId: String, artistName: String, provider: String) -> Unit,
+    onPlaylistDetailClick: (playlistId: String, playlistName: String, provider: String) -> Unit,
+    onPodcastDetailClick: (podcastId: String, podcastName: String, imageUri: String?, publisher: String?, totalEpisodes: Int, provider: String) -> Unit,
+    onAudiobookDetailClick: (audiobookId: String, audiobookName: String, imageUri: String?, author: String?, provider: String) -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
@@ -865,10 +865,10 @@ private fun BrowseContent(
             HomeScreen(
                 viewModel = homeViewModel,
                 onAlbumClick = { album ->
-                    onAlbumClick(album.albumId, album.name)
+                    onAlbumClick(album.albumId, album.name, album.provider)
                 },
                 onArtistClick = { artist ->
-                    onArtistClick(artist.artistId, artist.name)
+                    onArtistClick(artist.artistId, artist.name, artist.provider)
                 },
                 onItemClick = playItem
             )
@@ -880,16 +880,16 @@ private fun BrowseContent(
                 viewModel = searchViewModel,
                 onItemClick = playItem,
                 onAlbumClick = { album ->
-                    onAlbumClick(album.albumId, album.name)
+                    onAlbumClick(album.albumId, album.name, album.provider)
                 },
                 onArtistClick = { artist ->
-                    onArtistClick(artist.artistId, artist.name)
+                    onArtistClick(artist.artistId, artist.name, artist.provider)
                 },
                 onPodcastClick = { podcast ->
-                    onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes)
+                    onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes, podcast.provider)
                 },
                 onAudiobookClick = { audiobook ->
-                    onAudiobookDetailClick(audiobook.audiobookId, audiobook.name, audiobook.imageUri, audiobook.primaryAuthor)
+                    onAudiobookDetailClick(audiobook.audiobookId, audiobook.name, audiobook.imageUri, audiobook.primaryAuthor, audiobook.provider)
                 },
                 onAddToPlaylist = addToPlaylist,
                 onAddToQueue = addToQueue,
@@ -902,16 +902,16 @@ private fun BrowseContent(
             LibraryScreen(
                 viewModel = libraryViewModel,
                 onAlbumClick = { album ->
-                    onAlbumClick(album.albumId, album.name)
+                    onAlbumClick(album.albumId, album.name, album.provider)
                 },
                 onArtistClick = { artist ->
-                    onArtistClick(artist.artistId, artist.name)
+                    onArtistClick(artist.artistId, artist.name, artist.provider)
                 },
                 onPodcastClick = { podcast ->
-                    onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes)
+                    onPodcastDetailClick(podcast.podcastId, podcast.name, podcast.imageUri, podcast.publisher, podcast.totalEpisodes, podcast.provider)
                 },
                 onAudiobookClick = { audiobook ->
-                    onAudiobookDetailClick(audiobook.audiobookId, audiobook.name, audiobook.imageUri, audiobook.primaryAuthor)
+                    onAudiobookDetailClick(audiobook.audiobookId, audiobook.name, audiobook.imageUri, audiobook.primaryAuthor, audiobook.provider)
                 },
                 onItemClick = playItem,
                 onAddToPlaylist = addToPlaylist,
@@ -925,7 +925,7 @@ private fun BrowseContent(
             PlaylistsScreen(
                 viewModel = playlistsViewModel,
                 onPlaylistClick = { playlist ->
-                    onPlaylistDetailClick(playlist.playlistId, playlist.name)
+                    onPlaylistDetailClick(playlist.playlistId, playlist.name, playlist.provider)
                 },
                 onDeletePlaylist = { playlist ->
                     val action = playlistsViewModel.deletePlaylist(playlist.playlistId)
@@ -1024,8 +1024,8 @@ private fun BrowseContent(
 @Composable
 private fun DetailContent(
     detail: DetailDestination,
-    onAlbumClick: (albumId: String, albumName: String) -> Unit,
-    onArtistClick: (artistId: String, artistName: String) -> Unit,
+    onAlbumClick: (albumId: String, albumName: String, provider: String) -> Unit,
+    onArtistClick: (artistId: String, artistName: String, provider: String) -> Unit,
     onShowSuccess: (String) -> Unit,
     onShowError: (String) -> Unit,
     onShowUndoSnackbar: (message: String, onUndo: () -> Unit, onDismissed: () -> Unit) -> Unit
@@ -1043,6 +1043,7 @@ private fun DetailContent(
         is DetailDestination.Album -> {
             AlbumDetailScreen(
                 albumId = detail.albumId,
+                provider = detail.provider,
                 onArtistClick = { artistName ->
                     // TODO: Look up artistId by name; for now show toast
                     Log.d(TAG, "Artist click from album detail: $artistName")
@@ -1061,8 +1062,9 @@ private fun DetailContent(
         is DetailDestination.Artist -> {
             ArtistDetailScreen(
                 artistId = detail.artistId,
+                provider = detail.provider,
                 onAlbumClick = { album ->
-                    onAlbumClick(album.albumId, album.name)
+                    onAlbumClick(album.albumId, album.name, album.provider)
                 },
                 onAddToPlaylist = { track ->
                     trackForPlaylist = track
@@ -1084,6 +1086,7 @@ private fun DetailContent(
             val playlistViewModel: PlaylistDetailViewModel = viewModel()
             PlaylistDetailScreen(
                 playlistId = detail.playlistId,
+                provider = detail.provider,
                 onTrackRemoved = { action ->
                     onShowUndoSnackbar(
                         detailContext.getString(R.string.snackbar_track_removed),
@@ -1101,7 +1104,8 @@ private fun DetailContent(
                 podcastName = detail.podcastName,
                 podcastImageUri = detail.podcastImageUri,
                 podcastPublisher = detail.podcastPublisher,
-                totalEpisodes = detail.totalEpisodes
+                totalEpisodes = detail.totalEpisodes,
+                providerInstanceId = detail.provider
             )
         }
 
@@ -1110,7 +1114,8 @@ private fun DetailContent(
                 audiobookId = detail.audiobookId,
                 audiobookName = detail.audiobookName,
                 audiobookImageUri = detail.audiobookImageUri,
-                audiobookAuthor = detail.audiobookAuthor
+                audiobookAuthor = detail.audiobookAuthor,
+                providerInstanceId = detail.provider
             )
         }
     }

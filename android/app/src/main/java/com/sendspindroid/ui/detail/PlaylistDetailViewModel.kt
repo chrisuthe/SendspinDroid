@@ -41,6 +41,7 @@ class PlaylistDetailViewModel : ViewModel() {
     val uiState: StateFlow<PlaylistDetailUiState> = _uiState.asStateFlow()
 
     private var currentPlaylistId: String? = null
+    private var currentProvider: String = "library"
 
     companion object {
         private const val TAG = "PlaylistDetailVM"
@@ -48,21 +49,25 @@ class PlaylistDetailViewModel : ViewModel() {
 
     /**
      * Load playlist details for the given playlist ID.
+     * 
+     * @param playlistId The MA playlist item_id
+     * @param provider The provider instance ID (e.g., "library", "spotify")
      */
-    fun loadPlaylist(playlistId: String) {
-        if (playlistId == currentPlaylistId && _uiState.value is PlaylistDetailUiState.Success) {
+    fun loadPlaylist(playlistId: String, provider: String = "library") {
+        if (playlistId == currentPlaylistId && provider == currentProvider && _uiState.value is PlaylistDetailUiState.Success) {
             return
         }
 
         currentPlaylistId = playlistId
+        currentProvider = provider
         _uiState.value = PlaylistDetailUiState.Loading
 
         viewModelScope.launch {
-            Log.d(TAG, "Loading playlist details: $playlistId")
+            Log.d(TAG, "Loading playlist details: $playlistId from provider: $provider")
 
             // Load playlist metadata and tracks in parallel
-            val playlistDeferred = async { MusicAssistant.getPlaylist(playlistId) }
-            val tracksDeferred = async { MusicAssistant.getPlaylistTracks(playlistId) }
+            val playlistDeferred = async { MusicAssistant.getPlaylist(playlistId, provider) }
+            val tracksDeferred = async { MusicAssistant.getPlaylistTracks(playlistId, provider) }
 
             val playlistResult = playlistDeferred.await()
             val tracksResult = tracksDeferred.await()

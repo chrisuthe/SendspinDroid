@@ -48,6 +48,7 @@ class ArtistDetailViewModel : ViewModel() {
     val uiState: StateFlow<ArtistDetailUiState> = _uiState.asStateFlow()
 
     private var currentArtistId: String? = null
+    private var currentProvider: String = "library"
 
     companion object {
         private const val TAG = "ArtistDetailViewModel"
@@ -57,20 +58,22 @@ class ArtistDetailViewModel : ViewModel() {
      * Load artist details for the given artist ID.
      *
      * @param artistId The MA artist item_id
+     * @param provider The provider instance ID (e.g., "library", "spotify")
      */
-    fun loadArtist(artistId: String) {
-        // Don't reload if same artist
-        if (artistId == currentArtistId && _uiState.value is ArtistDetailUiState.Success) {
+    fun loadArtist(artistId: String, provider: String = "library") {
+        // Don't reload if same artist and provider
+        if (artistId == currentArtistId && provider == currentProvider && _uiState.value is ArtistDetailUiState.Success) {
             return
         }
 
         currentArtistId = artistId
+        currentProvider = provider
         _uiState.value = ArtistDetailUiState.Loading
 
         viewModelScope.launch {
-            Log.d(TAG, "Loading artist details: $artistId")
+            Log.d(TAG, "Loading artist details: $artistId from provider: $provider")
 
-            MusicAssistant.getArtistDetails(artistId).fold(
+            MusicAssistant.getArtistDetails(artistId, provider).fold(
                 onSuccess = { details ->
                     Log.d(TAG, "Loaded artist: ${details.artist.name} " +
                             "with ${details.topTracks.size} tracks, ${details.albums.size} albums")

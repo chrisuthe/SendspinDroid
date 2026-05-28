@@ -949,19 +949,25 @@ object MusicAssistant {
 
     /**
      * Get a single playlist by ID.
+     * 
+     * @param playlistId The playlist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getPlaylist(playlistId: String): Result<MaPlaylist> {
+    suspend fun getPlaylist(playlistId: String, providerInstanceId: String = "library"): Result<MaPlaylist> {
         return withContext(Dispatchers.IO) {
-            commandClient.getPlaylist(playlistId)
+            commandClient.getPlaylist(playlistId, providerInstanceId)
         }
     }
 
     /**
      * Get tracks in a playlist.
+     * 
+     * @param playlistId The playlist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getPlaylistTracks(playlistId: String): Result<List<MaTrack>> {
+    suspend fun getPlaylistTracks(playlistId: String, providerInstanceId: String = "library"): Result<List<MaTrack>> {
         return withContext(Dispatchers.IO) {
-            commandClient.getPlaylistTracks(playlistId)
+            commandClient.getPlaylistTracks(playlistId, providerInstanceId)
         }
     }
 
@@ -1012,19 +1018,25 @@ object MusicAssistant {
 
     /**
      * Get a single album by ID.
+     * 
+     * @param albumId The album ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getAlbum(albumId: String): Result<MaAlbum> {
+    suspend fun getAlbum(albumId: String, providerInstanceId: String = "library"): Result<MaAlbum> {
         return withContext(Dispatchers.IO) {
-            commandClient.getAlbum(albumId)
+            commandClient.getAlbum(albumId, providerInstanceId)
         }
     }
 
     /**
      * Get tracks for an album.
+     * 
+     * @param albumId The album ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getAlbumTracks(albumId: String): Result<List<MaTrack>> {
+    suspend fun getAlbumTracks(albumId: String, providerInstanceId: String = "library"): Result<List<MaTrack>> {
         return withContext(Dispatchers.IO) {
-            commandClient.getAlbumTracks(albumId)
+            commandClient.getAlbumTracks(albumId, providerInstanceId)
         }
     }
 
@@ -1044,19 +1056,25 @@ object MusicAssistant {
 
     /**
      * Get a single artist by ID.
+     * 
+     * @param artistId The artist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getArtist(artistId: String): Result<MaArtist> {
+    suspend fun getArtist(artistId: String, providerInstanceId: String = "library"): Result<MaArtist> {
         return withContext(Dispatchers.IO) {
-            commandClient.getArtist(artistId)
+            commandClient.getArtist(artistId, providerInstanceId)
         }
     }
 
     /**
      * Get complete artist details including top tracks and discography.
+     * 
+     * @param artistId The artist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getArtistDetails(artistId: String): Result<ArtistDetails> {
+    suspend fun getArtistDetails(artistId: String, providerInstanceId: String = "library"): Result<ArtistDetails> {
         return withContext(Dispatchers.IO) {
-            commandClient.getArtistDetails(artistId)
+            commandClient.getArtistDetails(artistId, providerInstanceId)
         }
     }
 
@@ -1089,10 +1107,13 @@ object MusicAssistant {
 
     /**
      * Get podcast episodes.
+     *
+     * @param podcastId The MA podcast item_id
+     * @param providerInstanceId The provider instance ID (e.g., "library", "spotify")
      */
-    suspend fun getPodcastEpisodes(podcastId: String): Result<List<MaPodcastEpisode>> {
+    suspend fun getPodcastEpisodes(podcastId: String, providerInstanceId: String = "library"): Result<List<MaPodcastEpisode>> {
         return withContext(Dispatchers.IO) {
-            commandClient.getPodcastEpisodes(podcastId)
+            commandClient.getPodcastEpisodes(podcastId, providerInstanceId)
         }
     }
 
@@ -1107,10 +1128,12 @@ object MusicAssistant {
 
     /**
      * Get a single audiobook by ID.
+     *
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getAudiobook(audiobookId: String): Result<MaAudiobook> {
+    suspend fun getAudiobook(audiobookId: String, providerInstanceId: String = "library"): Result<MaAudiobook> {
         return withContext(Dispatchers.IO) {
-            commandClient.getAudiobook(audiobookId)
+            commandClient.getAudiobook(audiobookId, providerInstanceId)
         }
     }
 

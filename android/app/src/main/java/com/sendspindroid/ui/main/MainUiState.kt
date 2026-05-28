@@ -71,15 +71,27 @@ sealed class ServerStatus {
 sealed class DetailDestination {
     abstract val title: String
 
-    data class Album(val albumId: String, val albumName: String) : DetailDestination() {
+    data class Album(
+        val albumId: String, 
+        val albumName: String,
+        val provider: String = "library"  // Default to library for backward compatibility
+    ) : DetailDestination() {
         override val title: String get() = albumName
     }
 
-    data class Artist(val artistId: String, val artistName: String) : DetailDestination() {
+    data class Artist(
+        val artistId: String, 
+        val artistName: String,
+        val provider: String = "library"  // Default to library for backward compatibility
+    ) : DetailDestination() {
         override val title: String get() = artistName
     }
 
-    data class Playlist(val playlistId: String, val playlistName: String) : DetailDestination() {
+    data class Playlist(
+        val playlistId: String, 
+        val playlistName: String,
+        val provider: String = "library"  // Default to library for backward compatibility
+    ) : DetailDestination() {
         override val title: String get() = playlistName
     }
 
@@ -88,7 +100,8 @@ sealed class DetailDestination {
         val podcastName: String,
         val podcastImageUri: String? = null,
         val podcastPublisher: String? = null,
-        val totalEpisodes: Int = 0
+        val totalEpisodes: Int = 0,
+        val provider: String = "library"  // Default to library for backward compatibility
     ) : DetailDestination() {
         override val title: String get() = podcastName
     }
@@ -97,7 +110,8 @@ sealed class DetailDestination {
         val audiobookId: String,
         val audiobookName: String,
         val audiobookImageUri: String? = null,
-        val audiobookAuthor: String? = null
+        val audiobookAuthor: String? = null,
+        val provider: String = "library"
     ) : DetailDestination() {
         override val title: String get() = audiobookName
     }
