@@ -81,6 +81,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _autoStartOnBoot = MutableStateFlow(UserSettings.autoStartOnBoot)
     val autoStartOnBoot: StateFlow<Boolean> = _autoStartOnBoot.asStateFlow()
 
+    private val _searchLibraryOnly = MutableStateFlow(UserSettings.searchLibraryOnly)
+    val searchLibraryOnly: StateFlow<Boolean> = _searchLibraryOnly.asStateFlow()
+
     private val _hasDefaultServer = MutableStateFlow(UnifiedServerRepository.getDefaultServer() != null)
     val hasDefaultServer: StateFlow<Boolean> = _hasDefaultServer.asStateFlow()
 
@@ -205,6 +208,11 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setAutoStartOnBoot(enabled: Boolean) {
         prefs.edit().putBoolean(UserSettings.KEY_AUTO_START_ON_BOOT, enabled).apply()
         _autoStartOnBoot.value = enabled
+    }
+
+    fun setSearchLibraryOnly(libraryOnly: Boolean) {
+        UserSettings.searchLibraryOnly = libraryOnly
+        _searchLibraryOnly.value = libraryOnly
     }
 
     /**

@@ -3,6 +3,7 @@ package com.sendspindroid.ui.navigation.search
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sendspindroid.UserSettings
 import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaMediaType
@@ -199,7 +200,7 @@ class SearchViewModel : ViewModel() {
             query = query,
             mediaTypes = mediaTypes,
             limit = RESULTS_PER_TYPE,
-            libraryOnly = false
+            libraryOnly = UserSettings.searchLibraryOnly
         )
 
         result.fold(
