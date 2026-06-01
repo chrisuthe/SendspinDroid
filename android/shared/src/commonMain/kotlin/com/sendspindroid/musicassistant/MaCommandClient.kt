@@ -1937,7 +1937,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             albums = parseAlbumsArray(result.optJsonArray("albums")),
             tracks = parseTracksArray(result.optJsonArray("tracks")),
             playlists = parsePlaylistsArray(result.optJsonArray("playlists")),
-            radios = parseRadiosArray(result.optJsonArray("radios")),
+            radios = parseRadiosArray(result.optJsonArray("radio")),
             podcasts = parsePodcastsArray(result.optJsonArray("podcasts")),
             audiobooks = parseAudiobooksArray(result.optJsonArray("audiobooks"))
         )
