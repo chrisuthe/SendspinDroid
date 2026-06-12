@@ -68,6 +68,23 @@ object SendSpinProtocol {
     }
 
     /**
+     * Player timing capabilities reported via client/state (spec 2026-06-01,
+     * "player timing capabilities"). Both fields are required for players;
+     * servers use max(required_lead_time_ms, min_buffer_ms) + static_delay_ms
+     * to compute per-player send-ahead, which matters most for live streams.
+     *
+     * Values are conservative static defaults for Android: AudioTrack warmup
+     * plus MediaCodec init is typically well under 500 ms, and 500 ms of
+     * jitter buffer comfortably absorbs Wi-Fi variance. The spec allows
+     * runtime (debounced) updates if we later measure these empirically.
+     * For comparison, aiosendspin defaults to 250/250 on desktop.
+     */
+    object PlayerTiming {
+        const val REQUIRED_LEAD_TIME_MS = 500
+        const val MIN_BUFFER_MS = 500
+    }
+
+    /**
      * Protocol message type identifiers.
      */
     object MessageType {

@@ -105,6 +105,22 @@ class MessageBuilderTest {
         assertEquals(5000, huge["static_delay_ms"]?.jsonPrimitive?.int)
     }
 
+    @Test
+    fun buildPlayerState_includesRequiredTimingFields() {
+        // Spec: required_lead_time_ms and min_buffer_ms are always required
+        // for players.
+        val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(
+            SendSpinProtocol.PlayerTiming.REQUIRED_LEAD_TIME_MS,
+            player["required_lead_time_ms"]?.jsonPrimitive?.int
+        )
+        assertEquals(
+            SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS,
+            player["min_buffer_ms"]?.jsonPrimitive?.int
+        )
+    }
+
     // --- buildCommand ---
 
     @Test

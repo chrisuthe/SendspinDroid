@@ -97,7 +97,14 @@ object MessageBuilder {
         return message.toString()
     }
 
-    fun buildPlayerState(volume: Int, muted: Boolean, syncState: String = "synchronized", staticDelayMs: Double = 0.0): String {
+    fun buildPlayerState(
+        volume: Int,
+        muted: Boolean,
+        syncState: String = "synchronized",
+        staticDelayMs: Double = 0.0,
+        requiredLeadTimeMs: Int = SendSpinProtocol.PlayerTiming.REQUIRED_LEAD_TIME_MS,
+        minBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
+    ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", buildJsonObject {
@@ -112,6 +119,9 @@ object MessageBuilder {
                     // value (user sync offset can be negative); only the
                     // reported field is clamped.
                     put("static_delay_ms", staticDelayMs.roundToInt().coerceIn(0, 5000))
+                    // Both timing fields are always required for players.
+                    put("required_lead_time_ms", requiredLeadTimeMs)
+                    put("min_buffer_ms", minBufferMs)
                 })
             })
         }
