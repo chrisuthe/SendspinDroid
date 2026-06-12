@@ -1,0 +1,121 @@
+name: Sendspin Conformance
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/shared/**'
+      - 'android/conformance-client/**'
+      - 'ci/conformance/**'
+      - '.github/workflows/conformance.yml'
+  pull_request:
+    paths:
+      - 'android/shared/**'
+      - 'android/conformance-client/**'
+      - 'ci/conformance/**'
+      - '.github/workflows/conformance.yml'
+  workflow_dispatch:
+  schedule:
+    # Weekly run against the harness's HEAD so spec/harness drift is caught
+    # even without changes on our side.
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-conformance-${{ hashFiles('**/*.gradle.kts') }}
+          restore-keys: ${{ runner.os }}-gradle-
+
+      - name: Build conformance client jar
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :conformance-client:fatJar
+
+      # The harness resolves sibling repos relative to its own parent
+      # directory, so everything lives under harness/.
+      - name: Check out conformance harness and dependencies
+        run: |
+          mkdir -p harness
+          git clone --depth 1 https://github.com/Sendspin/conformance.git harness/conformance
+          git clone --depth 1 https://github.com/Sendspin/aiosendspin.git harness/aiosendspin
+          git clone --depth 1 https://github.com/Sendspin/sendspin-cli.git harness/sendspin-cli
+
+      - name: Install harness
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e harness/conformance -e harness/aiosendspin
+
+      - name: Register sendspindroid adapter
+        run: python ci/conformance/register_sendspindroid.py harness/conformance
+
+      - name: Run conformance matrix (aiosendspin -> sendspindroid)
+        working-directory: harness/conformance
+        env:
+          SENDSPINDROID_CLIENT_JAR: ${{ github.workspace }}/android/conformance-client/build/libs/conformance-client-all.jar
+        # The harness exits non-zero because scenarios we declare unsupported
+        # (server-initiated flows) are reported as failed. The next step
+        # asserts on the scenarios we actually support.
+        run: |
+          conformance run \
+            --from aiosendspin --to sendspindroid \
+            --results-dir results --timeout-seconds 60 || true
+
+      - name: Assert supported scenarios passed
+        run: |
+          python - <<'EOF'
+          import json, pathlib, sys
+
+          SUPPORTED = {"client-initiated-pcm"}
+          results_dir = pathlib.Path("harness/conformance/results")
+          seen = {}
+          for result_file in results_dir.glob("**/result.json"):
+              result = json.loads(result_file.read_text())
+              if result["scenario_id"] in SUPPORTED:
+                  seen[result["scenario_id"]] = result
+
+          missing = SUPPORTED - seen.keys()
+          if missing:
+              print(f"Missing results for scenarios: {sorted(missing)}")
+              sys.exit(1)
+
+          failed = False
+          for scenario_id, result in sorted(seen.items()):
+              print(f"{scenario_id}: {result['status']} - {result['reason']}")
+              if result["status"] != "passed":
+                  failed = True
+          sys.exit(1 if failed else 0)
+          EOF
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-results
+          path: harness/conformance/results/
+          if-no-files-found: ignore

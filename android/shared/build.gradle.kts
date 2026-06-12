@@ -15,6 +15,11 @@ kotlin {
         }
     }
 
+    // Plain JVM target so the protocol layer (MessageBuilder/MessageParser/
+    // BinaryMessageParser/SendspinTimeFilter) can be driven by the Sendspin
+    // conformance harness adapter (:conformance-client) on a desktop JVM.
+    jvm()
+
     sourceSets {
         commonMain.dependencies {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
@@ -27,6 +32,9 @@ kotlin {
             implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
         }
         androidMain.dependencies {
+            implementation("io.ktor:ktor-client-okhttp:3.1.1")
+        }
+        jvmMain.dependencies {
             implementation("io.ktor:ktor-client-okhttp:3.1.1")
         }
         getByName("androidHostTest") {
