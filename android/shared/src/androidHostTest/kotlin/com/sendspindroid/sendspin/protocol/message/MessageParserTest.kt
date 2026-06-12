@@ -333,6 +333,38 @@ class MessageParserTest {
         assertNull(controller.shuffle)
     }
 
+    @Test
+    fun parseServerCommand_setStaticDelay_returnsResult() {
+        val payload = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "set_static_delay")
+                put("static_delay_ms", 150)
+            })
+        }
+        val result = MessageParser.parseServerCommand(payload)
+        assertTrue(result is ServerCommandResult.SetStaticDelay)
+        assertEquals(150, (result as ServerCommandResult.SetStaticDelay).delayMs)
+    }
+
+    @Test
+    fun parseServerCommand_setStaticDelayOutOfRange_returnsNull() {
+        val tooBig = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "set_static_delay")
+                put("static_delay_ms", 6000)
+            })
+        }
+        assertNull(MessageParser.parseServerCommand(tooBig))
+
+        val negative = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "set_static_delay")
+                put("static_delay_ms", -1)
+            })
+        }
+        assertNull(MessageParser.parseServerCommand(negative))
+    }
+
     // --- parseServerCommand ---
 
     @Test

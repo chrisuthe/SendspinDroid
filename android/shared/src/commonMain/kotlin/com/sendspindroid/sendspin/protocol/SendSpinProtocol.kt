@@ -294,6 +294,7 @@ data class ServerHelloResult(
 sealed class ServerCommandResult {
     data class Volume(val volume: Int) : ServerCommandResult()
     data class Mute(val muted: Boolean) : ServerCommandResult()
+    data class SetStaticDelay(val delayMs: Int) : ServerCommandResult()
     data class Unknown(val command: String) : ServerCommandResult()
 }
 

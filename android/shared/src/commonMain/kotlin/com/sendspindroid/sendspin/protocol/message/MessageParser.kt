@@ -154,6 +154,16 @@ object MessageParser {
                 val muted = player.booleanOrDefault("mute", false)
                 ServerCommandResult.Mute(muted)
             }
+            "set_static_delay" -> {
+                // Spec: integer, 0-5000 ms.
+                val delayMs = player.intOrDefault("static_delay_ms", -1)
+                if (delayMs in 0..5000) {
+                    ServerCommandResult.SetStaticDelay(delayMs)
+                } else {
+                    Log.w(TAG, "set_static_delay out of range: $delayMs")
+                    null
+                }
+            }
             else -> {
                 if (command.isNotEmpty()) {
                     ServerCommandResult.Unknown(command)

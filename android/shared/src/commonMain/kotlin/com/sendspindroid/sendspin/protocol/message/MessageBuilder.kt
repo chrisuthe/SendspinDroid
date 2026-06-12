@@ -123,6 +123,10 @@ object MessageBuilder {
                     // Both timing fields are always required for players.
                     put("required_lead_time_ms", requiredLeadTimeMs)
                     put("min_buffer_ms", minBufferMs)
+                    // Declares that we handle server/command set_static_delay.
+                    put("supported_commands", buildJsonArray {
+                        add(kotlinx.serialization.json.JsonPrimitive("set_static_delay"))
+                    })
                 })
             })
         }

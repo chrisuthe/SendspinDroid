@@ -558,6 +558,15 @@ abstract class SendSpinProtocolHandler(
                 onMuteCommand(result.muted)
                 sendPlayerStateUpdate()
             }
+            is ServerCommandResult.SetStaticDelay -> {
+                Log.i(tag, "Server command: set static delay to ${result.delayMs}ms")
+                // Same application path as the client/sync_offset extension:
+                // a server-pushed correction on top of the auto-measured
+                // hardware latency.
+                getTimeFilter().setServerSyncOffsetMs(result.delayMs.toDouble())
+                onSyncOffsetApplied(result.delayMs.toDouble(), "server_command")
+                sendPlayerStateUpdate()
+            }
             is ServerCommandResult.Unknown -> {
                 Log.d(tag, "Unknown player command: ${result.command}")
             }

@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -103,6 +104,14 @@ class MessageBuilderTest {
             MessageBuilder.buildPlayerState(50, false, "synchronized", 9999.0)
         ).jsonObject["payload"]!!.jsonObject["player"]!!.jsonObject
         assertEquals(5000, huge["static_delay_ms"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun buildPlayerState_declaresSetStaticDelaySupport() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        val commands = player["supported_commands"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("set_static_delay"), commands)
     }
 
     @Test
