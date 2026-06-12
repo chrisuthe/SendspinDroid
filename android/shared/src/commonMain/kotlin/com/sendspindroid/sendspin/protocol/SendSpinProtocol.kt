@@ -101,6 +101,7 @@ object SendSpinProtocol {
         const val STREAM_START = "stream/start"
         const val STREAM_END = "stream/end"
         const val STREAM_CLEAR = "stream/clear"
+        const val STREAM_REQUEST_FORMAT = "stream/request-format"
         const val CLIENT_SYNC_OFFSET = "client/sync_offset"
     }
 

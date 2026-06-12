@@ -256,6 +256,22 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    // BroadcastReceiver for preferred codec changes from settings: ask the
+    // server to switch the live stream via stream/request-format instead of
+    // waiting for the next connect. The server replies with stream/start,
+    // which flows through the normal format-change reconfiguration path.
+    private val preferredCodecReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val codec = intent.getStringExtra(SettingsViewModel.EXTRA_PREFERRED_CODEC) ?: return
+            if (!AudioDecoderFactory.isCodecSupported(codec)) {
+                Log.w(TAG, "Preferred codec changed to unsupported '$codec' - not requesting")
+                return
+            }
+            Log.i(TAG, "Preferred codec changed: $codec - requesting live format change")
+            sendSpinClient?.requestStreamFormat(codec = codec)
+        }
+    }
+
     // Flag to prevent callbacks from executing after service is destroyed
     @Volatile
     private var isDestroyed = false
@@ -795,6 +811,12 @@ class PlaybackService : MediaLibraryService() {
         LocalBroadcastManager.getInstance(this).registerReceiver(
             highPowerModeReceiver,
             IntentFilter(SettingsViewModel.ACTION_HIGH_POWER_MODE_CHANGED)
+        )
+
+        // Register receiver for preferred codec changes from settings
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            preferredCodecReceiver,
+            IntentFilter(SettingsViewModel.ACTION_PREFERRED_CODEC_CHANGED)
         )
 
         // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)
@@ -4016,6 +4038,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Unregister High Power Mode receiver and release locks
         LocalBroadcastManager.getInstance(this).unregisterReceiver(highPowerModeReceiver)
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(preferredCodecReceiver)
         releaseHighPowerLocks()
 
         // Unregister volume observer (only if it was registered)

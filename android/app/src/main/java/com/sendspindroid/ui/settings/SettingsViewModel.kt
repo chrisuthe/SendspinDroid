@@ -40,6 +40,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         const val EXTRA_LOG_LEVEL = "log_level"
         const val ACTION_HIGH_POWER_MODE_CHANGED = "com.sendspindroid.ACTION_HIGH_POWER_MODE_CHANGED"
         const val EXTRA_HIGH_POWER_MODE_ENABLED = "high_power_mode_enabled"
+        const val ACTION_PREFERRED_CODEC_CHANGED = "com.sendspindroid.ACTION_PREFERRED_CODEC_CHANGED"
+        const val EXTRA_PREFERRED_CODEC = "preferred_codec"
     }
 
     private val prefs = PreferenceManager.getDefaultSharedPreferences(application)
@@ -178,6 +180,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setPreferredCodec(codec: String) {
         UserSettings.setPreferredCodec(codec)
         _preferredCodec.value = codec
+
+        // Tell PlaybackService so a live session can switch via
+        // stream/request-format instead of waiting for the next connect.
+        val intent = Intent(ACTION_PREFERRED_CODEC_CHANGED).apply {
+            putExtra(EXTRA_PREFERRED_CODEC, codec)
+        }
+        LocalBroadcastManager.getInstance(getApplication()).sendBroadcast(intent)
     }
 
     // Performance settings

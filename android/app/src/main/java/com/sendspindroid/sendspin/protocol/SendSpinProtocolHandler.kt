@@ -389,6 +389,23 @@ abstract class SendSpinProtocolHandler(
         sendTextMessage(MessageBuilder.buildCommand(command, volume, mute))
     }
 
+    /**
+     * Request a different stream format from the server (spec
+     * stream/request-format). Omitted fields keep their current value.
+     * The server responds with stream/start, which flows through the
+     * normal format-change reconfiguration path.
+     */
+    fun requestStreamFormat(
+        codec: String? = null,
+        sampleRate: Int? = null,
+        channels: Int? = null,
+        bitDepth: Int? = null
+    ) {
+        if (!handshakeComplete) return
+        Log.i(tag, "Requesting stream format: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth")
+        sendTextMessage(MessageBuilder.buildStreamRequestFormat(codec, sampleRate, channels, bitDepth))
+    }
+
     // ========== Player State Methods ==========
 
     /**

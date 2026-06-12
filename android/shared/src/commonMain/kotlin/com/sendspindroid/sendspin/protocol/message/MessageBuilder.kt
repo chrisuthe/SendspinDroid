@@ -154,6 +154,32 @@ object MessageBuilder {
     }
 
     /**
+     * Build a stream/request-format message for the player role.
+     *
+     * All fields optional; omitted fields keep their current value on the
+     * server. The server responds with stream/start carrying the new format.
+     */
+    fun buildStreamRequestFormat(
+        codec: String? = null,
+        sampleRate: Int? = null,
+        channels: Int? = null,
+        bitDepth: Int? = null
+    ): String {
+        val message = buildJsonObject {
+            put("type", SendSpinProtocol.MessageType.STREAM_REQUEST_FORMAT)
+            put("payload", buildJsonObject {
+                put("player", buildJsonObject {
+                    if (codec != null) put("codec", codec)
+                    if (sampleRate != null) put("sample_rate", sampleRate)
+                    if (channels != null) put("channels", channels)
+                    if (bitDepth != null) put("bit_depth", bitDepth)
+                })
+            })
+        }
+        return message.toString()
+    }
+
+    /**
      * Calculate buffer_capacity (wire bytes) from target duration and format list.
      *
      * Uses the highest-bitrate PCM entry we advertise as the basis, so the cap

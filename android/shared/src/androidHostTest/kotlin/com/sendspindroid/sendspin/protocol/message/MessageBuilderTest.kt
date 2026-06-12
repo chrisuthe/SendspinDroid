@@ -172,6 +172,33 @@ class MessageBuilderTest {
         assertNull(controller["mute"])
     }
 
+    // --- buildStreamRequestFormat ---
+
+    @Test
+    fun buildStreamRequestFormat_includesOnlyProvidedFields() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildStreamRequestFormat(codec = "flac")
+        ).jsonObject
+        assertEquals("stream/request-format", msg["type"]?.jsonPrimitive?.content)
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals("flac", player["codec"]?.jsonPrimitive?.content)
+        assertNull(player["sample_rate"])
+        assertNull(player["channels"])
+        assertNull(player["bit_depth"])
+    }
+
+    @Test
+    fun buildStreamRequestFormat_allFields() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildStreamRequestFormat("pcm", 48000, 2, 24)
+        ).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals("pcm", player["codec"]?.jsonPrimitive?.content)
+        assertEquals(48000, player["sample_rate"]?.jsonPrimitive?.int)
+        assertEquals(2, player["channels"]?.jsonPrimitive?.int)
+        assertEquals(24, player["bit_depth"]?.jsonPrimitive?.int)
+    }
+
     // --- buildSupportedFormats ---
 
     @Test
