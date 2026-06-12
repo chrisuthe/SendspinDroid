@@ -824,7 +824,10 @@ class SendSpinClient(
         stopTimeSync()
         reconnecting.set(false)
         waitingForNetwork.set(false)
-        sendGoodbye("network_type_changed")
+        // Spec reason enum is another_server | shutdown | restart |
+        // user_request. "restart" fits: we will reconnect (after the outer
+        // loop re-selects the transport) and the server should auto-reconnect.
+        sendGoodbye("restart")
         // Clear the transport listener BEFORE closing to prevent the async onClosed
         // callback from firing a second onDisconnected after we fire one synchronously below.
         transport?.setListener(null)
