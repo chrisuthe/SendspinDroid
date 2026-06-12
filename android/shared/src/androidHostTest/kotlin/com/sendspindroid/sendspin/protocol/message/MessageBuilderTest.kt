@@ -54,17 +54,21 @@ class MessageBuilderTest {
     @Test
     fun buildPlayerState_hasPlayerObjectWithFields() {
         val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(75, true, "error")).jsonObject
-        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        val payload = msg["payload"]!!.jsonObject
+        val player = payload["player"]!!.jsonObject
         assertEquals(75, player["volume"]?.jsonPrimitive?.int)
         assertTrue(player["muted"]?.jsonPrimitive?.boolean ?: false)
-        assertEquals("error", player["state"]?.jsonPrimitive?.content)
+        // Per spec, `state` is a top-level payload field, not part of the
+        // player object.
+        assertEquals("error", payload["state"]?.jsonPrimitive?.content)
+        assertNull("state must not be nested in player", player["state"])
     }
 
     @Test
     fun buildPlayerState_defaultSyncState() {
         val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
-        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
-        assertEquals("synchronized", player["state"]?.jsonPrimitive?.content)
+        val payload = msg["payload"]!!.jsonObject
+        assertEquals("synchronized", payload["state"]?.jsonPrimitive?.content)
     }
 
     @Test

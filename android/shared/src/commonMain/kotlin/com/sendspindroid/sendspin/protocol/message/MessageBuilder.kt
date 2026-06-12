@@ -100,8 +100,10 @@ object MessageBuilder {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", buildJsonObject {
+                // Per spec, `state` is a top-level payload field (sibling of
+                // `player`), not part of the player object.
+                put("state", syncState)
                 put("player", buildJsonObject {
-                    put("state", syncState)
                     put("volume", volume)
                     put("muted", muted)
                     put("static_delay_ms", staticDelayMs)
