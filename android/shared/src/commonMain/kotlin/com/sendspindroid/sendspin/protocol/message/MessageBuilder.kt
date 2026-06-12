@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlin.math.roundToInt
 
 object MessageBuilder {
 
@@ -106,7 +107,11 @@ object MessageBuilder {
                 put("player", buildJsonObject {
                     put("volume", volume)
                     put("muted", muted)
-                    put("static_delay_ms", staticDelayMs)
+                    // Spec: integer, range 0-5000, negative values not
+                    // supported. Locally we still apply the full signed
+                    // value (user sync offset can be negative); only the
+                    // reported field is clamped.
+                    put("static_delay_ms", staticDelayMs.roundToInt().coerceIn(0, 5000))
                 })
             })
         }

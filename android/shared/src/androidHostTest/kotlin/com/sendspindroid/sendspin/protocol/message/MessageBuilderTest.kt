@@ -72,12 +72,13 @@ class MessageBuilderTest {
     }
 
     @Test
-    fun buildPlayerState_includesStaticDelayMs() {
+    fun buildPlayerState_staticDelayMsRoundedToInt() {
+        // Spec: static_delay_ms is an integer.
         val msg = Json.parseToJsonElement(
             MessageBuilder.buildPlayerState(50, false, "synchronized", 12.5)
         ).jsonObject
         val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
-        assertEquals(12.5, player["static_delay_ms"]?.jsonPrimitive?.double ?: 0.0, 0.01)
+        assertEquals(13, player["static_delay_ms"]?.jsonPrimitive?.int)
     }
 
     @Test
@@ -86,7 +87,22 @@ class MessageBuilderTest {
             MessageBuilder.buildPlayerState(50, false)
         ).jsonObject
         val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
-        assertEquals(0.0, player["static_delay_ms"]?.jsonPrimitive?.double ?: -1.0, 0.01)
+        assertEquals(0, player["static_delay_ms"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun buildPlayerState_staticDelayMsClampedToSpecRange() {
+        // Spec: 0-5000, negative values not supported. A negative user sync
+        // offset is applied locally but reported as 0.
+        val negative = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false, "synchronized", -120.0)
+        ).jsonObject["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(0, negative["static_delay_ms"]?.jsonPrimitive?.int)
+
+        val huge = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false, "synchronized", 9999.0)
+        ).jsonObject["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(5000, huge["static_delay_ms"]?.jsonPrimitive?.int)
     }
 
     // --- buildCommand ---
