@@ -2441,6 +2441,10 @@ class PlaybackService : MediaLibraryService() {
         val result = am.requestAudioFocus(audioFocusRequest!!)
         hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
         Log.d(TAG, "Audio focus requested: ${if (hasAudioFocus) "granted" else "denied"}")
+        if (hasAudioFocus) {
+            // We own the output again: clear any 'external_source' report.
+            sendSpinClient?.setExternalSource(false)
+        }
     }
 
     /**
@@ -2471,9 +2475,13 @@ class PlaybackService : MediaLibraryService() {
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 Log.d(TAG, "Audio focus lost permanently")
-                // Another app took focus permanently - pause playback
+                // Another app took focus permanently - pause playback and
+                // report 'external_source' per spec. The server parks this
+                // client in a solo group and ends its streams; pressing play
+                // in our UI re-requests focus, which clears the state.
                 hasAudioFocus = false
                 syncAudioPlayer?.pause()
+                sendSpinClient?.setExternalSource(true)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 Log.d(TAG, "Audio focus lost transiently")

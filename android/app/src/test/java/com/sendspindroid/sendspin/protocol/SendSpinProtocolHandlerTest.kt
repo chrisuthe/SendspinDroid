@@ -106,6 +106,41 @@ class SendSpinProtocolHandlerTest {
         assertEquals("Song B", handler.metadataUpdates[1].title)
     }
 
+    // ========== External Source Tests ==========
+
+    @Test
+    fun `setExternalSource true reports external_source state`() {
+        handler.sentMessages.clear()
+        handler.setExternalSource(true)
+
+        assertEquals("external_source", handler.exposedSyncState())
+        assertEquals(1, handler.sentMessages.size)
+        assertTrue(handler.sentMessages[0].contains("\"state\":\"external_source\""))
+    }
+
+    @Test
+    fun `evaluateAndPublishSyncState does not override external_source`() {
+        handler.setExternalSource(true)
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals("external_source", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `setExternalSource false recomputes filter-derived state`() {
+        handler.setExternalSource(true)
+        handler.setExternalSource(false)
+        // Filter has no measurements in tests -> "error"
+        assertEquals("error", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `setExternalSource is idempotent`() {
+        handler.sentMessages.clear()
+        handler.setExternalSource(true)
+        handler.setExternalSource(true)
+        assertEquals(1, handler.sentMessages.size)
+    }
+
     // ========== Controller State Tests ==========
 
     @Test

@@ -44,6 +44,12 @@ abstract class SendSpinProtocolHandler(
     private var hasEverConverged: Boolean = false
     private var lastPublishedMute: Boolean = false
 
+    // True while the client's audio output is in use by an external system
+    // (e.g. another app holds audio focus). Overrides synchronized/error
+    // reporting until cleared. Per spec, the server reacts by parking this
+    // client in a solo group and ending its streams.
+    private var externalSourceActive: Boolean = false
+
     // Stream active tracking (mirrors CLI _stream_active)
     private var _streamActive = false
     private var _currentStreamConfig: StreamConfig? = null
@@ -272,6 +278,34 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
+     * Report or clear the 'external_source' client state (spec: output is
+     * in use by an external system, e.g. another app holds audio focus).
+     *
+     * While active, [evaluateAndPublishSyncState] is suspended so the
+     * filter-derived synchronized/error states don't overwrite it. On
+     * clear, the state is recomputed from the time filter and republished.
+     *
+     * Safe to call from any thread.
+     */
+    fun setExternalSource(active: Boolean) {
+        val changed = synchronized(syncStateLock) {
+            if (externalSourceActive == active) return
+            externalSourceActive = active
+            if (active) {
+                currentSyncState = "external_source"
+            } else {
+                val filter = getTimeFilter()
+                currentSyncState = if (filter.isReady && filter.isConverged) "synchronized" else "error"
+            }
+            true
+        }
+        if (changed) {
+            Log.i(tag, "External source ${if (active) "active" else "cleared"}: state=$currentSyncState")
+            if (handshakeComplete) sendPlayerStateUpdate()
+        }
+    }
+
+    /**
      * Recompute the client's sync state from the time filter and publish
      * any change to the server and to the audio sink.
      *
@@ -285,6 +319,10 @@ abstract class SendSpinProtocolHandler(
      */
     fun evaluateAndPublishSyncState() {
         val muteChange: Boolean? = synchronized(syncStateLock) {
+            // While an external source owns the output, synchronized/error
+            // reporting (and its mute side effects) is suspended.
+            if (externalSourceActive) return
+
             val filter = getTimeFilter()
             val converged = filter.isReady && filter.isConverged
             if (converged) {
@@ -317,6 +355,7 @@ abstract class SendSpinProtocolHandler(
     fun resetSyncStateTracking() {
         val needsUnmute = synchronized(syncStateLock) {
             hasEverConverged = false
+            externalSourceActive = false
             currentSyncState = "error"
             if (lastPublishedMute) {
                 lastPublishedMute = false
