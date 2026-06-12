@@ -166,6 +166,31 @@ data class TrackMetadata(
     // Convenience properties for backwards compatibility
     val durationMs: Long get() = progress.trackDuration
     val positionMs: Long get() = progress.trackProgress
+
+    /**
+     * Current track position extrapolated from this metadata snapshot,
+     * using the spec formula:
+     *
+     *   progress + (server_now - timestamp) * playback_speed / 1_000_000
+     *
+     * clamped to [0, duration] (lower bound only when duration is 0 =
+     * unknown/unlimited). Falls back to the raw reported position when
+     * [timestamp] is missing (0), e.g. legacy servers.
+     *
+     * @param serverNowMicros current time on the server clock, in
+     *   microseconds (from the time filter's client->server mapping)
+     */
+    fun progressAtServerTime(serverNowMicros: Long): Long {
+        if (timestamp == 0L) return progress.trackProgress
+        val elapsedMicros = serverNowMicros - timestamp
+        val calculated = progress.trackProgress +
+                elapsedMicros * progress.playbackSpeed / 1_000_000L
+        return if (progress.trackDuration != 0L) {
+            calculated.coerceIn(0L, progress.trackDuration)
+        } else {
+            calculated.coerceAtLeast(0L)
+        }
+    }
 }
 
 /**

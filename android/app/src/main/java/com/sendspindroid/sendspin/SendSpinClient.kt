@@ -422,13 +422,24 @@ class SendSpinClient(
     }
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
+        // Per spec, extrapolate the reported position from the metadata's
+        // server timestamp to "now" before publishing. Without this, the
+        // position is stale by network latency plus however long the
+        // snapshot sat on the server (and downstream anchors interpolate
+        // from receive time). Requires a converged clock; fall back to the
+        // raw value until then.
+        val positionMs = if (timeFilter.isReady) {
+            metadata.progressAtServerTime(timeFilter.clientToServer(System.nanoTime() / 1000))
+        } else {
+            metadata.positionMs
+        }
         callback.onMetadataUpdate(
             metadata.title,
             metadata.artist,
             metadata.album,
             metadata.artworkUrl,
             metadata.durationMs,
-            metadata.positionMs,
+            positionMs,
             metadata.progress.playbackSpeed
         )
     }
