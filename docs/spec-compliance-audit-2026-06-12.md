@@ -4,6 +4,14 @@ Audit of SendSpinDroid against the current Sendspin protocol spec
 (github.com/Sendspin/spec @ 2026-06-11, "Add visualizer@v1 role"), plus an
 evaluation of the official JVM library (github.com/Sendspin/sendspin-jvm v0.3.0).
 
+> **Status update (same day):** All P1, P2, and P4 issues plus P3 items
+> 6/7/8/10 are fixed on branch `task/spec-compliance` (one commit per issue).
+> The official Sendspin/conformance harness now runs in CI
+> (`.github/workflows/conformance.yml`); the `client-initiated-pcm` scenario
+> passes against aiosendspin ("PCM hashes match exactly"). Remaining open
+> items: P3.9 server-initiated connections (build-vs-library decision) and
+> the optional visualizer/color roles.
+
 ## Recent spec changes that affect us
 
 | Date | Change | Impact on us |
