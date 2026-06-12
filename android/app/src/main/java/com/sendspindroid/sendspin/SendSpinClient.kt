@@ -337,6 +337,8 @@ class SendSpinClient(
 
     override fun getManufacturer(): String = Build.MANUFACTURER ?: "Unknown"
 
+    override fun getSoftwareVersion(): String = com.sendspindroid.BuildConfig.VERSION_NAME
+
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> {
         val bitDepths = if (isLowMemoryMode()) {
             listOf(16)

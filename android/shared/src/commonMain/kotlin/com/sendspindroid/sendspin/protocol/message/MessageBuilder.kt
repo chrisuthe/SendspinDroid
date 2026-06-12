@@ -22,7 +22,8 @@ object MessageBuilder {
         bufferCapacity: Int,
         manufacturer: String,
         supportedFormats: List<FormatEntry>,
-        lowMemoryMode: Boolean = false
+        lowMemoryMode: Boolean = false,
+        softwareVersion: String = "unknown"
     ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_HELLO)
@@ -41,7 +42,7 @@ object MessageBuilder {
                 put("device_info", buildJsonObject {
                     put("product_name", "SendSpinDroid")
                     put("manufacturer", manufacturer)
-                    put("software_version", "1.0.0")
+                    put("software_version", softwareVersion)
                 })
                 put("player@v1_support", buildJsonObject {
                     put("supported_formats", buildJsonArray {

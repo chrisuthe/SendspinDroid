@@ -174,6 +174,11 @@ abstract class SendSpinProtocolHandler(
     protected abstract fun getSupportedFormats(): List<MessageBuilder.FormatEntry>
 
     /**
+     * Get the client app version reported in device_info.software_version.
+     */
+    protected abstract fun getSoftwareVersion(): String
+
+    /**
      * Send client/hello message to start handshake.
      *
      * Buffer capacity is computed from the format list and target duration
@@ -192,7 +197,8 @@ abstract class SendSpinProtocolHandler(
             deviceName = getDeviceName(),
             bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),
-            supportedFormats = formats
+            supportedFormats = formats,
+            softwareVersion = getSoftwareVersion()
         )
         sendTextMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")

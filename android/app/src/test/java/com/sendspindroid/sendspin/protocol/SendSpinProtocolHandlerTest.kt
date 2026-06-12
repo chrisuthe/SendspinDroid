@@ -397,6 +397,8 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
 
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> = emptyList()
 
+    override fun getSoftwareVersion(): String = "test"
+
     override fun onHandshakeComplete(serverName: String, serverId: String) {}
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
