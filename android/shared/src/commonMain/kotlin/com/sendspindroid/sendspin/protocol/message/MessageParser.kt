@@ -96,6 +96,8 @@ object MessageParser {
                     playbackSpeed = progressObj.intOrDefault("playback_speed", 1000)
                 )
             } ?: run {
+                // Legacy pre-spec Music Assistant fields, not in the
+                // Sendspin spec; kept for old servers.
                 TrackProgress(
                     trackProgress = metadataObj.longOrDefault("position_ms", 0),
                     trackDuration = metadataObj.longOrDefault("duration_ms", 0),
@@ -206,6 +208,10 @@ object MessageParser {
         return StreamConfig(codec, sampleRate, channels, bitDepth, codecHeader)
     }
 
+    /**
+     * Parse client/sync_offset. NOTE: this is a Music Assistant extension
+     * (GroupSync), not part of the Sendspin spec.
+     */
     fun parseSyncOffset(payload: JsonObject?): SyncOffsetResult? {
         if (payload == null) return null
 

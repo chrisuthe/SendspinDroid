@@ -680,6 +680,12 @@ abstract class SendSpinProtocolHandler(
     private fun dispatchBinaryMessage(message: BinaryMessageParser.BinaryMessage) {
         when (message) {
             is BinaryMessageParser.BinaryMessage.Audio -> {
+                // Spec: binary messages should be rejected if there is no
+                // active stream (e.g. chunks in flight after stream/end).
+                if (!_streamActive) {
+                    Log.v(tag, "Dropping audio chunk: no active stream")
+                    return
+                }
                 onAudioChunk(message.timestampMicros, message.payload)
             }
             is BinaryMessageParser.BinaryMessage.Artwork -> {
