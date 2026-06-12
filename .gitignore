@@ -56,3 +56,4 @@ android/nul
 
 # Git worktrees (isolated dev branches)
 .worktrees/
+android/conformance-client/build/
