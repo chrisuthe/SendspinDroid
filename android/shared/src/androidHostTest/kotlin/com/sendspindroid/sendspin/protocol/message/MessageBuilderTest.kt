@@ -136,6 +136,33 @@ class MessageBuilderTest {
         assertEquals("next", controller["command"]?.jsonPrimitive?.content)
     }
 
+    @Test
+    fun buildCommand_volumeCommandIncludesVolume() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("volume", volume = 65)).jsonObject
+        val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
+        assertEquals("volume", controller["command"]?.jsonPrimitive?.content)
+        assertEquals(65, controller["volume"]?.jsonPrimitive?.int)
+        assertNull(controller["mute"])
+    }
+
+    @Test
+    fun buildCommand_muteCommandIncludesMute() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("mute", mute = true)).jsonObject
+        val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
+        assertEquals("mute", controller["command"]?.jsonPrimitive?.content)
+        assertEquals(true, controller["mute"]?.jsonPrimitive?.boolean)
+        assertNull(controller["volume"])
+    }
+
+    @Test
+    fun buildCommand_plainCommandOmitsOptionalParams() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("repeat_all")).jsonObject
+        val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
+        assertEquals("repeat_all", controller["command"]?.jsonPrimitive?.content)
+        assertNull(controller["volume"])
+        assertNull(controller["mute"])
+    }
+
     // --- buildSupportedFormats ---
 
     @Test

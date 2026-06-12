@@ -129,12 +129,20 @@ object MessageBuilder {
         return message.toString()
     }
 
-    fun buildCommand(command: String): String {
+    /**
+     * Build a client/command controller message.
+     *
+     * @param volume only set if [command] is "volume" (0-100)
+     * @param mute only set if [command] is "mute"
+     */
+    fun buildCommand(command: String, volume: Int? = null, mute: Boolean? = null): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_COMMAND)
             put("payload", buildJsonObject {
                 put("controller", buildJsonObject {
                     put("command", command)
+                    if (volume != null) put("volume", volume.coerceIn(0, 100))
+                    if (mute != null) put("mute", mute)
                 })
             })
         }

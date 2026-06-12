@@ -53,6 +53,9 @@ abstract class SendSpinProtocolHandler(
     private var lastPlaybackState: String? = null
     private var lastGroupInfo: GroupInfo? = null
 
+    // Merged controller (group-level) state from server/state deltas.
+    private var currentControllerState: ControllerState? = null
+
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
 
@@ -149,6 +152,13 @@ abstract class SendSpinProtocolHandler(
      * Called when sync offset is received from GroupSync.
      */
     protected abstract fun onSyncOffsetApplied(offsetMs: Double, source: String)
+
+    /**
+     * Called when the merged controller (group-level) state changes:
+     * supported_commands, group volume/mute, repeat, shuffle.
+     * Default no-op for handlers that don't surface controller state.
+     */
+    protected open fun onControllerStateUpdate(state: ControllerState) {}
 
     /**
      * Called when the audio output should be silenced or unsilenced because
@@ -321,10 +331,23 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
-     * Send a media command (play, pause, next, previous, switch).
+     * Send a controller command (play, pause, stop, next, previous, volume,
+     * mute, repeat_off, repeat_one, repeat_all, shuffle, unshuffle, switch).
+     *
+     * Per spec, commands should be one of the server's advertised
+     * supported_commands; once the server has told us its set, anything
+     * outside it is dropped (the server would ignore it anyway).
+     *
+     * @param volume only used when [command] is "volume"
+     * @param mute only used when [command] is "mute"
      */
-    fun sendCommand(command: String) {
-        sendTextMessage(MessageBuilder.buildCommand(command))
+    fun sendCommand(command: String, volume: Int? = null, mute: Boolean? = null) {
+        val supported = currentControllerState?.supportedCommands
+        if (supported != null && command !in supported) {
+            Log.w(tag, "Dropping controller command '$command': not in server supported_commands $supported")
+            return
+        }
+        sendTextMessage(MessageBuilder.buildCommand(command, volume, mute))
     }
 
     // ========== Player State Methods ==========
@@ -442,6 +465,7 @@ abstract class SendSpinProtocolHandler(
         lastMetadata = null
         lastPlaybackState = null
         lastGroupInfo = null
+        currentControllerState = null
 
         onHandshakeComplete(result.serverName, result.serverId)
 
@@ -459,7 +483,7 @@ abstract class SendSpinProtocolHandler(
     }
 
     protected fun handleServerState(payload: JsonObject?) {
-        val (metadata, state) = MessageParser.parseServerState(payload)
+        val (metadata, state, controllerDelta) = MessageParser.parseServerState(payload)
 
         if (metadata != null) {
             lastMetadata = metadata
@@ -469,6 +493,14 @@ abstract class SendSpinProtocolHandler(
         if (state != null && state != lastPlaybackState) {
             lastPlaybackState = state
             onPlaybackStateChanged(state)
+        }
+
+        if (controllerDelta != null) {
+            val merged = currentControllerState?.mergedWith(controllerDelta) ?: controllerDelta
+            if (merged != currentControllerState) {
+                currentControllerState = merged
+                onControllerStateUpdate(merged)
+            }
         }
     }
 

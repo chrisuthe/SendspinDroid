@@ -205,6 +205,46 @@ data class StreamConfig(
 }
 
 /**
+ * Controller (group-level) state from the server/state `controller` object.
+ *
+ * Fields are nullable because server/state carries delta updates; null means
+ * "not included in this update". [com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler]
+ * merges deltas into the current state before publishing.
+ *
+ * @param supportedCommands Subset of: play, pause, stop, next, previous,
+ *   volume, mute, repeat_off, repeat_one, repeat_all, shuffle, unshuffle, switch
+ * @param volume Volume of the whole group, 0-100 (average of player volumes)
+ * @param muted Group mute state (true only when all players are muted)
+ * @param repeat Repeat mode: "off", "one", or "all"
+ * @param shuffle Shuffle mode enabled/disabled
+ */
+data class ControllerState(
+    val supportedCommands: List<String>? = null,
+    val volume: Int? = null,
+    val muted: Boolean? = null,
+    val repeat: String? = null,
+    val shuffle: Boolean? = null
+) {
+    /** Merge a delta update into this state, keeping known values. */
+    fun mergedWith(delta: ControllerState): ControllerState = ControllerState(
+        supportedCommands = delta.supportedCommands ?: supportedCommands,
+        volume = delta.volume ?: volume,
+        muted = delta.muted ?: muted,
+        repeat = delta.repeat ?: repeat,
+        shuffle = delta.shuffle ?: shuffle
+    )
+}
+
+/**
+ * Result of parsing a server/state message.
+ */
+data class ServerStateResult(
+    val metadata: TrackMetadata?,
+    val playbackState: String?,
+    val controller: ControllerState?
+)
+
+/**
  * Group information from group/update messages.
  */
 data class GroupInfo(

@@ -7,6 +7,7 @@ import com.sendspindroid.UserSettings
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.remote.WebRTCTransport
 import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
+import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
@@ -203,6 +204,12 @@ class SendSpinClient(
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    // Merged controller (group-level) state: supported_commands, group
+    // volume/mute, repeat, shuffle. Null until the server first sends a
+    // server/state controller object.
+    private val _controllerState = MutableStateFlow<ControllerState?>(null)
+    val controllerState: StateFlow<ControllerState?> = _controllerState.asStateFlow()
+
     // Transport abstraction - can be WebSocket (local) or WebRTC (remote)
     private var transport: SendSpinTransport? = null
     private var connectionMode: ConnectionMode = ConnectionMode.LOCAL
@@ -356,6 +363,10 @@ class SendSpinClient(
         this.serverName = serverName
         this.serverId = serverId
 
+        // Controller state belongs to the previous session; the handler's
+        // merged copy was reset, so reset the published flow too.
+        _controllerState.value = null
+
         // Check if this is a reconnection
         val wasReconnecting = timeFilter.isFrozen || reconnecting.get()
 
@@ -483,6 +494,10 @@ class SendSpinClient(
 
     override fun onSyncMuteChanged(muted: Boolean) {
         callback.onSyncMuteChanged(muted)
+    }
+
+    override fun onControllerStateUpdate(state: ControllerState) {
+        _controllerState.value = state
     }
 
     // ========== Public API ==========
@@ -868,9 +883,29 @@ class SendSpinClient(
 
     fun play() = sendCommand("play")
     fun pause() = sendCommand("pause")
+    fun stop() = sendCommand("stop")
     fun next() = sendCommand("next")
     fun previous() = sendCommand("previous")
     fun switchGroup() = sendCommand("switch")
+
+    /** Set the volume of the whole group (0-100). */
+    fun setGroupVolume(volume: Int) = sendCommand("volume", volume = volume)
+
+    /** Set the mute state of the whole group. */
+    fun setGroupMute(muted: Boolean) = sendCommand("mute", mute = muted)
+
+    /** Set repeat mode: "off", "one", or "all". */
+    fun setRepeatMode(mode: String) {
+        when (mode) {
+            "off" -> sendCommand("repeat_off")
+            "one" -> sendCommand("repeat_one")
+            "all" -> sendCommand("repeat_all")
+            else -> Log.w(TAG, "Unknown repeat mode: $mode")
+        }
+    }
+
+    /** Enable or disable shuffle. */
+    fun setShuffle(enabled: Boolean) = sendCommand(if (enabled) "shuffle" else "unshuffle")
 
     /**
      * Clean up resources.

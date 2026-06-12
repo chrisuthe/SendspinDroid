@@ -1,9 +1,11 @@
 package com.sendspindroid.sendspin.protocol.message
 
+import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.ServerCommandResult
 import com.sendspindroid.sendspin.protocol.ServerHelloResult
+import com.sendspindroid.sendspin.protocol.ServerStateResult
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.SyncOffsetResult
 import com.sendspindroid.sendspin.protocol.TimeMeasurement
@@ -67,8 +69,8 @@ object MessageParser {
         return TimeMeasurement(offset, rtt, clientReceivedMicros)
     }
 
-    fun parseServerState(payload: JsonObject?): Pair<TrackMetadata?, String?> {
-        if (payload == null) return Pair(null, null)
+    fun parseServerState(payload: JsonObject?): ServerStateResult {
+        if (payload == null) return ServerStateResult(null, null, null)
 
         val metadata = (payload["metadata"] as? JsonObject)?.let { metadataObj ->
             fun optStringClean(key: String) =
@@ -116,7 +118,21 @@ object MessageParser {
 
         val state = payload.stringOrDefault("state", "").takeIf { it.isNotEmpty() }
 
-        return Pair(metadata, state)
+        // Controller (group-level) state delta. All fields lenient: aiosendspin
+        // sends the complete object, but spec delta semantics allow partials.
+        val controller = (payload["controller"] as? JsonObject)?.let { controllerObj ->
+            ControllerState(
+                supportedCommands = controllerObj["supported_commands"]?.jsonArray?.mapNotNull {
+                    it.jsonPrimitive.contentOrNull
+                },
+                volume = controllerObj["volume"]?.jsonPrimitive?.intOrNull,
+                muted = controllerObj["muted"]?.jsonPrimitive?.booleanOrNull,
+                repeat = controllerObj["repeat"]?.jsonPrimitive?.contentOrNull,
+                shuffle = controllerObj["shuffle"]?.jsonPrimitive?.booleanOrNull
+            )
+        }
+
+        return ServerStateResult(metadata, state, controller)
     }
 
     fun parseServerCommand(payload: JsonObject?): ServerCommandResult? {

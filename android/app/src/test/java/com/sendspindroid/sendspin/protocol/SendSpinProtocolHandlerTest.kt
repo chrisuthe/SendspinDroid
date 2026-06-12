@@ -106,6 +106,59 @@ class SendSpinProtocolHandlerTest {
         assertEquals("Song B", handler.metadataUpdates[1].title)
     }
 
+    // ========== Controller State Tests ==========
+
+    @Test
+    fun `controller state from server_state is merged and published`() {
+        handler.handleTextMessageForTest(
+            """{"type":"server/state","payload":{"controller":{
+                "supported_commands":["play","pause","volume"],
+                "volume":60,"muted":false,"repeat":"off","shuffle":false}}}"""
+        )
+        // Partial delta: only volume changes; earlier fields must survive.
+        handler.handleTextMessageForTest(
+            """{"type":"server/state","payload":{"controller":{"volume":80}}}"""
+        )
+
+        assertEquals(2, handler.controllerStateUpdates.size)
+        val merged = handler.controllerStateUpdates.last()
+        assertEquals(80, merged.volume)
+        assertEquals(listOf("play", "pause", "volume"), merged.supportedCommands)
+        assertEquals("off", merged.repeat)
+    }
+
+    @Test
+    fun `unchanged controller delta does not republish`() {
+        val msg = """{"type":"server/state","payload":{"controller":{"volume":60}}}"""
+        handler.handleTextMessageForTest(msg)
+        handler.handleTextMessageForTest(msg)
+        assertEquals(1, handler.controllerStateUpdates.size)
+    }
+
+    @Test
+    fun `sendCommand drops commands outside server supported_commands`() {
+        handler.handleTextMessageForTest(
+            """{"type":"server/state","payload":{"controller":{
+                "supported_commands":["play","pause"],
+                "volume":60,"muted":false,"repeat":"off","shuffle":false}}}"""
+        )
+        handler.sentMessages.clear()
+
+        handler.sendCommand("shuffle")
+        assertEquals("Unsupported command must be dropped", 0, handler.sentMessages.size)
+
+        handler.sendCommand("play")
+        assertEquals(1, handler.sentMessages.size)
+        assertTrue(handler.sentMessages[0].contains("\"command\":\"play\""))
+    }
+
+    @Test
+    fun `sendCommand is not gated before controller state is known`() {
+        handler.sentMessages.clear()
+        handler.sendCommand("play")
+        assertEquals(1, handler.sentMessages.size)
+    }
+
     // ========== Sync State Validation Tests ==========
 
     @Test
@@ -359,6 +412,7 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
     private val timeFilter = SendspinTimeFilter()
     val sentMessages = mutableListOf<String>()
     val metadataUpdates = mutableListOf<TrackMetadata>()
+    val controllerStateUpdates = mutableListOf<ControllerState>()
     val playbackStateChanges = mutableListOf<String>()
     val groupUpdates = mutableListOf<GroupInfo>()
     val streamStarts = mutableListOf<StreamConfig>()
@@ -403,6 +457,10 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
         metadataUpdates.add(metadata)
+    }
+
+    override fun onControllerStateUpdate(state: ControllerState) {
+        controllerStateUpdates.add(state)
     }
 
     override fun onPlaybackStateChanged(state: String) {
