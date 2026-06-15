@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.protocol
 
 import android.util.Log
+import com.sendspindroid.sendspin.AdaptiveBufferPolicy
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
@@ -64,6 +65,15 @@ abstract class SendSpinProtocolHandler(
 
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
+
+    // Adaptive jitter-buffer policy: reports a generous min_buffer_ms by default
+    // and grows it on trouble (RTT spikes / sync loss), backing off slowly on a
+    // sustained-good link. Constructed by [initTimeSyncManager] with the
+    // memory-appropriate profile. Guarded by [adaptiveBufferLock] because the
+    // time-sync callback can fire from either the burst-loop or the receive thread.
+    private var adaptiveBuffer: AdaptiveBufferPolicy? = null
+    private val adaptiveBufferLock = Any()
+    private var lastReportedMinBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
 
     // ========== Abstract Transport Methods ==========
 
@@ -241,7 +251,50 @@ abstract class SendSpinProtocolHandler(
      */
     protected fun sendPlayerStateUpdate() {
         val delayMs = getTimeFilter().staticDelayMs
-        sendTextMessage(MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState, delayMs))
+        val minBufferMs = synchronized(adaptiveBufferLock) {
+            val target = adaptiveBuffer?.currentTargetMs ?: SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
+            lastReportedMinBufferMs = target
+            target
+        }
+        sendTextMessage(
+            MessageBuilder.buildPlayerState(
+                currentVolume, currentMuted, currentSyncState, delayMs,
+                minBufferMs = minBufferMs
+            )
+        )
+    }
+
+    /**
+     * Feed one time-sync measurement into the adaptive buffer policy and, if the
+     * learned `min_buffer_ms` target shifted, report it (debounced by the policy's
+     * own grow/shrink cooldowns). Also re-evaluates sync state, preserving the
+     * previous [onMeasurementApplied] behavior.
+     */
+    private fun onTimeMeasurement(rttMicros: Long) {
+        val filter = getTimeFilter()
+        val quality = when {
+            filter.isReady && filter.isConverged -> AdaptiveBufferPolicy.SyncQuality.GOOD
+            filter.isReady -> AdaptiveBufferPolicy.SyncQuality.DEGRADED
+            else -> AdaptiveBufferPolicy.SyncQuality.LOST
+        }
+        val changed = synchronized(adaptiveBufferLock) {
+            val policy = adaptiveBuffer
+            if (policy != null) {
+                policy.update(
+                    nowMs = android.os.SystemClock.elapsedRealtime(),
+                    rttMs = rttMicros / 1000.0,
+                    quality = quality
+                )
+                policy.currentTargetMs != lastReportedMinBufferMs
+            } else {
+                false
+            }
+        }
+        evaluateAndPublishSyncState()
+        if (changed && handshakeComplete) {
+            Log.d(tag, "Adaptive min_buffer_ms -> ${adaptiveBuffer?.currentTargetMs}")
+            sendPlayerStateUpdate()
+        }
     }
 
     /**
@@ -464,10 +517,17 @@ abstract class SendSpinProtocolHandler(
      * Initialize time sync manager.
      */
     protected fun initTimeSyncManager(timeFilter: SendspinTimeFilter) {
+        synchronized(adaptiveBufferLock) {
+            val policy = AdaptiveBufferPolicy(
+                if (isLowMemoryMode()) AdaptiveBufferPolicy.lowMemory() else AdaptiveBufferPolicy.generous()
+            )
+            adaptiveBuffer = policy
+            lastReportedMinBufferMs = policy.currentTargetMs
+        }
         timeSyncManager = TimeSyncManager(
             timeFilter = timeFilter,
             sendClientTime = { sendClientTime() },
-            onMeasurementApplied = { evaluateAndPublishSyncState() },
+            onMeasurementApplied = { rttMicros -> onTimeMeasurement(rttMicros) },
             tag = tag
         )
     }
