@@ -304,10 +304,24 @@ class WebRTCTransport(
     }
 
     override fun onAnswer(sdp: String) {
-        Log.d(TAG, "Setting remote description (answer)")
         val pc = peerConnection ?: return
 
-        val sessionDescription = SessionDescription(SessionDescription.Type.ANSWER, sdp)
+        // DTLS certificate pinning: the Remote ID is the server cert's SHA-256
+        // fingerprint (truncated, base32). Verify the answer's fingerprint(s)
+        // against it before accepting, so a malicious/compromised signaling
+        // server can't redirect us to an impostor peer. Fail closed.
+        val verification = RemoteCertificateVerifier.verify(remoteId, sdp)
+        val verifiedSdp = when (verification) {
+            is RemoteCertificateVerifier.Result.Verified -> verification.sanitizedSdp
+            is RemoteCertificateVerifier.Result.Rejected -> {
+                Log.e(TAG, "Rejecting answer: certificate verification failed (${verification.reason})")
+                handleError("Certificate verification failed: ${verification.reason}", isRecoverable = false)
+                return
+            }
+        }
+
+        Log.d(TAG, "Answer certificate verified; setting remote description")
+        val sessionDescription = SessionDescription(SessionDescription.Type.ANSWER, verifiedSdp)
         pc.setRemoteDescription(object : SdpObserver {
             override fun onCreateSuccess(p0: SessionDescription?) {}
             override fun onCreateFailure(p0: String?) {}
