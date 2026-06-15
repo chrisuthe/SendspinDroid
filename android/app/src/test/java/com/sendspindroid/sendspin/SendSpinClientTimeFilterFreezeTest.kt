@@ -31,11 +31,11 @@ import org.junit.Test
  * drops so playback can continue from buffer without losing sync.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientTimeFilterFreezeTest {
+class SendSpinTimeFilterFreezeTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -65,7 +65,7 @@ class SendSpinClientTimeFilterFreezeTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
     }
 
     @After
@@ -104,25 +104,25 @@ class SendSpinClientTimeFilterFreezeTest {
             override fun destroy() {}
         }
 
-        val addrField = SendSpinClient::class.java.getDeclaredField("serverAddress")
+        val addrField = SendSpin::class.java.getDeclaredField("serverAddress")
         addrField.isAccessible = true
         addrField.set(client, "127.0.0.1:8080")
 
-        val pathField = SendSpinClient::class.java.getDeclaredField("serverPath")
+        val pathField = SendSpin::class.java.getDeclaredField("serverPath")
         pathField.isAccessible = true
         pathField.set(client, "/sendspin")
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
-        val handshakeField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val handshakeField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         handshakeField.isAccessible = true
         handshakeField.set(client, true)
 
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         return constructor.newInstance(client) as SendSpinTransport.Listener
     }
@@ -136,7 +136,7 @@ class SendSpinClientTimeFilterFreezeTest {
         assertFalse("Time filter should not be frozen initially", tf.isFrozen)
 
         // Trigger first reconnect attempt
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
@@ -152,7 +152,7 @@ class SendSpinClientTimeFilterFreezeTest {
         setupForReconnection()
 
         val tf = getTimeFilter()
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // First attempt freezes
@@ -174,7 +174,7 @@ class SendSpinClientTimeFilterFreezeTest {
         setupForReconnection()
 
         val tf = getTimeFilter()
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Freeze via reconnect attempt
@@ -194,14 +194,14 @@ class SendSpinClientTimeFilterFreezeTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport2)
 
         // Create new listener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
@@ -227,7 +227,7 @@ class SendSpinClientTimeFilterFreezeTest {
         every { UserSettings.highPowerMode } returns false
 
         val tf = getTimeFilter()
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Perform many attempts, well past the old 5-attempt cap.
@@ -242,12 +242,12 @@ class SendSpinClientTimeFilterFreezeTest {
     }
 
     @Test
-    fun `onReconnected callback fires when handshake completes after freeze`() {
+    fun `state transitions to Ready when handshake completes after freeze`() {
         seedTimeFilter()
         setupForReconnection()
 
         val tf = getTimeFilter()
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Trigger freeze
@@ -266,19 +266,22 @@ class SendSpinClientTimeFilterFreezeTest {
             override fun destroy() {}
         }
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport2)
 
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }!!
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
 
         val serverHello = """{"type":"server/hello","payload":{"name":"TestServer","server_id":"srv-1","protocol_version":1,"active_roles":["player"]}}"""
         listener.onMessage(serverHello)
 
-        io.mockk.verify(exactly = 1) { mockCallback.onReconnected() }
+        assertTrue(
+            "State should be Ready after reconnect handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
+        )
     }
 }

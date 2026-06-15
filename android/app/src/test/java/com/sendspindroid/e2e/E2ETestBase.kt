@@ -5,7 +5,8 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.coordinator.TransportState
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import com.sendspindroid.sendspin.transport.SendSpinTransport
 import io.mockk.every
@@ -25,7 +26,7 @@ import org.junit.Before
  * Base class for E2E tests providing common setup:
  * - Mocked Android framework statics (Log, PreferenceManager)
  * - Mocked UserSettings singleton
- * - SendSpinClient with FakeTransport injection
+ * - SendSpin with FakeTransport injection
  * - FakeSendSpinServer for protocol simulation
  *
  * Subclasses can override [configureUserSettings] to customize settings for
@@ -35,8 +36,8 @@ import org.junit.Before
 abstract class E2ETestBase {
 
     protected lateinit var mockContext: Context
-    protected lateinit var mockCallback: SendSpinClient.Callback
-    protected lateinit var client: SendSpinClient
+    protected lateinit var mockCallback: SendSpin.Callback
+    protected lateinit var client: SendSpin
     protected lateinit var fakeTransport: FakeTransport
     protected lateinit var fakeServer: FakeSendSpinServer
 
@@ -76,7 +77,7 @@ abstract class E2ETestBase {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "E2ETestDevice", mockCallback)
+        client = SendSpin(mockContext, "E2ETestDevice", mockCallback)
 
         // Create fake transport and server
         fakeTransport = FakeTransport()
@@ -98,7 +99,7 @@ abstract class E2ETestBase {
     }
 
     /**
-     * Inject the FakeTransport into the SendSpinClient and set up the
+     * Inject the FakeTransport into the SendSpin and set up the
      * TransportEventListener so the client processes messages from the
      * fake server.
      *
@@ -108,16 +109,16 @@ abstract class E2ETestBase {
      * 3. Sets connection mode and related state
      */
     protected fun injectTransportAndConnect(
-        mode: SendSpinClient.ConnectionMode = SendSpinClient.ConnectionMode.LOCAL,
+        mode: SendSpin.ConnectionMode = SendSpin.ConnectionMode.LOCAL,
         serverAddress: String? = "192.168.1.100:8927",
         serverPath: String? = "/sendspin",
         remoteId: String? = null,
         authToken: String? = null
     ) {
         // Set connection state to Connecting via the existing MutableStateFlow
-        val stateFlow: kotlinx.coroutines.flow.MutableStateFlow<SendSpinClient.ConnectionState> =
+        val stateFlow: kotlinx.coroutines.flow.MutableStateFlow<TransportState> =
             getField(client, "_connectionState")
-        stateFlow.value = SendSpinClient.ConnectionState.Connecting
+        stateFlow.value = TransportState.Connecting
 
         // Set connection mode
         setField(client, "connectionMode", mode)
@@ -133,16 +134,16 @@ abstract class E2ETestBase {
 
         // Set handshakeComplete to false
         setField(client, "handshakeComplete", false,
-            clazz = SendSpinClient::class.java.superclass)
+            clazz = SendSpin::class.java.superclass)
 
         // Inject transport
         setField(client, "transport", fakeTransport)
 
         // Create and register the TransportEventListener
-        val innerClasses = SendSpinClient::class.java.declaredClasses
+        val innerClasses = SendSpin::class.java.declaredClasses
         val listenerClass = innerClasses.find { it.simpleName == "TransportEventListener" }
             ?: throw IllegalStateException("TransportEventListener not found")
-        val constructor = listenerClass.getDeclaredConstructor(SendSpinClient::class.java)
+        val constructor = listenerClass.getDeclaredConstructor(SendSpin::class.java)
         constructor.isAccessible = true
         val listener = constructor.newInstance(client) as SendSpinTransport.Listener
         fakeTransport.setListener(listener)
@@ -152,7 +153,7 @@ abstract class E2ETestBase {
      * Perform a full handshake: inject transport, simulate connect, exchange hello.
      */
     protected fun connectAndHandshake(
-        mode: SendSpinClient.ConnectionMode = SendSpinClient.ConnectionMode.LOCAL,
+        mode: SendSpin.ConnectionMode = SendSpin.ConnectionMode.LOCAL,
         serverAddress: String? = "192.168.1.100:8927",
         serverPath: String? = "/sendspin",
         remoteId: String? = null,

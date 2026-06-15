@@ -3,7 +3,7 @@ package com.sendspindroid.ui.player
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaPlayer
 import com.sendspindroid.musicassistant.model.MaPlayerType
 import kotlinx.coroutines.delay
@@ -65,7 +65,7 @@ class PlayerViewModel : ViewModel() {
             Log.d(TAG, "Loading players...")
             // Use THIS device's player ID (the UUID we registered with SendSpin),
             // not the "selected player" which may be a different speaker.
-            val thisDevicePlayerId = MusicAssistantManager.getThisDevicePlayerId()
+            val thisDevicePlayerId = MusicAssistant.getThisDevicePlayerId()
             Log.d(TAG, "This device player ID: $thisDevicePlayerId")
 
             // MA represents SendSpin-provider players under a transformed id
@@ -73,10 +73,10 @@ class PlayerViewModel : ViewModel() {
             // raw UUID to its internal id before matching against players/all.
             // Falls back to the raw UUID if resolution fails; [buildSuccessState]
             // still tries that as a secondary lookup.
-            val resolvedMaPlayerId = MusicAssistantManager.resolveThisDeviceMaPlayerId()
+            val resolvedMaPlayerId = MusicAssistant.resolveThisDeviceMaPlayerId()
             Log.d(TAG, "Resolved MA player ID: $resolvedMaPlayerId")
 
-            val result = MusicAssistantManager.getAllPlayers()
+            val result = MusicAssistant.getAllPlayers()
             result.fold(
                 onSuccess = { allPlayers ->
                     buildSuccessState(thisDevicePlayerId, resolvedMaPlayerId, allPlayers)
@@ -124,7 +124,7 @@ class PlayerViewModel : ViewModel() {
             // Power on the player first if it's off and we're adding it
             if (!isCurrentlyInGroup && groupable.player.powered == false) {
                 Log.d(TAG, "Player $playerId is powered off, powering on first")
-                val powerResult = MusicAssistantManager.powerOnPlayer(playerId)
+                val powerResult = MusicAssistant.powerOnPlayer(playerId)
                 if (powerResult.isFailure) {
                     Log.e(TAG, "Failed to power on player $playerId", powerResult.exceptionOrNull())
                     _uiState.value = currentState
@@ -136,13 +136,13 @@ class PlayerViewModel : ViewModel() {
             }
 
             val apiResult = if (isCurrentlyInGroup) {
-                MusicAssistantManager.setGroupMembers(
+                MusicAssistant.setGroupMembers(
                     targetPlayerId = targetPlayerId,
                     playerIdsToAdd = emptyList(),
                     playerIdsToRemove = listOf(playerId)
                 )
             } else {
-                MusicAssistantManager.setGroupMembers(
+                MusicAssistant.setGroupMembers(
                     targetPlayerId = targetPlayerId,
                     playerIdsToAdd = listOf(playerId),
                     playerIdsToRemove = emptyList()
@@ -258,9 +258,9 @@ class PlayerViewModel : ViewModel() {
      */
     private fun reloadSilently() {
         viewModelScope.launch {
-            val thisDevicePlayerId = MusicAssistantManager.getThisDevicePlayerId()
-            val resolvedMaPlayerId = MusicAssistantManager.resolveThisDeviceMaPlayerId()
-            val result = MusicAssistantManager.getAllPlayers()
+            val thisDevicePlayerId = MusicAssistant.getThisDevicePlayerId()
+            val resolvedMaPlayerId = MusicAssistant.resolveThisDeviceMaPlayerId()
+            val result = MusicAssistant.getAllPlayers()
             result.fold(
                 onSuccess = { allPlayers ->
                     buildSuccessState(thisDevicePlayerId, resolvedMaPlayerId, allPlayers)

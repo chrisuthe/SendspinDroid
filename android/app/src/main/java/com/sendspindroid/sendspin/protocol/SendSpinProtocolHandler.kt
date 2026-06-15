@@ -17,7 +17,7 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * Abstract base class for SendSpin protocol handling.
  *
- * Contains shared protocol logic used by [SendSpinClient]:
+ * Contains shared protocol logic used by [SendSpin]:
  * - Message building and sending
  * - Message parsing and dispatching
  * - Time synchronization

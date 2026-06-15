@@ -3,7 +3,7 @@ package com.sendspindroid.e2e
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.sendspindroid.playback.SendSpinPlayer
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import io.mockk.every
@@ -27,7 +27,7 @@ import org.junit.Test
  * - Queue item selection callback
  *
  * What requires instrumented/manual testing:
- * - MusicAssistantManager.getAlbumTracks() API calls
+ * - MusicAssistant.getAlbumTracks() API calls
  * - MediaLibrarySession.getChildren() browse tree
  * - Android Auto queue display rendering
  */

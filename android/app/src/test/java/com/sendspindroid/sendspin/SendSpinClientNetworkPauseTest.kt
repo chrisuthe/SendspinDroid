@@ -6,14 +6,14 @@ import android.util.Log
 import androidx.preference.PreferenceManager
 import com.sendspindroid.UserSettings
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
+import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.sendspin.transport.SendSpinTransport
-import com.sendspindroid.sendspin.transport.TransportState
+import com.sendspindroid.sendspin.transport.TransportState as TransportLayerState
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -38,11 +38,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Resume reconnection immediately via onNetworkAvailable()
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SendSpinClientNetworkPauseTest {
+class SendSpinNetworkPauseTest {
 
     private lateinit var mockContext: Context
-    private lateinit var mockCallback: SendSpinClient.Callback
-    private lateinit var client: SendSpinClient
+    private lateinit var mockCallback: SendSpin.Callback
+    private lateinit var client: SendSpin
 
     @Before
     fun setUp() {
@@ -72,7 +72,7 @@ class SendSpinClientNetworkPauseTest {
         mockContext = mockk(relaxed = true)
         mockCallback = mockk(relaxed = true)
 
-        client = SendSpinClient(mockContext, "TestDevice", mockCallback)
+        client = SendSpin(mockContext, "TestDevice", mockCallback)
     }
 
     @After
@@ -84,7 +84,7 @@ class SendSpinClientNetworkPauseTest {
 
     private fun setupForReconnection() {
         val fakeTransport = object : SendSpinTransport {
-            override val state = TransportState.Connected
+            override val state = TransportLayerState.Connected
             override val isConnected = true
             override fun connect() {}
             override fun send(text: String) = true
@@ -94,31 +94,31 @@ class SendSpinClientNetworkPauseTest {
             override fun destroy() {}
         }
 
-        val addrField = SendSpinClient::class.java.getDeclaredField("serverAddress")
+        val addrField = SendSpin::class.java.getDeclaredField("serverAddress")
         addrField.isAccessible = true
         addrField.set(client, "127.0.0.1:8080")
 
-        val pathField = SendSpinClient::class.java.getDeclaredField("serverPath")
+        val pathField = SendSpin::class.java.getDeclaredField("serverPath")
         pathField.isAccessible = true
         pathField.set(client, "/sendspin")
 
-        val transportField = SendSpinClient::class.java.getDeclaredField("transport")
+        val transportField = SendSpin::class.java.getDeclaredField("transport")
         transportField.isAccessible = true
         transportField.set(client, fakeTransport)
 
-        val handshakeField = SendSpinClient::class.java.superclass.getDeclaredField("handshakeComplete")
+        val handshakeField = SendSpin::class.java.superclass.getDeclaredField("handshakeComplete")
         handshakeField.isAccessible = true
         handshakeField.set(client, true)
     }
 
     private fun getWaitingForNetwork(): Boolean {
-        val field = SendSpinClient::class.java.getDeclaredField("waitingForNetwork")
+        val field = SendSpin::class.java.getDeclaredField("waitingForNetwork")
         field.isAccessible = true
         return (field.get(client) as AtomicBoolean).get()
     }
 
     private fun getReconnecting(): Boolean {
-        val field = SendSpinClient::class.java.getDeclaredField("reconnecting")
+        val field = SendSpin::class.java.getDeclaredField("reconnecting")
         field.isAccessible = true
         return (field.get(client) as AtomicBoolean).get()
     }
@@ -130,7 +130,7 @@ class SendSpinClientNetworkPauseTest {
         // Mark network as unavailable
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
@@ -148,7 +148,7 @@ class SendSpinClientNetworkPauseTest {
         // State should be Connecting (not Error)
         assertTrue(
             "State should be Connecting while paused",
-            client.connectionState.value is SendSpinClient.ConnectionState.Connecting
+            client.connectionState.value is TransportState.Connecting
         )
     }
 
@@ -159,7 +159,7 @@ class SendSpinClientNetworkPauseTest {
         // Set network unavailable and trigger a paused reconnect
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
@@ -179,7 +179,7 @@ class SendSpinClientNetworkPauseTest {
         setupForReconnection()
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
 
         // Try 3 times while offline
@@ -199,23 +199,24 @@ class SendSpinClientNetworkPauseTest {
         // Should still be in reconnecting state, not Error
         assertFalse(
             "State should NOT be Error while network is unavailable",
-            client.connectionState.value is SendSpinClient.ConnectionState.Error
+            client.connectionState.value is TransportState.Failed
         )
     }
 
     @Test
-    fun `onReconnecting callback fires with paused state when network unavailable`() {
+    fun `state transitions to Connecting when paused due to network unavailable`() {
         setupForReconnection()
         client.setNetworkAvailable(false)
 
-        val attemptReconnect = SendSpinClient::class.java.getDeclaredMethod("attemptReconnect")
+        val attemptReconnect = SendSpin::class.java.getDeclaredMethod("attemptReconnect")
         attemptReconnect.isAccessible = true
         attemptReconnect.invoke(client)
 
-        // Even when paused, the UI should be notified that we're reconnecting
-        verify(exactly = 1) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // Even when paused, state should be Connecting (not Idle or Failed)
+        assertTrue(
+            "State should be Connecting while paused for network, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Connecting
+        )
     }
 
     @Test
@@ -223,9 +224,11 @@ class SendSpinClientNetworkPauseTest {
         // No reconnection in progress - should not crash or trigger reconnect
         client.setNetworkAvailable(true)
 
-        verify(exactly = 0) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // State should remain Idle (no reconnection triggered)
+        assertTrue(
+            "State should stay Idle when no reconnection was in progress, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Idle
+        )
     }
 
     @Test
@@ -233,9 +236,10 @@ class SendSpinClientNetworkPauseTest {
         client.setNetworkAvailable(false)
         client.setNetworkAvailable(true)
 
-        // No reconnection was triggered
-        verify(exactly = 0) {
-            mockCallback.onReconnecting(any(), any())
-        }
+        // No reconnection was triggered - state stays Idle
+        assertTrue(
+            "State should stay Idle when no reconnection was triggered, was: ${client.connectionState.value}",
+            client.connectionState.value is TransportState.Idle
+        )
     }
 }

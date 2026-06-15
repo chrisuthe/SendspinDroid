@@ -2,7 +2,7 @@ package com.sendspindroid.playback
 
 import android.util.Log
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import io.mockk.Runs
 import io.mockk.every
@@ -33,7 +33,7 @@ class ReconnectStateSyncTest {
 
     private lateinit var mockSendSpinPlayer: SendSpinPlayer
     private lateinit var mockSyncAudioPlayer: SyncAudioPlayer
-    private lateinit var mockSendSpinClient: SendSpinClient
+    private lateinit var mockSendSpin: SendSpin
 
     @Before
     fun setUp() {
@@ -47,7 +47,7 @@ class ReconnectStateSyncTest {
 
         mockSendSpinPlayer = mockk(relaxed = true)
         mockSyncAudioPlayer = mockk(relaxed = true)
-        mockSendSpinClient = mockk(relaxed = true)
+        mockSendSpin = mockk(relaxed = true)
     }
 
     @After
@@ -70,7 +70,7 @@ class ReconnectStateSyncTest {
         assertTrue("Should detect DRAINING state", isDraining)
 
         if (isDraining) {
-            mockSendSpinClient.play()
+            mockSendSpin.play()
         } else {
             mockSendSpinPlayer.updatePlayWhenReadyFromServer(false)
             mockSyncAudioPlayer.clearBuffer()
@@ -78,7 +78,7 @@ class ReconnectStateSyncTest {
         }
 
         // play() should be called to ask server to resume
-        verify(exactly = 1) { mockSendSpinClient.play() }
+        verify(exactly = 1) { mockSendSpin.play() }
         // Buffer should NOT be cleared
         verify(exactly = 0) { mockSyncAudioPlayer.clearBuffer() }
         // playWhenReady should NOT be set to false
@@ -93,14 +93,14 @@ class ReconnectStateSyncTest {
         assertFalse("Should not be DRAINING", isDraining)
 
         if (isDraining) {
-            mockSendSpinClient.play()
+            mockSendSpin.play()
         } else {
             mockSendSpinPlayer.updatePlayWhenReadyFromServer(false)
             mockSyncAudioPlayer.clearBuffer()
             mockSyncAudioPlayer.pause()
         }
 
-        verify(exactly = 0) { mockSendSpinClient.play() }
+        verify(exactly = 0) { mockSendSpin.play() }
         verify(exactly = 1) { mockSyncAudioPlayer.clearBuffer() }
         verify(exactly = 1) { mockSendSpinPlayer.updatePlayWhenReadyFromServer(false) }
     }
@@ -125,7 +125,7 @@ class ReconnectStateSyncTest {
         assertTrue("DRAINING should still be active when state handler runs", isDraining)
 
         if (isDraining) {
-            mockSendSpinClient.play()
+            mockSendSpin.play()
         }
 
         // Step 3: After state processing, complete the deferred exit
@@ -136,7 +136,7 @@ class ReconnectStateSyncTest {
 
         // Verify correct order: play() before exitDraining()
         verifyOrder {
-            mockSendSpinClient.play()
+            mockSendSpin.play()
             mockSyncAudioPlayer.exitDraining()
         }
         assertFalse("Flag should be cleared", pendingExitDraining)
@@ -239,14 +239,14 @@ class ReconnectStateSyncTest {
         val isDraining = mockSyncAudioPlayer.getPlaybackState() == SyncPlaybackState.DRAINING
 
         if (isDraining) {
-            mockSendSpinClient.play()
+            mockSendSpin.play()
         } else {
             mockSendSpinPlayer.updatePlayWhenReadyFromServer(false)
             mockSyncAudioPlayer.clearBuffer()
             mockSyncAudioPlayer.pause()
         }
 
-        verify(exactly = 1) { mockSendSpinClient.play() }
+        verify(exactly = 1) { mockSendSpin.play() }
         verify(exactly = 0) { mockSendSpinPlayer.updatePlayWhenReadyFromServer(any()) }
         verify(exactly = 0) { mockSyncAudioPlayer.clearBuffer() }
     }
@@ -294,7 +294,7 @@ class ReconnectStateSyncTest {
         // 3. onStateChanged("stopped"): DRAINING check fires, sends play()
         val isDraining = mockSyncAudioPlayer.getPlaybackState() == SyncPlaybackState.DRAINING
         assertTrue(isDraining)
-        mockSendSpinClient.play()
+        mockSendSpin.play()
         // playWhenReady NOT set to false (skipped during DRAINING)
 
         // 4. Complete deferred exit after state processing
@@ -306,7 +306,7 @@ class ReconnectStateSyncTest {
         // 5. Verify the critical ordering
         verifyOrder {
             mockSyncAudioPlayer.enterDraining()
-            mockSendSpinClient.play()
+            mockSendSpin.play()
             mockSyncAudioPlayer.exitDraining()
         }
 

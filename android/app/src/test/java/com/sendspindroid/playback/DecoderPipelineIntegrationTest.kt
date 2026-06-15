@@ -469,7 +469,7 @@ class DecoderPipelineIntegrationTest {
 
     /**
      * Mirrors the decoder-pipeline portion of PlaybackService's
-     * SendSpinClientCallback: onStreamStart / onAudioChunk / onStreamClear /
+     * SendSpin.Callback: onStreamStart / onAudioChunk / onStreamClear /
      * onStreamEnd. Captures queueChunk calls in [queuedChunks].
      *
      * This simulator models the CURRENT (pre-refactor) synchronous flow where:

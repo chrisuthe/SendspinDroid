@@ -5,7 +5,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import com.sendspindroid.playback.NotificationHelper
 import com.sendspindroid.playback.SendSpinPlayer
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import com.sendspindroid.sendspin.SyncAudioPlayer
 import com.sendspindroid.sendspin.PlaybackState as SyncPlaybackState
 import io.mockk.every
@@ -22,7 +22,7 @@ import org.junit.Test
  *
  * What IS testable here:
  * - SendSpinPlayer reports correct metadata for notification display
- * - Play/pause/next/previous commands forwarded to SendSpinClient
+ * - Play/pause/next/previous commands forwarded to SendSpin
  * - Playback state transitions reflected for notification buttons
  * - Position and duration for notification progress bar
  * - NotificationHelper channel configuration
@@ -123,7 +123,7 @@ class NotificationMetadataControlsTest : E2ETestBase() {
         player.play()
 
         // Should send play command via transport
-        assertTrue("play() should forward to SendSpinClient",
+        assertTrue("play() should forward to SendSpin",
             fakeTransport.hasSentMessageContaining("play"))
     }
 
@@ -131,7 +131,7 @@ class NotificationMetadataControlsTest : E2ETestBase() {
     fun `pause sends pause command to server`() {
         player.pause()
 
-        assertTrue("pause() should forward to SendSpinClient",
+        assertTrue("pause() should forward to SendSpin",
             fakeTransport.hasSentMessageContaining("pause"))
     }
 

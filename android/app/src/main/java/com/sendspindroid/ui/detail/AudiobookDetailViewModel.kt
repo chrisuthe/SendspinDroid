@@ -5,7 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaAudiobookChapter
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -92,7 +92,7 @@ class AudiobookDetailViewModel : ViewModel() {
         viewModelScope.launch {
             Log.d(TAG, "Loading audiobook details: $audiobookId")
 
-            MusicAssistantManager.getAudiobook(audiobookId).fold(
+            MusicAssistant.getAudiobook(audiobookId).fold(
                 onSuccess = { audiobook ->
                     Log.d(TAG, "Loaded audiobook: ${audiobook.name} (${audiobook.chapters.size} chapters)")
                     _uiState.value = AudiobookDetailUiState.Success(audiobook = audiobook)
@@ -144,7 +144,7 @@ class AudiobookDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing audiobook: ${current.audiobook.name}")
-            MusicAssistantManager.playMedia(uri, "audiobook").fold(
+            MusicAssistant.playMedia(uri, "audiobook").fold(
                 onSuccess = {
                     Log.d(TAG, "Started audiobook playback")
                 },
@@ -168,7 +168,7 @@ class AudiobookDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Playing chapter ${chapter.position}: ${chapter.name}")
-            MusicAssistantManager.playMedia(uri, "audiobook").fold(
+            MusicAssistant.playMedia(uri, "audiobook").fold(
                 onSuccess = {
                     Log.d(TAG, "Started audiobook playback for chapter ${chapter.position}")
                 },
@@ -190,7 +190,7 @@ class AudiobookDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Adding audiobook to queue: ${current.audiobook.name}")
-            MusicAssistantManager.playMedia(uri, "audiobook", enqueue = true).fold(
+            MusicAssistant.playMedia(uri, "audiobook", enqueue = true).fold(
                 onSuccess = {
                     Log.d(TAG, "Audiobook added to queue")
                 },
@@ -212,7 +212,7 @@ class AudiobookDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Marking audiobook as played: ${current.audiobook.name}")
-            MusicAssistantManager.markPlayed(uri).fold(
+            MusicAssistant.markPlayed(uri).fold(
                 onSuccess = {
                     _uiState.value = current.copy(
                         audiobook = current.audiobook.copy(fullyPlayed = true)
@@ -236,7 +236,7 @@ class AudiobookDetailViewModel : ViewModel() {
 
         viewModelScope.launch {
             Log.d(TAG, "Marking audiobook as unplayed: ${current.audiobook.name}")
-            MusicAssistantManager.markUnplayed(uri).fold(
+            MusicAssistant.markUnplayed(uri).fold(
                 onSuccess = {
                     _uiState.value = current.copy(
                         audiobook = current.audiobook.copy(

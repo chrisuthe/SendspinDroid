@@ -18,10 +18,10 @@ import java.lang.reflect.Modifier
  * these tests verify the structural contract and lifecycle decisions.
  *
  * The flow:
- * 1. SendSpinClient connects via WebRTC (REMOTE mode)
+ * 1. SendSpin connects via WebRTC (REMOTE mode)
  * 2. WebRTCTransport opens a "ma-api" DataChannel
- * 3. PlaybackService calls MusicAssistantManager.setMaApiDataChannel(channel)
- * 4. MusicAssistantManager creates MaDataChannelTransport eagerly
+ * 3. PlaybackService calls MusicAssistant.setMaApiDataChannel(channel)
+ * 4. MusicAssistant creates MaDataChannelTransport eagerly
  * 5. On server connected, createTransport() returns the pending DataChannel transport
  */
 class MaDataChannelTransportLifecycleTest {
@@ -76,7 +76,7 @@ class MaDataChannelTransportLifecycleTest {
     }
 
     /**
-     * Reproduces the MusicAssistantManager.createTransport() decision logic
+     * Reproduces the MusicAssistant.createTransport() decision logic
      * for REMOTE mode.
      */
     @Test
@@ -123,7 +123,7 @@ class MaDataChannelTransportLifecycleTest {
         var pendingTransport: Any? = null
         var channelSet = false
 
-        // Simulate MusicAssistantManager.setMaApiDataChannel(channel)
+        // Simulate MusicAssistant.setMaApiDataChannel(channel)
         val channel: Any? = "mock-channel"  // Non-null simulates real channel
         if (channel != null) {
             pendingTransport = "created-transport"  // Eagerly created
@@ -138,7 +138,7 @@ class MaDataChannelTransportLifecycleTest {
     fun `setMaApiDataChannel with null clears pending transport`() {
         var pendingTransport: Any? = "existing-transport"
 
-        // Simulate MusicAssistantManager.setMaApiDataChannel(null)
+        // Simulate MusicAssistant.setMaApiDataChannel(null)
         val channel: Any? = null
         if (channel != null) {
             pendingTransport = "new-transport"

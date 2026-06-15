@@ -45,7 +45,7 @@ import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
 import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaPodcast
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType

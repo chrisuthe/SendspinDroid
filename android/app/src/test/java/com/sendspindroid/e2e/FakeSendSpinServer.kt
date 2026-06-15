@@ -25,7 +25,7 @@ import java.nio.ByteOrder
  * val transport = FakeTransport()
  * val server = FakeSendSpinServer(transport)
  *
- * // In test setup, inject transport into SendSpinClient via reflection
+ * // In test setup, inject transport into SendSpin via reflection
  * // then:
  * server.completeHandshake()
  * server.sendPlayingState()
@@ -61,7 +61,7 @@ class FakeSendSpinServer(
     /**
      * Simulate server connection and complete the full handshake:
      * 1. Transport becomes connected
-     * 2. Wait for client/hello (auto-sent by SendSpinClient.TransportEventListener.onConnected)
+     * 2. Wait for client/hello (auto-sent by SendSpin.TransportEventListener.onConnected)
      * 3. Send server/hello
      */
     fun completeHandshake(

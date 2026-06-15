@@ -68,7 +68,7 @@ import com.sendspindroid.musicassistant.MaAudiobook
 import com.sendspindroid.musicassistant.MaPlaylist
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.EnqueueMode
-import com.sendspindroid.musicassistant.MusicAssistantManager
+import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.ui.adaptive.AdaptiveDefaults
 import com.sendspindroid.ui.adaptive.LocalFormFactor
@@ -729,7 +729,7 @@ private fun ConnectedShell(
  *
  * Renders the actual Compose screens (HomeScreen, SearchScreen, LibraryScreen, PlaylistsScreen)
  * directly, replacing the Fragment wrappers. Handles shared concerns:
- * - Playing items via MusicAssistantManager
+ * - Playing items via MusicAssistant
  * - Playlist picker dialog with bulk add support
  * - Navigation to detail screens via callbacks
  */
@@ -765,7 +765,7 @@ private fun BrowseContent(
             } else {
                 Log.d(TAG, "Playing ${item.mediaType}: ${item.name} (uri=$uri)")
                 scope.launch {
-                    MusicAssistantManager.playMedia(uri, item.mediaType.name.lowercase()).fold(
+                    MusicAssistant.playMedia(uri, item.mediaType.name.lowercase()).fold(
                         onSuccess = { Log.d(TAG, "Playback started: ${item.name}") },
                         onFailure = { error ->
                             Log.e(TAG, "Failed to play ${item.name}", error)
@@ -792,7 +792,7 @@ private fun BrowseContent(
             } else {
                 Log.d(TAG, "Adding to queue: ${item.name} (uri=$uri)")
                 scope.launch {
-                    MusicAssistantManager.playMedia(
+                    MusicAssistant.playMedia(
                         uri,
                         item.mediaType.name.lowercase(),
                         enqueue = true
@@ -826,7 +826,7 @@ private fun BrowseContent(
             } else {
                 Log.d(TAG, "Play next: ${item.name} (uri=$uri)")
                 scope.launch {
-                    MusicAssistantManager.playMedia(
+                    MusicAssistant.playMedia(
                         uri,
                         item.mediaType.name.lowercase(),
                         enqueueMode = EnqueueMode.NEXT
@@ -1221,7 +1221,7 @@ private suspend fun addTrackToPlaylist(
 ) {
     val uri = track.uri ?: return
     Log.d(TAG, "Adding track '${track.name}' to playlist '${playlist.name}'")
-    MusicAssistantManager.addPlaylistTracks(
+    MusicAssistant.addPlaylistTracks(
         playlist.playlistId,
         listOf(uri)
     ).fold(
@@ -1249,7 +1249,7 @@ private suspend fun bulkAddAlbum(
 ) {
     onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_fetching_tracks) ?: "Fetching tracks..."))
 
-    MusicAssistantManager.getAlbumTracks(albumId).fold(
+    MusicAssistant.getAlbumTracks(albumId).fold(
         onSuccess = { tracks ->
             val uris = tracks.mapNotNull { it.uri }
             if (uris.isEmpty()) {
@@ -1259,7 +1259,7 @@ private suspend fun bulkAddAlbum(
 
             onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_adding_tracks, uris.size) ?: "Adding ${uris.size} tracks..."))
 
-            MusicAssistantManager.addPlaylistTracks(playlist.playlistId, uris).fold(
+            MusicAssistant.addPlaylistTracks(playlist.playlistId, uris).fold(
                 onSuccess = {
                     val message = context?.getString(R.string.bulk_added_to_playlist, albumName, playlist.name) ?: "Added $albumName to ${playlist.name}"
                     Log.d(TAG, message)
@@ -1292,7 +1292,7 @@ private suspend fun bulkAddArtist(
 ) {
     onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_fetching_tracks) ?: "Fetching tracks..."))
 
-    MusicAssistantManager.getArtistTracks(artistId).fold(
+    MusicAssistant.getArtistTracks(artistId).fold(
         onSuccess = { tracks ->
             val uris = tracks.mapNotNull { it.uri }
             if (uris.isEmpty()) {
@@ -1302,7 +1302,7 @@ private suspend fun bulkAddArtist(
 
             onStateChange(BulkAddState.Loading(context?.getString(R.string.bulk_adding_tracks, uris.size) ?: "Adding ${uris.size} tracks..."))
 
-            MusicAssistantManager.addPlaylistTracks(playlist.playlistId, uris).fold(
+            MusicAssistant.addPlaylistTracks(playlist.playlistId, uris).fold(
                 onSuccess = {
                     val message = context?.getString(R.string.bulk_added_to_playlist, artistName, playlist.name) ?: "Added $artistName to ${playlist.name}"
                     Log.d(TAG, message)

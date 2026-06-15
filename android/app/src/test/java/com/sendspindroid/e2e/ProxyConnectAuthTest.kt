@@ -1,6 +1,6 @@
 package com.sendspindroid.e2e
 
-import com.sendspindroid.sendspin.SendSpinClient
+import com.sendspindroid.sendspin.SendSpin
 import io.mockk.verify
 import org.junit.Assert.*
 import org.junit.Test
@@ -35,7 +35,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
     @Test
     fun `proxy connect sends auth message on transport open`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "test-auth-token-12345"
@@ -61,7 +61,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
     @Test
     fun `auth-ack triggers client hello`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "test-auth-token"
@@ -82,7 +82,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
     @Test
     fun `auth-ack is consumed and not forwarded to protocol handler`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "test-auth-token"
@@ -95,7 +95,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
         // Handshake should NOT be complete yet (auth_ok is not server/hello)
         val handshakeComplete: Boolean = getField(
             client, "handshakeComplete",
-            clazz = SendSpinClient::class.java.superclass
+            clazz = SendSpin::class.java.superclass
         )
         assertFalse("Handshake should not complete from auth_ok alone", handshakeComplete)
     }
@@ -103,7 +103,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
     @Test
     fun `full proxy handshake completes after auth and hello exchange`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "test-auth-token"
@@ -118,13 +118,16 @@ class ProxyConnectAuthTest : E2ETestBase() {
 
         // Should be connected now
         assertTrue("Should be connected after proxy handshake", client.isConnected)
-        verify { mockCallback.onConnected("TestServer") }
+        assertTrue(
+            "State should be Ready after proxy handshake, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
+        )
     }
 
     @Test
     fun `auth failure triggers error and disconnect`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "bad-token"
@@ -134,14 +137,18 @@ class ProxyConnectAuthTest : E2ETestBase() {
         // Server rejects auth
         fakeServer.sendAuthFailed("Invalid token")
 
-        // Should report error
-        verify { mockCallback.onError(any()) }
+        // State should transition to Failed (auth rejected)
+        assertTrue(
+            "State should be Failed after auth rejection, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Failed ||
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Idle
+        )
     }
 
     @Test
     fun `proxy audio delivery works after successful auth`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "good-token"
@@ -163,7 +170,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
     @Test
     fun `proxy reconnection preserves auth token`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "persistent-token"
@@ -181,30 +188,33 @@ class ProxyConnectAuthTest : E2ETestBase() {
             isRecoverable = true
         )
 
-        // Should attempt reconnection (auth token and address are preserved)
-        verify { mockCallback.onReconnecting(1, any()) }
+        // Should attempt reconnection (state transitions to Connecting)
+        assertTrue(
+            "State should be Connecting during proxy reconnect, was: ${client.connectionState.value}",
+            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Connecting
+        )
 
         // Connection mode should still be PROXY
-        assertEquals(SendSpinClient.ConnectionMode.PROXY, client.getConnectionMode())
+        assertEquals(SendSpin.ConnectionMode.PROXY, client.getConnectionMode())
     }
 
     @Test
     fun `proxy mode is set correctly`() {
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "test-token"
         )
 
-        assertEquals(SendSpinClient.ConnectionMode.PROXY, client.getConnectionMode())
+        assertEquals(SendSpin.ConnectionMode.PROXY, client.getConnectionMode())
     }
 
     @Test
     fun `metadata delivery works through proxy connection`() {
         // Full flow: auth -> handshake -> metadata
         injectTransportAndConnect(
-            mode = SendSpinClient.ConnectionMode.PROXY,
+            mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
             serverPath = null,
             authToken = "good-token"

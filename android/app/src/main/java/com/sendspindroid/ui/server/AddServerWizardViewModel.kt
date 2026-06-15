@@ -3,8 +3,10 @@ package com.sendspindroid.ui.server
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sendspindroid.model.UnifiedServer
+import com.sendspindroid.musicassistant.MaCredentials
+import com.sendspindroid.musicassistant.MaEndpoint
 import com.sendspindroid.musicassistant.MaSettings
-import com.sendspindroid.musicassistant.MaAuthHelper
+import com.sendspindroid.musicassistant.testMaAuth
 import com.sendspindroid.musicassistant.transport.MaApiTransport
 import com.sendspindroid.network.WebSocketUrlBuilder
 import com.sendspindroid.ui.wizard.ClientMode
@@ -493,11 +495,16 @@ class AddServerWizardViewModel : ViewModel() {
     // ========================================================================
 
     fun testMaConnection(onComplete: (Boolean) -> Unit) {
-        val apiUrl = deriveMaApiUrl()
-        if (apiUrl == null) {
-            _maTestState.value = ConnectionTestState.Failed("No MA endpoint available")
-            onComplete(false)
-            return
+        val endpoint: MaEndpoint = when {
+            localAddress.isNotBlank() ->
+                MaEndpoint.Local(WebSocketUrlBuilder.extractHost(localAddress), maPort)
+            proxyUrl.isNotBlank() ->
+                MaEndpoint.Proxy(normalizeProxyUrl(proxyUrl).removeSuffix("/sendspin").trimEnd('/'))
+            else -> {
+                _maTestState.value = ConnectionTestState.Failed("No MA endpoint available")
+                onComplete(false)
+                return
+            }
         }
 
         if (maUsername.isBlank() || maPassword.isBlank()) {
@@ -509,14 +516,17 @@ class AddServerWizardViewModel : ViewModel() {
         _maTestState.value = ConnectionTestState.Testing
 
         viewModelScope.launch {
-            try {
-                val result = MaAuthHelper.loginForToken(apiUrl, maUsername, maPassword)
-                maToken = result.accessToken
+            val result = testMaAuth(
+                endpoint = endpoint,
+                credentials = MaCredentials.UsernamePassword(maUsername, maPassword),
+            )
+            result.onSuccess { loginResult ->
+                maToken = loginResult.accessToken
                 _maTestState.value = ConnectionTestState.Success("Connected to Music Assistant")
 
                 // Auto-populate server name from the MA server's base URL if still blank
-                if (serverName.isBlank() && result.baseUrl.isNotBlank()) {
-                    serverName = extractServerNameFromUrl(result.baseUrl)
+                if (serverName.isBlank() && loginResult.baseUrl.isNotBlank()) {
+                    serverName = extractServerNameFromUrl(loginResult.baseUrl)
                 }
 
                 if (maPort != MaSettings.getDefaultPort()) {
@@ -524,47 +534,19 @@ class AddServerWizardViewModel : ViewModel() {
                 }
 
                 onComplete(true)
-            } catch (e: MaApiTransport.AuthenticationException) {
+            }.onFailure { e ->
                 maToken = null
-                _maTestState.value = ConnectionTestState.Failed("Invalid credentials")
-                onComplete(false)
-            } catch (e: MaTransportException) {
-                maToken = null
-                _maTestState.value = ConnectionTestState.Failed("Network error")
-                onComplete(false)
-            } catch (e: IOException) {
-                maToken = null
-                _maTestState.value = ConnectionTestState.Failed("Network error")
-                onComplete(false)
-            } catch (e: Exception) {
-                maToken = null
-                _maTestState.value = ConnectionTestState.Failed(e.message ?: "Unknown error")
+                _maTestState.value = when (e) {
+                    is MaApiTransport.AuthenticationException ->
+                        ConnectionTestState.Failed("Invalid credentials")
+                    is MaTransportException, is IOException ->
+                        ConnectionTestState.Failed("Network error")
+                    else ->
+                        ConnectionTestState.Failed(e.message ?: "Unknown error")
+                }
                 onComplete(false)
             }
         }
-    }
-
-    private fun deriveMaApiUrl(): String? {
-        if (localAddress.isNotBlank()) {
-            val host = WebSocketUrlBuilder.extractHost(localAddress)
-            return WebSocketUrlBuilder.buildFromHostPort(host, maPort, "/ws")
-        }
-
-        if (proxyUrl.isNotBlank()) {
-            val baseUrl = normalizeProxyUrl(proxyUrl)
-                .removeSuffix("/sendspin")
-                .trimEnd('/')
-
-            val wsUrl = when {
-                baseUrl.startsWith("https://") -> baseUrl.replaceFirst("https://", "wss://")
-                baseUrl.startsWith("http://") -> baseUrl.replaceFirst("http://", "ws://")
-                else -> "wss://$baseUrl"
-            }
-
-            return "$wsUrl/ws"
-        }
-
-        return null
     }
 
     fun resetMaTest() {

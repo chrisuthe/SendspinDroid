@@ -14,7 +14,7 @@ import org.junit.Test
  *
  * Verifies that when onStreamStart fires with a given codec, the correct decoder
  * pipeline is created. This reproduces the decoder setup + SyncAudioPlayer creation
- * logic from PlaybackService.SendSpinClientCallback.onStreamStart.
+ * logic from PlaybackService.SendSpinClientCallback.onStreamStart (now SendSpin.Callback).
  *
  * The SyncAudioPlayer cannot be instantiated in JVM tests (requires AudioTrack),
  * so we verify the decoder pipeline and creation parameters.

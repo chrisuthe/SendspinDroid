@@ -1,7 +1,7 @@
 package com.sendspindroid.musicassistant
 
-import com.sendspindroid.musicassistant.model.MaConnectionState
-import com.sendspindroid.musicassistant.model.MaServerInfo
+import com.sendspindroid.coordinator.FailureReason
+import com.sendspindroid.coordinator.TransportState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -16,180 +16,149 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests for the isAvailable derivation from MaConnectionState (C-10).
+ * Tests for TransportState availability semantics used by MusicAssistant (C-10).
  *
  * Verifies that:
- * 1. MaConnectionState.isAvailable returns true only for Connected
- * 2. A StateFlow<Boolean> derived via map { it.isAvailable } correctly
- *    reflects connection state transitions -- the exact pattern used
- *    in MusicAssistantManager.isAvailable
+ * 1. TransportState.Ready is the sole "available" state
+ * 2. A StateFlow<Boolean> derived via map { it is Ready } correctly
+ *    reflects connection state transitions -- the exact pattern used in
+ *    MusicAssistant.connectionState consumers
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MaConnectionStateIsAvailableTest {
 
-    // -- MaConnectionState.isAvailable property tests --
+    // -- TransportState availability property tests --
 
     @Test
-    fun unavailable_isNotAvailable() {
-        assertFalse(MaConnectionState.Unavailable.isAvailable)
-    }
-
-    @Test
-    fun needsAuth_isNotAvailable() {
-        assertFalse(MaConnectionState.NeedsAuth.isAvailable)
+    fun idle_isNotAvailable() {
+        val state: TransportState = TransportState.Idle
+        assertFalse(state is TransportState.Ready)
     }
 
     @Test
     fun connecting_isNotAvailable() {
-        assertFalse(MaConnectionState.Connecting.isAvailable)
+        val state: TransportState = TransportState.Connecting
+        assertFalse(state is TransportState.Ready)
     }
 
     @Test
-    fun connected_isAvailable() {
-        val state = MaConnectionState.Connected(
-            MaServerInfo(
-                serverId = "test-server",
-                serverVersion = "1.0.0",
-                apiUrl = "ws://localhost:8095/ws"
-            )
-        )
-        assertTrue(state.isAvailable)
+    fun ready_isAvailable() {
+        val state: TransportState = TransportState.Ready
+        assertTrue(state is TransportState.Ready)
     }
 
     @Test
-    fun error_isNotAvailable() {
-        assertFalse(MaConnectionState.Error("test error").isAvailable)
+    fun failedTransient_isNotAvailable() {
+        val state: TransportState = TransportState.Failed(FailureReason.TransientNetwork)
+        assertFalse(state is TransportState.Ready)
     }
 
     @Test
-    fun authError_isNotAvailable() {
-        assertFalse(MaConnectionState.Error("auth failed", isAuthError = true).isAvailable)
+    fun failedAuthRejected_isNotAvailable() {
+        val state: TransportState = TransportState.Failed(FailureReason.AuthRejected)
+        assertFalse(state is TransportState.Ready)
     }
 
-    // -- Derived StateFlow tests (mirrors MusicAssistantManager.isAvailable pattern) --
+    // -- Derived StateFlow tests (mirrors MusicAssistant consumers) --
 
     @Test
     fun derivedFlow_initiallyFalse() = runTest {
-        val connectionState = MutableStateFlow<MaConnectionState>(MaConnectionState.Unavailable)
+        val connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
         val testScope = TestScope(UnconfinedTestDispatcher(testScheduler))
 
         val isAvailable = connectionState
-            .map { it.isAvailable }
+            .map { it is TransportState.Ready }
             .stateIn(testScope, SharingStarted.Eagerly, false)
 
         assertFalse(isAvailable.value)
     }
 
     @Test
-    fun derivedFlow_becomesTrueOnConnected() = runTest {
-        val connectionState = MutableStateFlow<MaConnectionState>(MaConnectionState.Unavailable)
+    fun derivedFlow_becomesTrueOnReady() = runTest {
+        val connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
         val testScope = TestScope(UnconfinedTestDispatcher(testScheduler))
 
         val isAvailable = connectionState
-            .map { it.isAvailable }
+            .map { it is TransportState.Ready }
             .stateIn(testScope, SharingStarted.Eagerly, false)
 
-        // Transition to Connected
-        connectionState.value = MaConnectionState.Connected(
-            MaServerInfo(
-                serverId = "test-server",
-                serverVersion = "1.0.0",
-                apiUrl = "ws://localhost:8095/ws"
-            )
-        )
+        // Transition to Ready
+        connectionState.value = TransportState.Ready
 
-        assertTrue("isAvailable should be true when Connected", isAvailable.value)
+        assertTrue("isAvailable should be true when Ready", isAvailable.value)
     }
 
     @Test
     fun derivedFlow_becomesFalseOnDisconnect() = runTest {
-        val serverInfo = MaServerInfo(
-            serverId = "test-server",
-            serverVersion = "1.0.0",
-            apiUrl = "ws://localhost:8095/ws"
-        )
-        val connectionState = MutableStateFlow<MaConnectionState>(
-            MaConnectionState.Connected(serverInfo)
-        )
+        val connectionState = MutableStateFlow<TransportState>(TransportState.Ready)
         val testScope = TestScope(UnconfinedTestDispatcher(testScheduler))
 
         val isAvailable = connectionState
-            .map { it.isAvailable }
+            .map { it is TransportState.Ready }
             .stateIn(testScope, SharingStarted.Eagerly, false)
 
-        assertTrue("should start as true when Connected", isAvailable.value)
+        assertTrue("should start as true when Ready", isAvailable.value)
 
         // Disconnect
-        connectionState.value = MaConnectionState.Unavailable
+        connectionState.value = TransportState.Idle
 
         assertFalse("isAvailable should be false after disconnect", isAvailable.value)
     }
 
     @Test
     fun derivedFlow_fullLifecycle() = runTest {
-        val connectionState = MutableStateFlow<MaConnectionState>(MaConnectionState.Unavailable)
+        val connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
         val testScope = TestScope(UnconfinedTestDispatcher(testScheduler))
 
         val isAvailable = connectionState
-            .map { it.isAvailable }
+            .map { it is TransportState.Ready }
             .stateIn(testScope, SharingStarted.Eagerly, false)
 
-        val serverInfo = MaServerInfo(
-            serverId = "test-server",
-            serverVersion = "1.0.0",
-            apiUrl = "ws://localhost:8095/ws"
-        )
-
-        // Unavailable -> false
-        assertFalse("Unavailable -> false", isAvailable.value)
-
-        // NeedsAuth -> false
-        connectionState.value = MaConnectionState.NeedsAuth
-        assertFalse("NeedsAuth -> false", isAvailable.value)
+        // Idle -> false
+        assertFalse("Idle -> false", isAvailable.value)
 
         // Connecting -> false
-        connectionState.value = MaConnectionState.Connecting
+        connectionState.value = TransportState.Connecting
         assertFalse("Connecting -> false", isAvailable.value)
 
-        // Connected -> true
-        connectionState.value = MaConnectionState.Connected(serverInfo)
-        assertTrue("Connected -> true", isAvailable.value)
+        // Ready -> true
+        connectionState.value = TransportState.Ready
+        assertTrue("Ready -> true", isAvailable.value)
 
-        // Error -> false
-        connectionState.value = MaConnectionState.Error("network error")
-        assertFalse("Error -> false", isAvailable.value)
+        // Failed (transient) -> false
+        connectionState.value = TransportState.Failed(FailureReason.TransientNetwork)
+        assertFalse("Failed(TransientNetwork) -> false", isAvailable.value)
 
         // Reconnect -> true
-        connectionState.value = MaConnectionState.Connecting
+        connectionState.value = TransportState.Connecting
         assertFalse("Connecting again -> false", isAvailable.value)
 
-        connectionState.value = MaConnectionState.Connected(serverInfo)
+        connectionState.value = TransportState.Ready
         assertTrue("Reconnected -> true", isAvailable.value)
 
         // Final disconnect
-        connectionState.value = MaConnectionState.Unavailable
-        assertFalse("Unavailable again -> false", isAvailable.value)
+        connectionState.value = TransportState.Idle
+        assertFalse("Idle again -> false", isAvailable.value)
     }
 
     @Test
-    fun derivedFlow_remainsFalseThroughNonConnectedTransitions() = runTest {
-        val connectionState = MutableStateFlow<MaConnectionState>(MaConnectionState.Unavailable)
+    fun derivedFlow_remainsFalseThroughNonReadyTransitions() = runTest {
+        val connectionState = MutableStateFlow<TransportState>(TransportState.Idle)
         val testScope = TestScope(UnconfinedTestDispatcher(testScheduler))
 
         val isAvailable = connectionState
-            .map { it.isAvailable }
+            .map { it is TransportState.Ready }
             .stateIn(testScope, SharingStarted.Eagerly, false)
 
-        // Cycle through all non-Connected states
-        val nonConnectedStates = listOf(
-            MaConnectionState.Unavailable,
-            MaConnectionState.NeedsAuth,
-            MaConnectionState.Connecting,
-            MaConnectionState.Error("test"),
-            MaConnectionState.Error("auth", isAuthError = true),
+        // Cycle through all non-Ready states
+        val nonReadyStates = listOf(
+            TransportState.Idle,
+            TransportState.Connecting,
+            TransportState.Failed(FailureReason.TransientNetwork),
+            TransportState.Failed(FailureReason.AuthRejected),
         )
 
-        for (state in nonConnectedStates) {
+        for (state in nonReadyStates) {
             connectionState.value = state
             assertFalse(
                 "isAvailable should be false for ${state::class.simpleName}",

@@ -6,7 +6,6 @@ import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
-import com.sendspindroid.musicassistant.model.MaConnectionState
 import io.mockk.*
 import org.junit.After
 import org.junit.Assert.*
