@@ -84,6 +84,7 @@ import com.sendspindroid.network.TransportType
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -92,7 +93,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
@@ -4067,7 +4067,9 @@ class PlaybackService : MediaLibraryService() {
             val address = resolved ?: local.address
             when {
                 resolved == null ->
-                    Log.i(TAG, "Auto-connect: mDNS did not find '${server.name}'; using stored ${local.address}")
+                    // warn: on boot this correlates with a likely-failing connect
+                    // when the stored address has gone stale (the #158 scenario).
+                    Log.w(TAG, "Auto-connect: mDNS did not find '${server.name}'; using stored ${local.address}")
                 resolved != local.address ->
                     Log.i(TAG, "Auto-connect: mDNS resolved '${server.name}' to $resolved (stored ${local.address})")
                 else ->
@@ -4079,9 +4081,10 @@ class PlaybackService : MediaLibraryService() {
 
     /**
      * Run a short, bounded mDNS discovery and return the current address of the
-     * server whose mDNS name matches [serverName], or null on timeout. Every
-     * result is fed to [UnifiedServerRepository.addDiscoveredServer], which also
-     * refreshes the matching saved server's stored address.
+     * discovered server whose friendly name (or, as a fallback, raw mDNS service
+     * name) equals [serverName], or null on timeout. Every result is fed to
+     * [UnifiedServerRepository.addDiscoveredServer], which also refreshes the
+     * matching saved server's stored address (by friendly name).
      */
     private suspend fun resolveLocalAddressViaMdns(serverName: String, timeoutMs: Long): String? {
         val result = CompletableDeferred<String?>()
@@ -4095,13 +4098,20 @@ class PlaybackService : MediaLibraryService() {
             override fun onServerLost(name: String) {}
             override fun onDiscoveryStarted() {}
             override fun onDiscoveryStopped() {}
-            override fun onDiscoveryError(error: String) {}
+            override fun onDiscoveryError(error: String) {
+                // Complete so we fall back to the stored address immediately
+                // instead of stalling for the full timeout.
+                Log.w(TAG, "Auto-connect: mDNS discovery error for '$serverName': $error")
+                if (!result.isCompleted) result.complete(null)
+            }
         })
         return try {
             manager.startDiscovery()
             withTimeoutOrNull(timeoutMs) { result.await() }
         } finally {
-            manager.stopDiscovery()
+            // cleanup() (not stopDiscovery()) so the multicast lock is released
+            // even if onDiscoveryStarted never fired.
+            manager.cleanup()
         }
     }
 

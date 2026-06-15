@@ -134,6 +134,9 @@ class NsdDiscoveryManager(
                 val errorMsg = nsdErrorToString(errorCode)
                 Log.e(TAG, "Start discovery failed: $errorMsg (code: $errorCode)")
                 isDiscovering = false
+                // onDiscoveryStopped won't fire, so release the lock acquired in
+                // startDiscovery() here to avoid leaking it.
+                releaseMulticastLock()
                 listener.onDiscoveryError("Failed to start discovery: $errorMsg")
             }
 
@@ -403,10 +406,20 @@ class NsdDiscoveryManager(
     fun isDiscovering(): Boolean = isDiscovering
 
     /**
-     * Cleanup resources.
+     * Cleanup resources. Unlike [stopDiscovery], this tears down even when
+     * [onDiscoveryStarted] never fired (bounded/one-shot use, or a start failure):
+     * it stops the registered discovery and releases the multicast lock
+     * unconditionally, so neither the lock nor the NSD registration leaks.
      */
     fun cleanup() {
-        stopDiscovery()
+        pendingRestart = false
+        try {
+            discoveryListener?.let { nsdManager?.stopServiceDiscovery(it) }
+        } catch (e: Exception) {
+            Log.d(TAG, "cleanup: stopServiceDiscovery ignored (likely not started): ${e.message}")
+        }
+        isDiscovering = false
+        releaseMulticastLock()
         nsdManager = null
         discoveryListener = null
     }

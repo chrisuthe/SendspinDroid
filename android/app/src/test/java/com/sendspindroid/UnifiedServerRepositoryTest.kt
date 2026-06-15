@@ -1,6 +1,7 @@
 package com.sendspindroid
 
 import com.sendspindroid.model.LocalConnection
+import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
 import org.junit.After
 import org.junit.Assert.*
@@ -330,6 +331,37 @@ class UnifiedServerRepositoryTest {
         UnifiedServerRepository.addDiscoveredServer("Living Room", "192.168.1.60:8927")
 
         assertEquals("192.168.1.60:8927", UnifiedServerRepository.getServer("id-1")?.local?.address)
+    }
+
+    @Test
+    fun `refreshSavedServerAddress skips a name-matching server with no local connection`() {
+        // A remote-only saved server (local == null) must not be touched, and the
+        // null-guard must not throw.
+        UnifiedServerRepository.saveServer(
+            UnifiedServer(id = "id-1", name = "Living Room", remote = RemoteConnection("A".repeat(26)))
+        )
+
+        val changed = UnifiedServerRepository.refreshSavedServerAddress("Living Room", "192.168.1.60:8927")
+
+        assertFalse(changed)
+        assertNull(UnifiedServerRepository.getServer("id-1")?.local)
+    }
+
+    @Test
+    fun `refreshSavedServerAddress updates only the first server when names collide`() {
+        UnifiedServerRepository.saveServer(testServer("id-1", "Living Room", "192.168.1.50:8927"))
+        UnifiedServerRepository.saveServer(testServer("id-2", "Living Room", "192.168.1.51:8927"))
+
+        UnifiedServerRepository.refreshSavedServerAddress("Living Room", "192.168.1.60:8927")
+
+        // Documents the indexOfFirst semantics: only one duplicate-named server
+        // is updated; the other keeps its address.
+        val addresses = UnifiedServerRepository.savedServers.value
+            .filter { it.name == "Living Room" }
+            .mapNotNull { it.local?.address }
+            .toSet()
+        assertTrue(addresses.contains("192.168.1.60:8927"))
+        assertEquals(2, addresses.size)
     }
 
     // ========== Helper ==========

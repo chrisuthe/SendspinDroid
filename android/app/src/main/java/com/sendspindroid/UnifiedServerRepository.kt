@@ -280,28 +280,43 @@ object UnifiedServerRepository {
 
     /**
      * Keep a saved server's stored local address current when the server is seen
-     * via mDNS at a different address (e.g. after a DHCP lease change). Matches a
-     * saved server by [name] and updates its local address only if it differs.
+     * via mDNS at a different address (e.g. after a DHCP lease change). Updates the
+     * first saved server whose [name] matches (and whose [local] address differs),
+     * only if it differs.
      *
      * This keeps auto-connect resilient to the server's IP changing: the reported
      * bug (#158) was auto-connect dialing a stale stored address while the server
      * was reachable, and discoverable, at a new one.
      *
+     * Matching is by name: it depends on the saved server's name still equaling
+     * the server's advertised mDNS friendly name. A renamed saved server, or two
+     * saved servers sharing a name (only the first is updated), won't fully match.
+     *
+     * Uses an atomic [MutableStateFlow.update] because this is reached from mDNS
+     * discovery callbacks on a background thread (see [removeDiscoveredServer]).
+     *
      * @return true if a saved server's address was updated.
      */
     fun refreshSavedServerAddress(name: String, address: String): Boolean {
         ensurePersistedDataLoaded()
-        val current = _savedServers.value.toMutableList()
-        val index = current.indexOfFirst {
-            it.name == name && it.local != null && it.local!!.address != address
+        var oldAddress: String? = null
+        _savedServers.update { current ->
+            val index = current.indexOfFirst {
+                it.name == name && it.local != null && it.local!!.address != address
+            }
+            if (index < 0) {
+                current
+            } else {
+                val server = current[index]
+                oldAddress = server.local!!.address
+                current.toMutableList().also {
+                    it[index] = server.copy(local = server.local!!.copy(address = address))
+                }
+            }
         }
-        if (index < 0) return false
-        val server = current[index]
-        val oldAddress = server.local!!.address
-        current[index] = server.copy(local = server.local!!.copy(address = address))
-        _savedServers.value = current
+        val previous = oldAddress ?: return false
         persistServers()
-        Log.i(TAG, "Refreshed saved server '$name' address: $oldAddress -> $address (mDNS)")
+        Log.i(TAG, "Refreshed saved server '$name' address: $previous -> $address (mDNS)")
         return true
     }
 
