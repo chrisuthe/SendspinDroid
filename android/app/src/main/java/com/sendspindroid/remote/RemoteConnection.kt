@@ -46,12 +46,24 @@ class RemoteConnection(private val context: Context) {
         /**
          * Format a Remote ID for display (add dashes for readability).
          *
+         * Matches Music Assistant's settings UI grouping (8-5-5-8) so the ID
+         * we show is identical to the hyphenated form the user copied from MA.
+         * See music-assistant/frontend RemoteAccessSettings.vue
+         * (`remoteIdLengths = [8, 5, 5, 8]`).
+         *
          * @param remoteId The raw 26-character ID
-         * @return Formatted ID like "VVPN3-TLP34-YMGIZ-DINCE-KQKSI-R"
+         * @return Formatted ID like "4OPRUGEE-37BPK-SURPJ-BTU5N6SM"
          */
         fun formatRemoteId(remoteId: String): String {
             if (remoteId.length != 26) return remoteId
-            return remoteId.chunked(5).joinToString("-")
+            val groupLengths = intArrayOf(8, 5, 5, 8)
+            val parts = mutableListOf<String>()
+            var offset = 0
+            for (len in groupLengths) {
+                parts.add(remoteId.substring(offset, offset + len))
+                offset += len
+            }
+            return parts.joinToString("-")
         }
 
         /**

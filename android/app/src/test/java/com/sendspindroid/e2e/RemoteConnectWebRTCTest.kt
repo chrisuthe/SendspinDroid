@@ -116,9 +116,25 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
     }
 
     @Test
-    fun `formatRemoteId adds dashes for readability`() {
-        val formatted = RemoteConnection.formatRemoteId("VVPN3TLP34YMGIZDINCEKQKSIR")
-        assertEquals("VVPN3-TLP34-YMGIZ-DINCE-KQKSI-R", formatted)
+    fun `formatRemoteId matches Music Assistant 8-5-5-8 grouping`() {
+        // The 26-char wire form regrouped exactly as MA's settings UI displays
+        // it, so what we show equals what the user copied from MA.
+        assertEquals(
+            "4OPRUGEE-37BPK-SURPJ-BTU5N6SM",
+            RemoteConnection.formatRemoteId("4OPRUGEE37BPKSURPJBTU5N6SM")
+        )
+        assertEquals(
+            "VVPN3TLP-34YMG-IZDIN-CEKQKSIR",
+            RemoteConnection.formatRemoteId("VVPN3TLP34YMGIZDINCEKQKSIR")
+        )
+    }
+
+    @Test
+    fun `formatRemoteId round-trips through parseRemoteId`() {
+        // A displayed (hyphenated) ID parses back to the same 26-char wire form.
+        val wire = "4OPRUGEE37BPKSURPJBTU5N6SM"
+        val displayed = RemoteConnection.formatRemoteId(wire)
+        assertEquals(wire, RemoteConnection.parseRemoteId(displayed))
     }
 
     // ========== Remote Connection Flow Tests ==========

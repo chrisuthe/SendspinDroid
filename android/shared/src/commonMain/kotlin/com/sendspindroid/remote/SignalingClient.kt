@@ -72,11 +72,20 @@ import kotlinx.serialization.json.put
  *   when injecting a shared HttpClient that is managed externally.
  */
 class SignalingClient(
-    private val remoteId: String,
+    remoteId: String,
     private val signalingUrl: String = DEFAULT_SIGNALING_URL,
     private val httpClient: HttpClient = createDefaultClient(),
     private val ownsHttpClient: Boolean = true
 ) {
+
+    /**
+     * Canonical Remote ID used on the wire. MA registers the 26-char base32
+     * form with NO hyphens (derived from the WebRTC certificate fingerprint);
+     * the 8-5-5-8 hyphenated form users copy from the MA UI is display-only.
+     * Normalizing at construction makes every caller robust regardless of how
+     * the stored value was captured (paste, QR, migration, manual entry).
+     */
+    private val remoteId: String = normalizeRemoteId(remoteId)
 
     companion object {
         private const val TAG = "SignalingClient"
@@ -95,6 +104,15 @@ class SignalingClient(
                 pingIntervalSeconds = 30,
                 connectTimeoutMs = 10_000,
             )
+
+        /**
+         * Strip display formatting (hyphens, whitespace) and uppercase a Remote
+         * ID to its canonical wire form. The MA UI shows the ID grouped with
+         * hyphens (e.g. "4OPRUGEE-37BPK-SURPJ-BTU5N6SM"); the value registered
+         * on the signaling server is the ungrouped 26-char string.
+         */
+        fun normalizeRemoteId(raw: String): String =
+            raw.filter { it.isLetterOrDigit() }.uppercase()
     }
 
     /**
