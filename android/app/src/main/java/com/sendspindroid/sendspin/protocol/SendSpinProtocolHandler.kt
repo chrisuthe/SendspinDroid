@@ -66,13 +66,14 @@ abstract class SendSpinProtocolHandler(
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
 
-    // Adaptive jitter-buffer policy: learns the min_buffer_ms to report from live
-    // RTT/jitter/sync-quality, instead of a fixed value. Driven from the time-sync
-    // measurement callback. Guarded by [adaptiveBufferLock] because the callback
-    // can fire from either the burst-loop or the receive thread.
-    private val adaptiveBuffer = AdaptiveBufferPolicy()
+    // Adaptive jitter-buffer policy: reports a generous min_buffer_ms by default
+    // and grows it on trouble (RTT spikes / sync loss), backing off slowly on a
+    // sustained-good link. Constructed by [initTimeSyncManager] with the
+    // memory-appropriate profile. Guarded by [adaptiveBufferLock] because the
+    // time-sync callback can fire from either the burst-loop or the receive thread.
+    private var adaptiveBuffer: AdaptiveBufferPolicy? = null
     private val adaptiveBufferLock = Any()
-    private var lastReportedMinBufferMs = adaptiveBuffer.currentTargetMs
+    private var lastReportedMinBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
 
     // ========== Abstract Transport Methods ==========
 
@@ -251,8 +252,9 @@ abstract class SendSpinProtocolHandler(
     protected fun sendPlayerStateUpdate() {
         val delayMs = getTimeFilter().staticDelayMs
         val minBufferMs = synchronized(adaptiveBufferLock) {
-            lastReportedMinBufferMs = adaptiveBuffer.currentTargetMs
-            adaptiveBuffer.currentTargetMs
+            val target = adaptiveBuffer?.currentTargetMs ?: SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
+            lastReportedMinBufferMs = target
+            target
         }
         sendTextMessage(
             MessageBuilder.buildPlayerState(
@@ -276,16 +278,21 @@ abstract class SendSpinProtocolHandler(
             else -> AdaptiveBufferPolicy.SyncQuality.LOST
         }
         val changed = synchronized(adaptiveBufferLock) {
-            adaptiveBuffer.update(
-                nowMs = android.os.SystemClock.elapsedRealtime(),
-                rttMs = rttMicros / 1000.0,
-                quality = quality
-            )
-            adaptiveBuffer.currentTargetMs != lastReportedMinBufferMs
+            val policy = adaptiveBuffer
+            if (policy != null) {
+                policy.update(
+                    nowMs = android.os.SystemClock.elapsedRealtime(),
+                    rttMs = rttMicros / 1000.0,
+                    quality = quality
+                )
+                policy.currentTargetMs != lastReportedMinBufferMs
+            } else {
+                false
+            }
         }
         evaluateAndPublishSyncState()
         if (changed && handshakeComplete) {
-            Log.d(tag, "Adaptive min_buffer_ms -> ${adaptiveBuffer.currentTargetMs}")
+            Log.d(tag, "Adaptive min_buffer_ms -> ${adaptiveBuffer?.currentTargetMs}")
             sendPlayerStateUpdate()
         }
     }
@@ -510,6 +517,13 @@ abstract class SendSpinProtocolHandler(
      * Initialize time sync manager.
      */
     protected fun initTimeSyncManager(timeFilter: SendspinTimeFilter) {
+        synchronized(adaptiveBufferLock) {
+            val policy = AdaptiveBufferPolicy(
+                if (isLowMemoryMode()) AdaptiveBufferPolicy.lowMemory() else AdaptiveBufferPolicy.generous()
+            )
+            adaptiveBuffer = policy
+            lastReportedMinBufferMs = policy.currentTargetMs
+        }
         timeSyncManager = TimeSyncManager(
             timeFilter = timeFilter,
             sendClientTime = { sendClientTime() },

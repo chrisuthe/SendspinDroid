@@ -11,14 +11,21 @@ import kotlin.math.sqrt
  * smaller value is lower latency at the cost of resilience. The spec allows
  * clients to update this at runtime (debounced); this policy decides the value.
  *
+ * The default config is deliberately **generous**: it favours a fat buffer
+ * (fewer glitches) for a music player where a second or two of latency is
+ * cheap, and only trims latency on a sustained-good link. Use [lowMemory] for
+ * the low-memory profile.
+ *
  * Behaviour (mirrors the official MA mobile app's AdaptiveBufferManager):
+ * - The good-link steady state is [Config.floorMs] — the generous baseline the
+ *   policy sits at when the network is healthy.
  * - **Grow fast** on trouble (sync LOST, RTT spike, underrun, or a high drop
- *   rate), bounded by [Config.growCooldownMs] so a burst of bad measurements
- *   doesn't ratchet repeatedly.
- * - **Shrink slow**: only after [Config.sustainedGoodMs] of continuously good
- *   conditions, one step per [Config.shrinkCooldownMs], converging toward
- *   [Config.idealMs].
- * - The steady-state ideal is `rtt*2 + jitter*4*qualityMultiplier + dropPenalty`,
+ *   rate) up to [Config.ceilingMs], bounded by [Config.growCooldownMs] so a
+ *   burst of bad measurements doesn't ratchet repeatedly.
+ * - **Shrink slow** back toward the baseline: only after [Config.sustainedGoodMs]
+ *   of continuously good conditions, one step per [Config.shrinkCooldownMs], so
+ *   a transient spike doesn't pin the buffer (and the group) high forever.
+ * - A degraded link sizes to `rtt*2 + jitter*4*qualityMultiplier + dropPenalty`,
  *   clamped to `[floorMs, ceilingMs]`. Jitter is the online std-dev of RTT
  *   (Welford) over a window.
  *
@@ -28,23 +35,34 @@ import kotlin.math.sqrt
  */
 class AdaptiveBufferPolicy(private val config: Config = Config()) {
 
+    companion object {
+        /** Generous profile for normal mode — the default. */
+        fun generous() = Config()
+
+        /** Smaller buffer for low-memory mode (tighter cushion, lower latency). */
+        fun lowMemory() = Config(
+            floorMs = 500,
+            ceilingMs = 1_500,
+            initialMs = 500,
+            shrinkStepMs = 100,
+        )
+    }
+
     data class Config(
-        /** Hard lower bound on the reported buffer (ms). */
-        val floorMs: Int = 250,
-        /** Hard upper bound on the reported buffer (ms). */
-        val ceilingMs: Int = 4_000,
-        /** Target the policy converges toward on a sustained-good link (ms). */
-        val idealMs: Int = 300,
-        /** Starting value (ms) — matches the previous fixed `min_buffer_ms`. */
-        val initialMs: Int = 500,
+        /** Good-link steady state and hard lower bound on the buffer (ms). */
+        val floorMs: Int = 1_500,
+        /** Hard upper bound under sustained trouble (ms). */
+        val ceilingMs: Int = 5_000,
+        /** Starting value (ms) — the generous baseline. */
+        val initialMs: Int = 1_500,
         /** Minimum time between consecutive grows (ms). */
         val growCooldownMs: Long = 2_000,
         /** Minimum time between consecutive shrink steps (ms). */
-        val shrinkCooldownMs: Long = 30_000,
+        val shrinkCooldownMs: Long = 20_000,
         /** How long conditions must stay good before the first shrink (ms). */
         val sustainedGoodMs: Long = 60_000,
         /** Each shrink step reduces the target by this much (ms). */
-        val shrinkStepMs: Int = 100,
+        val shrinkStepMs: Int = 250,
         /** On an underrun, bump the target up by at least this much (ms). */
         val growBumpMs: Int = 250,
         /** RTT at/under which a link counts as "good" (ms). */

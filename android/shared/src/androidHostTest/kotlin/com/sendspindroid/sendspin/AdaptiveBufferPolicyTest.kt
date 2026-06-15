@@ -7,8 +7,21 @@ import org.junit.Test
 /**
  * Deterministic tests for [AdaptiveBufferPolicy]. Time is injected as `nowMs`,
  * so cooldown/streak behaviour is fully reproducible without real time or audio.
+ *
+ * The mechanics tests use [lean] (small, clear numbers) so step-by-step shrink
+ * behaviour is easy to read; separate tests pin the production [generous] and
+ * [lowMemory] profiles.
  */
 class AdaptiveBufferPolicyTest {
+
+    /** Small config so shrink steps are easy to follow (floor 250, initial 500). */
+    private fun lean() = AdaptiveBufferPolicy.Config(
+        floorMs = 250,
+        ceilingMs = 4_000,
+        initialMs = 500,
+        shrinkCooldownMs = 30_000,
+        shrinkStepMs = 100,
+    )
 
     private fun policy(config: AdaptiveBufferPolicy.Config = AdaptiveBufferPolicy.Config()) =
         AdaptiveBufferPolicy(config)
@@ -17,14 +30,53 @@ class AdaptiveBufferPolicyTest {
     private fun AdaptiveBufferPolicy.good(nowMs: Long, rttMs: Double = 10.0) =
         update(nowMs, rttMs, SyncQuality.GOOD)
 
+    // --- production profiles ---
+
+    @Test
+    fun `default config is generous`() {
+        assertEquals(1_500, policy().currentTargetMs)
+    }
+
+    @Test
+    fun `generous good-link steady state stays at the generous floor`() {
+        val p = policy(AdaptiveBufferPolicy.generous())
+        var t = 0L
+        repeat(10) { p.good(t); t += 60_000 }
+        assertEquals(1_500, p.currentTargetMs) // never trims below the generous baseline
+    }
+
+    @Test
+    fun `generous grows toward the ceiling under sustained trouble`() {
+        val p = policy(AdaptiveBufferPolicy.generous())
+        var t = 0L
+        repeat(20) {
+            p.update(t, 4_000.0, SyncQuality.LOST, underrun = true)
+            t += 3_000
+        }
+        assertEquals(5_000, p.currentTargetMs)
+    }
+
+    @Test
+    fun `lowMemory profile is smaller than generous`() {
+        val low = policy(AdaptiveBufferPolicy.lowMemory())
+        val gen = policy(AdaptiveBufferPolicy.generous())
+        assertTrue(low.currentTargetMs < gen.currentTargetMs)
+        // Good link settles at the low-memory floor.
+        var t = 0L
+        repeat(10) { low.good(t); t += 60_000 }
+        assertEquals(500, low.currentTargetMs)
+    }
+
+    // --- mechanics (lean config) ---
+
     @Test
     fun `initial target is the configured initial value`() {
-        assertEquals(500, policy().currentTargetMs)
+        assertEquals(500, policy(lean()).currentTargetMs)
     }
 
     @Test
     fun `sustained good link shrinks slowly toward the floor`() {
-        val p = policy()
+        val p = policy(lean())
         p.good(0)               // establishes the good streak (no shrink yet)
         assertEquals(500, p.currentTargetMs)
         p.good(60_000)          // 60s sustained -> first shrink
@@ -33,13 +85,13 @@ class AdaptiveBufferPolicyTest {
         assertEquals(300, p.currentTargetMs)
         p.good(120_000)         // -> floor
         assertEquals(250, p.currentTargetMs)
-        p.good(150_000)         // already at floor/ideal -> stable
+        p.good(150_000)         // already at floor -> stable
         assertEquals(250, p.currentTargetMs)
     }
 
     @Test
     fun `does not shrink before the sustained-good window elapses`() {
-        val p = policy()
+        val p = policy(lean())
         p.good(0)
         p.good(59_000) // < 60s
         assertEquals(500, p.currentTargetMs)
@@ -47,7 +99,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `underrun bumps the target up`() {
-        val p = policy()
+        val p = policy(lean())
         p.good(0)
         val before = p.currentTargetMs
         val after = p.update(100, 10.0, SyncQuality.GOOD, underrun = true)
@@ -56,7 +108,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `grow cooldown limits consecutive bumps`() {
-        val p = policy()
+        val p = policy(lean())
         p.good(0)
         val t1 = p.update(100, 10.0, SyncQuality.GOOD, underrun = true)
         val t2 = p.update(200, 10.0, SyncQuality.GOOD, underrun = true) // within 2s cooldown
@@ -67,7 +119,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `rtt spike grows the target`() {
-        val p = policy()
+        val p = policy(lean())
         p.good(0, 50.0)
         p.good(1_000, 50.0)
         p.good(2_000, 50.0) // baseline ~50
@@ -81,11 +133,11 @@ class AdaptiveBufferPolicyTest {
         // Identical RTT sequence; the second sample (past the grow cooldown) is a
         // spike so both policies grow to their ideal. LOST's 2x jitter multiplier
         // makes its ideal larger.
-        val lost = policy()
+        val lost = policy(lean())
         lost.update(0, 300.0, SyncQuality.LOST)
         val lostTarget = lost.update(3_000, 500.0, SyncQuality.LOST)
 
-        val good = policy()
+        val good = policy(lean())
         good.update(0, 300.0, SyncQuality.GOOD)
         val goodTarget = good.update(3_000, 500.0, SyncQuality.GOOD)
 
@@ -94,7 +146,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `shrink cooldown limits consecutive shrinks`() {
-        val p = policy()
+        val p = policy(lean())
         p.good(0)
         p.good(60_000)
         assertEquals(400, p.currentTargetMs) // first shrink
@@ -106,7 +158,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `target never exceeds the ceiling`() {
-        val p = policy(AdaptiveBufferPolicy.Config(ceilingMs = 2_000))
+        val p = policy(lean().copy(ceilingMs = 2_000))
         var t = 0L
         repeat(10) {
             p.update(t, 5_000.0, SyncQuality.LOST, dropRate = 1.0, underrun = true)
@@ -117,7 +169,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `target never drops below the floor`() {
-        val p = policy()
+        val p = policy(lean())
         var t = 0L
         repeat(50) {
             p.good(t)
@@ -129,7 +181,7 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `jitter reflects rtt variance`() {
-        val p = policy()
+        val p = policy(lean())
         p.update(0, 10.0, SyncQuality.GOOD)
         p.update(1, 30.0, SyncQuality.GOOD)
         p.update(2, 10.0, SyncQuality.GOOD)
@@ -140,12 +192,10 @@ class AdaptiveBufferPolicyTest {
 
     @Test
     fun `no oscillation once converged on a steady good link`() {
-        val p = policy()
+        val p = policy(lean())
         var t = 0L
-        // Converge to the floor.
-        repeat(5) { p.good(t); t += 60_000 }
+        repeat(5) { p.good(t); t += 60_000 } // converge to the floor
         assertEquals(250, p.currentTargetMs)
-        // Keep feeding good measurements with tiny fluctuations within thresholds.
         val seq = listOf(8.0, 12.0, 9.0, 15.0, 7.0, 11.0, 10.0, 13.0)
         for (rtt in seq) {
             t += 1_000
@@ -155,14 +205,10 @@ class AdaptiveBufferPolicyTest {
     }
 
     @Test
-    fun `high drop rate grows the target and adds the drop penalty`() {
-        val p = policy()
+    fun `a troubled link does not shrink`() {
+        val p = policy(lean())
         p.good(0)
-        val after = p.update(100, 20.0, SyncQuality.GOOD, dropRate = 0.2)
-        // ideal = 20*2 + jitter*4 + 200 (penalty); jitter ~ small -> ~240+, but
-        // current target 500 already exceeds that, so the penalty alone may not
-        // grow it. Verify it does not shrink and stays >= floor.
-        assertTrue(after >= 250)
+        p.update(100, 20.0, SyncQuality.GOOD, dropRate = 0.2)
         assertEquals("a troubled link must not shrink", 500, p.currentTargetMs)
     }
 }
