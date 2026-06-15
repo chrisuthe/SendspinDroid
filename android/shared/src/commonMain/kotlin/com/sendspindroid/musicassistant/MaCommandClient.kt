@@ -939,7 +939,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 "music/audiobooks/get",
                 mapOf("item_id" to audiobookId, "provider_instance_id_or_domain" to providerInstanceId)
             )
-            val audiobook = parseAudiobookFromResult(response)
+            val audiobook = parseAudiobookFromResult(response, providerInstanceId)
                 ?: return Result.failure(Exception("Audiobook not found"))
             Log.d(TAG, "Got audiobook: ${audiobook.name}")
             Result.success(audiobook)
@@ -1799,7 +1799,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         return audiobooks
     }
 
-    private fun parseAudiobookItem(item: JsonObject): MaAudiobook? {
+    private fun parseAudiobookItem(item: JsonObject, providerFallback: String = "library"): MaAudiobook? {
         val audiobookId = item.optString("item_id")
             .ifEmpty { item.optString("uri") }
 
@@ -1830,7 +1830,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             name = name,
             imageUri = imageUri,
             uri = uri,
-            provider = providerInstanceId.ifEmpty { "library" },
+            // Prefer the provider declared on the item; fall back to the
+            // provider the item was requested from (e.g. when a single-item
+            // `get` response omits provider info), then to "library".
+            provider = providerInstanceId.ifEmpty { providerFallback },
             authors = authors,
             narrators = narrators,
             publisher = publisher,
@@ -1841,9 +1844,9 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         )
     }
 
-    internal fun parseAudiobookFromResult(response: JsonObject): MaAudiobook? {
+    internal fun parseAudiobookFromResult(response: JsonObject, provider: String = "library"): MaAudiobook? {
         val item = response.optJsonObject("result") ?: return null
-        return parseAudiobookItem(item)
+        return parseAudiobookItem(item, providerFallback = provider)
     }
 
     private fun parseStringList(array: JsonArray?): List<String> {

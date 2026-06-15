@@ -41,7 +41,7 @@ class MaCommandClientSearchQueueTest {
                 "playlists": [
                     {"item_id": "pl1", "name": "Playlist 1"}
                 ],
-                "radios": [
+                "radio": [
                     {"item_id": "r1", "name": "Radio 1"}
                 ],
                 "podcasts": [
