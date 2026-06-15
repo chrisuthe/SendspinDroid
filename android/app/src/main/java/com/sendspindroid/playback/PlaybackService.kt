@@ -84,6 +84,7 @@ import com.sendspindroid.network.TransportType
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.DefaultMediaNotificationProvider
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -428,6 +429,10 @@ class PlaybackService : MediaLibraryService() {
 
         // Timeout for awaiting a terminal connection state in connectViaSelectedConnection.
         private const val CONNECT_TIMEOUT_MS = 15_000L
+
+        // How long boot auto-connect waits for mDNS to re-resolve a saved local
+        // server's current address before falling back to the stored one (#158).
+        private const val MDNS_AUTOCONNECT_TIMEOUT_MS = 5_000L
 
         // Custom session commands
         const val COMMAND_CANCEL_RECONNECT = "com.sendspindroid.CANCEL_RECONNECT"
@@ -4081,8 +4086,9 @@ class PlaybackService : MediaLibraryService() {
         // Connect using the server's preferred method
         when {
             server.local != null -> {
-                Log.i(TAG, "Auto-connect: local connection to ${server.local!!.address}")
-                connectToServer(server.local!!.address, server.local!!.path)
+                // Re-resolve via mDNS first: a stored static IP can go stale
+                // (DHCP) and cause a refused connect on boot. See #158.
+                autoConnectLocalWithMdns(server)
             }
             server.remote != null -> {
                 Log.i(TAG, "Auto-connect: remote connection with ID ${server.remote!!.remoteId.take(8)}...")
@@ -4095,6 +4101,68 @@ class PlaybackService : MediaLibraryService() {
             else -> {
                 Log.w(TAG, "Auto-connect: server ${server.name} has no configured connection methods")
             }
+        }
+    }
+
+    /**
+     * Auto-connect to a saved local server, re-resolving its current address via
+     * mDNS first so a stale stored address (DHCP change) doesn't cause a failed
+     * connect on boot. Falls back to the stored address if mDNS doesn't find the
+     * server within [MDNS_AUTOCONNECT_TIMEOUT_MS] (server offline, or the network
+     * not yet up on boot). See #158.
+     */
+    private fun autoConnectLocalWithMdns(server: UnifiedServer) {
+        val local = server.local ?: return
+        serviceScope.launch {
+            val resolved = resolveLocalAddressViaMdns(server.name, MDNS_AUTOCONNECT_TIMEOUT_MS)
+            val address = resolved ?: local.address
+            when {
+                resolved == null ->
+                    // warn: on boot this correlates with a likely-failing connect
+                    // when the stored address has gone stale (the #158 scenario).
+                    Log.w(TAG, "Auto-connect: mDNS did not find '${server.name}'; using stored ${local.address}")
+                resolved != local.address ->
+                    Log.i(TAG, "Auto-connect: mDNS resolved '${server.name}' to $resolved (stored ${local.address})")
+                else ->
+                    Log.i(TAG, "Auto-connect: mDNS confirmed '${server.name}' at $resolved")
+            }
+            connectToServer(address, local.path)
+        }
+    }
+
+    /**
+     * Run a short, bounded mDNS discovery and return the current address of the
+     * discovered server whose friendly name (or, as a fallback, raw mDNS service
+     * name) equals [serverName], or null on timeout. Every result is fed to
+     * [UnifiedServerRepository.addDiscoveredServer], which also refreshes the
+     * matching saved server's stored address (by friendly name).
+     */
+    private suspend fun resolveLocalAddressViaMdns(serverName: String, timeoutMs: Long): String? {
+        val result = CompletableDeferred<String?>()
+        val manager = NsdDiscoveryManager(this, object : NsdDiscoveryManager.DiscoveryListener {
+            override fun onServerDiscovered(name: String, address: String, path: String, friendlyName: String) {
+                UnifiedServerRepository.addDiscoveredServer(friendlyName, address, path)
+                if (!result.isCompleted && (friendlyName == serverName || name == serverName)) {
+                    result.complete(address)
+                }
+            }
+            override fun onServerLost(name: String) {}
+            override fun onDiscoveryStarted() {}
+            override fun onDiscoveryStopped() {}
+            override fun onDiscoveryError(error: String) {
+                // Complete so we fall back to the stored address immediately
+                // instead of stalling for the full timeout.
+                Log.w(TAG, "Auto-connect: mDNS discovery error for '$serverName': $error")
+                if (!result.isCompleted) result.complete(null)
+            }
+        })
+        return try {
+            manager.startDiscovery()
+            withTimeoutOrNull(timeoutMs) { result.await() }
+        } finally {
+            // cleanup() (not stopDiscovery()) so the multicast lock is released
+            // even if onDiscoveryStarted never fired.
+            manager.cleanup()
         }
     }
 
