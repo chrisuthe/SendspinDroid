@@ -68,6 +68,23 @@ object SendSpinProtocol {
     }
 
     /**
+     * Player timing capabilities reported via client/state (spec 2026-06-01,
+     * "player timing capabilities"). Both fields are required for players;
+     * servers use max(required_lead_time_ms, min_buffer_ms) + static_delay_ms
+     * to compute per-player send-ahead, which matters most for live streams.
+     *
+     * Values are conservative static defaults for Android: AudioTrack warmup
+     * plus MediaCodec init is typically well under 500 ms, and 500 ms of
+     * jitter buffer comfortably absorbs Wi-Fi variance. The spec allows
+     * runtime (debounced) updates if we later measure these empirically.
+     * For comparison, aiosendspin defaults to 250/250 on desktop.
+     */
+    object PlayerTiming {
+        const val REQUIRED_LEAD_TIME_MS = 500
+        const val MIN_BUFFER_MS = 500
+    }
+
+    /**
      * Protocol message type identifiers.
      */
     object MessageType {
@@ -84,6 +101,7 @@ object SendSpinProtocol {
         const val STREAM_START = "stream/start"
         const val STREAM_END = "stream/end"
         const val STREAM_CLEAR = "stream/clear"
+        const val STREAM_REQUEST_FORMAT = "stream/request-format"
         const val CLIENT_SYNC_OFFSET = "client/sync_offset"
     }
 
@@ -149,6 +167,31 @@ data class TrackMetadata(
     // Convenience properties for backwards compatibility
     val durationMs: Long get() = progress.trackDuration
     val positionMs: Long get() = progress.trackProgress
+
+    /**
+     * Current track position extrapolated from this metadata snapshot,
+     * using the spec formula:
+     *
+     *   progress + (server_now - timestamp) * playback_speed / 1_000_000
+     *
+     * clamped to [0, duration] (lower bound only when duration is 0 =
+     * unknown/unlimited). Falls back to the raw reported position when
+     * [timestamp] is missing (0), e.g. legacy servers.
+     *
+     * @param serverNowMicros current time on the server clock, in
+     *   microseconds (from the time filter's client->server mapping)
+     */
+    fun progressAtServerTime(serverNowMicros: Long): Long {
+        if (timestamp == 0L) return progress.trackProgress
+        val elapsedMicros = serverNowMicros - timestamp
+        val calculated = progress.trackProgress +
+                elapsedMicros * progress.playbackSpeed / 1_000_000L
+        return if (progress.trackDuration != 0L) {
+            calculated.coerceIn(0L, progress.trackDuration)
+        } else {
+            calculated.coerceAtLeast(0L)
+        }
+    }
 }
 
 /**
@@ -188,6 +231,46 @@ data class StreamConfig(
 }
 
 /**
+ * Controller (group-level) state from the server/state `controller` object.
+ *
+ * Fields are nullable because server/state carries delta updates; null means
+ * "not included in this update". [com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler]
+ * merges deltas into the current state before publishing.
+ *
+ * @param supportedCommands Subset of: play, pause, stop, next, previous,
+ *   volume, mute, repeat_off, repeat_one, repeat_all, shuffle, unshuffle, switch
+ * @param volume Volume of the whole group, 0-100 (average of player volumes)
+ * @param muted Group mute state (true only when all players are muted)
+ * @param repeat Repeat mode: "off", "one", or "all"
+ * @param shuffle Shuffle mode enabled/disabled
+ */
+data class ControllerState(
+    val supportedCommands: List<String>? = null,
+    val volume: Int? = null,
+    val muted: Boolean? = null,
+    val repeat: String? = null,
+    val shuffle: Boolean? = null
+) {
+    /** Merge a delta update into this state, keeping known values. */
+    fun mergedWith(delta: ControllerState): ControllerState = ControllerState(
+        supportedCommands = delta.supportedCommands ?: supportedCommands,
+        volume = delta.volume ?: volume,
+        muted = delta.muted ?: muted,
+        repeat = delta.repeat ?: repeat,
+        shuffle = delta.shuffle ?: shuffle
+    )
+}
+
+/**
+ * Result of parsing a server/state message.
+ */
+data class ServerStateResult(
+    val metadata: TrackMetadata?,
+    val playbackState: String?,
+    val controller: ControllerState?
+)
+
+/**
  * Group information from group/update messages.
  */
 data class GroupInfo(
@@ -212,6 +295,7 @@ data class ServerHelloResult(
 sealed class ServerCommandResult {
     data class Volume(val volume: Int) : ServerCommandResult()
     data class Mute(val muted: Boolean) : ServerCommandResult()
+    data class SetStaticDelay(val delayMs: Int) : ServerCommandResult()
     data class Unknown(val command: String) : ServerCommandResult()
 }
 

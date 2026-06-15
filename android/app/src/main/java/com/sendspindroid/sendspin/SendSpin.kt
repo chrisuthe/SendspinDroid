@@ -7,6 +7,7 @@ import com.sendspindroid.UserSettings
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.remote.WebRTCTransport
 import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
+import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
@@ -196,6 +197,12 @@ class SendSpin(
     @Volatile
     var selfReconnectEnabled: Boolean = true
 
+    // Merged controller (group-level) state: supported_commands, group
+    // volume/mute, repeat, shuffle. Null until the server first sends a
+    // server/state controller object.
+    private val _controllerState = MutableStateFlow<ControllerState?>(null)
+    val controllerState: StateFlow<ControllerState?> = _controllerState.asStateFlow()
+
     // Transport abstraction - can be WebSocket (local) or WebRTC (remote)
     private var transport: SendSpinTransport? = null
     private var connectionMode: ConnectionMode = ConnectionMode.LOCAL
@@ -330,6 +337,8 @@ class SendSpin(
 
     override fun getManufacturer(): String = Build.MANUFACTURER ?: "Unknown"
 
+    override fun getSoftwareVersion(): String = com.sendspindroid.BuildConfig.VERSION_NAME
+
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> {
         val bitDepths = if (isLowMemoryMode()) {
             listOf(16)
@@ -346,6 +355,10 @@ class SendSpin(
     override fun onHandshakeComplete(serverName: String, serverId: String) {
         this.serverName = serverName
         this.serverId = serverId
+
+        // Controller state belongs to the previous session; the handler's
+        // merged copy was reset, so reset the published flow too.
+        _controllerState.value = null
 
         // Check if this is a reconnection
         val wasReconnecting = timeFilter.isFrozen || reconnecting.get()
@@ -400,13 +413,24 @@ class SendSpin(
     }
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
+        // Per spec, extrapolate the reported position from the metadata's
+        // server timestamp to "now" before publishing. Without this, the
+        // position is stale by network latency plus however long the
+        // snapshot sat on the server (and downstream anchors interpolate
+        // from receive time). Requires a converged clock; fall back to the
+        // raw value until then.
+        val positionMs = if (timeFilter.isReady) {
+            metadata.progressAtServerTime(timeFilter.clientToServer(System.nanoTime() / 1000))
+        } else {
+            metadata.positionMs
+        }
         callback.onMetadataUpdate(
             metadata.title,
             metadata.artist,
             metadata.album,
             metadata.artworkUrl,
             metadata.durationMs,
-            metadata.positionMs,
+            positionMs,
             metadata.progress.playbackSpeed
         )
     }
@@ -472,6 +496,10 @@ class SendSpin(
 
     override fun onSyncMuteChanged(muted: Boolean) {
         callback.onSyncMuteChanged(muted)
+    }
+
+    override fun onControllerStateUpdate(state: ControllerState) {
+        _controllerState.value = state
     }
 
     // ========== Public API ==========
@@ -829,7 +857,10 @@ class SendSpin(
         stopTimeSync()
         reconnecting.set(false)
         waitingForNetwork.set(false)
-        sendGoodbye("network_type_changed")
+        // Spec reason enum is another_server | shutdown | restart |
+        // user_request. "restart" fits: we will reconnect (after the outer
+        // loop re-selects the transport) and the server should auto-reconnect.
+        sendGoodbye("restart")
         // Clear the transport listener BEFORE closing to prevent the async onClosed
         // callback from firing a second onDisconnected after we fire one synchronously below.
         transport?.setListener(null)
@@ -866,9 +897,29 @@ class SendSpin(
 
     fun play() = sendCommand("play")
     fun pause() = sendCommand("pause")
+    fun stop() = sendCommand("stop")
     fun next() = sendCommand("next")
     fun previous() = sendCommand("previous")
     fun switchGroup() = sendCommand("switch")
+
+    /** Set the volume of the whole group (0-100). */
+    fun setGroupVolume(volume: Int) = sendCommand("volume", volume = volume)
+
+    /** Set the mute state of the whole group. */
+    fun setGroupMute(muted: Boolean) = sendCommand("mute", mute = muted)
+
+    /** Set repeat mode: "off", "one", or "all". */
+    fun setRepeatMode(mode: String) {
+        when (mode) {
+            "off" -> sendCommand("repeat_off")
+            "one" -> sendCommand("repeat_one")
+            "all" -> sendCommand("repeat_all")
+            else -> Log.w(TAG, "Unknown repeat mode: $mode")
+        }
+    }
+
+    /** Enable or disable shuffle. */
+    fun setShuffle(enabled: Boolean) = sendCommand(if (enabled) "shuffle" else "unshuffle")
 
     /**
      * Clean up resources.

@@ -1,9 +1,11 @@
 package com.sendspindroid.sendspin.protocol.message
 
+import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.protocol.ServerCommandResult
 import com.sendspindroid.sendspin.protocol.ServerHelloResult
+import com.sendspindroid.sendspin.protocol.ServerStateResult
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.SyncOffsetResult
 import com.sendspindroid.sendspin.protocol.TimeMeasurement
@@ -67,8 +69,8 @@ object MessageParser {
         return TimeMeasurement(offset, rtt, clientReceivedMicros)
     }
 
-    fun parseServerState(payload: JsonObject?): Pair<TrackMetadata?, String?> {
-        if (payload == null) return Pair(null, null)
+    fun parseServerState(payload: JsonObject?): ServerStateResult {
+        if (payload == null) return ServerStateResult(null, null, null)
 
         val metadata = (payload["metadata"] as? JsonObject)?.let { metadataObj ->
             fun optStringClean(key: String) =
@@ -94,6 +96,8 @@ object MessageParser {
                     playbackSpeed = progressObj.intOrDefault("playback_speed", 1000)
                 )
             } ?: run {
+                // Legacy pre-spec Music Assistant fields, not in the
+                // Sendspin spec; kept for old servers.
                 TrackProgress(
                     trackProgress = metadataObj.longOrDefault("position_ms", 0),
                     trackDuration = metadataObj.longOrDefault("duration_ms", 0),
@@ -116,7 +120,21 @@ object MessageParser {
 
         val state = payload.stringOrDefault("state", "").takeIf { it.isNotEmpty() }
 
-        return Pair(metadata, state)
+        // Controller (group-level) state delta. All fields lenient: aiosendspin
+        // sends the complete object, but spec delta semantics allow partials.
+        val controller = (payload["controller"] as? JsonObject)?.let { controllerObj ->
+            ControllerState(
+                supportedCommands = controllerObj["supported_commands"]?.jsonArray?.mapNotNull {
+                    it.jsonPrimitive.contentOrNull
+                },
+                volume = controllerObj["volume"]?.jsonPrimitive?.intOrNull,
+                muted = controllerObj["muted"]?.jsonPrimitive?.booleanOrNull,
+                repeat = controllerObj["repeat"]?.jsonPrimitive?.contentOrNull,
+                shuffle = controllerObj["shuffle"]?.jsonPrimitive?.booleanOrNull
+            )
+        }
+
+        return ServerStateResult(metadata, state, controller)
     }
 
     fun parseServerCommand(payload: JsonObject?): ServerCommandResult? {
@@ -137,6 +155,16 @@ object MessageParser {
             "mute" -> {
                 val muted = player.booleanOrDefault("mute", false)
                 ServerCommandResult.Mute(muted)
+            }
+            "set_static_delay" -> {
+                // Spec: integer, 0-5000 ms.
+                val delayMs = player.intOrDefault("static_delay_ms", -1)
+                if (delayMs in 0..5000) {
+                    ServerCommandResult.SetStaticDelay(delayMs)
+                } else {
+                    Log.w(TAG, "set_static_delay out of range: $delayMs")
+                    null
+                }
             }
             else -> {
                 if (command.isNotEmpty()) {
@@ -180,6 +208,10 @@ object MessageParser {
         return StreamConfig(codec, sampleRate, channels, bitDepth, codecHeader)
     }
 
+    /**
+     * Parse client/sync_offset. NOTE: this is a Music Assistant extension
+     * (GroupSync), not part of the Sendspin spec.
+     */
     fun parseSyncOffset(payload: JsonObject?): SyncOffsetResult? {
         if (payload == null) return null
 

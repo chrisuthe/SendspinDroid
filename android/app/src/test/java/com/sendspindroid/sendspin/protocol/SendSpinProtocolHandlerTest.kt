@@ -106,6 +106,94 @@ class SendSpinProtocolHandlerTest {
         assertEquals("Song B", handler.metadataUpdates[1].title)
     }
 
+    // ========== External Source Tests ==========
+
+    @Test
+    fun `setExternalSource true reports external_source state`() {
+        handler.sentMessages.clear()
+        handler.setExternalSource(true)
+
+        assertEquals("external_source", handler.exposedSyncState())
+        assertEquals(1, handler.sentMessages.size)
+        assertTrue(handler.sentMessages[0].contains("\"state\":\"external_source\""))
+    }
+
+    @Test
+    fun `evaluateAndPublishSyncState does not override external_source`() {
+        handler.setExternalSource(true)
+        handler.evaluateAndPublishSyncStateForTest()
+        assertEquals("external_source", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `setExternalSource false recomputes filter-derived state`() {
+        handler.setExternalSource(true)
+        handler.setExternalSource(false)
+        // Filter has no measurements in tests -> "error"
+        assertEquals("error", handler.exposedSyncState())
+    }
+
+    @Test
+    fun `setExternalSource is idempotent`() {
+        handler.sentMessages.clear()
+        handler.setExternalSource(true)
+        handler.setExternalSource(true)
+        assertEquals(1, handler.sentMessages.size)
+    }
+
+    // ========== Controller State Tests ==========
+
+    @Test
+    fun `controller state from server_state is merged and published`() {
+        handler.handleTextMessageForTest(
+            """{"type":"server/state","payload":{"controller":{
+                "supported_commands":["play","pause","volume"],
+                "volume":60,"muted":false,"repeat":"off","shuffle":false}}}"""
+        )
+        // Partial delta: only volume changes; earlier fields must survive.
+        handler.handleTextMessageForTest(
+            """{"type":"server/state","payload":{"controller":{"volume":80}}}"""
+        )
+
+        assertEquals(2, handler.controllerStateUpdates.size)
+        val merged = handler.controllerStateUpdates.last()
+        assertEquals(80, merged.volume)
+        assertEquals(listOf("play", "pause", "volume"), merged.supportedCommands)
+        assertEquals("off", merged.repeat)
+    }
+
+    @Test
+    fun `unchanged controller delta does not republish`() {
+        val msg = """{"type":"server/state","payload":{"controller":{"volume":60}}}"""
+        handler.handleTextMessageForTest(msg)
+        handler.handleTextMessageForTest(msg)
+        assertEquals(1, handler.controllerStateUpdates.size)
+    }
+
+    @Test
+    fun `sendCommand drops commands outside server supported_commands`() {
+        handler.handleTextMessageForTest(
+            """{"type":"server/state","payload":{"controller":{
+                "supported_commands":["play","pause"],
+                "volume":60,"muted":false,"repeat":"off","shuffle":false}}}"""
+        )
+        handler.sentMessages.clear()
+
+        handler.sendCommand("shuffle")
+        assertEquals("Unsupported command must be dropped", 0, handler.sentMessages.size)
+
+        handler.sendCommand("play")
+        assertEquals(1, handler.sentMessages.size)
+        assertTrue(handler.sentMessages[0].contains("\"command\":\"play\""))
+    }
+
+    @Test
+    fun `sendCommand is not gated before controller state is known`() {
+        handler.sentMessages.clear()
+        handler.sendCommand("play")
+        assertEquals(1, handler.sentMessages.size)
+    }
+
     // ========== Sync State Validation Tests ==========
 
     @Test
@@ -359,6 +447,7 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
     private val timeFilter = SendspinTimeFilter()
     val sentMessages = mutableListOf<String>()
     val metadataUpdates = mutableListOf<TrackMetadata>()
+    val controllerStateUpdates = mutableListOf<ControllerState>()
     val playbackStateChanges = mutableListOf<String>()
     val groupUpdates = mutableListOf<GroupInfo>()
     val streamStarts = mutableListOf<StreamConfig>()
@@ -397,10 +486,16 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
 
     override fun getSupportedFormats(): List<MessageBuilder.FormatEntry> = emptyList()
 
+    override fun getSoftwareVersion(): String = "test"
+
     override fun onHandshakeComplete(serverName: String, serverId: String) {}
 
     override fun onMetadataUpdate(metadata: TrackMetadata) {
         metadataUpdates.add(metadata)
+    }
+
+    override fun onControllerStateUpdate(state: ControllerState) {
+        controllerStateUpdates.add(state)
     }
 
     override fun onPlaybackStateChanged(state: String) {

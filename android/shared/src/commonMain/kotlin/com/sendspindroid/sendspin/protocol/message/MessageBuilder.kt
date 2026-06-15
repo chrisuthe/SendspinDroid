@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlin.math.roundToInt
 
 object MessageBuilder {
 
@@ -21,7 +22,8 @@ object MessageBuilder {
         bufferCapacity: Int,
         manufacturer: String,
         supportedFormats: List<FormatEntry>,
-        lowMemoryMode: Boolean = false
+        lowMemoryMode: Boolean = false,
+        softwareVersion: String = "unknown"
     ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_HELLO)
@@ -40,7 +42,7 @@ object MessageBuilder {
                 put("device_info", buildJsonObject {
                     put("product_name", "SendSpinDroid")
                     put("manufacturer", manufacturer)
-                    put("software_version", "1.0.0")
+                    put("software_version", softwareVersion)
                 })
                 put("player@v1_support", buildJsonObject {
                     put("supported_formats", buildJsonArray {
@@ -96,27 +98,81 @@ object MessageBuilder {
         return message.toString()
     }
 
-    fun buildPlayerState(volume: Int, muted: Boolean, syncState: String = "synchronized", staticDelayMs: Double = 0.0): String {
+    fun buildPlayerState(
+        volume: Int,
+        muted: Boolean,
+        syncState: String = "synchronized",
+        staticDelayMs: Double = 0.0,
+        requiredLeadTimeMs: Int = SendSpinProtocol.PlayerTiming.REQUIRED_LEAD_TIME_MS,
+        minBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
+    ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", buildJsonObject {
+                // Per spec, `state` is a top-level payload field (sibling of
+                // `player`), not part of the player object.
+                put("state", syncState)
                 put("player", buildJsonObject {
-                    put("state", syncState)
                     put("volume", volume)
                     put("muted", muted)
-                    put("static_delay_ms", staticDelayMs)
+                    // Spec: integer, range 0-5000, negative values not
+                    // supported. Locally we still apply the full signed
+                    // value (user sync offset can be negative); only the
+                    // reported field is clamped.
+                    put("static_delay_ms", staticDelayMs.roundToInt().coerceIn(0, 5000))
+                    // Both timing fields are always required for players.
+                    put("required_lead_time_ms", requiredLeadTimeMs)
+                    put("min_buffer_ms", minBufferMs)
+                    // Declares that we handle server/command set_static_delay.
+                    put("supported_commands", buildJsonArray {
+                        add(kotlinx.serialization.json.JsonPrimitive("set_static_delay"))
+                    })
                 })
             })
         }
         return message.toString()
     }
 
-    fun buildCommand(command: String): String {
+    /**
+     * Build a client/command controller message.
+     *
+     * @param volume only set if [command] is "volume" (0-100)
+     * @param mute only set if [command] is "mute"
+     */
+    fun buildCommand(command: String, volume: Int? = null, mute: Boolean? = null): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_COMMAND)
             put("payload", buildJsonObject {
                 put("controller", buildJsonObject {
                     put("command", command)
+                    if (volume != null) put("volume", volume.coerceIn(0, 100))
+                    if (mute != null) put("mute", mute)
+                })
+            })
+        }
+        return message.toString()
+    }
+
+    /**
+     * Build a stream/request-format message for the player role.
+     *
+     * All fields optional; omitted fields keep their current value on the
+     * server. The server responds with stream/start carrying the new format.
+     */
+    fun buildStreamRequestFormat(
+        codec: String? = null,
+        sampleRate: Int? = null,
+        channels: Int? = null,
+        bitDepth: Int? = null
+    ): String {
+        val message = buildJsonObject {
+            put("type", SendSpinProtocol.MessageType.STREAM_REQUEST_FORMAT)
+            put("payload", buildJsonObject {
+                put("player", buildJsonObject {
+                    if (codec != null) put("codec", codec)
+                    if (sampleRate != null) put("sample_rate", sampleRate)
+                    if (channels != null) put("channels", channels)
+                    if (bitDepth != null) put("bit_depth", bitDepth)
                 })
             })
         }

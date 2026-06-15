@@ -44,6 +44,12 @@ abstract class SendSpinProtocolHandler(
     private var hasEverConverged: Boolean = false
     private var lastPublishedMute: Boolean = false
 
+    // True while the client's audio output is in use by an external system
+    // (e.g. another app holds audio focus). Overrides synchronized/error
+    // reporting until cleared. Per spec, the server reacts by parking this
+    // client in a solo group and ending its streams.
+    private var externalSourceActive: Boolean = false
+
     // Stream active tracking (mirrors CLI _stream_active)
     private var _streamActive = false
     private var _currentStreamConfig: StreamConfig? = null
@@ -52,6 +58,9 @@ abstract class SendSpinProtocolHandler(
     private var lastMetadata: TrackMetadata? = null
     private var lastPlaybackState: String? = null
     private var lastGroupInfo: GroupInfo? = null
+
+    // Merged controller (group-level) state from server/state deltas.
+    private var currentControllerState: ControllerState? = null
 
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
@@ -151,6 +160,13 @@ abstract class SendSpinProtocolHandler(
     protected abstract fun onSyncOffsetApplied(offsetMs: Double, source: String)
 
     /**
+     * Called when the merged controller (group-level) state changes:
+     * supported_commands, group volume/mute, repeat, shuffle.
+     * Default no-op for handlers that don't surface controller state.
+     */
+    protected open fun onControllerStateUpdate(state: ControllerState) {}
+
+    /**
      * Called when the audio output should be silenced or unsilenced because
      * the client cannot maintain sync. Per Sendspin spec, clients in the
      * "error" state must mute their audio output and continue buffering
@@ -174,6 +190,11 @@ abstract class SendSpinProtocolHandler(
     protected abstract fun getSupportedFormats(): List<MessageBuilder.FormatEntry>
 
     /**
+     * Get the client app version reported in device_info.software_version.
+     */
+    protected abstract fun getSoftwareVersion(): String
+
+    /**
      * Send client/hello message to start handshake.
      *
      * Buffer capacity is computed from the format list and target duration
@@ -192,7 +213,8 @@ abstract class SendSpinProtocolHandler(
             deviceName = getDeviceName(),
             bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),
-            supportedFormats = formats
+            supportedFormats = formats,
+            softwareVersion = getSoftwareVersion()
         )
         sendTextMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
@@ -256,6 +278,34 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
+     * Report or clear the 'external_source' client state (spec: output is
+     * in use by an external system, e.g. another app holds audio focus).
+     *
+     * While active, [evaluateAndPublishSyncState] is suspended so the
+     * filter-derived synchronized/error states don't overwrite it. On
+     * clear, the state is recomputed from the time filter and republished.
+     *
+     * Safe to call from any thread.
+     */
+    fun setExternalSource(active: Boolean) {
+        val changed = synchronized(syncStateLock) {
+            if (externalSourceActive == active) return
+            externalSourceActive = active
+            if (active) {
+                currentSyncState = "external_source"
+            } else {
+                val filter = getTimeFilter()
+                currentSyncState = if (filter.isReady && filter.isConverged) "synchronized" else "error"
+            }
+            true
+        }
+        if (changed) {
+            Log.i(tag, "External source ${if (active) "active" else "cleared"}: state=$currentSyncState")
+            if (handshakeComplete) sendPlayerStateUpdate()
+        }
+    }
+
+    /**
      * Recompute the client's sync state from the time filter and publish
      * any change to the server and to the audio sink.
      *
@@ -269,6 +319,10 @@ abstract class SendSpinProtocolHandler(
      */
     fun evaluateAndPublishSyncState() {
         val muteChange: Boolean? = synchronized(syncStateLock) {
+            // While an external source owns the output, synchronized/error
+            // reporting (and its mute side effects) is suspended.
+            if (externalSourceActive) return
+
             val filter = getTimeFilter()
             val converged = filter.isReady && filter.isConverged
             if (converged) {
@@ -301,6 +355,7 @@ abstract class SendSpinProtocolHandler(
     fun resetSyncStateTracking() {
         val needsUnmute = synchronized(syncStateLock) {
             hasEverConverged = false
+            externalSourceActive = false
             currentSyncState = "error"
             if (lastPublishedMute) {
                 lastPublishedMute = false
@@ -315,10 +370,40 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
-     * Send a media command (play, pause, next, previous, switch).
+     * Send a controller command (play, pause, stop, next, previous, volume,
+     * mute, repeat_off, repeat_one, repeat_all, shuffle, unshuffle, switch).
+     *
+     * Per spec, commands should be one of the server's advertised
+     * supported_commands; once the server has told us its set, anything
+     * outside it is dropped (the server would ignore it anyway).
+     *
+     * @param volume only used when [command] is "volume"
+     * @param mute only used when [command] is "mute"
      */
-    fun sendCommand(command: String) {
-        sendTextMessage(MessageBuilder.buildCommand(command))
+    fun sendCommand(command: String, volume: Int? = null, mute: Boolean? = null) {
+        val supported = currentControllerState?.supportedCommands
+        if (supported != null && command !in supported) {
+            Log.w(tag, "Dropping controller command '$command': not in server supported_commands $supported")
+            return
+        }
+        sendTextMessage(MessageBuilder.buildCommand(command, volume, mute))
+    }
+
+    /**
+     * Request a different stream format from the server (spec
+     * stream/request-format). Omitted fields keep their current value.
+     * The server responds with stream/start, which flows through the
+     * normal format-change reconfiguration path.
+     */
+    fun requestStreamFormat(
+        codec: String? = null,
+        sampleRate: Int? = null,
+        channels: Int? = null,
+        bitDepth: Int? = null
+    ) {
+        if (!handshakeComplete) return
+        Log.i(tag, "Requesting stream format: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth")
+        sendTextMessage(MessageBuilder.buildStreamRequestFormat(codec, sampleRate, channels, bitDepth))
     }
 
     // ========== Player State Methods ==========
@@ -436,6 +521,7 @@ abstract class SendSpinProtocolHandler(
         lastMetadata = null
         lastPlaybackState = null
         lastGroupInfo = null
+        currentControllerState = null
 
         onHandshakeComplete(result.serverName, result.serverId)
 
@@ -453,7 +539,7 @@ abstract class SendSpinProtocolHandler(
     }
 
     protected fun handleServerState(payload: JsonObject?) {
-        val (metadata, state) = MessageParser.parseServerState(payload)
+        val (metadata, state, controllerDelta) = MessageParser.parseServerState(payload)
 
         if (metadata != null) {
             lastMetadata = metadata
@@ -463,6 +549,14 @@ abstract class SendSpinProtocolHandler(
         if (state != null && state != lastPlaybackState) {
             lastPlaybackState = state
             onPlaybackStateChanged(state)
+        }
+
+        if (controllerDelta != null) {
+            val merged = currentControllerState?.mergedWith(controllerDelta) ?: controllerDelta
+            if (merged != currentControllerState) {
+                currentControllerState = merged
+                onControllerStateUpdate(merged)
+            }
         }
     }
 
@@ -479,6 +573,15 @@ abstract class SendSpinProtocolHandler(
                 Log.d(tag, "Server command: set mute to ${result.muted}")
                 currentMuted = result.muted
                 onMuteCommand(result.muted)
+                sendPlayerStateUpdate()
+            }
+            is ServerCommandResult.SetStaticDelay -> {
+                Log.i(tag, "Server command: set static delay to ${result.delayMs}ms")
+                // Same application path as the client/sync_offset extension:
+                // a server-pushed correction on top of the auto-measured
+                // hardware latency.
+                getTimeFilter().setServerSyncOffsetMs(result.delayMs.toDouble())
+                onSyncOffsetApplied(result.delayMs.toDouble(), "server_command")
                 sendPlayerStateUpdate()
             }
             is ServerCommandResult.Unknown -> {
@@ -577,6 +680,12 @@ abstract class SendSpinProtocolHandler(
     private fun dispatchBinaryMessage(message: BinaryMessageParser.BinaryMessage) {
         when (message) {
             is BinaryMessageParser.BinaryMessage.Audio -> {
+                // Spec: binary messages should be rejected if there is no
+                // active stream (e.g. chunks in flight after stream/end).
+                if (!_streamActive) {
+                    Log.v(tag, "Dropping audio chunk: no active stream")
+                    return
+                }
                 onAudioChunk(message.timestampMicros, message.payload)
             }
             is BinaryMessageParser.BinaryMessage.Artwork -> {

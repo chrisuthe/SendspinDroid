@@ -145,8 +145,9 @@ android {
         // Used for Artist/Album detail screens (incremental migration)
         compose = true
 
-        // buildConfig = false (default in AGP 8.0+)
-        // Enable if you need BuildConfig.DEBUG or custom build config fields
+        // BuildConfig.VERSION_NAME is reported to SendSpin servers as
+        // device_info.software_version in the client/hello handshake.
+        buildConfig = true
     }
 
     // Enable android.jar method stubs to return defaults instead of throwing

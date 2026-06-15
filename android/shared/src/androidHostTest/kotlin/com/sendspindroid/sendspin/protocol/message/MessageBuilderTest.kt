@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -54,26 +55,31 @@ class MessageBuilderTest {
     @Test
     fun buildPlayerState_hasPlayerObjectWithFields() {
         val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(75, true, "error")).jsonObject
-        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        val payload = msg["payload"]!!.jsonObject
+        val player = payload["player"]!!.jsonObject
         assertEquals(75, player["volume"]?.jsonPrimitive?.int)
         assertTrue(player["muted"]?.jsonPrimitive?.boolean ?: false)
-        assertEquals("error", player["state"]?.jsonPrimitive?.content)
+        // Per spec, `state` is a top-level payload field, not part of the
+        // player object.
+        assertEquals("error", payload["state"]?.jsonPrimitive?.content)
+        assertNull("state must not be nested in player", player["state"])
     }
 
     @Test
     fun buildPlayerState_defaultSyncState() {
         val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
-        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
-        assertEquals("synchronized", player["state"]?.jsonPrimitive?.content)
+        val payload = msg["payload"]!!.jsonObject
+        assertEquals("synchronized", payload["state"]?.jsonPrimitive?.content)
     }
 
     @Test
-    fun buildPlayerState_includesStaticDelayMs() {
+    fun buildPlayerState_staticDelayMsRoundedToInt() {
+        // Spec: static_delay_ms is an integer.
         val msg = Json.parseToJsonElement(
             MessageBuilder.buildPlayerState(50, false, "synchronized", 12.5)
         ).jsonObject
         val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
-        assertEquals(12.5, player["static_delay_ms"]?.jsonPrimitive?.double ?: 0.0, 0.01)
+        assertEquals(13, player["static_delay_ms"]?.jsonPrimitive?.int)
     }
 
     @Test
@@ -82,7 +88,46 @@ class MessageBuilderTest {
             MessageBuilder.buildPlayerState(50, false)
         ).jsonObject
         val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
-        assertEquals(0.0, player["static_delay_ms"]?.jsonPrimitive?.double ?: -1.0, 0.01)
+        assertEquals(0, player["static_delay_ms"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun buildPlayerState_staticDelayMsClampedToSpecRange() {
+        // Spec: 0-5000, negative values not supported. A negative user sync
+        // offset is applied locally but reported as 0.
+        val negative = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false, "synchronized", -120.0)
+        ).jsonObject["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(0, negative["static_delay_ms"]?.jsonPrimitive?.int)
+
+        val huge = Json.parseToJsonElement(
+            MessageBuilder.buildPlayerState(50, false, "synchronized", 9999.0)
+        ).jsonObject["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(5000, huge["static_delay_ms"]?.jsonPrimitive?.int)
+    }
+
+    @Test
+    fun buildPlayerState_declaresSetStaticDelaySupport() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        val commands = player["supported_commands"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("set_static_delay"), commands)
+    }
+
+    @Test
+    fun buildPlayerState_includesRequiredTimingFields() {
+        // Spec: required_lead_time_ms and min_buffer_ms are always required
+        // for players.
+        val msg = Json.parseToJsonElement(MessageBuilder.buildPlayerState(50, false)).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals(
+            SendSpinProtocol.PlayerTiming.REQUIRED_LEAD_TIME_MS,
+            player["required_lead_time_ms"]?.jsonPrimitive?.int
+        )
+        assertEquals(
+            SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS,
+            player["min_buffer_ms"]?.jsonPrimitive?.int
+        )
     }
 
     // --- buildCommand ---
@@ -98,6 +143,60 @@ class MessageBuilderTest {
         val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("next")).jsonObject
         val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
         assertEquals("next", controller["command"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun buildCommand_volumeCommandIncludesVolume() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("volume", volume = 65)).jsonObject
+        val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
+        assertEquals("volume", controller["command"]?.jsonPrimitive?.content)
+        assertEquals(65, controller["volume"]?.jsonPrimitive?.int)
+        assertNull(controller["mute"])
+    }
+
+    @Test
+    fun buildCommand_muteCommandIncludesMute() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("mute", mute = true)).jsonObject
+        val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
+        assertEquals("mute", controller["command"]?.jsonPrimitive?.content)
+        assertEquals(true, controller["mute"]?.jsonPrimitive?.boolean)
+        assertNull(controller["volume"])
+    }
+
+    @Test
+    fun buildCommand_plainCommandOmitsOptionalParams() {
+        val msg = Json.parseToJsonElement(MessageBuilder.buildCommand("repeat_all")).jsonObject
+        val controller = msg["payload"]!!.jsonObject["controller"]!!.jsonObject
+        assertEquals("repeat_all", controller["command"]?.jsonPrimitive?.content)
+        assertNull(controller["volume"])
+        assertNull(controller["mute"])
+    }
+
+    // --- buildStreamRequestFormat ---
+
+    @Test
+    fun buildStreamRequestFormat_includesOnlyProvidedFields() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildStreamRequestFormat(codec = "flac")
+        ).jsonObject
+        assertEquals("stream/request-format", msg["type"]?.jsonPrimitive?.content)
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals("flac", player["codec"]?.jsonPrimitive?.content)
+        assertNull(player["sample_rate"])
+        assertNull(player["channels"])
+        assertNull(player["bit_depth"])
+    }
+
+    @Test
+    fun buildStreamRequestFormat_allFields() {
+        val msg = Json.parseToJsonElement(
+            MessageBuilder.buildStreamRequestFormat("pcm", 48000, 2, 24)
+        ).jsonObject
+        val player = msg["payload"]!!.jsonObject["player"]!!.jsonObject
+        assertEquals("pcm", player["codec"]?.jsonPrimitive?.content)
+        assertEquals(48000, player["sample_rate"]?.jsonPrimitive?.int)
+        assertEquals(2, player["channels"]?.jsonPrimitive?.int)
+        assertEquals(24, player["bit_depth"]?.jsonPrimitive?.int)
     }
 
     // --- buildSupportedFormats ---

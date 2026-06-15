@@ -282,6 +282,89 @@ class MessageParserTest {
         assertEquals("stopped", state)
     }
 
+    @Test
+    fun parseServerState_controllerObject_parsesAllFields() {
+        val payload = buildJsonObject {
+            put("controller", buildJsonObject {
+                put("supported_commands", buildJsonArray {
+                    add(JsonPrimitive("play"))
+                    add(JsonPrimitive("pause"))
+                    add(JsonPrimitive("volume"))
+                })
+                put("volume", 60)
+                put("muted", false)
+                put("repeat", "all")
+                put("shuffle", true)
+            })
+        }
+        val result = MessageParser.parseServerState(payload)
+
+        assertNotNull(result.controller)
+        val controller = result.controller!!
+        assertEquals(listOf("play", "pause", "volume"), controller.supportedCommands)
+        assertEquals(60, controller.volume)
+        assertEquals(false, controller.muted)
+        assertEquals("all", controller.repeat)
+        assertEquals(true, controller.shuffle)
+    }
+
+    @Test
+    fun parseServerState_noController_returnsNullController() {
+        val payload = buildJsonObject {
+            put("state", "playing")
+        }
+        assertNull(MessageParser.parseServerState(payload).controller)
+    }
+
+    @Test
+    fun parseServerState_partialControllerDelta_leavesAbsentFieldsNull() {
+        val payload = buildJsonObject {
+            put("controller", buildJsonObject {
+                put("volume", 42)
+            })
+        }
+        val controller = MessageParser.parseServerState(payload).controller
+
+        assertNotNull(controller)
+        assertEquals(42, controller!!.volume)
+        assertNull(controller.supportedCommands)
+        assertNull(controller.muted)
+        assertNull(controller.repeat)
+        assertNull(controller.shuffle)
+    }
+
+    @Test
+    fun parseServerCommand_setStaticDelay_returnsResult() {
+        val payload = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "set_static_delay")
+                put("static_delay_ms", 150)
+            })
+        }
+        val result = MessageParser.parseServerCommand(payload)
+        assertTrue(result is ServerCommandResult.SetStaticDelay)
+        assertEquals(150, (result as ServerCommandResult.SetStaticDelay).delayMs)
+    }
+
+    @Test
+    fun parseServerCommand_setStaticDelayOutOfRange_returnsNull() {
+        val tooBig = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "set_static_delay")
+                put("static_delay_ms", 6000)
+            })
+        }
+        assertNull(MessageParser.parseServerCommand(tooBig))
+
+        val negative = buildJsonObject {
+            put("player", buildJsonObject {
+                put("command", "set_static_delay")
+                put("static_delay_ms", -1)
+            })
+        }
+        assertNull(MessageParser.parseServerCommand(negative))
+    }
+
     // --- parseServerCommand ---
 
     @Test

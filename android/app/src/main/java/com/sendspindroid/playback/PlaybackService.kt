@@ -262,6 +262,22 @@ class PlaybackService : MediaLibraryService() {
         }
     }
 
+    // BroadcastReceiver for preferred codec changes from settings: ask the
+    // server to switch the live stream via stream/request-format instead of
+    // waiting for the next connect. The server replies with stream/start,
+    // which flows through the normal format-change reconfiguration path.
+    private val preferredCodecReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val codec = intent.getStringExtra(SettingsViewModel.EXTRA_PREFERRED_CODEC) ?: return
+            if (!AudioDecoderFactory.isCodecSupported(codec)) {
+                Log.w(TAG, "Preferred codec changed to unsupported '$codec' - not requesting")
+                return
+            }
+            Log.i(TAG, "Preferred codec changed: $codec - requesting live format change")
+            sendSpinClient?.requestStreamFormat(codec = codec)
+        }
+    }
+
     // Flag to prevent callbacks from executing after service is destroyed
     @Volatile
     private var isDestroyed = false
@@ -635,6 +651,12 @@ class PlaybackService : MediaLibraryService() {
         LocalBroadcastManager.getInstance(this).registerReceiver(
             highPowerModeReceiver,
             IntentFilter(SettingsViewModel.ACTION_HIGH_POWER_MODE_CHANGED)
+        )
+
+        // Register receiver for preferred codec changes from settings
+        LocalBroadcastManager.getInstance(this).registerReceiver(
+            preferredCodecReceiver,
+            IntentFilter(SettingsViewModel.ACTION_PREFERRED_CODEC_CHANGED)
         )
 
         // Initialize Coil ImageLoader for artwork fetching (skip in low memory mode)
@@ -2451,6 +2473,10 @@ class PlaybackService : MediaLibraryService() {
         val result = am.requestAudioFocus(audioFocusRequest!!)
         hasAudioFocus = (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
         Log.d(TAG, "Audio focus requested: ${if (hasAudioFocus) "granted" else "denied"}")
+        if (hasAudioFocus) {
+            // We own the output again: clear any 'external_source' report.
+            sendSpinClient?.setExternalSource(false)
+        }
     }
 
     /**
@@ -2481,9 +2507,13 @@ class PlaybackService : MediaLibraryService() {
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
                 Log.d(TAG, "Audio focus lost permanently")
-                // Another app took focus permanently - pause playback
+                // Another app took focus permanently - pause playback and
+                // report 'external_source' per spec. The server parks this
+                // client in a solo group and ends its streams; pressing play
+                // in our UI re-requests focus, which clears the state.
                 hasAudioFocus = false
                 syncAudioPlayer?.pause()
+                sendSpinClient?.setExternalSource(true)
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 Log.d(TAG, "Audio focus lost transiently")
@@ -4041,6 +4071,7 @@ class PlaybackService : MediaLibraryService() {
 
         // Unregister High Power Mode receiver and release locks
         LocalBroadcastManager.getInstance(this).unregisterReceiver(highPowerModeReceiver)
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(preferredCodecReceiver)
         releaseHighPowerLocks()
 
         // Unregister volume observer (only if it was registered)
