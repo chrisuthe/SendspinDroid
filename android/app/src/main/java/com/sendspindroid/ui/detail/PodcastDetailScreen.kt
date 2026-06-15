@@ -57,13 +57,14 @@ fun PodcastDetailScreen(
     podcastImageUri: String? = null,
     podcastPublisher: String? = null,
     totalEpisodes: Int = 0,
+    providerInstanceId: String = "library",
     viewModel: PodcastDetailViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val pullToRefreshState = rememberPullToRefreshState()
 
-    LaunchedEffect(podcastId) {
-        viewModel.loadPodcast(podcastId)
+    LaunchedEffect(podcastId, providerInstanceId) {
+        viewModel.loadPodcast(podcastId, providerInstanceId)
     }
 
     // Update podcast info from navigation params

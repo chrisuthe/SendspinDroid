@@ -48,12 +48,14 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * Back navigation is handled by the Activity toolbar.
  *
  * @param artistId The MA artist item_id to display
+ * @param provider The provider instance ID (e.g., "library", "spotify")
  * @param onAlbumClick Called when an album in the discography is tapped
  * @param viewModel The ViewModel managing artist state
  */
 @Composable
 fun ArtistDetailScreen(
     artistId: String,
+    provider: String = "library",
     onAlbumClick: (MaAlbum) -> Unit,
     onAddToPlaylist: (MaTrack) -> Unit = {},
     onAddArtistToPlaylist: () -> Unit = {},
@@ -61,8 +63,8 @@ fun ArtistDetailScreen(
     viewModel: ArtistDetailViewModel = viewModel()
 ) {
     // Load artist when screen is first shown
-    LaunchedEffect(artistId) {
-        viewModel.loadArtist(artistId)
+    LaunchedEffect(artistId, provider) {
+        viewModel.loadArtist(artistId, provider)
     }
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()

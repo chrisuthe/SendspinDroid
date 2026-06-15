@@ -206,6 +206,8 @@
     <string name="pref_auto_start_summary_off">Disabled. When enabled, connects to the default server automatically on device boot.</string>
     <string name="pref_auto_start_summary_on">Connects to %1$s automatically on device boot.</string>
     <string name="pref_auto_start_no_default">Set a default server first (long-press a server in the server list).</string>
+    <string name="pref_search_library_only_title">Search Local Library Only</string>
+    <string name="pref_search_library_only_summary">When enabled, search results show only content from your local music library.</string>
 
     <!-- Debug logging -->
     <string name="pref_category_debug">Debug</string>

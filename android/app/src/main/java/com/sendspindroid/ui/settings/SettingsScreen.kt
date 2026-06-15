@@ -85,6 +85,7 @@ fun SettingsScreen(
     val lowMemoryMode by viewModel.lowMemoryMode.collectAsStateWithLifecycle()
     val highPowerMode by viewModel.highPowerMode.collectAsStateWithLifecycle()
     val autoStartOnBoot by viewModel.autoStartOnBoot.collectAsStateWithLifecycle()
+    val searchLibraryOnly by viewModel.searchLibraryOnly.collectAsStateWithLifecycle()
     val hasDefaultServer by viewModel.hasDefaultServer.collectAsStateWithLifecycle()
     val defaultServerName by viewModel.defaultServerName.collectAsStateWithLifecycle()
     val batteryOptExempt by viewModel.batteryOptExempt.collectAsStateWithLifecycle()
@@ -232,6 +233,13 @@ fun SettingsScreen(
                         viewModel.setAutoStartOnBoot(it)
                     }
                 }
+            )
+
+            SwitchPreference(
+                title = stringResource(R.string.pref_search_library_only_title),
+                summary = stringResource(R.string.pref_search_library_only_summary),
+                checked = searchLibraryOnly,
+                onCheckedChange = { viewModel.setSearchLibraryOnly(it) }
             )
 
             // Debug Category

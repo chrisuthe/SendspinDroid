@@ -343,6 +343,76 @@ class MaCommandClientMediaParsingTest {
     }
 
     // ========================================================================
+    // Provider extraction (online-provider search results, issue #160)
+    // ========================================================================
+
+    @Test
+    fun `parseAlbumsArray reads explicit provider field`() {
+        val array = Json.parseToJsonElement(
+            """[{"item_id": "a1", "name": "Album", "provider": "spotify"}]"""
+        ).jsonArray
+        assertEquals("spotify", client.parseAlbumsArray(array)[0].provider)
+    }
+
+    @Test
+    fun `parseAlbumsArray falls back to first provider_mapping`() {
+        val array = Json.parseToJsonElement("""
+        [{
+            "item_id": "a1", "name": "Album",
+            "provider_mappings": [{"provider_domain": "ytmusic"}, {"provider_domain": "spotify"}]
+        }]
+        """).jsonArray
+        assertEquals("ytmusic", client.parseAlbumsArray(array)[0].provider)
+    }
+
+    @Test
+    fun `parseAlbumsArray defaults provider to library`() {
+        val array = Json.parseToJsonElement(
+            """[{"item_id": "a1", "name": "Album"}]"""
+        ).jsonArray
+        assertEquals("library", client.parseAlbumsArray(array)[0].provider)
+    }
+
+    @Test
+    fun `parseArtistsArray reads provider from provider_mappings`() {
+        val array = Json.parseToJsonElement(
+            """[{"item_id": "art1", "name": "Artist", "provider_mappings": [{"provider_domain": "spotify"}]}]"""
+        ).jsonArray
+        assertEquals("spotify", client.parseArtistsArray(array)[0].provider)
+    }
+
+    @Test
+    fun `parseArtistsArray defaults provider to library`() {
+        val array = Json.parseToJsonElement(
+            """[{"item_id": "art1", "name": "Artist"}]"""
+        ).jsonArray
+        assertEquals("library", client.parseArtistsArray(array)[0].provider)
+    }
+
+    @Test
+    fun `parseAudiobookFromResult uses requested provider when response omits it`() {
+        // The fix: a single-item get response that omits provider info must
+        // still carry the provider the item was fetched from, so chapter
+        // drill-down targets the right provider rather than "library".
+        val response = parseJson("""{"result": {"item_id": "ab1", "name": "Book"}}""")
+        assertEquals("audible", client.parseAudiobookFromResult(response, "audible")!!.provider)
+    }
+
+    @Test
+    fun `parseAudiobookFromResult prefers provider on the item over the fallback`() {
+        val response = parseJson(
+            """{"result": {"item_id": "ab1", "name": "Book", "provider": "audible"}}"""
+        )
+        assertEquals("audible", client.parseAudiobookFromResult(response, "library")!!.provider)
+    }
+
+    @Test
+    fun `parseAudiobookFromResult defaults to library without provider info`() {
+        val response = parseJson("""{"result": {"item_id": "ab1", "name": "Book"}}""")
+        assertEquals("library", client.parseAudiobookFromResult(response)!!.provider)
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 

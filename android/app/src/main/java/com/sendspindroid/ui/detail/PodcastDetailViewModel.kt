@@ -65,6 +65,7 @@ class PodcastDetailViewModel : ViewModel() {
     val uiState: StateFlow<PodcastDetailUiState> = _uiState.asStateFlow()
 
     private var currentPodcastId: String? = null
+    private var currentProviderInstanceId: String = "library"
 
     companion object {
         private const val TAG = "PodcastDetailVM"
@@ -72,20 +73,24 @@ class PodcastDetailViewModel : ViewModel() {
 
     /**
      * Load podcast details and episodes for the given podcast ID.
+     *
+     * @param podcastId The MA podcast item_id
+     * @param providerInstanceId The provider instance ID (e.g., "library", "spotify")
      */
-    fun loadPodcast(podcastId: String) {
-        // Don't reload if same podcast
-        if (podcastId == currentPodcastId && _uiState.value is PodcastDetailUiState.Success) {
+    fun loadPodcast(podcastId: String, providerInstanceId: String = "library") {
+        // Don't reload if same podcast and provider
+        if (podcastId == currentPodcastId && providerInstanceId == currentProviderInstanceId && _uiState.value is PodcastDetailUiState.Success) {
             return
         }
 
         currentPodcastId = podcastId
+        currentProviderInstanceId = providerInstanceId
         _uiState.value = PodcastDetailUiState.Loading
 
         viewModelScope.launch {
-            Log.d(TAG, "Loading podcast details: $podcastId")
+            Log.d(TAG, "Loading podcast details: $podcastId from provider: $providerInstanceId")
 
-            val episodesResult = MusicAssistant.getPodcastEpisodes(podcastId)
+            val episodesResult = MusicAssistant.getPodcastEpisodes(podcastId, providerInstanceId)
 
             when {
                 episodesResult.isFailure -> {
@@ -108,7 +113,8 @@ class PodcastDetailViewModel : ViewModel() {
                             imageUri = episodes.firstOrNull()?.imageUri,
                             uri = "library://podcast/$podcastId",
                             publisher = null,
-                            totalEpisodes = episodes.size
+                            totalEpisodes = episodes.size,
+                            provider = providerInstanceId
                         ),
                         episodes = episodes
                     )

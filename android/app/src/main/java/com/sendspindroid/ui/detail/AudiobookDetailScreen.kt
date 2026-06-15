@@ -66,13 +66,14 @@ fun AudiobookDetailScreen(
     audiobookName: String = "",
     audiobookImageUri: String? = null,
     audiobookAuthor: String? = null,
+    providerInstanceId: String = "library",
     viewModel: AudiobookDetailViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val pullToRefreshState = rememberPullToRefreshState()
 
-    LaunchedEffect(audiobookId) {
-        viewModel.loadAudiobook(audiobookId)
+    LaunchedEffect(audiobookId, providerInstanceId) {
+        viewModel.loadAudiobook(audiobookId, providerInstanceId)
     }
 
     // Update audiobook info from navigation params

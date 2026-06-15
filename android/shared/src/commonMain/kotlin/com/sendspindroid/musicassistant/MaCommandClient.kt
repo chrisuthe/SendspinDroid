@@ -505,13 +505,16 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get a single playlist by ID.
+     * 
+     * @param playlistId The playlist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getPlaylist(playlistId: String): Result<MaPlaylist> {
+    suspend fun getPlaylist(playlistId: String, providerInstanceId: String = "library"): Result<MaPlaylist> {
         return try {
-            Log.d(TAG, "Fetching playlist: $playlistId")
+            Log.d(TAG, "Fetching playlist: $playlistId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/playlists/get",
-                mapOf("item_id" to playlistId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to playlistId, "provider_instance_id_or_domain" to providerInstanceId)
             )
             val item = response.optJsonObject("result")
                 ?: return Result.failure(Exception("Playlist not found"))
@@ -534,7 +537,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 imageUri = imageUri,
                 trackCount = trackCount,
                 owner = owner,
-                uri = uri
+                uri = uri,
+                provider = providerInstanceId
             )
             Log.d(TAG, "Got playlist: ${playlist.name}")
             Result.success(playlist)
@@ -546,13 +550,16 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get tracks in a playlist.
+     * 
+     * @param playlistId The playlist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getPlaylistTracks(playlistId: String): Result<List<MaTrack>> {
+    suspend fun getPlaylistTracks(playlistId: String, providerInstanceId: String = "library"): Result<List<MaTrack>> {
         return try {
-            Log.d(TAG, "Fetching playlist tracks for: $playlistId")
+            Log.d(TAG, "Fetching playlist tracks for: $playlistId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/playlists/playlist_tracks",
-                mapOf("item_id" to playlistId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to playlistId, "provider_instance_id_or_domain" to providerInstanceId)
             )
             val tracks = parseAlbumTracks(response.optJsonArray("result"))
             Log.d(TAG, "Got ${tracks.size} tracks for playlist $playlistId")
@@ -671,15 +678,18 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get a single album by ID.
+     * 
+     * @param albumId The album ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getAlbum(albumId: String): Result<MaAlbum> {
+    suspend fun getAlbum(albumId: String, providerInstanceId: String = "library"): Result<MaAlbum> {
         return try {
-            Log.d(TAG, "Fetching album: $albumId")
+            Log.d(TAG, "Fetching album: $albumId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/albums/get",
-                mapOf("item_id" to albumId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to albumId, "provider_instance_id_or_domain" to providerInstanceId)
             )
-            val album = parseAlbumFromResult(response)
+            val album = parseAlbumFromResult(response, providerInstanceId)
                 ?: return Result.failure(Exception("Album not found"))
             Log.d(TAG, "Got album: ${album.name}")
             Result.success(album)
@@ -691,15 +701,18 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get tracks for an album.
+     * 
+     * @param albumId The album ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getAlbumTracks(albumId: String): Result<List<MaTrack>> {
+    suspend fun getAlbumTracks(albumId: String, providerInstanceId: String = "library"): Result<List<MaTrack>> {
         return try {
-            Log.d(TAG, "Fetching album tracks for: $albumId")
+            Log.d(TAG, "Fetching album tracks for: $albumId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/albums/album_tracks",
                 mapOf(
                     "item_id" to albumId,
-                    "provider_instance_id_or_domain" to "library",
+                    "provider_instance_id_or_domain" to providerInstanceId,
                     "in_library_only" to false
                 )
             )
@@ -743,15 +756,18 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get a single artist by ID.
+     * 
+     * @param artistId The artist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getArtist(artistId: String): Result<MaArtist> {
+    suspend fun getArtist(artistId: String, providerInstanceId: String = "library"): Result<MaArtist> {
         return try {
-            Log.d(TAG, "Fetching artist: $artistId")
+            Log.d(TAG, "Fetching artist: $artistId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/artists/get",
-                mapOf("item_id" to artistId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to artistId, "provider_instance_id_or_domain" to providerInstanceId)
             )
-            val artist = parseArtistFromResult(response)
+            val artist = parseArtistFromResult(response, providerInstanceId)
                 ?: return Result.failure(Exception("Artist not found"))
             Log.d(TAG, "Got artist: ${artist.name}")
             Result.success(artist)
@@ -763,23 +779,26 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get complete artist details including top tracks and discography.
+     * 
+     * @param artistId The artist ID
+     * @param providerInstanceId The provider instance ID or domain (default: "library")
      */
-    suspend fun getArtistDetails(artistId: String): Result<ArtistDetails> {
+    suspend fun getArtistDetails(artistId: String, providerInstanceId: String = "library"): Result<ArtistDetails> {
         return try {
-            Log.d(TAG, "Fetching artist details for: $artistId")
+            Log.d(TAG, "Fetching artist details for: $artistId from provider: $providerInstanceId")
 
             val artistResponse = sendCommand(
                 "music/artists/get",
-                mapOf("item_id" to artistId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to artistId, "provider_instance_id_or_domain" to providerInstanceId)
             )
-            val artist = parseArtistFromResult(artistResponse)
+            val artist = parseArtistFromResult(artistResponse, providerInstanceId)
                 ?: return Result.failure(Exception("Artist not found"))
 
             val tracksResponse = sendCommand(
                 "music/artists/artist_tracks",
                 mapOf(
                     "item_id" to artistId,
-                    "provider_instance_id_or_domain" to "library",
+                    "provider_instance_id_or_domain" to providerInstanceId,
                     "in_library_only" to false
                 )
             )
@@ -789,7 +808,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 "music/artists/artist_albums",
                 mapOf(
                     "item_id" to artistId,
-                    "provider_instance_id_or_domain" to "library",
+                    "provider_instance_id_or_domain" to providerInstanceId,
                     "in_library_only" to false
                 )
             )
@@ -867,13 +886,16 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
     /**
      * Get podcast episodes.
+     *
+     * @param podcastId The MA podcast item_id
+     * @param providerInstanceId The provider instance ID (e.g., "library", "spotify")
      */
-    suspend fun getPodcastEpisodes(podcastId: String): Result<List<MaPodcastEpisode>> {
+    suspend fun getPodcastEpisodes(podcastId: String, providerInstanceId: String = "library"): Result<List<MaPodcastEpisode>> {
         return try {
-            Log.d(TAG, "Fetching podcast episodes for: $podcastId")
+            Log.d(TAG, "Fetching podcast episodes for: $podcastId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/podcasts/podcast_episodes",
-                mapOf("item_id" to podcastId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to podcastId, "provider_instance_id_or_domain" to providerInstanceId)
             )
             val episodes = parsePodcastEpisodes(response)
             Log.d(TAG, "Got ${episodes.size} episodes for podcast $podcastId")
@@ -910,14 +932,14 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     /**
      * Get a single audiobook by ID.
      */
-    suspend fun getAudiobook(audiobookId: String): Result<MaAudiobook> {
+    suspend fun getAudiobook(audiobookId: String, providerInstanceId: String = "library"): Result<MaAudiobook> {
         return try {
-            Log.d(TAG, "Fetching audiobook: $audiobookId")
+            Log.d(TAG, "Fetching audiobook: $audiobookId from provider: $providerInstanceId")
             val response = sendCommand(
                 "music/audiobooks/get",
-                mapOf("item_id" to audiobookId, "provider_instance_id_or_domain" to "library")
+                mapOf("item_id" to audiobookId, "provider_instance_id_or_domain" to providerInstanceId)
             )
-            val audiobook = parseAudiobookFromResult(response)
+            val audiobook = parseAudiobookFromResult(response, providerInstanceId)
                 ?: return Result.failure(Exception("Audiobook not found"))
             Log.d(TAG, "Got audiobook: ${audiobook.name}")
             Result.success(audiobook)
@@ -1309,6 +1331,22 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         return ""
     }
 
+    /**
+     * Extract item ID from a URI when item_id is not provided by API.
+     * Handles formats like:
+     * - "spotify://album/ALBUMID" -> "ALBUMID"
+     * - "spotify://playlist/PLAYLISTID" -> "PLAYLISTID"
+     * - "spotify://artist/ARTISTID" -> "ARTISTID"
+     */
+    private fun extractIdFromUri(uri: String): String {
+        if (uri.isEmpty()) return ""
+        
+        // Format: "provider://type/ID" or "provider://type/ID/..."
+        val parts = uri.split("/")
+        // parts[0] = "spotify:", parts[1] = "", parts[2] = "album", parts[3] = "ID", ...
+        return if (parts.size >= 4) parts[3] else ""
+    }
+
     internal fun parseTracksArray(array: JsonArray?): List<MaTrack> {
         if (array == null) return emptyList()
         val tracks = mutableListOf<MaTrack>()
@@ -1391,7 +1429,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
             val albumId = item.optString("item_id")
                 .ifEmpty { item.optString("album_id") }
-                .ifEmpty { item.optString("uri") }
+                .ifEmpty { 
+                    // If no item_id, try to extract from URI (e.g., "spotify://album/MPREb_vVxj6mSH57Q" -> "MPREb_vVxj6mSH57Q")
+                    extractIdFromUri(item.optString("uri"))
+                }
 
             if (albumId.isEmpty()) continue
 
@@ -1405,6 +1446,12 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             val year = item.optInt("year", 0).takeIf { it > 0 }
             val trackCount = item.optInt("track_count", 0).takeIf { it > 0 }
             val albumType = item.optString("album_type").ifEmpty { null }
+            val provider = item.optString("provider").ifEmpty {
+                val mappings = item.optJsonArray("provider_mappings")
+                if (mappings != null && mappings.size > 0) {
+                    (mappings[0] as? JsonObject)?.optString("provider_domain") ?: "library"
+                } else "library"
+            }
 
             albums.add(MaAlbum(
                 albumId = albumId,
@@ -1414,14 +1461,15 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 artist = artist.ifEmpty { null },
                 year = year,
                 trackCount = trackCount,
-                albumType = albumType
+                albumType = albumType,
+                provider = provider
             ))
         }
 
         return albums
     }
 
-    internal fun parseAlbumFromResult(response: JsonObject): MaAlbum? {
+    internal fun parseAlbumFromResult(response: JsonObject, provider: String = "library"): MaAlbum? {
         val item = response.optJsonObject("result") ?: return null
 
         val albumId = item.optString("item_id")
@@ -1434,7 +1482,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         val artist = extractArtistName(item)
 
         val imageUri = extractImageUri(item).ifEmpty { null }
-        val uri = item.optString("uri").ifEmpty { "library://album/$albumId" }
+        val uri = item.optString("uri").ifEmpty { "$provider://album/$albumId" }
         val year = item.optInt("year", 0).takeIf { it > 0 }
         val trackCount = item.optInt("track_count", 0).takeIf { it > 0 }
         val albumType = item.optString("album_type").ifEmpty { null }
@@ -1447,7 +1495,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             artist = artist.ifEmpty { null },
             year = year,
             trackCount = trackCount,
-            albumType = albumType
+            albumType = albumType,
+            provider = provider
         )
     }
 
@@ -1472,7 +1521,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
             val artistId = item.optString("item_id")
                 .ifEmpty { item.optString("artist_id") }
-                .ifEmpty { item.optString("uri") }
+                .ifEmpty { 
+                    // If no item_id, try to extract from URI
+                    extractIdFromUri(item.optString("uri"))
+                }
 
             if (artistId.isEmpty()) continue
 
@@ -1481,19 +1533,26 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
             val imageUri = extractImageUri(item).ifEmpty { null }
             val uri = item.optString("uri").ifEmpty { "library://artist/$artistId" }
+            val provider = item.optString("provider").ifEmpty {
+                val mappings = item.optJsonArray("provider_mappings")
+                if (mappings != null && mappings.size > 0) {
+                    (mappings[0] as? JsonObject)?.optString("provider_domain") ?: "library"
+                } else "library"
+            }
 
             artists.add(MaArtist(
                 artistId = artistId,
                 name = name,
                 imageUri = imageUri,
-                uri = uri
+                uri = uri,
+                provider = provider
             ))
         }
 
         return artists
     }
 
-    internal fun parseArtistFromResult(response: JsonObject): MaArtist? {
+    internal fun parseArtistFromResult(response: JsonObject, provider: String = "library"): MaArtist? {
         val item = response.optJsonObject("result") ?: return null
 
         val artistId = item.optString("item_id")
@@ -1504,13 +1563,14 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         if (name.isEmpty()) return null
 
         val imageUri = extractImageUri(item).ifEmpty { null }
-        val uri = item.optString("uri").ifEmpty { "library://artist/$artistId" }
+        val uri = item.optString("uri").ifEmpty { "$provider://artist/$artistId" }
 
         return MaArtist(
             artistId = artistId,
             name = name,
             imageUri = imageUri,
-            uri = uri
+            uri = uri,
+            provider = provider
         )
     }
 
@@ -1535,7 +1595,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
             val playlistId = item.optString("item_id")
                 .ifEmpty { item.optString("playlist_id") }
-                .ifEmpty { item.optString("uri") }
+                .ifEmpty { 
+                    // If no item_id, try to extract from URI
+                    extractIdFromUri(item.optString("uri"))
+                }
 
             if (playlistId.isEmpty()) continue
 
@@ -1546,6 +1609,12 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             val trackCount = item.optInt("track_count", 0)
             val owner = item.optString("owner").ifEmpty { null }
             val uri = item.optString("uri").ifEmpty { null }
+            val provider = item.optString("provider").ifEmpty {
+                val mappings = item.optJsonArray("provider_mappings")
+                if (mappings != null && mappings.size > 0) {
+                    (mappings[0] as? JsonObject)?.optString("provider_domain") ?: "library"
+                } else "library"
+            }
 
             playlists.add(MaPlaylist(
                 playlistId = playlistId,
@@ -1553,7 +1622,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 imageUri = imageUri,
                 trackCount = trackCount,
                 owner = owner,
-                uri = uri
+                uri = uri,
+                provider = provider
             ))
         }
 
@@ -1581,7 +1651,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
 
             val radioId = item.optString("item_id")
                 .ifEmpty { item.optString("radio_id") }
-                .ifEmpty { item.optString("uri") }
+                .ifEmpty { 
+                    // If no item_id, try to extract from URI
+                    extractIdFromUri(item.optString("uri"))
+                }
 
             if (radioId.isEmpty()) continue
 
@@ -1640,6 +1713,12 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             val uri = item.optString("uri").ifEmpty { "library://podcast/$podcastId" }
             val publisher = item.optString("publisher").ifEmpty { null }
             val totalEpisodes = item.optInt("total_episodes", 0)
+            val providerInstanceId = item.optString("provider").ifEmpty {
+                val mappings = item.optJsonArray("provider_mappings")
+                if (mappings != null && mappings.size > 0) {
+                    (mappings[0] as? JsonObject)?.optString("provider_domain") ?: ""
+                } else ""
+            }
 
             podcasts.add(MaPodcast(
                 podcastId = podcastId,
@@ -1647,7 +1726,8 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
                 imageUri = imageUri,
                 uri = uri,
                 publisher = publisher,
-                totalEpisodes = totalEpisodes
+                totalEpisodes = totalEpisodes,
+                provider = providerInstanceId.ifEmpty { "library" }
             ))
         }
 
@@ -1719,7 +1799,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         return audiobooks
     }
 
-    private fun parseAudiobookItem(item: JsonObject): MaAudiobook? {
+    private fun parseAudiobookItem(item: JsonObject, providerFallback: String = "library"): MaAudiobook? {
         val audiobookId = item.optString("item_id")
             .ifEmpty { item.optString("uri") }
 
@@ -1735,6 +1815,12 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         val fullyPlayed = if (item.has("fully_played")) item.optBoolean("fully_played") else null
         val resumePositionMs = if (item.has("resume_position_ms")) item.optLong("resume_position_ms", 0) else null
 
+        val providerInstanceId = item.optString("provider").ifEmpty {
+            val mappings = item.optJsonArray("provider_mappings")
+            if (mappings != null && mappings.size > 0) {
+                (mappings[0] as? JsonObject)?.optString("provider_domain") ?: ""
+            } else ""
+        }
         val authors = parseStringList(item.optJsonArray("authors"))
         val narrators = parseStringList(item.optJsonArray("narrators"))
         val chapters = parseChapters(item.optJsonObject("metadata"))
@@ -1744,6 +1830,10 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             name = name,
             imageUri = imageUri,
             uri = uri,
+            // Prefer the provider declared on the item; fall back to the
+            // provider the item was requested from (e.g. when a single-item
+            // `get` response omits provider info), then to "library".
+            provider = providerInstanceId.ifEmpty { providerFallback },
             authors = authors,
             narrators = narrators,
             publisher = publisher,
@@ -1754,9 +1844,9 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
         )
     }
 
-    internal fun parseAudiobookFromResult(response: JsonObject): MaAudiobook? {
+    internal fun parseAudiobookFromResult(response: JsonObject, provider: String = "library"): MaAudiobook? {
         val item = response.optJsonObject("result") ?: return null
-        return parseAudiobookItem(item)
+        return parseAudiobookItem(item, providerFallback = provider)
     }
 
     private fun parseStringList(array: JsonArray?): List<String> {
@@ -1850,7 +1940,7 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
             albums = parseAlbumsArray(result.optJsonArray("albums")),
             tracks = parseTracksArray(result.optJsonArray("tracks")),
             playlists = parsePlaylistsArray(result.optJsonArray("playlists")),
-            radios = parseRadiosArray(result.optJsonArray("radios")),
+            radios = parseRadiosArray(result.optJsonArray("radio")),
             podcasts = parsePodcastsArray(result.optJsonArray("podcasts")),
             audiobooks = parseAudiobooksArray(result.optJsonArray("audiobooks"))
         )

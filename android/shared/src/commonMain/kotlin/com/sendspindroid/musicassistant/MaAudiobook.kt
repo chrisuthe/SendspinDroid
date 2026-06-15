@@ -14,6 +14,7 @@ data class MaAudiobook(
     override val name: String,
     override val imageUri: String?,
     override val uri: String?,
+    val provider: String = "library",
     val authors: List<String> = emptyList(),
     val narrators: List<String> = emptyList(),
     val publisher: String? = null,

@@ -3355,16 +3355,13 @@ class PlaybackService : MediaLibraryService() {
             MEDIA_ID_MA_RADIO -> getMaRadioStations()
             else -> when {
                 parentId.startsWith(MEDIA_ID_MA_PLAYLIST_PREFIX) -> {
-                    val playlistId = parentId.removePrefix(MEDIA_ID_MA_PLAYLIST_PREFIX)
-                    getMaPlaylistTracks(playlistId)
+                    getMaPlaylistTracks(parentId)
                 }
                 parentId.startsWith(MEDIA_ID_MA_ALBUM_PREFIX) -> {
-                    val albumId = parentId.removePrefix(MEDIA_ID_MA_ALBUM_PREFIX)
-                    getMaAlbumTracks(albumId)
+                    getMaAlbumTracks(parentId)
                 }
                 parentId.startsWith(MEDIA_ID_MA_ARTIST_PREFIX) -> {
-                    val artistId = parentId.removePrefix(MEDIA_ID_MA_ARTIST_PREFIX)
-                    getMaArtistAlbums(artistId)
+                    getMaArtistAlbums(parentId)
                 }
                 else -> {
                     Log.w(TAG, "Unknown parentId for MA children: $parentId")
@@ -3462,8 +3459,10 @@ class PlaybackService : MediaLibraryService() {
 
     private fun createMaPlaylistItem(playlist: MaPlaylist): MediaItem {
         val subtitle = if (playlist.trackCount > 0) "${playlist.trackCount} tracks" else null
+        // Encode provider in mediaId as: ma_playlist_ID~PROVIDER
+        val mediaId = "$MEDIA_ID_MA_PLAYLIST_PREFIX${MaMediaId.encode(playlist.playlistId, playlist.provider)}"
         return MediaItem.Builder()
-            .setMediaId("$MEDIA_ID_MA_PLAYLIST_PREFIX${playlist.playlistId}")
+            .setMediaId(mediaId)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(playlist.name)
@@ -3487,8 +3486,10 @@ class PlaybackService : MediaLibraryService() {
                 append(it)
             }
         }.ifEmpty { null }
+        // Encode provider in mediaId as: ma_album_ID~PROVIDER
+        val mediaId = "$MEDIA_ID_MA_ALBUM_PREFIX${MaMediaId.encode(album.albumId, album.provider)}"
         return MediaItem.Builder()
-            .setMediaId("$MEDIA_ID_MA_ALBUM_PREFIX${album.albumId}")
+            .setMediaId(mediaId)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(album.name)
@@ -3509,8 +3510,10 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun createMaArtistItem(artist: MaArtist): MediaItem {
+        // Encode provider in mediaId as: ma_artist_ID~PROVIDER
+        val mediaId = "$MEDIA_ID_MA_ARTIST_PREFIX${MaMediaId.encode(artist.artistId, artist.provider)}"
         return MediaItem.Builder()
-            .setMediaId("$MEDIA_ID_MA_ARTIST_PREFIX${artist.artistId}")
+            .setMediaId(mediaId)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(artist.name)
@@ -3610,36 +3613,51 @@ class PlaybackService : MediaLibraryService() {
     // Music Assistant Drill-Down Methods (suspend)
     // ========================================================================
 
-    private suspend fun getMaPlaylistTracks(playlistId: String): List<MediaItem> {
-        maPlaylistTracksCache[playlistId]
+    private suspend fun getMaPlaylistTracks(parentId: String): List<MediaItem> {
+        // Parse parentId: "ma_playlist_ID~PROVIDER" or fallback to "ma_playlist_ID"
+        val (actualPlaylistId, provider) =
+            MaMediaId.decode(parentId.removePrefix(MEDIA_ID_MA_PLAYLIST_PREFIX))
+
+        val cacheKey = MaMediaId.encode(actualPlaylistId, provider)
+        maPlaylistTracksCache[cacheKey]
             ?.takeUnless { it.expired(MA_DETAIL_CACHE_TTL_MS) }
             ?.let { return it.data }
 
-        val result = MusicAssistant.getPlaylistTracks(playlistId)
+        val result = MusicAssistant.getPlaylistTracks(actualPlaylistId, provider)
         val items = result.getOrNull()?.map { createMaTrackItem(it) } ?: emptyList()
-        maPlaylistTracksCache[playlistId] = CacheEntry(items)
+        maPlaylistTracksCache[cacheKey] = CacheEntry(items)
         return items
     }
 
-    private suspend fun getMaAlbumTracks(albumId: String): List<MediaItem> {
-        maAlbumTracksCache[albumId]
+    private suspend fun getMaAlbumTracks(parentId: String): List<MediaItem> {
+        // Parse parentId: "ma_album_ID~PROVIDER" or fallback to "ma_album_ID"
+        val (actualAlbumId, provider) =
+            MaMediaId.decode(parentId.removePrefix(MEDIA_ID_MA_ALBUM_PREFIX))
+
+        val cacheKey = MaMediaId.encode(actualAlbumId, provider)
+        maAlbumTracksCache[cacheKey]
             ?.takeUnless { it.expired(MA_DETAIL_CACHE_TTL_MS) }
             ?.let { return it.data }
 
-        val result = MusicAssistant.getAlbumTracks(albumId)
+        val result = MusicAssistant.getAlbumTracks(actualAlbumId, provider)
         val items = result.getOrNull()?.map { createMaTrackItem(it) } ?: emptyList()
-        maAlbumTracksCache[albumId] = CacheEntry(items)
+        maAlbumTracksCache[cacheKey] = CacheEntry(items)
         return items
     }
 
-    private suspend fun getMaArtistAlbums(artistId: String): List<MediaItem> {
-        maArtistAlbumsCache[artistId]
+    private suspend fun getMaArtistAlbums(parentId: String): List<MediaItem> {
+        // Parse parentId: "ma_artist_ID~PROVIDER" or fallback to "ma_artist_ID"
+        val (actualArtistId, provider) =
+            MaMediaId.decode(parentId.removePrefix(MEDIA_ID_MA_ARTIST_PREFIX))
+
+        val cacheKey = MaMediaId.encode(actualArtistId, provider)
+        maArtistAlbumsCache[cacheKey]
             ?.takeUnless { it.expired(MA_DETAIL_CACHE_TTL_MS) }
             ?.let { return it.data }
 
-        val result = MusicAssistant.getArtistDetails(artistId)
+        val result = MusicAssistant.getArtistDetails(actualArtistId, provider)
         val items = result.getOrNull()?.albums?.map { createMaAlbumItem(it) } ?: emptyList()
-        maArtistAlbumsCache[artistId] = CacheEntry(items)
+        maArtistAlbumsCache[cacheKey] = CacheEntry(items)
         return items
     }
 
@@ -3821,14 +3839,18 @@ class PlaybackService : MediaLibraryService() {
                         MusicAssistant.playMedia(uri, mediaType = "radio")
                     }
                     mediaId.startsWith(MEDIA_ID_MA_PLAYLIST_PREFIX) -> {
-                        val playlistId = mediaId.removePrefix(MEDIA_ID_MA_PLAYLIST_PREFIX)
-                        val uri = "library://playlist/$playlistId"
+                        // Parse mediaId: "ma_playlist_ID~PROVIDER" or fallback to "ma_playlist_ID"
+                        val (playlistId, provider) =
+                            MaMediaId.decode(mediaId.removePrefix(MEDIA_ID_MA_PLAYLIST_PREFIX))
+                        val uri = "$provider://playlist/$playlistId"
                         Log.d(TAG, "MA: Playing playlist uri=$uri")
                         MusicAssistant.playMedia(uri, mediaType = "playlist")
                     }
                     mediaId.startsWith(MEDIA_ID_MA_ALBUM_PREFIX) -> {
-                        val albumId = mediaId.removePrefix(MEDIA_ID_MA_ALBUM_PREFIX)
-                        val uri = "library://album/$albumId"
+                        // Parse mediaId: "ma_album_ID~PROVIDER" or fallback to "ma_album_ID"
+                        val (albumId, provider) =
+                            MaMediaId.decode(mediaId.removePrefix(MEDIA_ID_MA_ALBUM_PREFIX))
+                        val uri = "$provider://album/$albumId"
                         Log.d(TAG, "MA: Playing album uri=$uri")
                         MusicAssistant.playMedia(uri, mediaType = "album")
                     }
