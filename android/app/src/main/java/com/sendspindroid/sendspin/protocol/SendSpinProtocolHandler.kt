@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.protocol
 
 import android.util.Log
+import com.sendspindroid.sendspin.AdaptiveBufferPolicy
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
@@ -64,6 +65,14 @@ abstract class SendSpinProtocolHandler(
 
     // Time sync manager (lazy initialized by subclass)
     protected var timeSyncManager: TimeSyncManager? = null
+
+    // Adaptive jitter-buffer policy: learns the min_buffer_ms to report from live
+    // RTT/jitter/sync-quality, instead of a fixed value. Driven from the time-sync
+    // measurement callback. Guarded by [adaptiveBufferLock] because the callback
+    // can fire from either the burst-loop or the receive thread.
+    private val adaptiveBuffer = AdaptiveBufferPolicy()
+    private val adaptiveBufferLock = Any()
+    private var lastReportedMinBufferMs = adaptiveBuffer.currentTargetMs
 
     // ========== Abstract Transport Methods ==========
 
@@ -241,7 +250,44 @@ abstract class SendSpinProtocolHandler(
      */
     protected fun sendPlayerStateUpdate() {
         val delayMs = getTimeFilter().staticDelayMs
-        sendTextMessage(MessageBuilder.buildPlayerState(currentVolume, currentMuted, currentSyncState, delayMs))
+        val minBufferMs = synchronized(adaptiveBufferLock) {
+            lastReportedMinBufferMs = adaptiveBuffer.currentTargetMs
+            adaptiveBuffer.currentTargetMs
+        }
+        sendTextMessage(
+            MessageBuilder.buildPlayerState(
+                currentVolume, currentMuted, currentSyncState, delayMs,
+                minBufferMs = minBufferMs
+            )
+        )
+    }
+
+    /**
+     * Feed one time-sync measurement into the adaptive buffer policy and, if the
+     * learned `min_buffer_ms` target shifted, report it (debounced by the policy's
+     * own grow/shrink cooldowns). Also re-evaluates sync state, preserving the
+     * previous [onMeasurementApplied] behavior.
+     */
+    private fun onTimeMeasurement(rttMicros: Long) {
+        val filter = getTimeFilter()
+        val quality = when {
+            filter.isReady && filter.isConverged -> AdaptiveBufferPolicy.SyncQuality.GOOD
+            filter.isReady -> AdaptiveBufferPolicy.SyncQuality.DEGRADED
+            else -> AdaptiveBufferPolicy.SyncQuality.LOST
+        }
+        val changed = synchronized(adaptiveBufferLock) {
+            adaptiveBuffer.update(
+                nowMs = android.os.SystemClock.elapsedRealtime(),
+                rttMs = rttMicros / 1000.0,
+                quality = quality
+            )
+            adaptiveBuffer.currentTargetMs != lastReportedMinBufferMs
+        }
+        evaluateAndPublishSyncState()
+        if (changed && handshakeComplete) {
+            Log.d(tag, "Adaptive min_buffer_ms -> ${adaptiveBuffer.currentTargetMs}")
+            sendPlayerStateUpdate()
+        }
     }
 
     /**
@@ -467,7 +513,7 @@ abstract class SendSpinProtocolHandler(
         timeSyncManager = TimeSyncManager(
             timeFilter = timeFilter,
             sendClientTime = { sendClientTime() },
-            onMeasurementApplied = { evaluateAndPublishSyncState() },
+            onMeasurementApplied = { rttMicros -> onTimeMeasurement(rttMicros) },
             tag = tag
         )
     }

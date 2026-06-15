@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 class TimeSyncManager(
     private val timeFilter: SendspinTimeFilter,
     private val sendClientTime: () -> Unit,
-    private val onMeasurementApplied: () -> Unit = {},
+    private val onMeasurementApplied: (rttMicros: Long) -> Unit = {},
     private val tag: String = "TimeSyncManager"
 ) {
     companion object {
@@ -132,7 +132,7 @@ class TimeSyncManager(
             Log.v(tag, "Time sync: offset=${timeFilter.offsetMicros}μs, error=${timeFilter.errorMicros}μs")
         }
 
-        onMeasurementApplied()
+        onMeasurementApplied(measurement.rtt)
         return false
     }
 
@@ -160,6 +160,7 @@ class TimeSyncManager(
     }
 
     private fun processBurstResults() {
+        var bestRttMicros = 0L
         synchronized(pendingBurstMeasurements) {
             burstInProgress = false
 
@@ -176,6 +177,7 @@ class TimeSyncManager(
             }
 
             val best = validMeasurements.minByOrNull { it.rtt }!!
+            bestRttMicros = best.rtt
 
             val maxError = computeMaxError(best.rtt)
 
@@ -197,7 +199,7 @@ class TimeSyncManager(
 
             pendingBurstMeasurements.clear()
         }
-        onMeasurementApplied()
+        onMeasurementApplied(bestRttMicros)
     }
 
     private fun computeMaxError(rtt: Long): Long = (rtt / 2L).coerceAtLeast(1L)
