@@ -407,6 +407,12 @@ class PlaybackService : MediaLibraryService() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus: Boolean = false
 
+    // Receiver for ACTION_AUDIO_BECOMING_NOISY: fired when the audio output is
+    // rerouting to the built-in speaker because an external output disconnected
+    // (wired headphones unplugged, Bluetooth/Android Auto disconnected). We pause
+    // local playback so we don't abruptly blast the phone speaker.
+    private var becomingNoisyReceiver: BroadcastReceiver? = null
+
     companion object {
         private const val TAG = "PlaybackService"
 
@@ -975,6 +981,9 @@ class PlaybackService : MediaLibraryService() {
 
         // Initialize AudioManager for device volume control
         initializeVolumeControl()
+
+        // Pause local playback when the audio output device disconnects.
+        registerBecomingNoisyReceiver()
     }
 
     /**
@@ -2526,6 +2535,48 @@ class PlaybackService : MediaLibraryService() {
                 // since ducking would desync volume with other clients
             }
         }
+    }
+
+    /**
+     * Register a receiver for ACTION_AUDIO_BECOMING_NOISY so we pause when the
+     * audio output device disconnects. Idempotent.
+     */
+    private fun registerBecomingNoisyReceiver() {
+        if (becomingNoisyReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                    handleBecomingNoisy()
+                }
+            }
+        }
+        becomingNoisyReceiver = receiver
+        // System-protected broadcast; not exported (constant value is inert on
+        // API < 33, the 3-arg overload exists since API 26).
+        registerReceiver(
+            receiver,
+            IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+            Context.RECEIVER_NOT_EXPORTED
+        )
+        Log.d(TAG, "Registered ACTION_AUDIO_BECOMING_NOISY receiver")
+    }
+
+    /**
+     * Handles ACTION_AUDIO_BECOMING_NOISY: the audio output is rerouting to the
+     * built-in speaker because an external output disconnected (wired headphones
+     * unplugged, Bluetooth/Android Auto disconnected). Pause local playback so we
+     * don't abruptly blast the phone speaker, matching standard media-app
+     * behavior. Pausing is local-only (we do not pause the MA group) so other
+     * grouped speakers keep playing.
+     *
+     * ACTION_AUDIO_BECOMING_NOISY is fired once by the system per transition, so
+     * it is inherently single-fire -- unlike AudioDeviceCallback.onAudioDevicesRemoved,
+     * which can fire several times for one Bluetooth device (A2DP + SCO) and
+     * would need debouncing.
+     */
+    private fun handleBecomingNoisy() {
+        Log.i(TAG, "Audio becoming noisy (output disconnected) - pausing local playback")
+        syncAudioPlayer?.pause()
     }
 
     /**
@@ -4095,6 +4146,12 @@ class PlaybackService : MediaLibraryService() {
         LocalBroadcastManager.getInstance(this).unregisterReceiver(highPowerModeReceiver)
         LocalBroadcastManager.getInstance(this).unregisterReceiver(preferredCodecReceiver)
         releaseHighPowerLocks()
+
+        // Unregister the becoming-noisy receiver (system broadcast)
+        becomingNoisyReceiver?.let {
+            runCatching { unregisterReceiver(it) }
+            becomingNoisyReceiver = null
+        }
 
         // Unregister volume observer (only if it was registered)
         if (volumeObserverRegistered) {
