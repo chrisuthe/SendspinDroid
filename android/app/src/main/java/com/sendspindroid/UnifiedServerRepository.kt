@@ -274,6 +274,35 @@ object UnifiedServerRepository {
                 current + server
             }
         }
+        // Keep any matching saved server's stored address current (DHCP resilience).
+        refreshSavedServerAddress(name, address)
+    }
+
+    /**
+     * Keep a saved server's stored local address current when the server is seen
+     * via mDNS at a different address (e.g. after a DHCP lease change). Matches a
+     * saved server by [name] and updates its local address only if it differs.
+     *
+     * This keeps auto-connect resilient to the server's IP changing: the reported
+     * bug (#158) was auto-connect dialing a stale stored address while the server
+     * was reachable, and discoverable, at a new one.
+     *
+     * @return true if a saved server's address was updated.
+     */
+    fun refreshSavedServerAddress(name: String, address: String): Boolean {
+        ensurePersistedDataLoaded()
+        val current = _savedServers.value.toMutableList()
+        val index = current.indexOfFirst {
+            it.name == name && it.local != null && it.local!!.address != address
+        }
+        if (index < 0) return false
+        val server = current[index]
+        val oldAddress = server.local!!.address
+        current[index] = server.copy(local = server.local!!.copy(address = address))
+        _savedServers.value = current
+        persistServers()
+        Log.i(TAG, "Refreshed saved server '$name' address: $oldAddress -> $address (mDNS)")
+        return true
     }
 
     /**

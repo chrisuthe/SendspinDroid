@@ -271,6 +271,67 @@ class UnifiedServerRepositoryTest {
         assertEquals(0L, UnifiedServerRepository.savedServers.value[0].lastConnectedMs)
     }
 
+    // ========== refreshSavedServerAddress (mDNS DHCP resilience, #158) ==========
+
+    @Test
+    fun `refreshSavedServerAddress updates a matching saved server to the new address`() {
+        UnifiedServerRepository.saveServer(testServer("id-1", "Living Room", "192.168.1.50:8927"))
+
+        val changed = UnifiedServerRepository.refreshSavedServerAddress("Living Room", "192.168.1.60:8927")
+
+        assertTrue(changed)
+        assertEquals("192.168.1.60:8927", UnifiedServerRepository.getServer("id-1")?.local?.address)
+    }
+
+    @Test
+    fun `refreshSavedServerAddress is a no-op when the address is unchanged`() {
+        UnifiedServerRepository.saveServer(testServer("id-1", "Living Room", "192.168.1.50:8927"))
+
+        val changed = UnifiedServerRepository.refreshSavedServerAddress("Living Room", "192.168.1.50:8927")
+
+        assertFalse(changed)
+        assertEquals("192.168.1.50:8927", UnifiedServerRepository.getServer("id-1")?.local?.address)
+    }
+
+    @Test
+    fun `refreshSavedServerAddress ignores unknown server names`() {
+        UnifiedServerRepository.saveServer(testServer("id-1", "Living Room", "192.168.1.50:8927"))
+
+        val changed = UnifiedServerRepository.refreshSavedServerAddress("Kitchen", "192.168.1.99:8927")
+
+        assertFalse(changed)
+        assertEquals("192.168.1.50:8927", UnifiedServerRepository.getServer("id-1")?.local?.address)
+    }
+
+    @Test
+    fun `refreshSavedServerAddress preserves the server id, path and default flag`() {
+        UnifiedServerRepository.saveServer(
+            UnifiedServer(
+                id = "id-1",
+                name = "Living Room",
+                local = LocalConnection("192.168.1.50:8927", "/custom"),
+                isDefaultServer = true,
+            )
+        )
+
+        UnifiedServerRepository.refreshSavedServerAddress("Living Room", "192.168.1.60:8927")
+
+        val server = UnifiedServerRepository.getServer("id-1")!!
+        assertEquals("192.168.1.60:8927", server.local?.address)
+        assertEquals("/custom", server.local?.path)
+        assertTrue(server.isDefaultServer)
+    }
+
+    @Test
+    fun `addDiscoveredServer refreshes a matching saved server address`() {
+        UnifiedServerRepository.saveServer(testServer("id-1", "Living Room", "192.168.1.50:8927"))
+
+        // The same server reappears via mDNS at a new IP.
+        UnifiedServerRepository.addDiscoveredServer("Living Room", "192.168.1.60:8927")
+
+        assertEquals("192.168.1.60:8927", UnifiedServerRepository.getServer("id-1")?.local?.address)
+    }
+
     // ========== Helper ==========
 
     private fun testServer(id: String, name: String, address: String) = UnifiedServer(
