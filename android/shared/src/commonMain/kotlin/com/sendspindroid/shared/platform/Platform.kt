@@ -12,4 +12,7 @@ expect object Platform {
 
     /** Device manufacturer name */
     fun manufacturer(): String
+
+    /** Lowercase hex SHA-256 of the UTF-8 bytes of [input]. */
+    fun sha256Hex(input: String): String
 }

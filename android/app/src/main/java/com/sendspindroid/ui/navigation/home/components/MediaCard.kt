@@ -29,12 +29,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
@@ -81,7 +83,11 @@ fun MediaCard(
                     .aspectRatio(1f)
             ) {
                 AsyncImage(
-                    model = item.imageUri ?: R.drawable.placeholder_album,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.imageUri)
+                        .error(R.drawable.placeholder_album)
+                        .fallback(R.drawable.placeholder_album)
+                        .build(),
                     contentDescription = item.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier

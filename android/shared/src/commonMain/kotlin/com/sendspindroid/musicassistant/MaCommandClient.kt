@@ -16,7 +16,7 @@ import com.sendspindroid.musicassistant.transport.optJsonObject
 import com.sendspindroid.musicassistant.transport.optLong
 import com.sendspindroid.musicassistant.transport.optString
 import com.sendspindroid.shared.log.Log
-import io.ktor.http.encodeURLParameter
+import com.sendspindroid.shared.platform.Platform
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -54,6 +54,13 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
          * Matches MaProxyImageFetcher.SCHEME on Android.
          */
         const val IMAGE_PROXY_SCHEME = "ma-proxy"
+
+        /**
+         * Thumbnail size requested from MA's imageproxy. MA only accepts a fixed
+         * set of sizes ({0, 80, 160, 256, 512, 1024}); any other value is rejected
+         * with HTTP 400. 256 suits the browse/search grid thumbnails.
+         */
+        private const val IMAGE_PROXY_SIZE = 256
     }
 
     /**
@@ -2367,26 +2374,33 @@ class MaCommandClient(private val settings: MaSettingsProvider) {
     }
 
     /**
-     * Build imageproxy URL from an image object with path/provider fields.
+     * Build an image URL from an MA image object (`path` / `provider` /
+     * `remotely_accessible`).
+     *
+     * MA 2.x serves proxied images from the canonical path-style endpoint:
+     * ```
+     * {baseUrl}/imageproxy/{imageId}?size={size}&fmt=jpeg
+     * ```
+     * where `imageId = sha256("{provider}/{path}")` (MA's `create_thumb_hash`).
+     * The older query form (`?provider=&path=`) is the deprecated legacy endpoint
+     * and is rejected by MA 2.9+ with HTTP 400, so it must not be used.
+     *
+     * Remotely-accessible images already carry a reachable URL, so they are
+     * returned as-is rather than round-tripped through the proxy.
      */
     private fun buildImageProxyUrl(imageObj: JsonObject, baseUrl: String): String {
         val path = imageObj.optString("path")
-        val provider = imageObj.optString("provider")
-
         if (path.isEmpty() || baseUrl.isEmpty()) return ""
 
-        if (path.startsWith("http")) {
-            val encodedPath = path.encodeURLParameter()
-            return "$baseUrl/imageproxy?size=300&fmt=jpeg&path=$encodedPath" +
-                    if (provider.isNotEmpty()) "&provider=$provider" else ""
+        if (imageObj.optBoolean("remotely_accessible") && path.startsWith("http")) {
+            return path
         }
 
-        if (provider.isNotEmpty()) {
-            val encodedPath = path.encodeURLParameter()
-            return "$baseUrl/imageproxy?provider=$provider&size=300&fmt=jpeg&path=$encodedPath"
-        }
+        val provider = imageObj.optString("provider")
+        if (provider.isEmpty()) return ""
 
-        return ""
+        val imageId = Platform.sha256Hex("$provider/$path")
+        return "$baseUrl/imageproxy/$imageId?size=$IMAGE_PROXY_SIZE&fmt=jpeg"
     }
 
     /**
