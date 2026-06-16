@@ -100,16 +100,50 @@ class AppLogTest {
     }
 
     @Test
-    fun `preference migration - old false maps to OFF`() {
+    fun `lightweight migration - old false debug logging bumps to WARN once`() {
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
         val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
-        prefs.edit().putBoolean("debug_logging_enabled", false).commit()
-        prefs.edit().remove("log_level").commit()
+        prefs.edit()
+            .putBoolean("debug_logging_enabled", false)
+            .remove("log_level")
+            .remove("lightweight_logging_migrated")
+            .commit()
+
+        AppLog.init(ctx)
+
+        // Old OFF default is bumped to lightweight WARN so a first bug report isn't empty.
+        assertEquals(LogLevel.WARN, AppLog.level)
+        assertFalse(prefs.contains("debug_logging_enabled"))
+        assertTrue(prefs.getBoolean("lightweight_logging_migrated", false))
+    }
+
+    @Test
+    fun `lightweight migration - fresh install defaults to WARN`() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
+        prefs.edit()
+            .remove("log_level")
+            .remove("debug_logging_enabled")
+            .remove("lightweight_logging_migrated")
+            .commit()
+
+        AppLog.init(ctx)
+
+        assertEquals(LogLevel.WARN, AppLog.level)
+    }
+
+    @Test
+    fun `lightweight migration - deliberate OFF is preserved once migration has run`() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
+        prefs.edit()
+            .putString("log_level", "OFF")
+            .putBoolean("lightweight_logging_migrated", true)
+            .commit()
 
         AppLog.init(ctx)
 
         assertEquals(LogLevel.OFF, AppLog.level)
-        assertFalse(prefs.contains("debug_logging_enabled"))
     }
 
     @Test
