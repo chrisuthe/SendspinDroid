@@ -51,6 +51,7 @@ import com.sendspindroid.coordinator.ConnectionCoordinator
 import com.sendspindroid.coordinator.FailureReason
 import com.sendspindroid.coordinator.ReconnectStatus
 import com.sendspindroid.coordinator.TransportState
+import com.sendspindroid.diagnostics.HandoffEpisodeRecorder
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.model.PlaybackState
@@ -152,6 +153,10 @@ class PlaybackService : MediaLibraryService() {
     private val _currentServerFlow = MutableStateFlow<UnifiedServer?>(null)
 
     private lateinit var coordinator: ConnectionCoordinator
+
+    // Records network-handoff episodes (drop + reconnect attempts + outcome) from
+    // the coordinator's reconnect status, surfaced in getStats() / bug reports.
+    private val handoffRecorder = HandoffEpisodeRecorder()
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null
@@ -744,6 +749,7 @@ class PlaybackService : MediaLibraryService() {
         serviceScope.launch {
             coordinator.reconnectStatus.collect { status ->
                 _reconnectStatusRelay.value = status
+                recordHandoff(status)
             }
         }
 
@@ -3143,6 +3149,21 @@ class PlaybackService : MediaLibraryService() {
      * Collects current stats from SyncAudioPlayer and SendSpin.
      * Returns a Bundle containing all stats for Stats for Nerds display.
      */
+    /** Translate a coordinator reconnect status into a handoff-episode event. */
+    private fun recordHandoff(status: ReconnectStatus) {
+        val transport = coordinator.networkState.value.transportType.name
+        val methods = coordinator.sessionState.value.server?.configuredMethods?.map { it.name } ?: emptyList()
+        val playing = syncAudioPlayer?.getStats()?.isPlaying ?: false
+        val phase = when (status) {
+            is ReconnectStatus.Attempting -> HandoffEpisodeRecorder.Phase.ATTEMPTING
+            is ReconnectStatus.Succeeded -> HandoffEpisodeRecorder.Phase.SUCCEEDED
+            is ReconnectStatus.Failed -> HandoffEpisodeRecorder.Phase.FAILED
+            ReconnectStatus.Idle -> HandoffEpisodeRecorder.Phase.IDLE
+        }
+        val method = (status as? ReconnectStatus.Attempting)?.method?.name
+        handoffRecorder.onReconnect(phase, method, transport, methods, playing)
+    }
+
     private fun getStats(): Bundle {
         val bundle = Bundle()
 
@@ -3156,6 +3177,9 @@ class PlaybackService : MediaLibraryService() {
             bundle.putString("connection_state", "Disconnected")
             bundle.putString("audio_codec", "--")
         }
+
+        // Network-handoff episodes (drop + reconnect outcomes) for bug reports.
+        bundle.putString("handoff_episodes", handoffRecorder.summary())
 
         // Get stats from SyncAudioPlayer
         val audioStats = syncAudioPlayer?.getStats()
