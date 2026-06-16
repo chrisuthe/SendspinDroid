@@ -224,8 +224,46 @@ fun StatsContent(
         StatRow(stringResource(R.string.stats_reanchors), state.reanchorCount.toString(),
             if (state.reanchorCount > 0) ColorWarning else ColorGood)
 
+        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+        // === CONNECTION HEALTH (network-handoff episodes) ===
+        SectionHeader(stringResource(R.string.stats_section_connection_health))
+        val episodes = handoffEpisodeLines(state.handoffEpisodes)
+        if (episodes.isEmpty()) {
+            Text(
+                text = stringResource(R.string.stats_no_handoffs),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+        } else {
+            episodes.forEach { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = handoffLineColor(line),
+                    modifier = Modifier.padding(vertical = 4.dp),
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(32.dp))
     }
+}
+
+/** Episode lines from the recorder's summary, dropping its header / empty marker. */
+private fun handoffEpisodeLines(summary: String?): List<String> =
+    summary?.lineSequence()
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() && !it.startsWith("---") && !it.startsWith("(no ") }
+        ?.toList()
+        ?: emptyList()
+
+private fun handoffLineColor(line: String): Color = when {
+    line.contains("RECOVERED") -> ColorGood
+    line.contains("EXHAUSTED") -> ColorBad
+    else -> ColorWarning
 }
 
 @Composable
