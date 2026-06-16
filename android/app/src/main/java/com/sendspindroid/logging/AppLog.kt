@@ -164,6 +164,15 @@ object AppLog {
     fun clear() {
         writer?.clear()
     }
+
+    /**
+     * Synchronously append a crash record to the active log file. Used by
+     * [CrashHandler] on the dying process, so it bypasses the async [LogcatBridge]
+     * and the level gate to guarantee the trace is on disk before the process exits.
+     */
+    fun recordCrash(record: String) {
+        writer?.appendRaw("\n=== CRASH ===\n$record\n")
+    }
 }
 
 /**

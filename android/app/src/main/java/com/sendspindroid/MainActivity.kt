@@ -24,7 +24,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
+import com.sendspindroid.diagnostics.DiagnosticsExport
 import com.sendspindroid.logging.AppLog
+import com.sendspindroid.logging.CrashHandler
 import android.app.UiModeManager
 import android.annotation.TargetApi
 import android.graphics.RenderEffect
@@ -364,6 +366,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * If the previous run ended in an uncaught exception, show a gentle,
+     * dismissible Snackbar offering to share a (redacted) diagnostics report.
+     */
+    private fun maybeShowCrashReportPrompt() {
+        CrashHandler.consumePending(this) ?: return
+        Snackbar.make(snackbarView, R.string.crash_report_prompt, Snackbar.LENGTH_INDEFINITE)
+            .setAction(R.string.crash_report_action) { shareDiagnostics() }
+            .show()
+    }
+
+    /** Share the redacted diagnostics bundle via the system chooser. */
+    private fun shareDiagnostics() {
+        val intent = DiagnosticsExport.shareIntent(this)
+        if (intent != null) {
+            startActivity(Intent.createChooser(intent, getString(R.string.debug_share_chooser_title)))
+        } else {
+            Snackbar.make(snackbarView, R.string.debug_log_export_failed, Snackbar.LENGTH_LONG).show()
+        }
+    }
+
+    /**
      * Shows a success Snackbar with appropriate styling.
      *
      * @param message The success message to display
@@ -488,9 +511,7 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        // Initialize on-device logging facade. This also runs one-time pref migration from the
-        // legacy `debug_logging_enabled` flag to the new `log_level` string.
-        AppLog.init(this)
+        // Logging + crash capture are initialized in SendSpinApp.onCreate, before any Activity.
         AppLog.App.i("MainActivity onCreate (log level: ${AppLog.level})")
 
         // Initialize UnifiedServerRepository for unified server management
@@ -527,6 +548,9 @@ class MainActivity : AppCompatActivity() {
 
         // Show onboarding dialog for first-time users
         showOnboardingIfNeeded()
+
+        // If the previous run crashed, offer to send a report.
+        maybeShowCrashReportPrompt()
 
         // Request notification permission for Android 13+
         requestNotificationPermission()
