@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a problem with SendSpin Player
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The in-app **Settings → Report a problem** action pre-fills this form's
+        environment and shares a redacted diagnostics file. Please attach that file.
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the problem
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1.
+        2.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: App version, device, Android version, connection methods (auto-filled by the app).
+  - type: checkboxes
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      options:
+        - label: I've attached the redacted diagnostics file shared from the app.

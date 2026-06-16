@@ -156,9 +156,16 @@ object AppLog {
      * addresses, proxy URLs) the caller knows are sensitive but that aren't
      * pattern-matchable; they're scrubbed alongside the built-in IP/URL/token
      * patterns. See [RedactionFilter].
+     *
+     * [prepend] is an optional block (e.g. a diagnostic snapshot) written above
+     * the logs and redacted with the same filter.
      */
-    fun shareIntent(context: Context, sensitiveTerms: Collection<String> = emptyList()): Intent? =
-        writer?.shareIntent(context, RedactionFilter(sensitiveTerms))
+    fun shareIntent(
+        context: Context,
+        sensitiveTerms: Collection<String> = emptyList(),
+        prepend: String = "",
+    ): Intent? =
+        writer?.shareIntent(context, RedactionFilter(sensitiveTerms), prepend)
 
     /** Clear all rotated log files. */
     fun clear() {

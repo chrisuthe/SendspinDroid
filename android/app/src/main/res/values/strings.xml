@@ -227,6 +227,9 @@
     <string name="debug_share_chooser_title">Share Debug Log</string>
     <string name="debug_log_exported">Debug log exported</string>
     <string name="debug_log_export_failed">Failed to export debug log</string>
+    <string name="pref_report_problem_title">Report a problem</string>
+    <string name="pref_report_problem_summary">Share redacted diagnostics and open a GitHub issue</string>
+    <string name="report_chooser_title">Send bug report</string>
 
     <!-- Crash report prompt -->
     <string name="crash_report_prompt">SendSpin closed unexpectedly last time</string>

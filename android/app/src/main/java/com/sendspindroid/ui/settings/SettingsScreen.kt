@@ -64,6 +64,7 @@ import com.sendspindroid.ui.theme.SendSpinTheme
  * @param viewModel SettingsViewModel for state management
  * @param onNavigateBack Called when back navigation is triggered
  * @param onExportLogs Called when export logs is clicked
+ * @param onReportProblem Called when "Report a problem" is clicked
  * @param onRestartApp Called when app restart is confirmed
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,6 +73,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateBack: () -> Unit,
     onExportLogs: () -> Unit,
+    onReportProblem: () -> Unit,
     onRestartApp: () -> Unit
 ) {
     val playerName by viewModel.playerName.collectAsStateWithLifecycle()
@@ -293,6 +295,12 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            TextPreference(
+                title = stringResource(R.string.pref_report_problem_title),
+                summary = stringResource(R.string.pref_report_problem_summary),
+                onClick = onReportProblem
+            )
 
             TextPreference(
                 title = stringResource(R.string.pref_export_logs_title),

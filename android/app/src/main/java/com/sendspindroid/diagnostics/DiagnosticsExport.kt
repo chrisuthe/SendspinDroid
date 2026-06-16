@@ -27,4 +27,28 @@ object DiagnosticsExport {
 
     /** A redacted log share intent, or null when there's nothing to share. */
     fun shareIntent(context: Context): Intent? = AppLog.shareIntent(context, redactionTerms())
+
+    /**
+     * A bug-report share intent: the redacted logs plus a diagnostic [snapshot]
+     * (also redacted), with the share text carrying the non-sensitive environment
+     * block and a pre-filled GitHub issue link. Returns null when there's nothing
+     * to share.
+     */
+    fun reportIntent(context: Context, snapshot: String): Intent? {
+        val intent = AppLog.shareIntent(context, redactionTerms(), prepend = snapshot) ?: return null
+        val environment = DiagnosticsReport.environmentBlock(context)
+        intent.putExtra(Intent.EXTRA_SUBJECT, "SendSpin bug report")
+        intent.putExtra(
+            Intent.EXTRA_TEXT,
+            buildString {
+                appendLine("SendSpin diagnostics attached (redacted).")
+                appendLine()
+                appendLine(environment)
+                appendLine()
+                appendLine("File a GitHub issue and attach the file:")
+                append(DiagnosticsReport.githubIssueUrl(environment))
+            }
+        )
+        return intent
+    }
 }
