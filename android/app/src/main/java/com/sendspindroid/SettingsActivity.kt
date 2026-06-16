@@ -7,10 +7,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import com.sendspindroid.diagnostics.DiagnosticSnapshot
 import com.sendspindroid.diagnostics.DiagnosticsExport
 import com.sendspindroid.ui.settings.SettingsScreen
 import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.ui.theme.SendSpinTheme
+import kotlinx.coroutines.launch
 
 /**
  * Activity hosting the Compose-based settings screen.
@@ -33,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
                     viewModel = viewModel,
                     onNavigateBack = { finish() },
                     onExportLogs = { exportDebugLogs() },
+                    onReportProblem = { reportProblem() },
                     onRestartApp = { restartApp() }
                 )
             }
@@ -51,6 +55,29 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.debug_log_exported, Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, R.string.debug_log_export_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Capture a live diagnostic snapshot, bundle it with the redacted logs, and
+     * open the share sheet (the share text carries the environment + a pre-filled
+     * GitHub issue link). Snapshot capture is async, so this runs in a coroutine.
+     */
+    private fun reportProblem() {
+        lifecycleScope.launch {
+            val snapshot = DiagnosticSnapshot.capture(this@SettingsActivity)
+            val shareIntent = DiagnosticsExport.reportIntent(this@SettingsActivity, snapshot)
+            if (shareIntent != null) {
+                startActivity(
+                    Intent.createChooser(shareIntent, getString(R.string.report_chooser_title))
+                )
+            } else {
+                Toast.makeText(
+                    this@SettingsActivity,
+                    R.string.debug_log_export_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
