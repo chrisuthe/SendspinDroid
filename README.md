@@ -4,6 +4,8 @@
 
 A native Android client for [SendSpin](https://www.sendspin-audio.com/)
 
+Google Play Store: https://play.google.com/store/apps/details?id=com.sendspindroid 
+
 
 ## Features
 
@@ -132,4 +134,4 @@ SendSpin Player uses the following open-source libraries:
 | [Java-WebSocket](https://github.com/TooTallNate/Java-WebSocket) | MIT | Nathan Rajlich |
 | QR code scanning uses [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) | Apache 2.0 | |
 
-
+SendspinDroid IS NOT affiliated with or endorsed by Sendspin, Music Assistant or other Open Home Foundation projects directly, this is a standalone project.
