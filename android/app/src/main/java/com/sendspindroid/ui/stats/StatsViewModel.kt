@@ -184,6 +184,9 @@ class StatsViewModel(application: Application) : AndroidViewModel(application) {
             lastDisconnectReason = bundle.getString("last_disconnect_reason", null),
             timeFilterStability = bundle.getDouble("time_filter_stability", 1.0),
             timeFilterConvergenceMs = bundle.getLong("time_filter_convergence_ms", 0L),
+
+            // Connection health (handoff episodes)
+            handoffEpisodes = bundle.getString("handoff_episodes", null),
         )
     }
 
@@ -270,6 +273,9 @@ data class StatsState(
     val lastDisconnectReason: String? = null,
     val timeFilterStability: Double = 1.0,
     val timeFilterConvergenceMs: Long = 0L,
+
+    // Connection health: newline-delimited handoff-episode summary from the recorder.
+    val handoffEpisodes: String? = null,
 ) {
     // Derived values
     val syncErrorMs: Double get() = syncErrorUs / 1000.0
