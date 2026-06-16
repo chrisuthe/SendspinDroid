@@ -27,6 +27,10 @@ object AppLog {
 
     private const val PREF_LOG_LEVEL = "log_level"
     private const val PREF_LEGACY_DEBUG_LOGGING = "debug_logging_enabled"
+    private const val PREF_LIGHTWEIGHT_MIGRATED = "lightweight_logging_migrated"
+
+    /** Default for fresh installs / the one-time lightweight migration. */
+    private val DEFAULT_LEVEL = LogLevel.WARN
 
     @Volatile
     var level: LogLevel = LogLevel.OFF
@@ -86,17 +90,25 @@ object AppLog {
 
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         val stored = prefs.getString(PREF_LOG_LEVEL, null)
-        val resolved: LogLevel = when {
+        var resolved: LogLevel = when {
             stored != null -> runCatching { LogLevel.valueOf(stored) }.getOrDefault(LogLevel.OFF)
             prefs.contains(PREF_LEGACY_DEBUG_LOGGING) -> {
                 if (prefs.getBoolean(PREF_LEGACY_DEBUG_LOGGING, false)) LogLevel.DEBUG else LogLevel.OFF
             }
             else -> LogLevel.OFF
         }
+        // One-time migration to lightweight always-on logging: installs still sitting
+        // on the old OFF default are bumped to WARN once, so a first-occurrence bug
+        // report isn't empty. A user who deliberately picks OFF afterward is respected
+        // -- this runs a single time, guarded by PREF_LIGHTWEIGHT_MIGRATED.
+        if (!prefs.getBoolean(PREF_LIGHTWEIGHT_MIGRATED, false) && resolved == LogLevel.OFF) {
+            resolved = DEFAULT_LEVEL
+        }
         // Persist & strip legacy key regardless of which branch we took, so future runs skip this block.
         prefs.edit()
             .putString(PREF_LOG_LEVEL, resolved.name)
             .remove(PREF_LEGACY_DEBUG_LOGGING)
+            .putBoolean(PREF_LIGHTWEIGHT_MIGRATED, true)
             .apply()
 
         bridge?.stop()
@@ -137,8 +149,16 @@ object AppLog {
         return (totalBytes / 1024L) to files.size
     }
 
-    /** Create a share intent with a concatenated log file. */
-    fun shareIntent(context: Context): Intent? = writer?.shareIntent(context)
+    /**
+     * Create a share intent with a concatenated, **redacted** log file.
+     *
+     * [sensitiveTerms] are literal strings (saved/discovered server names, LAN
+     * addresses, proxy URLs) the caller knows are sensitive but that aren't
+     * pattern-matchable; they're scrubbed alongside the built-in IP/URL/token
+     * patterns. See [RedactionFilter].
+     */
+    fun shareIntent(context: Context, sensitiveTerms: Collection<String> = emptyList()): Intent? =
+        writer?.shareIntent(context, RedactionFilter(sensitiveTerms))
 
     /** Clear all rotated log files. */
     fun clear() {
