@@ -55,6 +55,7 @@ import android.net.Uri
 import androidx.compose.ui.platform.LocalContext
 import com.sendspindroid.R
 import com.sendspindroid.UserSettings
+import com.sendspindroid.diagnostics.Telemetry
 import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.ui.theme.SendSpinTheme
 
@@ -246,6 +247,25 @@ fun SettingsScreen(
 
             // Debug Category
             PreferenceCategory(title = stringResource(R.string.pref_category_debug))
+
+            // Anonymous, opt-in telemetry (off by default).
+            var telemetryEnabled by remember { mutableStateOf(Telemetry.isEnabled()) }
+            SwitchPreference(
+                title = stringResource(R.string.pref_telemetry_title),
+                summary = stringResource(R.string.pref_telemetry_summary),
+                checked = telemetryEnabled,
+                onCheckedChange = {
+                    telemetryEnabled = it
+                    Telemetry.setEnabled(it)
+                }
+            )
+            if (telemetryEnabled) {
+                TextPreference(
+                    title = stringResource(R.string.pref_telemetry_reset_title),
+                    summary = stringResource(R.string.pref_telemetry_reset_summary),
+                    onClick = { Telemetry.resetInstallId() }
+                )
+            }
 
             // Log level selector (6-option segmented row)
             val levels = listOf(
