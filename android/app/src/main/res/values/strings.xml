@@ -228,6 +228,10 @@
     <string name="debug_log_exported">Debug log exported</string>
     <string name="debug_log_export_failed">Failed to export debug log</string>
 
+    <!-- Crash report prompt -->
+    <string name="crash_report_prompt">SendSpin closed unexpectedly last time</string>
+    <string name="crash_report_action">Report</string>
+
     <!-- About -->
     <string name="pref_category_about">About</string>
     <string name="pref_version_title">Version</string>
