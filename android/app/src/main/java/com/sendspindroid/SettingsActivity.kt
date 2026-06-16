@@ -7,7 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import com.sendspindroid.logging.AppLog
+import com.sendspindroid.diagnostics.DiagnosticsExport
 import com.sendspindroid.ui.settings.SettingsScreen
 import com.sendspindroid.ui.settings.SettingsViewModel
 import com.sendspindroid.ui.theme.SendSpinTheme
@@ -40,7 +40,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun exportDebugLogs() {
-        val shareIntent = AppLog.shareIntent(this, collectRedactionTerms())
+        val shareIntent = DiagnosticsExport.shareIntent(this)
 
         if (shareIntent != null) {
             val chooserIntent = Intent.createChooser(
@@ -51,19 +51,6 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.debug_log_exported, Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(this, R.string.debug_log_export_failed, Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    /**
-     * Literal strings to scrub from exported logs: every known server's chosen
-     * name, LAN address, and proxy URL. (Remote IDs are identifiers, not secrets,
-     * so they're kept for debugging.)
-     */
-    private fun collectRedactionTerms(): List<String> {
-        val servers = UnifiedServerRepository.savedServers.value +
-            UnifiedServerRepository.discoveredServers.value
-        return servers.flatMap { server ->
-            listOfNotNull(server.name, server.local?.address, server.proxy?.url)
         }
     }
 
