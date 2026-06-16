@@ -29,11 +29,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
@@ -93,7 +95,11 @@ fun SearchResultItem(
     ) {
         // Thumbnail
         AsyncImage(
-            model = item.imageUri ?: R.drawable.placeholder_album,
+            model = ImageRequest.Builder(LocalContext.current)
+                .data(item.imageUri)
+                .error(R.drawable.placeholder_album)
+                .fallback(R.drawable.placeholder_album)
+                .build(),
             contentDescription = item.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier

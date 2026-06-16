@@ -1,5 +1,6 @@
 package com.sendspindroid.musicassistant
 
+import com.sendspindroid.shared.platform.Platform
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -104,11 +105,13 @@ class MaCommandClientImageTest {
         }
         """)
 
+        // Not remotely accessible -> MA canonical hashed imageproxy URL.
         val result = client.extractImageUri(json)
-        assertTrue(result.startsWith("http://192.168.1.100:8095/imageproxy"))
-        assertTrue(result.contains("provider=spotify"))
-        assertTrue(result.contains("size=300"))
-        assertTrue(result.contains("fmt=jpeg"))
+        val expectedId = Platform.sha256Hex("spotify/https://i.scdn.co/image/abc123")
+        assertEquals(
+            "http://192.168.1.100:8095/imageproxy/$expectedId?size=256&fmt=jpeg",
+            result
+        )
     }
 
     @Test
@@ -126,8 +129,11 @@ class MaCommandClientImageTest {
         """)
 
         val result = client.extractImageUri(json)
-        assertTrue(result.contains("/imageproxy"))
-        assertTrue(result.contains("provider=filesystem"))
+        val expectedId = Platform.sha256Hex("filesystem//music/cover.jpg")
+        assertEquals(
+            "http://192.168.1.100:8095/imageproxy/$expectedId?size=256&fmt=jpeg",
+            result
+        )
     }
 
     @Test
@@ -187,9 +193,9 @@ class MaCommandClientImageTest {
             "name": "Track",
             "metadata": {
                 "images": [
-                    {"path": "https://img.server.com/landscape.jpg", "provider": "url", "type": "landscape"},
-                    {"path": "https://img.server.com/thumb.jpg", "provider": "url", "type": "thumb"},
-                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "type": "banner"}
+                    {"path": "https://img.server.com/landscape.jpg", "provider": "url", "remotely_accessible": true, "type": "landscape"},
+                    {"path": "https://img.server.com/thumb.jpg", "provider": "url", "remotely_accessible": true, "type": "thumb"},
+                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "remotely_accessible": true, "type": "banner"}
                 ]
             }
         }
@@ -208,9 +214,9 @@ class MaCommandClientImageTest {
             "name": "Track",
             "metadata": {
                 "images": [
-                    {"path": "https://img.server.com/landscape.jpg", "provider": "url", "type": "landscape"},
-                    {"path": "https://img.server.com/cover.jpg", "provider": "url", "type": "cover"},
-                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "type": "banner"}
+                    {"path": "https://img.server.com/landscape.jpg", "provider": "url", "remotely_accessible": true, "type": "landscape"},
+                    {"path": "https://img.server.com/cover.jpg", "provider": "url", "remotely_accessible": true, "type": "cover"},
+                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "remotely_accessible": true, "type": "banner"}
                 ]
             }
         }
@@ -229,8 +235,8 @@ class MaCommandClientImageTest {
             "name": "Track",
             "metadata": {
                 "images": [
-                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "type": "banner"},
-                    {"path": "https://img.server.com/front.jpg", "provider": "url", "type": "front"}
+                    {"path": "https://img.server.com/banner.jpg", "provider": "url", "remotely_accessible": true, "type": "banner"},
+                    {"path": "https://img.server.com/front.jpg", "provider": "url", "remotely_accessible": true, "type": "front"}
                 ]
             }
         }
@@ -249,9 +255,9 @@ class MaCommandClientImageTest {
             "name": "Track",
             "metadata": {
                 "images": [
-                    {"path": "https://img.server.com/cover.jpg", "provider": "url", "type": "cover"},
-                    {"path": "https://img.server.com/front.jpg", "provider": "url", "type": "front"},
-                    {"path": "https://img.server.com/thumb.jpg", "provider": "url", "type": "thumb"}
+                    {"path": "https://img.server.com/cover.jpg", "provider": "url", "remotely_accessible": true, "type": "cover"},
+                    {"path": "https://img.server.com/front.jpg", "provider": "url", "remotely_accessible": true, "type": "front"},
+                    {"path": "https://img.server.com/thumb.jpg", "provider": "url", "remotely_accessible": true, "type": "thumb"}
                 ]
             }
         }
@@ -270,8 +276,8 @@ class MaCommandClientImageTest {
             "name": "Track",
             "metadata": {
                 "images": [
-                    {"path": "https://img.server.com/first.jpg", "provider": "url", "type": "landscape"},
-                    {"path": "https://img.server.com/second.jpg", "provider": "url", "type": "banner"}
+                    {"path": "https://img.server.com/first.jpg", "provider": "url", "remotely_accessible": true, "type": "landscape"},
+                    {"path": "https://img.server.com/second.jpg", "provider": "url", "remotely_accessible": true, "type": "banner"}
                 ]
             }
         }
@@ -291,8 +297,8 @@ class MaCommandClientImageTest {
             "name": "Track",
             "metadata": {
                 "images": [
-                    {"path": "", "provider": "url", "type": "thumb"},
-                    {"path": "https://img.server.com/valid.jpg", "provider": "url", "type": "banner"}
+                    {"path": "", "provider": "url", "remotely_accessible": true, "type": "thumb"},
+                    {"path": "https://img.server.com/valid.jpg", "provider": "url", "remotely_accessible": true, "type": "banner"}
                 ]
             }
         }
@@ -401,6 +407,56 @@ class MaCommandClientImageTest {
 
         val result = client.extractImageUri(json)
         assertTrue(result.startsWith("https://music.example.com/imageproxy"))
+    }
+
+    // ========================================================================
+    // extractImageUri — Canonical imageproxy format (MA 2.9+)
+    // ========================================================================
+
+    @Test
+    fun `extractImageUri returns remotely_accessible image path directly`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "image": {
+                "path": "https://i.scdn.co/image/abc123",
+                "provider": "spotify",
+                "remotely_accessible": true
+            }
+        }
+        """)
+
+        assertEquals("https://i.scdn.co/image/abc123", client.extractImageUri(json))
+    }
+
+    @Test
+    fun `extractImageUri uses canonical imageproxy path not legacy query form`() {
+        client.setTransport(null, "ws://192.168.1.100:8095/ws", false)
+
+        val json = parseJson("""
+        {
+            "name": "Track",
+            "image": {
+                "path": "Artist/Album/track.flac",
+                "provider": "filesystem_local--abc"
+            }
+        }
+        """)
+
+        val result = client.extractImageUri(json)
+        val expectedId = Platform.sha256Hex("filesystem_local--abc/Artist/Album/track.flac")
+        assertEquals(
+            "http://192.168.1.100:8095/imageproxy/$expectedId?size=256&fmt=jpeg",
+            result
+        )
+        // The legacy query form (?provider=&path=&size=300) is rejected by MA 2.9+ with HTTP 400.
+        assertFalse(result.contains("?provider="))
+        assertFalse(result.contains("&path="))
+        assertFalse(result.contains("size=300"))
+        // imageId must be 64 lowercase hex chars.
+        assertTrue(Regex("/imageproxy/[0-9a-f]{64}\\?").containsMatchIn(result))
     }
 
     // ========================================================================
