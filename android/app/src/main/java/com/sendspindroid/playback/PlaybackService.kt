@@ -52,6 +52,7 @@ import com.sendspindroid.coordinator.FailureReason
 import com.sendspindroid.coordinator.ReconnectStatus
 import com.sendspindroid.coordinator.TransportState
 import com.sendspindroid.diagnostics.HandoffEpisodeRecorder
+import com.sendspindroid.diagnostics.Telemetry
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.model.PlaybackState
@@ -155,8 +156,11 @@ class PlaybackService : MediaLibraryService() {
     private lateinit var coordinator: ConnectionCoordinator
 
     // Records network-handoff episodes (drop + reconnect attempts + outcome) from
-    // the coordinator's reconnect status, surfaced in getStats() / bug reports.
-    private val handoffRecorder = HandoffEpisodeRecorder()
+    // the coordinator's reconnect status, surfaced in getStats() / bug reports and
+    // submitted to opt-in telemetry as each episode closes.
+    private val handoffRecorder = HandoffEpisodeRecorder().apply {
+        onEpisodeClosed = { episode -> Telemetry.submit(episode) }
+    }
 
     // mDNS discovery for Android Auto browse tree
     private var browseDiscoveryManager: NsdDiscoveryManager? = null

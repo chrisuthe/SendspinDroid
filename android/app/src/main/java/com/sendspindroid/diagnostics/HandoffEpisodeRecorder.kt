@@ -29,6 +29,9 @@ class HandoffEpisodeRecorder(
     private val ring = ArrayDeque<HandoffEpisode>()
     private var open: OpenEpisode? = null
 
+    /** Invoked when an episode closes (used to feed opt-in telemetry upload). */
+    var onEpisodeClosed: ((HandoffEpisode) -> Unit)? = null
+
     @Synchronized
     fun onReconnect(
         phase: Phase,
@@ -59,21 +62,21 @@ class HandoffEpisodeRecorder(
 
     private fun close(outcome: HandoffEpisode.Outcome, toTransport: String, recoveredMethod: String?) {
         val ep = open ?: return
-        ring.addLast(
-            HandoffEpisode(
-                startTs = ep.startTs,
-                fromTransport = ep.fromTransport,
-                toTransport = toTransport,
-                wasPlaying = ep.wasPlaying,
-                configuredMethods = ep.configuredMethods,
-                attempts = ep.attempts.toList(),
-                outcome = outcome,
-                recoveredMethod = recoveredMethod,
-                recoveryMs = if (outcome == HandoffEpisode.Outcome.RECOVERED) clock() - ep.startTs else null,
-            )
+        val episode = HandoffEpisode(
+            startTs = ep.startTs,
+            fromTransport = ep.fromTransport,
+            toTransport = toTransport,
+            wasPlaying = ep.wasPlaying,
+            configuredMethods = ep.configuredMethods,
+            attempts = ep.attempts.toList(),
+            outcome = outcome,
+            recoveredMethod = recoveredMethod,
+            recoveryMs = if (outcome == HandoffEpisode.Outcome.RECOVERED) clock() - ep.startTs else null,
         )
+        ring.addLast(episode)
         while (ring.size > capacity) ring.removeFirst()
         open = null
+        onEpisodeClosed?.invoke(episode)
     }
 
     @Synchronized
