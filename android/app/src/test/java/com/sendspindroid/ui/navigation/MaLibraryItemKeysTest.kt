@@ -2,6 +2,8 @@ package com.sendspindroid.ui.navigation
 
 import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaArtist
+import com.sendspindroid.musicassistant.MaBrowseFolder
+import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -29,6 +31,9 @@ class MaLibraryItemKeysTest {
 
     private fun artist(id: String) =
         MaArtist(artistId = id, name = "Artist $id", imageUri = null, uri = null)
+
+    private fun folder(id: String, path: String) =
+        MaBrowseFolder(folderId = id, name = "Folder", imageUri = null, uri = null, path = path)
 
     @Test
     fun `key matches the format that crashed in the field`() {
@@ -66,5 +71,25 @@ class MaLibraryItemKeysTest {
         val items = listOf(album("1"), album("1"), album("2"), album("2"), album("2"))
         val keys = items.distinctByItemKey().map { maLibraryItemKey(it) }
         assertTrue(keys.size == keys.toSet().size)
+    }
+
+    @Test
+    fun `browse folder is keyed by path, not id`() {
+        // The browse UI keys and navigates by path; the key must match so de-dup
+        // and rendering agree. Same id + different path must NOT collide.
+        assertEquals("folder_/library/albums", maLibraryItemKey(folder("7", "/library/albums")))
+        val items = listOf(folder("7", "/a"), folder("7", "/b"))
+        assertEquals(2, items.distinctByItemKey().size)
+    }
+
+    @Test
+    fun `search results de-dup each type list independently`() {
+        val results = SearchResults(
+            artists = listOf(artist("1"), artist("1")),
+            albums = listOf(album("9"), album("9"), album("10")),
+        )
+        val deduped = results.distinctByItemKeys()
+        assertEquals(1, deduped.artists.size)
+        assertEquals(listOf("9", "10"), deduped.albums.map { it.id })
     }
 }
