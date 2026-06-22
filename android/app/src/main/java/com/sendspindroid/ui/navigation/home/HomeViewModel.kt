@@ -7,6 +7,7 @@ import com.sendspindroid.musicassistant.MaAlbum
 import com.sendspindroid.musicassistant.MaTrack
 import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaLibraryItem
+import com.sendspindroid.ui.navigation.distinctByItemKey
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -156,7 +157,7 @@ class HomeViewModel : ViewModel() {
                         .take(ITEMS_PER_SECTION)
 
                     Log.d(TAG, "Recently played after grouping: ${grouped.size} items")
-                    _recentlyPlayed.value = SectionState.Success(grouped)
+                    _recentlyPlayed.value = SectionState.Success(grouped.distinctByItemKey())
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load recently played", error)
@@ -190,7 +191,7 @@ class HomeViewModel : ViewModel() {
                         .take(ITEMS_PER_SECTION)
 
                     Log.d(TAG, "Recently added after grouping: ${grouped.size} items")
-                    _recentlyAdded.value = SectionState.Success(grouped)
+                    _recentlyAdded.value = SectionState.Success(grouped.distinctByItemKey())
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load recently added", error)
@@ -244,7 +245,7 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Playlists: ${items.size} items")
-                    _playlists.value = SectionState.Success(items)
+                    _playlists.value = SectionState.Success(items.distinctByItemKey())
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load playlists", error)
@@ -266,7 +267,7 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Albums: ${items.size} items")
-                    _albums.value = SectionState.Success(items)
+                    _albums.value = SectionState.Success(items.distinctByItemKey())
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load albums", error)
@@ -288,7 +289,7 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Artists: ${items.size} items")
-                    _artists.value = SectionState.Success(items)
+                    _artists.value = SectionState.Success(items.distinctByItemKey())
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load artists", error)
@@ -310,7 +311,7 @@ class HomeViewModel : ViewModel() {
             result.fold(
                 onSuccess = { items ->
                     Log.d(TAG, "Radio stations: ${items.size} items")
-                    _radioStations.value = SectionState.Success(items)
+                    _radioStations.value = SectionState.Success(items.distinctByItemKey())
                 },
                 onFailure = { error ->
                     Log.e(TAG, "Failed to load radio stations", error)

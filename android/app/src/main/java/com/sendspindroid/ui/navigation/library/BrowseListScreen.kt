@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import com.sendspindroid.ui.navigation.maLibraryItemKey
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
@@ -236,7 +237,7 @@ private fun ItemsList(
     ) {
         items(
             items = items,
-            key = { "${it.mediaType}_${it.id}" }
+            key = { maLibraryItemKey(it) }
         ) { item ->
             val isActionable = item is MaTrack || item is MaAlbum || item is MaArtist
             SearchResultItem(

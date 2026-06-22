@@ -7,6 +7,7 @@ import com.sendspindroid.UserSettings
 import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.model.MaLibraryItem
 import com.sendspindroid.musicassistant.model.MaMediaType
+import com.sendspindroid.ui.navigation.distinctByItemKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -206,11 +207,14 @@ class LibraryViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val items = fetchItems(type, 0, currentState.sortOption)
+                val fetched = fetchItems(type, 0, currentState.sortOption)
+                val items = fetched.distinctByItemKey()
                 stateFlow.value = TabState(
                     items = items,
                     isLoading = false,
-                    hasMore = items.size >= PAGE_SIZE,
+                    // hasMore keys off the raw page size, not the de-duplicated count,
+                    // so a duplicate in a full page doesn't prematurely stop paging.
+                    hasMore = fetched.size >= PAGE_SIZE,
                     sortOption = currentState.sortOption,
                     albumArtistsOnly = currentState.albumArtistsOnly
                 )
@@ -251,7 +255,10 @@ class LibraryViewModel : ViewModel() {
             try {
                 val newItems = fetchItems(type, offset, currentState.sortOption)
                 stateFlow.value = currentState.copy(
-                    items = currentState.items + newItems,
+                    // De-dup the combined list: offset paging can return an item that
+                    // overlaps the previous page, and a duplicate LazyColumn key crashes
+                    // the UI. hasMore stays on the raw page size (see loadTab).
+                    items = (currentState.items + newItems).distinctByItemKey(),
                     isLoadingMore = false,
                     hasMore = newItems.size >= PAGE_SIZE
                 )
