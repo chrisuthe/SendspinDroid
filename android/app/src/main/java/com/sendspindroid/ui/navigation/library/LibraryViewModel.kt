@@ -330,7 +330,7 @@ class LibraryViewModel : ViewModel() {
 
         viewModelScope.launch {
             try {
-                val items = MusicAssistant.browse(currentPath).getOrThrow()
+                val items = MusicAssistant.browse(currentPath).getOrThrow().distinctByItemKey()
                 _browseState.value = TabState(
                     items = items,
                     isLoading = false,

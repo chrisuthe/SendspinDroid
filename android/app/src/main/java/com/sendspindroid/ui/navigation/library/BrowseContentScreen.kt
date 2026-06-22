@@ -53,6 +53,7 @@ import coil.compose.AsyncImage
 import com.sendspindroid.R
 import com.sendspindroid.musicassistant.MaBrowseFolder
 import com.sendspindroid.musicassistant.model.MaLibraryItem
+import com.sendspindroid.ui.navigation.maLibraryItemKey
 import com.sendspindroid.ui.navigation.search.components.SearchResultItem
 
 /**
@@ -143,9 +144,7 @@ private fun BrowseItemsList(
         }
         items(
             items = items,
-            key = { item ->
-                if (item is MaBrowseFolder) "folder_${item.path}" else "${item.mediaType}_${item.id}"
-            }
+            key = { item -> maLibraryItemKey(item) }
         ) { item ->
             if (item is MaBrowseFolder) {
                 BrowseFolderItem(

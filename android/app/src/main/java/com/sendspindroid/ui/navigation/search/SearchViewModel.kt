@@ -7,6 +7,7 @@ import com.sendspindroid.UserSettings
 import com.sendspindroid.musicassistant.MusicAssistant
 import com.sendspindroid.musicassistant.SearchResults
 import com.sendspindroid.musicassistant.model.MaMediaType
+import com.sendspindroid.ui.navigation.distinctByItemKeys
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -207,7 +208,9 @@ class SearchViewModel : ViewModel() {
             onSuccess = { results ->
                 Log.d(TAG, "Search successful: ${results.totalCount()} results")
                 _searchState.value = _searchState.value.copy(
-                    results = results,
+                    // De-dup each type list so a duplicate id within a section
+                    // can't crash its LazyColumn with a repeated key.
+                    results = results.distinctByItemKeys(),
                     isLoading = false,
                     error = null
                 )
