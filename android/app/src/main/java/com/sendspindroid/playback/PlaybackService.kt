@@ -3709,75 +3709,84 @@ class PlaybackService : MediaLibraryService() {
     // ========================================================================
 
     /**
-     * Handles voice search from Android Auto ("OK Google, play X on SendSpinDroid").
+     * Handles voice search from Android Auto ("OK Google, play X on SendSpin Player").
      * In Media3, voice search arrives via onAddMediaItems with requestMetadata.searchQuery set.
      *
      * - Empty/blank query ("play music"): plays recently played tracks
-     * - Non-empty query: searches MA library and plays first track result
+     * - Non-empty query: searches MA library and plays the best result
+     *   (track > playlist > album, see AutoVoiceSearch.pickFromResults)
+     *
+     * Every dead end produces user-facing feedback instead of a silent no-op:
+     * disconnected requests set a player error with connect guidance; failures
+     * while connected send a transient session error so active playback is
+     * not disturbed.
      */
     private fun handleVoiceSearch(
         query: String,
         originalItems: List<MediaItem>
     ): ListenableFuture<List<MediaItem>> {
         if (MusicAssistant.connectionState.value !is TransportState.Ready) {
-            Log.w(TAG, "Voice search: MA not available, returning items as-is")
+            Log.w(TAG, "Voice search: MA not available")
+            val connected = isConnected()
+            val message = AutoVoiceSearch.unavailableMessage(connected)
+            if (!connected) {
+                // Nothing is playing and nothing can play. Surface actionable
+                // guidance on the car screen instead of a silent no-op (Play
+                // Auto quality: the app must respond to voice actions).
+                // Cleared automatically on the next successful connect.
+                sendSpinPlayer?.setError(message)
+            } else {
+                // Connected to a plain SendSpin server (no MA): playback may
+                // be active, so use a transient session error rather than
+                // putting the player into an error state.
+                notifyVoiceSearchError(message)
+            }
             return Futures.immediateFuture(originalItems)
         }
 
         return suspendToFuture {
             try {
                 if (query.isBlank()) {
-                    // "Play music on SendSpinDroid" - play recently played
+                    // "Play music on SendSpin Player" - play recently played
                     Log.d(TAG, "Voice search: empty query, playing recent")
                     val recent = MusicAssistant.getRecentlyPlayed(limit = 1)
-                    val firstTrack = recent.getOrNull()?.firstOrNull()
-                    val recentUri = firstTrack?.uri
+                    val recentUri = recent.getOrNull()?.firstOrNull()?.uri
                     if (recentUri != null) {
                         MusicAssistant.playMedia(recentUri, mediaType = "track")
                     } else {
                         Log.w(TAG, "Voice search: no recent tracks to play")
+                        notifyVoiceSearchError(AutoVoiceSearch.noRecentTracksMessage())
                     }
                 } else {
-                    // "Play Beatles on SendSpinDroid" - search and play first result
+                    // "Play Beatles on SendSpin Player" - search and play best result
                     Log.d(TAG, "Voice search: searching for '$query'")
                     val result = MusicAssistant.search(
                         query = query,
                         limit = 5,
                         libraryOnly = false
                     )
-                    val searchResults = result.getOrNull()
-                    val firstTrack = searchResults?.tracks?.firstOrNull()
-                    val trackUri = firstTrack?.uri
-                    if (trackUri != null) {
-                        Log.d(TAG, "Voice search: playing track '${firstTrack.name}'")
-                        MusicAssistant.playMedia(trackUri, mediaType = "track")
-                    } else {
-                        // Try playing first playlist or album if no tracks found
-                        val firstPlaylist = searchResults?.playlists?.firstOrNull()
-                        val firstAlbum = searchResults?.albums?.firstOrNull()
-                        when {
-                            firstPlaylist != null -> {
-                                Log.d(TAG, "Voice search: playing playlist '${firstPlaylist.name}'")
-                                MusicAssistant.playMedia(
-                                    firstPlaylist.playlistId,
-                                    mediaType = "playlist"
-                                )
-                            }
-                            firstAlbum != null -> {
-                                Log.d(TAG, "Voice search: playing album '${firstAlbum.name}'")
-                                MusicAssistant.playMedia(
-                                    firstAlbum.albumId,
-                                    mediaType = "album"
-                                )
-                            }
-                            else -> {
-                                Log.w(TAG, "Voice search: no results for '$query'")
-                            }
+                    when (val pick = AutoVoiceSearch.pickFromResults(result.getOrNull())) {
+                        is AutoVoiceSearch.Pick.Track -> {
+                            Log.d(TAG, "Voice search: playing track '${pick.name}'")
+                            MusicAssistant.playMedia(pick.uri, mediaType = "track")
+                        }
+                        is AutoVoiceSearch.Pick.Playlist -> {
+                            Log.d(TAG, "Voice search: playing playlist '${pick.name}'")
+                            MusicAssistant.playMedia(pick.playlistId, mediaType = "playlist")
+                        }
+                        is AutoVoiceSearch.Pick.Album -> {
+                            Log.d(TAG, "Voice search: playing album '${pick.name}'")
+                            MusicAssistant.playMedia(pick.albumId, mediaType = "album")
+                        }
+                        AutoVoiceSearch.Pick.NoResults -> {
+                            Log.w(TAG, "Voice search: no results for '$query'")
+                            notifyVoiceSearchError(AutoVoiceSearch.noResultsMessage(query))
                         }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Voice search failed", e)
+                notifyVoiceSearchError(AutoVoiceSearch.searchFailedMessage())
             }
             // Return original items with a dummy URI so media3 framework doesn't error
             originalItems.map { item ->
@@ -3785,6 +3794,17 @@ class PlaybackService : MediaLibraryService() {
                     .setUri("sendspin://voice-search")
                     .build()
             }
+        }
+    }
+
+    /**
+     * Surfaces a non-fatal voice search failure to the car screen / media
+     * notification. Unlike SendSpinPlayer.setError this does not put the
+     * player into an error state, so active playback is unaffected.
+     */
+    private fun notifyVoiceSearchError(message: String) {
+        mainHandler.post {
+            mediaSession?.sendError(SessionError(SessionError.ERROR_INVALID_STATE, message))
         }
     }
 
