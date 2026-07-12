@@ -1,306 +1,332 @@
 package com.sendspindroid.playback
 
-import android.util.Log
-import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.model.LocalConnection
 import com.sendspindroid.model.ProxyConnection
 import com.sendspindroid.model.RemoteConnection
 import com.sendspindroid.model.UnifiedServer
-import io.mockk.*
-import org.junit.After
-import org.junit.Assert.*
-import org.junit.Before
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.currentTime
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
- * Integration test: PlaybackService browse tree for Android Auto.
+ * Tests for [AutoBrowseTree], the Android Auto browse tree list builder.
  *
- * Verifies that onGetChildren returns the correct root items and categories
- * based on connection state and MA availability. This reproduces the
- * getRootChildren() and getDiscoveredServers() logic from PlaybackService.
+ * These exercise the real production code (real Media3 MediaItems via
+ * Robolectric), unlike the previous version of this test which re-implemented
+ * the service logic.
  *
- * Browse tree structure:
- * - When disconnected (no MA): root -> "Connect" folder -> server list
- * - When connected with MA: root -> Playlists, Albums, Artists, Radio
+ * The load-bearing invariant: no browse node ever resolves to an empty list.
+ * Google Play's automated Android Auto quality review browses the app with no
+ * SendSpin server reachable; an empty children list renders as a blank
+ * "unable to load content" screen and fails review (rejection of Jun 26).
+ * When there is nothing to show, a non-interactive guidance row is returned
+ * instead.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class BrowseTreeTest {
 
-    // Media ID constants (mirror PlaybackService companion)
-    private val MEDIA_ID_ROOT = "root"
-    private val MEDIA_ID_DISCOVERED = "discovered_servers"
-    private val MEDIA_ID_MA_PLAYLISTS = "ma_playlists"
-    private val MEDIA_ID_MA_ALBUMS = "ma_albums"
-    private val MEDIA_ID_MA_ARTISTS = "ma_artists"
-    private val MEDIA_ID_MA_RADIO = "ma_radio"
-    private val MEDIA_ID_SERVER_PREFIX = "server_"
-    private val MEDIA_ID_SAVED_SERVER_PREFIX = "saved_server_"
-
-    data class BrowseItem(
-        val mediaId: String,
-        val title: String,
-        val subtitle: String? = null,
-        val isPlayable: Boolean = false,
-        val isBrowsable: Boolean = true
+    private fun localServer(
+        id: String,
+        name: String,
+        address: String,
+        lastConnectedMs: Long = 0L,
+    ) = UnifiedServer(
+        id = id,
+        name = name,
+        local = LocalConnection(address),
+        lastConnectedMs = lastConnectedMs,
     )
 
-    @Before
-    fun setUp() {
-        mockkStatic(Log::class)
-        every { Log.v(any(), any()) } returns 0
-        every { Log.d(any(), any()) } returns 0
-        every { Log.i(any(), any()) } returns 0
-        every { Log.w(any(), any<String>()) } returns 0
-        every { Log.e(any(), any<String>()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
-
-        UnifiedServerRepository.clearDiscoveredServers()
-        UnifiedServerRepository.savedServers.value.forEach {
-            UnifiedServerRepository.deleteServer(it.id)
-        }
-    }
-
-    @After
-    fun tearDown() {
-        UnifiedServerRepository.clearDiscoveredServers()
-        UnifiedServerRepository.savedServers.value.forEach {
-            UnifiedServerRepository.deleteServer(it.id)
-        }
-        unmockkAll()
-    }
-
-    /**
-     * Reproduces PlaybackService.getRootChildren() logic.
-     */
-    private fun getRootChildren(maAvailable: Boolean, isConnected: Boolean): List<BrowseItem> {
-        val children = mutableListOf<BrowseItem>()
-
-        // Show "Connect" until MA is available
-        if (!maAvailable) {
-            children.add(
-                BrowseItem(
-                    mediaId = MEDIA_ID_DISCOVERED,
-                    title = "Connect",
-                    subtitle = if (isConnected) "Connected" else null,
-                    isBrowsable = true,
-                    isPlayable = false
-                )
-            )
-        }
-
-        // Show library categories when MA is connected
-        if (maAvailable) {
-            children.add(BrowseItem(mediaId = MEDIA_ID_MA_PLAYLISTS, title = "Playlists"))
-            children.add(BrowseItem(mediaId = MEDIA_ID_MA_ALBUMS, title = "Albums"))
-            children.add(BrowseItem(mediaId = MEDIA_ID_MA_ARTISTS, title = "Artists"))
-            children.add(BrowseItem(mediaId = MEDIA_ID_MA_RADIO, title = "Radio"))
-        }
-
-        return children
-    }
-
-    /**
-     * Reproduces PlaybackService.getDiscoveredServers() logic.
-     */
-    private fun getDiscoveredServers(): List<BrowseItem> {
-        val savedItems = UnifiedServerRepository.savedServers.value
-            .sortedByDescending { it.lastConnectedMs }
-            .map { server ->
-                val subtitle = server.local?.address
-                    ?: if (server.proxy != null) "Proxy"
-                    else if (server.remote != null) "Remote Access"
-                    else ""
-                BrowseItem(
-                    mediaId = "$MEDIA_ID_SAVED_SERVER_PREFIX${server.id}",
-                    title = server.name,
-                    subtitle = subtitle,
-                    isPlayable = true,
-                    isBrowsable = false
-                )
-            }
-
-        val discoveredItems = UnifiedServerRepository.discoveredServers.value.mapNotNull { server ->
-            val address = server.local?.address ?: return@mapNotNull null
-            BrowseItem(
-                mediaId = "$MEDIA_ID_SERVER_PREFIX$address",
-                title = server.name,
-                subtitle = address,
-                isPlayable = true,
-                isBrowsable = false
-            )
-        }
-
-        return savedItems + discoveredItems
-    }
-
-    // ========== Root children tests ==========
+    // ========== Root children ==========
 
     @Test
     fun `root shows Connect when MA unavailable and disconnected`() {
-        val children = getRootChildren(maAvailable = false, isConnected = false)
+        val children = AutoBrowseTree.rootChildren(maAvailable = false, isConnected = false)
 
         assertEquals(1, children.size)
-        assertEquals(MEDIA_ID_DISCOVERED, children[0].mediaId)
-        assertEquals("Connect", children[0].title)
-        assertNull("Subtitle should be null when disconnected", children[0].subtitle)
+        assertEquals(AutoBrowseTree.MEDIA_ID_DISCOVERED, children[0].mediaId)
+        assertEquals("Connect", children[0].mediaMetadata.title)
+        assertNull("Subtitle should be null when disconnected", children[0].mediaMetadata.subtitle)
+        assertEquals(true, children[0].mediaMetadata.isBrowsable)
     }
 
     @Test
     fun `root shows Connect with Connected subtitle when connected without MA`() {
-        val children = getRootChildren(maAvailable = false, isConnected = true)
+        val children = AutoBrowseTree.rootChildren(maAvailable = false, isConnected = true)
 
         assertEquals(1, children.size)
-        assertEquals("Connect", children[0].title)
-        assertEquals("Connected", children[0].subtitle)
+        assertEquals("Connect", children[0].mediaMetadata.title)
+        assertEquals("Connected", children[0].mediaMetadata.subtitle)
     }
 
     @Test
     fun `root shows library categories when MA is available`() {
-        val children = getRootChildren(maAvailable = true, isConnected = true)
+        val children = AutoBrowseTree.rootChildren(maAvailable = true, isConnected = true)
 
-        assertEquals(4, children.size)
-        assertEquals(MEDIA_ID_MA_PLAYLISTS, children[0].mediaId)
-        assertEquals("Playlists", children[0].title)
-        assertEquals(MEDIA_ID_MA_ALBUMS, children[1].mediaId)
-        assertEquals("Albums", children[1].title)
-        assertEquals(MEDIA_ID_MA_ARTISTS, children[2].mediaId)
-        assertEquals("Artists", children[2].title)
-        assertEquals(MEDIA_ID_MA_RADIO, children[3].mediaId)
-        assertEquals("Radio", children[3].title)
+        assertEquals(
+            listOf(
+                AutoBrowseTree.MEDIA_ID_MA_PLAYLISTS,
+                AutoBrowseTree.MEDIA_ID_MA_ALBUMS,
+                AutoBrowseTree.MEDIA_ID_MA_ARTISTS,
+                AutoBrowseTree.MEDIA_ID_MA_RADIO,
+            ),
+            children.map { it.mediaId }
+        )
+        assertEquals(
+            listOf("Playlists", "Albums", "Artists", "Radio"),
+            children.map { it.mediaMetadata.title.toString() }
+        )
     }
 
     @Test
-    fun `root does not show Connect when MA is available`() {
-        val children = getRootChildren(maAvailable = true, isConnected = true)
-
-        val hasConnect = children.any { it.mediaId == MEDIA_ID_DISCOVERED }
-        assertFalse("Connect should not appear when MA is available", hasConnect)
+    fun `root never returns an empty list`() {
+        assertTrue(AutoBrowseTree.rootChildren(maAvailable = false, isConnected = false).isNotEmpty())
+        assertTrue(AutoBrowseTree.rootChildren(maAvailable = false, isConnected = true).isNotEmpty())
+        assertTrue(AutoBrowseTree.rootChildren(maAvailable = true, isConnected = true).isNotEmpty())
     }
 
     @Test
     fun `library categories are browsable not playable`() {
-        val children = getRootChildren(maAvailable = true, isConnected = true)
+        val children = AutoBrowseTree.rootChildren(maAvailable = true, isConnected = true)
 
         children.forEach { item ->
-            assertTrue("${item.title} should be browsable", item.isBrowsable)
-            assertFalse("${item.title} should not be playable", item.isPlayable)
+            assertEquals("${item.mediaMetadata.title} should be browsable",
+                true, item.mediaMetadata.isBrowsable)
+            assertEquals("${item.mediaMetadata.title} should not be playable",
+                false, item.mediaMetadata.isPlayable)
         }
     }
 
-    // ========== Discovered servers tests ==========
+    // ========== Server list ("Connect" node) ==========
 
     @Test
-    fun `discovered servers list shows saved servers first`() {
-        UnifiedServerRepository.saveServer(
-            UnifiedServer(
-                id = "saved-1", name = "Saved Server",
-                local = LocalConnection("192.168.1.10:8927"),
-                lastConnectedMs = 1000L
-            )
+    fun `server list shows saved servers first`() = runTest {
+        val discovered = MutableStateFlow(
+            listOf(localServer("disc-1", "Discovered Server", "192.168.1.20:8927"))
         )
-        UnifiedServerRepository.addDiscoveredServer("Discovered Server", "192.168.1.20:8927")
 
-        val servers = getDiscoveredServers()
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = listOf(
+                localServer("saved-1", "Saved Server", "192.168.1.10:8927", lastConnectedMs = 1000L)
+            ),
+            discoveredServersFlow = discovered,
+            discoveryWaitMs = 3000L,
+        )
 
-        assertEquals(2, servers.size)
+        assertEquals(2, items.size)
         assertTrue(
             "First item should be saved server",
-            servers[0].mediaId.startsWith(MEDIA_ID_SAVED_SERVER_PREFIX)
+            items[0].mediaId.startsWith(AutoBrowseTree.MEDIA_ID_SAVED_SERVER_PREFIX)
         )
         assertTrue(
             "Second item should be discovered server",
-            servers[1].mediaId.startsWith(MEDIA_ID_SERVER_PREFIX)
+            items[1].mediaId.startsWith(AutoBrowseTree.MEDIA_ID_SERVER_PREFIX)
         )
     }
 
     @Test
-    fun `saved servers are sorted by last connected time`() {
-        UnifiedServerRepository.saveServer(
-            UnifiedServer(
-                id = "old", name = "Old Server",
-                local = LocalConnection("10.0.0.1:8927"),
-                lastConnectedMs = 100L
-            )
-        )
-        UnifiedServerRepository.saveServer(
-            UnifiedServer(
-                id = "recent", name = "Recent Server",
-                local = LocalConnection("10.0.0.2:8927"),
-                lastConnectedMs = 500L
-            )
+    fun `saved servers are sorted by last connected time`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = listOf(
+                localServer("old", "Old Server", "10.0.0.1:8927", lastConnectedMs = 100L),
+                localServer("recent", "Recent Server", "10.0.0.2:8927", lastConnectedMs = 500L),
+            ),
+            discoveredServersFlow = MutableStateFlow(emptyList()),
+            discoveryWaitMs = 0L,
         )
 
-        val servers = getDiscoveredServers()
-
-        assertEquals("Recent Server", servers[0].title)
-        assertEquals("Old Server", servers[1].title)
+        assertEquals("Recent Server", items[0].mediaMetadata.title)
+        assertEquals("Old Server", items[1].mediaMetadata.title)
     }
 
     @Test
-    fun `server items are playable not browsable`() {
-        UnifiedServerRepository.addDiscoveredServer("Test", "192.168.1.10:8927")
+    fun `server items are playable not browsable`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = emptyList(),
+            discoveredServersFlow = MutableStateFlow(
+                listOf(localServer("d", "Test", "192.168.1.10:8927"))
+            ),
+            discoveryWaitMs = 0L,
+        )
 
-        val servers = getDiscoveredServers()
-
-        assertEquals(1, servers.size)
-        assertTrue("Server should be playable", servers[0].isPlayable)
-        assertFalse("Server should not be browsable", servers[0].isBrowsable)
+        assertEquals(1, items.size)
+        assertEquals(true, items[0].mediaMetadata.isPlayable)
+        assertEquals(false, items[0].mediaMetadata.isBrowsable)
     }
 
     @Test
-    fun `saved server with proxy shows Proxy subtitle`() {
-        UnifiedServerRepository.saveServer(
-            UnifiedServer(
-                id = "proxy-1", name = "Proxy Server",
-                proxy = ProxyConnection(
-                    url = "https://ma.example.com/sendspin",
-                    authToken = "token123"
+    fun `discovered server media ID includes address`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = emptyList(),
+            discoveredServersFlow = MutableStateFlow(
+                listOf(localServer("d", "Test", "192.168.1.10:8927"))
+            ),
+            discoveryWaitMs = 0L,
+        )
+
+        assertEquals("server_192.168.1.10:8927", items[0].mediaId)
+    }
+
+    @Test
+    fun `saved server media ID includes server UUID`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = listOf(localServer("uuid-123", "Saved", "10.0.0.1:8927")),
+            discoveredServersFlow = MutableStateFlow(emptyList()),
+            discoveryWaitMs = 0L,
+        )
+
+        assertEquals("saved_server_uuid-123", items[0].mediaId)
+    }
+
+    @Test
+    fun `saved server with proxy shows Proxy subtitle`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = listOf(
+                UnifiedServer(
+                    id = "proxy-1", name = "Proxy Server",
+                    proxy = ProxyConnection(
+                        url = "https://ma.example.com/sendspin",
+                        authToken = "token123"
+                    )
                 )
-            )
+            ),
+            discoveredServersFlow = MutableStateFlow(emptyList()),
+            discoveryWaitMs = 0L,
         )
 
-        val servers = getDiscoveredServers()
-        assertEquals(1, servers.size)
-        assertEquals("Proxy", servers[0].subtitle)
+        assertEquals(1, items.size)
+        assertEquals("Proxy", items[0].mediaMetadata.subtitle)
     }
 
     @Test
-    fun `saved server with remote shows Remote Access subtitle`() {
-        UnifiedServerRepository.saveServer(
-            UnifiedServer(
-                id = "remote-1", name = "Remote Server",
-                remote = RemoteConnection(remoteId = "ABCDE12345FGHIJ67890KLMNOP")
-            )
+    fun `saved server with remote shows Remote Access subtitle`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = listOf(
+                UnifiedServer(
+                    id = "remote-1", name = "Remote Server",
+                    remote = RemoteConnection(remoteId = "ABCDE12345FGHIJ67890KLMNOP")
+                )
+            ),
+            discoveredServersFlow = MutableStateFlow(emptyList()),
+            discoveryWaitMs = 0L,
         )
 
-        val servers = getDiscoveredServers()
-        assertEquals(1, servers.size)
-        assertEquals("Remote Access", servers[0].subtitle)
+        assertEquals(1, items.size)
+        assertEquals("Remote Access", items[0].mediaMetadata.subtitle)
     }
 
-    @Test
-    fun `empty server list returns empty`() {
-        val servers = getDiscoveredServers()
-        assertTrue("Should be empty", servers.isEmpty())
-    }
+    // ========== Play rejection regression: never-empty guarantees ==========
 
     @Test
-    fun `discovered server media ID includes address`() {
-        UnifiedServerRepository.addDiscoveredServer("Test", "192.168.1.10:8927")
-
-        val servers = getDiscoveredServers()
-        assertEquals("server_192.168.1.10:8927", servers[0].mediaId)
-    }
-
-    @Test
-    fun `saved server media ID includes server UUID`() {
-        UnifiedServerRepository.saveServer(
-            UnifiedServer(
-                id = "uuid-123", name = "Saved",
-                local = LocalConnection("10.0.0.1:8927")
-            )
+    fun `empty server list returns No servers found guidance instead of empty`() = runTest {
+        // This is what Google's automated Auto review sees: fresh install,
+        // no saved servers, no SendSpin server on the network.
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = emptyList(),
+            discoveredServersFlow = MutableStateFlow(emptyList()),
+            discoveryWaitMs = 3000L,
         )
 
-        val servers = getDiscoveredServers()
-        assertEquals("saved_server_uuid-123", servers[0].mediaId)
+        assertEquals(1, items.size)
+        assertEquals(AutoBrowseTree.MEDIA_ID_MESSAGE_NO_SERVERS, items[0].mediaId)
+        assertEquals("No servers found", items[0].mediaMetadata.title)
+        assertEquals(
+            "Open SendSpin Player on your phone to add a server",
+            items[0].mediaMetadata.subtitle
+        )
+    }
+
+    @Test
+    fun `guidance row is neither playable nor browsable`() = runTest {
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = emptyList(),
+            discoveredServersFlow = MutableStateFlow(emptyList()),
+            discoveryWaitMs = 0L,
+        )
+
+        assertEquals(false, items[0].mediaMetadata.isPlayable)
+        assertEquals(false, items[0].mediaMetadata.isBrowsable)
+    }
+
+    @Test
+    fun `server list waits for first mDNS discovery before answering`() = runTest {
+        // First browse races mDNS: the flow is empty at call time and a
+        // server appears 1s later, inside the 3s discovery window.
+        val discovered = MutableStateFlow<List<UnifiedServer>>(emptyList())
+        launch {
+            delay(1000L)
+            discovered.value = listOf(localServer("d", "Living Room", "192.168.1.30:8927"))
+        }
+
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = emptyList(),
+            discoveredServersFlow = discovered,
+            discoveryWaitMs = 3000L,
+        )
+
+        assertEquals(1, items.size)
+        assertEquals("Living Room", items[0].mediaMetadata.title)
+        assertEquals(true, items[0].mediaMetadata.isPlayable)
+    }
+
+    @Test
+    fun `server list does not wait when a saved server exists`() = runTest {
+        // A saved server means there is content to show immediately; the
+        // discovery wait must not delay the browse response.
+        val discovered = MutableStateFlow<List<UnifiedServer>>(emptyList())
+
+        val items = AutoBrowseTree.serverListChildren(
+            savedServers = listOf(localServer("saved-1", "Saved", "10.0.0.1:8927")),
+            discoveredServersFlow = discovered,
+            discoveryWaitMs = 3000L,
+        )
+
+        assertEquals(1, items.size)
+        assertEquals("Saved", items[0].mediaMetadata.title)
+        assertEquals(0L, currentTime)
+    }
+
+    @Test
+    fun `MA category nodes replace empty results with a message row`() {
+        val categories = listOf(
+            AutoBrowseTree.MEDIA_ID_MA_PLAYLISTS to "No playlists found",
+            AutoBrowseTree.MEDIA_ID_MA_ALBUMS to "No albums found",
+            AutoBrowseTree.MEDIA_ID_MA_ARTISTS to "No artists found",
+            AutoBrowseTree.MEDIA_ID_MA_RADIO to "No radio stations found",
+            AutoBrowseTree.MEDIA_ID_MA_PLAYLIST_PREFIX + "id~provider" to "No tracks found",
+            AutoBrowseTree.MEDIA_ID_MA_ALBUM_PREFIX + "id~provider" to "No tracks found",
+            AutoBrowseTree.MEDIA_ID_MA_ARTIST_PREFIX + "id~provider" to "No albums found",
+        )
+
+        categories.forEach { (parentId, expectedTitle) ->
+            val items = AutoBrowseTree.withEmptyState(parentId, emptyList())
+            assertEquals("$parentId should get exactly one message row", 1, items.size)
+            assertEquals(expectedTitle, items[0].mediaMetadata.title)
+            assertEquals(false, items[0].mediaMetadata.isPlayable)
+            assertEquals(false, items[0].mediaMetadata.isBrowsable)
+            assertTrue(items[0].mediaId.startsWith(AutoBrowseTree.MEDIA_ID_MESSAGE_PREFIX))
+        }
+    }
+
+    @Test
+    fun `withEmptyState passes non-empty lists through unchanged`() {
+        val item = AutoBrowseTree.playableServerItem("Test", "10.0.0.1:8927")
+
+        val items = AutoBrowseTree.withEmptyState(AutoBrowseTree.MEDIA_ID_MA_PLAYLISTS, listOf(item))
+
+        assertEquals(1, items.size)
+        assertEquals(item.mediaId, items[0].mediaId)
+        assertFalse(items[0].mediaId.startsWith(AutoBrowseTree.MEDIA_ID_MESSAGE_PREFIX))
     }
 }

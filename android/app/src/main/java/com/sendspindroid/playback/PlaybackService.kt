@@ -42,7 +42,6 @@ import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
-import com.sendspindroid.R
 import com.sendspindroid.MainActivity
 
 import com.sendspindroid.SyncOffsetPreference
@@ -521,29 +520,37 @@ class PlaybackService : MediaLibraryService() {
         // in-app display quality.
         private const val MAX_ARTWORK_SIZE = 300
 
-        private const val MEDIA_ID_ROOT = "root"
-        private const val MEDIA_ID_DISCOVERED = "discovered_servers"
-        private const val MEDIA_ID_SERVER_PREFIX = "server_"
-        private const val MEDIA_ID_SAVED_SERVER_PREFIX = "saved_server_"
+        // Browse tree media IDs and content style hints live in AutoBrowseTree
+        // (the testable list builder); aliased here so the rest of the service
+        // reads unchanged.
+        private const val MEDIA_ID_ROOT = AutoBrowseTree.MEDIA_ID_ROOT
+        private const val MEDIA_ID_DISCOVERED = AutoBrowseTree.MEDIA_ID_DISCOVERED
+        private const val MEDIA_ID_SERVER_PREFIX = AutoBrowseTree.MEDIA_ID_SERVER_PREFIX
+        private const val MEDIA_ID_SAVED_SERVER_PREFIX = AutoBrowseTree.MEDIA_ID_SAVED_SERVER_PREFIX
 
         // Android Auto content style hint keys
-        private const val CONTENT_STYLE_BROWSABLE = "android.media.browse.CONTENT_STYLE_BROWSABLE_HINT"
-        private const val CONTENT_STYLE_PLAYABLE = "android.media.browse.CONTENT_STYLE_PLAYABLE_HINT"
-        private const val CONTENT_STYLE_SINGLE_ITEM = "android.media.browse.CONTENT_STYLE_SINGLE_ITEM_HINT"
-        private const val CONTENT_STYLE_GROUP_TITLE = "android.media.browse.CONTENT_STYLE_GROUP_TITLE_HINT"
-        private const val CONTENT_STYLE_LIST = 1
-        private const val CONTENT_STYLE_GRID = 2
+        private const val CONTENT_STYLE_BROWSABLE = AutoBrowseTree.CONTENT_STYLE_BROWSABLE
+        private const val CONTENT_STYLE_PLAYABLE = AutoBrowseTree.CONTENT_STYLE_PLAYABLE
+        private const val CONTENT_STYLE_SINGLE_ITEM = AutoBrowseTree.CONTENT_STYLE_SINGLE_ITEM
+        private const val CONTENT_STYLE_GROUP_TITLE = AutoBrowseTree.CONTENT_STYLE_GROUP_TITLE
+        private const val CONTENT_STYLE_LIST = AutoBrowseTree.CONTENT_STYLE_LIST
+        private const val CONTENT_STYLE_GRID = AutoBrowseTree.CONTENT_STYLE_GRID
 
         // Music Assistant browse tree media IDs
-        private const val MEDIA_ID_MA_PLAYLISTS = "ma_playlists"
-        private const val MEDIA_ID_MA_ALBUMS = "ma_albums"
-        private const val MEDIA_ID_MA_ARTISTS = "ma_artists"
-        private const val MEDIA_ID_MA_RADIO = "ma_radio"
+        private const val MEDIA_ID_MA_PLAYLISTS = AutoBrowseTree.MEDIA_ID_MA_PLAYLISTS
+        private const val MEDIA_ID_MA_ALBUMS = AutoBrowseTree.MEDIA_ID_MA_ALBUMS
+        private const val MEDIA_ID_MA_ARTISTS = AutoBrowseTree.MEDIA_ID_MA_ARTISTS
+        private const val MEDIA_ID_MA_RADIO = AutoBrowseTree.MEDIA_ID_MA_RADIO
 
         // MA item prefixes (for drill-down into children)
-        private const val MEDIA_ID_MA_PLAYLIST_PREFIX = "ma_playlist_"
-        private const val MEDIA_ID_MA_ALBUM_PREFIX = "ma_album_"
-        private const val MEDIA_ID_MA_ARTIST_PREFIX = "ma_artist_"
+        private const val MEDIA_ID_MA_PLAYLIST_PREFIX = AutoBrowseTree.MEDIA_ID_MA_PLAYLIST_PREFIX
+        private const val MEDIA_ID_MA_ALBUM_PREFIX = AutoBrowseTree.MEDIA_ID_MA_ALBUM_PREFIX
+        private const val MEDIA_ID_MA_ARTIST_PREFIX = AutoBrowseTree.MEDIA_ID_MA_ARTIST_PREFIX
+
+        // How long the "Connect" browse node waits for the first mDNS result
+        // before showing the "No servers found" guidance row. Keeps the first
+        // browse on Android Auto from racing discovery and rendering empty.
+        private const val BROWSE_DISCOVERY_WAIT_MS = 3_000L
 
         // MA leaf item prefixes (playable, URI encoded as Base64)
         private const val MEDIA_ID_MA_TRACK_PREFIX = "ma_track_"
@@ -2768,22 +2775,19 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             Log.d(TAG, "onGetChildren: parentId=$parentId, page=$page")
 
-            // Sync path: existing browse tree nodes
-            val syncChildren: List<MediaItem>? = when (parentId) {
-                MEDIA_ID_ROOT -> getRootChildren()
-                MEDIA_ID_DISCOVERED -> getDiscoveredServers()
-                else -> null  // Not a sync node, check async path
-            }
-
-            if (syncChildren != null) {
+            // Sync path: root tabs
+            if (parentId == MEDIA_ID_ROOT) {
                 return Futures.immediateFuture(
-                    LibraryResult.ofItemList(ImmutableList.copyOf(syncChildren), params)
+                    LibraryResult.ofItemList(ImmutableList.copyOf(getRootChildren()), params)
                 )
             }
 
-            // Async path: MA data fetches
+            // Async path: server discovery (bounded mDNS wait) and MA data fetches
             return suspendToFuture {
-                val items = getMaChildren(parentId)
+                val items = when (parentId) {
+                    MEDIA_ID_DISCOVERED -> getDiscoveredServers()
+                    else -> getMaChildren(parentId)
+                }
                 LibraryResult.ofItemList(ImmutableList.copyOf(items), params)
             }
         }
@@ -2911,10 +2915,13 @@ class PlaybackService : MediaLibraryService() {
         ): ListenableFuture<LibraryResult<Void>> {
             Log.d(TAG, "onSearch: query='$query'")
 
+            // The root always advertises SEARCH_SUPPORTED, so report zero
+            // results instead of an error when MA isn't available. Android
+            // Auto then shows its own "no results" UI rather than a failure.
             if (MusicAssistant.connectionState.value !is TransportState.Ready) {
-                return Futures.immediateFuture(
-                    LibraryResult.ofError(SessionError.ERROR_NOT_SUPPORTED)
-                )
+                maSearchResultsCache = emptyList()
+                session.notifySearchResultChanged(browser, query, 0, params)
+                return Futures.immediateFuture(LibraryResult.ofVoid())
             }
 
             // Execute search async, cache results, notify when done
@@ -3312,77 +3319,22 @@ class PlaybackService : MediaLibraryService() {
     }
 
     private fun getRootChildren(): List<MediaItem> {
-        val children = mutableListOf<MediaItem>()
         val maAvailable = MusicAssistant.connectionState.value is TransportState.Ready
-
-        // Show "Connect" until MA is available (avoids empty root during MA handshake)
-        if (!maAvailable) {
-            children.add(
-                createBrowsableItem(
-                    mediaId = MEDIA_ID_DISCOVERED,
-                    title = "Connect",
-                    subtitle = if (isConnected()) "Connected" else null
-                )
-            )
-        }
-
-        // Show library categories directly as root tabs when MA is connected
-        if (maAvailable) {
-            children.add(
-                createBrowsableItem(
-                    mediaId = MEDIA_ID_MA_PLAYLISTS,
-                    title = "Playlists",
-                    iconRes = R.drawable.ic_auto_playlists
-                )
-            )
-            children.add(
-                createBrowsableItem(
-                    mediaId = MEDIA_ID_MA_ALBUMS,
-                    title = "Albums",
-                    extras = Bundle().apply {
-                        putInt(CONTENT_STYLE_PLAYABLE, CONTENT_STYLE_GRID)
-                    },
-                    iconRes = R.drawable.ic_auto_albums
-                )
-            )
-            children.add(
-                createBrowsableItem(
-                    mediaId = MEDIA_ID_MA_ARTISTS,
-                    title = "Artists",
-                    extras = Bundle().apply {
-                        putInt(CONTENT_STYLE_BROWSABLE, CONTENT_STYLE_GRID)
-                    },
-                    iconRes = R.drawable.ic_auto_artists
-                )
-            )
-            children.add(
-                createBrowsableItem(
-                    mediaId = MEDIA_ID_MA_RADIO,
-                    title = "Radio",
-                    iconRes = R.drawable.ic_auto_radio
-                )
-            )
-        }
-
-        return children
+        return AutoBrowseTree.rootChildren(maAvailable, isConnected())
     }
 
-    private fun getDiscoveredServers(): List<MediaItem> {
+    private suspend fun getDiscoveredServers(): List<MediaItem> {
         // Trigger mDNS scan so servers populate for Android Auto / external browsers
         ensureBrowseDiscoveryRunning()
 
-        // Saved servers first, sorted by most recently connected
-        val savedItems = UnifiedServerRepository.savedServers.value
-            .sortedByDescending { it.lastConnectedMs }
-            .map { createSavedServerItem(it) }
-
-        // Discovered servers that aren't already in the saved list
-        val discoveredItems = UnifiedServerRepository.filteredDiscoveredServers.value.mapNotNull { server ->
-            val address = server.local?.address ?: return@mapNotNull null
-            createPlayableServerItem(server.name, address)
-        }
-
-        return savedItems + discoveredItems
+        // AutoBrowseTree waits briefly for the first mDNS result when nothing
+        // is known yet, and guarantees a non-empty list (guidance row when no
+        // servers are available) so Android Auto never shows a blank screen.
+        return AutoBrowseTree.serverListChildren(
+            savedServers = UnifiedServerRepository.savedServers.value,
+            discoveredServersFlow = UnifiedServerRepository.filteredDiscoveredServers,
+            discoveryWaitMs = BROWSE_DISCOVERY_WAIT_MS,
+        )
     }
 
     /**
@@ -3432,7 +3384,7 @@ class PlaybackService : MediaLibraryService() {
      * Called from onGetChildren for any parentId not handled by the sync path.
      */
     private suspend fun getMaChildren(parentId: String): List<MediaItem> {
-        return when (parentId) {
+        val items = when (parentId) {
             MEDIA_ID_MA_PLAYLISTS -> getMaPlaylists()
             MEDIA_ID_MA_ALBUMS -> getMaAlbums()
             MEDIA_ID_MA_ARTISTS -> getMaArtists()
@@ -3453,67 +3405,9 @@ class PlaybackService : MediaLibraryService() {
                 }
             }
         }
-    }
-
-    private fun createBrowsableItem(
-        mediaId: String,
-        title: String,
-        subtitle: String? = null,
-        extras: Bundle? = null,
-        iconRes: Int = 0
-    ): MediaItem {
-        return MediaItem.Builder()
-            .setMediaId(mediaId)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(title)
-                    .setSubtitle(subtitle)
-                    .setIsPlayable(false)
-                    .setIsBrowsable(true)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
-                    .apply {
-                        if (extras != null) setExtras(extras)
-                        if (iconRes != 0) {
-                            setArtworkUri(Uri.parse("android.resource://com.sendspindroid/$iconRes"))
-                        }
-                    }
-                    .build()
-            )
-            .build()
-    }
-
-    private fun createPlayableServerItem(name: String, address: String): MediaItem {
-        return MediaItem.Builder()
-            .setMediaId("$MEDIA_ID_SERVER_PREFIX$address")
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(name)
-                    .setSubtitle(address)
-                    .setIsPlayable(true)
-                    .setIsBrowsable(false)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .build()
-            )
-            .build()
-    }
-
-    private fun createSavedServerItem(server: UnifiedServer): MediaItem {
-        val subtitle = server.local?.address
-            ?: if (server.proxy != null) "Proxy"
-            else if (server.remote != null) "Remote Access"
-            else ""
-        return MediaItem.Builder()
-            .setMediaId("$MEDIA_ID_SAVED_SERVER_PREFIX${server.id}")
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(server.name)
-                    .setSubtitle(subtitle)
-                    .setIsPlayable(true)
-                    .setIsBrowsable(false)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .build()
-            )
-            .build()
+        // Never hand Android Auto an empty list -- it renders as a blank
+        // "unable to load content" screen (Play Auto quality rejection).
+        return AutoBrowseTree.withEmptyState(parentId, items)
     }
 
     // ========================================================================
@@ -3969,31 +3863,31 @@ class PlaybackService : MediaLibraryService() {
                     .build()
             }
             mediaId == MEDIA_ID_DISCOVERED -> {
-                createBrowsableItem(MEDIA_ID_DISCOVERED, "Connect", "Choose a server")
+                AutoBrowseTree.browsableItem(MEDIA_ID_DISCOVERED, "Connect", "Choose a server")
             }
             mediaId.startsWith(MEDIA_ID_SAVED_SERVER_PREFIX) -> {
                 val serverId = mediaId.removePrefix(MEDIA_ID_SAVED_SERVER_PREFIX)
                 UnifiedServerRepository.savedServers.value
                     .find { it.id == serverId }
-                    ?.let { createSavedServerItem(it) }
+                    ?.let { AutoBrowseTree.savedServerItem(it) }
             }
             mediaId.startsWith(MEDIA_ID_SERVER_PREFIX) -> {
                 val address = mediaId.removePrefix(MEDIA_ID_SERVER_PREFIX)
                 val server = UnifiedServerRepository.getServerByAddress(address)
-                server?.let { createPlayableServerItem(it.name, it.local?.address ?: address) }
+                server?.let { AutoBrowseTree.playableServerItem(it.name, it.local?.address ?: address) }
             }
             // MA category folders (root-level tabs)
             mediaId == MEDIA_ID_MA_PLAYLISTS -> {
-                createBrowsableItem(MEDIA_ID_MA_PLAYLISTS, "Playlists")
+                AutoBrowseTree.browsableItem(MEDIA_ID_MA_PLAYLISTS, "Playlists")
             }
             mediaId == MEDIA_ID_MA_ALBUMS -> {
-                createBrowsableItem(MEDIA_ID_MA_ALBUMS, "Albums")
+                AutoBrowseTree.browsableItem(MEDIA_ID_MA_ALBUMS, "Albums")
             }
             mediaId == MEDIA_ID_MA_ARTISTS -> {
-                createBrowsableItem(MEDIA_ID_MA_ARTISTS, "Artists")
+                AutoBrowseTree.browsableItem(MEDIA_ID_MA_ARTISTS, "Artists")
             }
             mediaId == MEDIA_ID_MA_RADIO -> {
-                createBrowsableItem(MEDIA_ID_MA_RADIO, "Radio")
+                AutoBrowseTree.browsableItem(MEDIA_ID_MA_RADIO, "Radio")
             }
             // MA items - search through caches
             mediaId.startsWith("ma_") -> {
