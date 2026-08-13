@@ -9,6 +9,31 @@ import kotlin.math.roundToInt
 
 object MessageBuilder {
 
+    /** `trust_level` values (README.md#definitions). Ordered none < user. */
+    const val TRUST_NONE = "none"
+    const val TRUST_USER = "user"
+
+    /**
+     * A `supported_pair_methods` entry.
+     *
+     * "Every client implements at least the Pairing PSK method." The PIN methods
+     * are optional for clients and are deferred to item 4.4 (#220).
+     */
+    data class PairMethodDescriptor(
+        val wireName: String,
+        val locations: List<String>,
+    ) {
+        companion object {
+            /**
+             * `locations: ["device"]` because this client generates its own
+             * Pairing PSK from a CSPRNG and shows the resulting token on screen,
+             * which is what "printed on the device" describes. Item 0.3 (#191)
+             * confirmed Music Assistant renders that hint accurately.
+             */
+            val PAIRING_PSK = PairMethodDescriptor("pairing_psk", listOf("device"))
+        }
+    }
+
     data class FormatEntry(
         val codec: String,
         val sampleRate: Int,
@@ -16,21 +41,43 @@ object MessageBuilder {
         val bitDepth: Int
     )
 
+    /**
+     * Build `client/hello`.
+     *
+     * @param clientId legacy dialect only. `client_id` and `version` moved to
+     *   `client/init` when encryption landed, and `messaging.md#communication`
+     *   forbids sending fields the spec does not define for a message - so on
+     *   an encrypted session this must be null and both fields are omitted.
+     * @param trustLevel `'user'` when a pairing record exists for this server,
+     *   `'none'` otherwise. Required.
+     * @param unpairedAccessEnabled whether this client admits a server with no
+     *   pairing record. This is what decides whether an unpaired connection can
+     *   ever carry playback: the spec permits `['playback']` on a Sentinel-keyed
+     *   session "only when the client has unpaired access enabled", so omitting
+     *   it leaves the server no choice but empty activities.
+     */
     fun buildClientHello(
-        clientId: String,
+        clientId: String?,
         deviceName: String,
         bufferCapacity: Int,
         manufacturer: String,
         supportedFormats: List<FormatEntry>,
         lowMemoryMode: Boolean = false,
-        softwareVersion: String = "unknown"
+        softwareVersion: String = "unknown",
+        trustLevel: String = TRUST_NONE,
+        unpairedAccessEnabled: Boolean = true,
+        supportedPairMethods: List<PairMethodDescriptor> = listOf(PairMethodDescriptor.PAIRING_PSK),
     ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_HELLO)
             put("payload", buildJsonObject {
-                put("client_id", clientId)
+                // Legacy-only. On an encrypted session these live in client/init.
+                if (clientId != null) {
+                    put("client_id", clientId)
+                    put("version", SendSpinProtocol.VERSION)
+                }
                 put("name", deviceName)
-                put("version", SendSpinProtocol.VERSION)
+                put("trust_level", trustLevel)
                 put("supported_roles", buildJsonArray {
                     add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.PLAYER))
                     add(kotlinx.serialization.json.JsonPrimitive(SendSpinProtocol.Roles.CONTROLLER))
@@ -73,6 +120,22 @@ object MessageBuilder {
                         })
                     })
                 }
+                // Both required by messaging.md#client--server-clienthello.
+                put("supported_pair_methods", buildJsonArray {
+                    for (method in supportedPairMethods) {
+                        add(buildJsonObject {
+                            put("method", method.wireName)
+                            put("locations", buildJsonArray {
+                                for (location in method.locations) {
+                                    add(kotlinx.serialization.json.JsonPrimitive(location))
+                                }
+                            })
+                        })
+                    }
+                })
+                put("unpaired_access", buildJsonObject {
+                    put("enabled", unpairedAccessEnabled)
+                })
             })
         }
         return message.toString()
@@ -98,10 +161,25 @@ object MessageBuilder {
         return message.toString()
     }
 
+    /**
+     * Build `client/state`.
+     *
+     * @param available whether this client can participate in playback. The
+     *   spec renamed the old `state` string to a boolean (#115), so
+     *   `"synchronized"` / `"error"` / `"external_source"` no longer exist on
+     *   the wire. A player reports `true` only once its clock is synchronised:
+     *   "A player MUST NOT report `available: true` until its time filter has
+     *   converged enough to begin scheduling playback."
+     *
+     *   `false` now means only one thing - the client's output is in use by an
+     *   external system (messaging.md#external-source-handling). It is NOT the
+     *   way to report a sync problem, which is why the convergence gate lives
+     *   at the call site rather than here.
+     */
     fun buildPlayerState(
         volume: Int,
         muted: Boolean,
-        syncState: String = "synchronized",
+        available: Boolean,
         staticDelayMs: Double = 0.0,
         requiredLeadTimeMs: Int = SendSpinProtocol.PlayerTiming.REQUIRED_LEAD_TIME_MS,
         minBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
@@ -109,9 +187,7 @@ object MessageBuilder {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", buildJsonObject {
-                // Per spec, `state` is a top-level payload field (sibling of
-                // `player`), not part of the player object.
-                put("state", syncState)
+                put("available", available)
                 put("player", buildJsonObject {
                     put("volume", volume)
                     put("muted", muted)

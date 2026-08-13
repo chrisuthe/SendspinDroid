@@ -229,12 +229,17 @@ abstract class SendSpinProtocolHandler(
         }
         val bufferCapacity = MessageBuilder.calculateBufferCapacity(formats, bufferDuration)
         val text = MessageBuilder.buildClientHello(
-            clientId = getClientId(),
+            // On an encrypted session client_id and version live in
+            // client/init; repeating them here would be sending fields the
+            // spec does not define for this message.
+            clientId = if (isEncrypted) null else getClientId(),
             deviceName = getDeviceName(),
             bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),
             supportedFormats = formats,
-            softwareVersion = getSoftwareVersion()
+            softwareVersion = getSoftwareVersion(),
+            trustLevel = getTrustLevel(),
+            unpairedAccessEnabled = isUnpairedAccessEnabled(),
         )
         sendProtocolMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
@@ -257,7 +262,51 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
-     * Send player state update (volume/muted/sync state).
+     * Whether this client can currently participate in playback.
+     *
+     * Two conditions, and they mean different things:
+     *
+     * - The time filter must have converged. "A player MUST NOT report
+     *   `available: true` until its time filter has converged enough to begin
+     *   scheduling playback." Reporting availability early invites the server to
+     *   schedule audio against a clock estimate we do not trust yet.
+     * - The output must not be held by an external system. That is the ONLY
+     *   other meaning `available: false` carries since the spec replaced the old
+     *   `state` string (#115) - it is not a way to signal a sync problem.
+     *
+     * Note the asymmetry with the old tri-state: there is no longer any way to
+     * tell the server "I am here but unhealthy". A client that loses sync mid
+     * stream stays `available: true` and mutes its own output; going
+     * `available: false` would make the server move us to a solo group and
+     * require an explicit `switch` to get back, which is much more disruptive
+     * than a brief mute.
+     */
+    protected fun isAvailable(): Boolean {
+        if (externalSourceActive) return false
+        return getTimeFilter().isConverged
+    }
+
+    /**
+     * `'user'` when a pairing record exists for this server, `'none'` otherwise.
+     *
+     * Phase 1 has no record store, so this is always `'none'`. Item 2.1 (#202)
+     * gives it a real answer; 2.3 (#204) makes it follow the matched PSK.
+     */
+    protected open fun getTrustLevel(): String = MessageBuilder.TRUST_NONE
+
+    /**
+     * Whether this client admits a server holding no pairing record.
+     *
+     * This is what decides whether an unpaired connection can carry audio at
+     * all: the spec allows `['playback']` on a Sentinel-keyed session "only when
+     * the client has unpaired access enabled". Default on, so a fresh install
+     * plays before anyone has paired anything; item 3.2 (#228) lets a paired
+     * server toggle it.
+     */
+    protected open fun isUnpairedAccessEnabled(): Boolean = true
+
+    /**
+     * Send player state update (volume/muted/availability).
      */
     protected fun sendPlayerStateUpdate() {
         val delayMs = getTimeFilter().staticDelayMs
@@ -268,7 +317,7 @@ abstract class SendSpinProtocolHandler(
         }
         sendProtocolMessage(
             MessageBuilder.buildPlayerState(
-                currentVolume, currentMuted, currentSyncState, delayMs,
+                currentVolume, currentMuted, isAvailable(), delayMs,
                 minBufferMs = minBufferMs
             )
         )

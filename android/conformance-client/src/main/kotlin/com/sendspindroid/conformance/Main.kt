@@ -200,7 +200,7 @@ fun main(argv: Array<String>) {
                 SendSpinProtocol.MessageType.SERVER_HELLO -> {
                     serverHelloPayload = payload
                     // Initial client/state per spec, built by the app's real builder.
-                    webSocket.send(MessageBuilder.buildPlayerState(100, false, "synchronized", 0.0))
+                    webSocket.send(MessageBuilder.buildPlayerState(100, false, available = true, staticDelayMs = 0.0))
                     // Exercise the clock-sync path with a short burst.
                     thread(isDaemon = true) {
                         repeat(5) {
