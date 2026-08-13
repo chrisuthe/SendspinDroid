@@ -1,0 +1,20 @@
+{
+  "_generated_by": "ci/conformance/noise/make_wire_vectors.py",
+  "suite_wire_name": "25519_ChaChaPoly_SHA256",
+  "client_static_private": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+  "client_id": "Z13VdO13iTELPS52gfN5C0ZsdzsVIf7PNld5WDcepS8",
+  "server_id": "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ",
+  "psk": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "psk_id": "UaXYTgo_O5NA363FD_WJGwAORfbAld1hDE9vHMOWFSg",
+  "client_ephemeral_private": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+  "client_init_frame": "{\"type\":\"client/init\",\"payload\":{\"client_id\":\"Z13VdO13iTELPS52gfN5C0ZsdzsVIf7PNld5WDcepS8\",\"version\":1,\"suite\":\"25519_ChaChaPoly_SHA256\"}}",
+  "server_init_frame": "{\"type\":\"server/init\",\"payload\":{\"version\":1,\"server_id\":\"NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ\",\"future_field\":\"ignore me\"}}",
+  "prologue_hex": "7b2274797065223a22636c69656e742f696e6974222c227061796c6f6164223a7b22636c69656e745f6964223a225a313356644f31336954454c5053353267664e3543305a73647a7356496637504e6c643557446365705338222c2276657273696f6e223a312c227375697465223a2232353531395f436861436861506f6c795f534841323536227d7d7b2274797065223a227365727665722f696e6974222c227061796c6f6164223a7b2276657273696f6e223a312c227365727665725f6964223a224e594279316a5a59674e4775366a4b61333545684f446852375347696a6a74313657585130733057596c51222c226675747572655f6669656c64223a2269676e6f7265206d65227d7d",
+  "noise_handshake_1_frame": "{\"type\":\"noise/handshake\",\"payload\":{\"data\":\"ST6C_HRGSlkmiBdiPSBTxeuOLMSpiLT-4XnsawENUx3N-JM4AJaMCrDSFIHQDR-XCpycXTOFPnOyglJcDyCn7o_csgGdIB_fH7s0TYaUwzI68UM8pJTa8H366PeFve4WScZkP8h4P26y\"}}",
+  "noise_message_2_b64u": "3CzKMejkO72R3_fkdcyjNH60eBB9W9dlq6SuSjDDXUSgrj8GokZmXEFYmjF34KBDGwA",
+  "handshake_hash": "d6840b87adba2a275f3a835f0cb7a8086fc89708653736e5c8e7b21dfc6dcdcf",
+  "app_frame_client_to_server": "a46fd357e22202e6da811b401449b2e622c6bd3386712f283c14ce0ad98894ddeaa63682297b0407",
+  "app_frame_client_to_server_plaintext": "\u0000{\"type\":\"client/hello\"}",
+  "app_frame_server_to_client": "89ffd0bd83099983a0cf4b5055446418333d22ee7f735945a49640e39f5f93dfee436d96c0164d2ec363fd897e4648adfa4e374ae631b81427e06133017111fb6b",
+  "app_frame_server_to_client_plaintext": "\u0000{\"type\":\"server/hello\",\"payload\":{\"name\":\"Dev\"}}"
+}

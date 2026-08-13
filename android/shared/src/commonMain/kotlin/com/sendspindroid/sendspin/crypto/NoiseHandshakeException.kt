@@ -36,5 +36,13 @@ class NoiseHandshakeException(
 
         /** The 64-bit nonce counter reached its sentinel value. */
         NonceExhausted,
+
+        /**
+         * The handshake did not complete within the watchdog window.
+         * `connection.md#failure-handling` recommends 30 seconds for each side
+         * to receive the next expected message during the prologue and
+         * Noise-handshake phases.
+         */
+        Timeout,
     }
 }
