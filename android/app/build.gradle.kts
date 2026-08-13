@@ -159,12 +159,22 @@ android {
         }
     }
 
-    // TODO: Add packaging options to handle native library conflicts
-    // packaging {
-    //     resources {
-    //         excludes += "/META-INF/{AL2.0,LGPL2.1}"
-    //     }
-    // }
+    packaging {
+        resources {
+            // BouncyCastle (pulled in by :shared for the Noise layer) ships
+            // ~1.2 MB of resource files we never touch. R8 shrinks code but
+            // does not strip arbitrary dependency resources, so without this
+            // they ride along in every release APK:
+            //   picnic lowmcL1/L3/L5 tables  ~1.19 MB  (post-quantum signatures)
+            //   CertPathReviewerMessages     ~12 KB    (X.509 path validation)
+            // The Noise layer uses only X25519, SHA-256, HMAC, ChaCha20-Poly1305
+            // and AES-GCM, none of which read these.
+            excludes += setOf(
+                "org/bouncycastle/pqc/crypto/picnic/**",
+                "org/bouncycastle/x509/CertPathReviewerMessages*.properties",
+            )
+        }
+    }
 }
 
 
