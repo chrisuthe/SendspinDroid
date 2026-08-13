@@ -98,6 +98,34 @@ def describe_client(client) -> str:
     )
 
 
+def build_server(
+    loop: asyncio.AbstractEventLoop,
+    identity: Identity,
+    name: str,
+    pairing_store,
+    *,
+    allow_unencrypted: bool = False,
+) -> SendspinServer:
+    """Construct the server with this runner's policy.
+
+    Kept as a single function so verify_dev_server.py exercises the SAME
+    configuration the dev server actually ships, rather than a parallel copy
+    that could silently drift if someone flips a flag while debugging.
+
+    `allow_unencrypted` is a parameter only so the verification script can
+    stand up a deliberately permissive control server; the runner always
+    passes the default.
+    """
+    return SendspinServer(
+        loop,
+        identity,
+        name,
+        pairing_store=pairing_store,
+        allow_unencrypted=allow_unencrypted,
+        allow_noncompliant_clients=allow_unencrypted,
+    )
+
+
 class DevServer:
     def __init__(self, args: argparse.Namespace) -> None:
         self._args = args
@@ -112,14 +140,9 @@ class DevServer:
         store_path.parent.mkdir(parents=True, exist_ok=True)
         store = await FileServerPairingStore.open(store_path)
 
-        self._server = SendspinServer(
-            asyncio.get_running_loop(),
-            identity,
-            args.name,
-            pairing_store=store,
-            # The whole point of this runner: reject the legacy dialect.
-            allow_unencrypted=False,
-            allow_noncompliant_clients=False,
+        # The whole point of this runner: reject the legacy dialect.
+        self._server = build_server(
+            asyncio.get_running_loop(), identity, args.name, store
         )
 
         advertise = [args.advertise_ip] if args.advertise_ip else None
@@ -157,8 +180,14 @@ class DevServer:
         while True:
             try:
                 clients = list(self._server.connected_clients)
-            except Exception:  # server shutting down
-                return
+            except Exception:
+                # Do NOT assume this means shutdown. If the watcher dies here,
+                # auto-trust silently stops while --trust-all-unpaired is still
+                # on the command line - which recreates precisely the
+                # untrusted-client confusion this flag exists to prevent.
+                LOGGER.exception("failed to read connected_clients; continuing")
+                await asyncio.sleep(1.0)
+                continue
             current = set()
             for client in clients:
                 current.add(client.client_id)
@@ -169,9 +198,15 @@ class DevServer:
                     and not client.is_paired
                     and client.client_id not in self._auto_trusted
                 ):
-                    await self._server.trust_unpaired(client.client_id)
-                    self._auto_trusted.add(client.client_id)
-                    LOGGER.info("auto-trusted unpaired client %s", client.client_id)
+                    # A client can disconnect between the snapshot above and
+                    # this call; that must not kill the watcher.
+                    try:
+                        await self._server.trust_unpaired(client.client_id)
+                    except Exception:
+                        LOGGER.exception("failed to auto-trust %s", client.client_id)
+                    else:
+                        self._auto_trusted.add(client.client_id)
+                        LOGGER.info("auto-trusted unpaired client %s", client.client_id)
             for gone in seen - current:
                 LOGGER.info("client disconnected: %s", gone)
             seen = current
@@ -283,9 +318,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="auto-trust every unpaired client so it becomes playback-capable",
     )
     parser.add_argument(
-        "--dump-wire",
+        "--debug",
         action="store_true",
-        help="log the raw client/init and server/init bytes (for prologue debugging)",
+        help="raise aiosendspin and this script to DEBUG logging",
     )
     return parser
 
@@ -294,13 +329,27 @@ async def run(args: argparse.Namespace) -> int:
     server = DevServer(args)
     await server.start()
     watcher = asyncio.create_task(server.watch_clients())
+
+    def report_watcher_death(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        err = task.exception()
+        if err is not None:
+            LOGGER.error("client watcher stopped; auto-trust and connection "
+                         "logging are no longer running", exc_info=err)
+
+    watcher.add_done_callback(report_watcher_death)
+
     try:
         await server.console()
     except (KeyboardInterrupt, asyncio.CancelledError):
         pass
     finally:
         watcher.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        # Suppress CancelledError from the cancel above, but tolerate a watcher
+        # that already died of something else - otherwise that exception would
+        # propagate here and skip the close() below.
+        with contextlib.suppress(asyncio.CancelledError, Exception):
             await watcher
         await server.close()
     return 0
@@ -309,16 +358,21 @@ async def run(args: argparse.Namespace) -> int:
 def main() -> int:
     args = build_parser().parse_args()
     logging.basicConfig(
-        level=logging.DEBUG if args.dump_wire else logging.INFO,
+        level=logging.DEBUG if args.debug else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )
-    if args.dump_wire:
-        # The prologue is the concatenated raw bytes of client/init and
-        # server/init. Comparing our concatenation against the server's is the
-        # only practical way to debug a prologue mismatch, which otherwise
-        # closes the socket with no application-level error.
+    if args.debug:
         logging.getLogger("aiosendspin").setLevel(logging.DEBUG)
+        # Note for prologue debugging (item 1.2): aiosendspin 9.1.0 does NOT log
+        # the raw client/init and server/init bytes at any level. It builds the
+        # prologue in aiosendspin/noise/driver.py as
+        # `client_init_text.encode() + server_init_text.encode()` with no log
+        # statement, so DEBUG will not surface the bytes you need to diff. To
+        # compare against our concatenation you have to capture the frames
+        # yourself - a WebSocket proxy, or a local patch to that function.
+        LOGGER.debug("aiosendspin does not log raw init bytes; see the comment "
+                     "in main() if you are debugging a prologue mismatch")
     try:
         return asyncio.run(run(args))
     except KeyboardInterrupt:

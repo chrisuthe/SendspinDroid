@@ -48,18 +48,29 @@ In Sendspin the **server is the Noise initiator** and the **client is the
 responder**, regardless of who opened the WebSocket. This class is the client
 side.
 
-### Two details that cost real debugging time
+### The detail that cost real debugging time
 
 **The `e` token also calls `MixKey` in PSK handshakes.** In a plain pattern `e`
 only does `MixHash(e.public_key)`. Under any `psk` modifier it does
-`MixHash` *and* `MixKey` on the same public key. Omitting it diverges the
-symmetric state at the very first token, and the only symptom is an AEAD tag
-failure several steps later. Both `e` sites in the prototype carry a comment.
+`MixHash` *and* `MixKey` on the same public key (Noise spec section 9.2).
+Omitting it diverges the symmetric state at the very first token, and the only
+symptom is an AEAD tag failure several steps later. That is exactly how it
+presented here. Both `e` sites in the prototype carry a comment.
 
-**Noise's HKDF is not RFC 5869 applied naively.** Each output is an HMAC over the
-previous output concatenated with a counter byte, and `MixKey` takes two outputs
-while `MixKeyAndHash` takes three. Reaching for a generic HKDF helper produces a
-handshake that passes self-tests and fails against a real peer.
+### On HKDF: use a library one
+
+An earlier version of this README claimed Noise's HKDF "is not RFC 5869" and
+warned against library helpers. **That was wrong.** Noise spec section 4.3 says
+the opposite in as many words: "the HKDF() function is simply HKDF from
+[RFC 5869] with the chaining_key as HKDF salt, and zero-length HKDF info."
+Verified empirically -- RFC 5869 HKDF-SHA256 with `salt=ck`, `info=b""`,
+`length=32*n` is byte-identical to the expanded form in this prototype, for both
+`n=2` and `n=3`.
+
+The prototype expands it inline only to avoid a dependency beyond BouncyCastle.
+**The Kotlin port should use a library HKDF.** The real trap is parameter
+misuse, not the construction: the chaining key is the **salt** (not the IKM),
+`info` must be **empty**, and you need `32*n` bytes split into `n` outputs.
 
 ## Reproducing
 
@@ -71,22 +82,30 @@ cd ci/conformance/noise
 curl -sL -o noise-java.jar https://repo1.maven.org/maven2/org/signal/forks/noise-java/0.1.1/noise-java-0.1.1.jar
 curl -sL -o bcprov.jar     https://repo1.maven.org/maven2/org/bouncycastle/bcprov-jdk18on/1.80/bcprov-jdk18on-1.80.jar
 
-# The library spike (Q1-Q4)
+# The library spike (Q1-Q4). Classpath separator is ';' on Windows, ':' elsewhere.
 "$JAVA_HOME/bin/javac" -cp noise-java.jar -d . NoiseSpike.java
-"$JAVA_HOME/bin/java"  -cp "noise-java.jar;." NoiseSpike
+"$JAVA_HOME/bin/java"  -cp "noise-java.jar;." NoiseSpike     # Windows
+"$JAVA_HOME/bin/java"  -cp "noise-java.jar:." NoiseSpike     # macOS / Linux
 
 # The prototype: live interop over loopback TCP
 "$JAVA_HOME/bin/javac" -cp bcprov.jar -d . KKpsk2Responder.java
 python peer.py
 
-# Regenerate and re-validate the golden vectors
+# Regenerate the golden vectors in place, or verify they are current
 python make_vectors.py
+python make_vectors.py --check
 ```
 
-`peer.py` asserts both sides derive the same handshake hash and that transport
-messages round-trip in both directions. `make_vectors.py` pins both ephemerals,
-drives the exchange through the reference implementation, and only writes
-`vectors.json` if every field round-trips.
+The two Python drivers build their own classpath with `os.pathsep`, so they work
+on any platform; only the hand-typed `java` commands above need the right
+separator.
+
+`peer.py` asserts both sides derive the same handshake hash and exchanges **two**
+transport frames per direction. `make_vectors.py` pins both ephemerals, drives
+the exchange through the reference implementation, and writes `vectors.json`
+**in this directory** only if every field round-trips. `--check` fails if the
+committed file is stale, so drift between the code and the vectors is detectable
+rather than silent.
 
 ## vectors.json
 
@@ -102,11 +121,26 @@ The Kotlin `NoiseSession` tests should assert at minimum:
 - writing message 2 with `client_ephemeral_private` pinned reproduces `message_2`
   byte for byte
 - `handshake_hash` matches after the handshake completes
-- the transport keys are not swapped - `transport_probe_ciphertext` must decrypt
-  under `transport_key_recv` to `transport_probe_plaintext_utf8`
+- **transport, both directions, both nonces.** `transport_probe_i2r[i]` must
+  decrypt under `transport_key_recv` at nonce `i` to
+  `transport_probe_i2r_plaintext_utf8[i]`, and encrypting
+  `transport_probe_r2i_plaintext_utf8[i]` under `transport_key_send` at nonce `i`
+  must reproduce `transport_probe_r2i[i]`, for `i` in 0 and 1.
 
-A negative test is worth adding too: substituting a different prologue must make
-message 1 fail to decrypt. Prologue handling is the highest-risk part of #193.
+That last one is deliberately over-specified. Nonce 0 encodes as twelve zero
+bytes under **any** endianness or offset, so a port with a big-endian counter, a
+wrong offset, or a per-message nonce reset passes every `i=0` check and then
+fails against a real server on the second frame. And because the handshake hash
+does not depend on `Split()` direction, a port that swapped the two keys would
+agree on `handshake_hash` and still be broken. The `i=1` probes and the
+two-direction probes exist specifically to catch those.
+
+Two negative tests are worth adding:
+
+- substituting a different prologue must make message 1 fail to decrypt
+  (prologue handling is the highest-risk part of #193)
+- a message 1 shorter than 48 bytes must be rejected with a clear "truncated"
+  error, not a zero-padded key and a misleading AEAD failure
 
 ## Not covered here
 

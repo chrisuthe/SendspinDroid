@@ -42,14 +42,17 @@ aiosendspin 10.
 python ci/conformance/dev_server.py --name "Sendspin Dev" --trust-all-unpaired
 ```
 
-Expected startup output:
+Expected startup output (every line is prefixed with
+`HH:MM:SS INFO    dev_server: `, elided here for width; on a first run a
+"Generated a new server identity" line precedes it, and aiosendspin logs a
+couple of its own lines):
 
 ```
 ========================================================================
 Sendspin dev server 'Sendspin Dev' listening on 0.0.0.0:8927/sendspin
 server_id: O67GqkUcDwDyoaIToq1vqI474fNR3sZp8CV1kul35W0
-identity:  .dev/sendspin/identity.key (do NOT delete - see runbook)
-records:   .dev/sendspin/pairing_store.json
+identity:  .dev\sendspin\identity.key (do NOT delete - see runbook)
+records:   .dev\sendspin\pairing_store.json
 allow_unencrypted=False  allow_noncompliant_clients=False
 auto-trusting unpaired clients on connect (--trust-all-unpaired)
 ========================================================================
@@ -97,18 +100,33 @@ python ci/conformance/verify_dev_server.py
 which asserts, on a throwaway state directory:
 
 - the persistent identity is stable across restarts, and `server_id` is 43 chars
-- a corrupt or empty identity file is refused rather than silently replaced
-- a legacy `client/hello`-first connection is **closed** by the server
+- an empty identity file is refused rather than silently replaced
+- a corrupt identity file is refused rather than silently replaced
+- a strict server **closes** a legacy `client/hello`-first connection
+- a **permissive** server accepts that same connection
 
-Expected output:
+The last check is the control that gives the one before it meaning. Without it,
+a server that was simply broken would also "reject" the legacy client and this
+script would report success for the wrong reason. It uses `dev_server`'s own
+`build_server`, so it exercises the shipped configuration rather than a copy.
+
+Expected output (aiosendspin also logs an "Accepting unencrypted legacy
+connection (transition mode)" line during the control):
 
 ```
-PASS identity persistence: O67GqkUcDwDyoaIToq1vqI474fNR3sZp8CV1kul35W0
-PASS refuses to mint over an empty identity file
-PASS legacy client/hello rejected (frame=CLOSE)
+PASS identity is stable across restarts
+PASS server_id is 43 base64url chars
+     server_id: Q14IWqmBv7Me1wJAXmOqW-Ge9BXKK_6g6fJZotcERwA
+PASS refuses to mint over an EMPTY identity file
+PASS refuses to mint over a CORRUPT identity file
+PASS strict server REJECTS the legacy client/hello
+PASS control: permissive server ACCEPTS the same legacy client/hello
 
 ALL CHECKS PASSED
 ```
+
+The `server_id` differs on every run: the script uses a fresh temporary state
+directory, so it never reuses the one your dev server prints.
 
 Then point the current app build (2.0.0-Beta14) at the running server. It must
 discover the server and then **fail to establish a session**, with the server
@@ -148,16 +166,24 @@ regardless of WSL2.
 
 ## Debugging the Noise prologue
 
+The prologue is the concatenation of `client/init` and `server/init`'s **exact
+wire bytes** - the spec requires hashing what was sent and received, not a
+re-serialization. `kotlinx.serialization` will not round-trip byte-identically,
+so a mismatch here is the most likely silent failure in item 1.2.
+
 ```bash
-python ci/conformance/dev_server.py --dump-wire
+python ci/conformance/dev_server.py --debug
 ```
 
-Raises aiosendspin to DEBUG so the raw `client/init` and `server/init` bytes are
-logged. The prologue is the concatenation of those two messages' **exact wire
-bytes** - the spec requires hashing what was sent and received, not a
-re-serialization. `kotlinx.serialization` will not round-trip byte-identically,
-so a mismatch here is the most likely silent failure in item 1.2, and comparing
-against this log is the only practical way to find it.
+raises aiosendspin and this script to DEBUG. **Be aware of what that does not
+give you:** aiosendspin 9.1.0 does not log the raw init bytes at any level. It
+builds the prologue in `aiosendspin/noise/driver.py` as
+`client_init_text.encode() + server_init_text.encode()` with no log statement.
+To diff our concatenation against the server's you have to capture the frames
+yourself - a WebSocket proxy in front of the server, or a local one-line patch
+adding a log call to that function. (An earlier version of this runbook claimed
+`--dump-wire` surfaced these bytes. It did not; the flag has been renamed to
+`--debug` to stop promising it.)
 
 ## Relationship to the conformance harness
 

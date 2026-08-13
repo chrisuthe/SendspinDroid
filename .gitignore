@@ -65,3 +65,7 @@ android/conformance-client/build/
 ci/conformance/noise/*.jar
 ci/conformance/noise/*.class
 ci/conformance/__pycache__/
+
+# Python bytecode from the conformance tooling
+__pycache__/
+.pytest_cache/

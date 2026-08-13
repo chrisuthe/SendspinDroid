@@ -14,8 +14,22 @@
   "handshake_hash": "fac6e4f921f36dc0c1c263f0eac2f396abeb15794516cc7f178218bf22eaa3b5",
   "transport_key_recv": "30f64bb8c9054b6bfdfb710b4fcd024ec00a371ca91db99c8fc00bd31f5181e8",
   "transport_key_send": "b3a7f911b85c3b284f96804e584d9838f7bf4308e2ad1094dace15582f81b5ed",
-  "transport_probe_ciphertext": "f9f69dab9f333a45fce04e08417eb81ab282db6f32",
-  "transport_probe_plaintext_utf8": "probe",
-  "_generated_by": "ci/conformance/noise/make_vectors.py - validated against noiseprotocol (the library aiosendspin 9.1.0 depends on)",
-  "server_ephemeral_private": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+  "server_ephemeral_private": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+  "transport_probe_i2r": [
+    "f9f69dab9f54cc3c657f3d77cafff8d880bf28b79590bd",
+    "4a4a126e55e20f98ab9adfda85393d16791f80100abe96"
+  ],
+  "transport_probe_i2r_plaintext_utf8": [
+    "probe-0",
+    "probe-1"
+  ],
+  "transport_probe_r2i": [
+    "d671814fe27f57a53fd5d1e0946aba3f79cbfad76ee026",
+    "8d8cacccb4561234dfd08418c03e49ce4c806595ad8d0a"
+  ],
+  "transport_probe_r2i_plaintext_utf8": [
+    "reply-0",
+    "reply-1"
+  ],
+  "_generated_by": "ci/conformance/noise/make_vectors.py - every field round-tripped through noiseprotocol (the library aiosendspin 9.1.0 depends on)"
 }

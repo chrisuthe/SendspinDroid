@@ -61,9 +61,16 @@ public final class KKpsk2Responder {
     }
 
     /**
-     * Noise HKDF. NOT RFC 5869 applied naively: each output is an HMAC over the
-     * previous output concatenated with a counter byte. Using a generic HKDF
-     * helper here produces a handshake that only fails against a real peer.
+     * Noise HKDF. This IS RFC 5869 HKDF - the Noise spec section 4.3 states it
+     * outright: "the HKDF() function is simply HKDF from [RFC 5869] with the
+     * chaining_key as HKDF salt, and zero-length HKDF info." It is expanded
+     * inline here only so the prototype has no dependency beyond BouncyCastle;
+     * a library HKDF returning 2 or 3 32-byte outputs is equivalent, and the
+     * Kotlin port should feel free to use one.
+     *
+     * The trap is parameter misuse, not the construction: `chainingKey` is the
+     * SALT (not the IKM), `ikm` is the IKM, and info must be EMPTY. Swap or fill
+     * any of those and the handshake still runs, then fails against a real peer.
      */
     private static byte[][] hkdf(byte[] chainingKey, byte[] ikm, int numOutputs) {
         byte[] tempKey = hmac(chainingKey, ikm);
@@ -153,9 +160,19 @@ public final class KKpsk2Responder {
     }
 
     private byte[] decryptAndHash(byte[] ciphertext) throws Exception {
+        // Note: n is consumed even when the decrypt below throws, leaving this
+        // object desynchronised. Harmless here because Noise mandates aborting
+        // the handshake on any failure and nothing retries. The Kotlin port
+        // must make that structural (a terminal/consumed state), not incidental.
         byte[] pt = (k == null) ? ciphertext : aeadDecrypt(k, n++, h, ciphertext);
         mixHash(ciphertext);
         return pt;
+    }
+
+    /** Distinguishes protocol-level handshake failures from BouncyCastle internals. */
+    public static final class HandshakeException extends Exception {
+        HandshakeException(String message) { super(message); }
+        HandshakeException(String message, Throwable cause) { super(message, cause); }
     }
 
     // -- handshake ---------------------------------------------------------
@@ -178,13 +195,27 @@ public final class KKpsk2Responder {
     public void start(byte[] prologue) {
         initializeSymmetric("Noise_KKpsk2_25519_ChaChaPoly_SHA256");
         mixHash(prologue);
-        // Pre-messages, initiator's public keys first (Noise spec section 7).
+        // Pre-messages, initiator public keys first (Noise spec section 5.3,
+        // Initialize(); section 7 only defines the patterns themselves).
         mixHash(rs);    // "-> s"  (the server, who is the initiator)
         mixHash(sPub);  // "<- s"  (us, the responder)
     }
 
     /** Message 1: -> e, es, ss. Returns the decrypted payload (carries psk_id). */
     public byte[] readMessage1(byte[] message) throws Exception {
+        // Validate length FIRST. Arrays.copyOfRange zero-pads rather than
+        // throwing when the range exceeds the input, so a truncated frame would
+        // otherwise be processed as a garbage all-zero ephemeral key and fail
+        // several steps later as an opaque "32 > 10" IllegalArgumentException or,
+        // worse, as an InvalidCipherTextException indistinguishable from a
+        // genuine key mismatch. Port this check to Kotlin: in production a
+        // handshake abort is a silent close, so the local exception is the only
+        // diagnostic anyone will ever get.
+        if (message.length < DHLEN + TAGLEN) {
+            throw new HandshakeException(
+                    "handshake message 1 truncated: " + message.length
+                            + " bytes, need at least " + (DHLEN + TAGLEN));
+        }
         re = Arrays.copyOfRange(message, 0, DHLEN);
         mixHash(re);
         // PSK-modified handshakes only: every "e" token calls MixKey on the
@@ -194,7 +225,17 @@ public final class KKpsk2Responder {
         mixKey(re);
         mixKey(dh(s, re));          // es: responder side is DH(s, re)
         mixKey(dh(s, rs));          // ss
-        return decryptAndHash(Arrays.copyOfRange(message, DHLEN, message.length));
+        try {
+            return decryptAndHash(Arrays.copyOfRange(message, DHLEN, message.length));
+        } catch (Exception cause) {
+            // BouncyCastle reports every AEAD failure as the same
+            // InvalidCipherTextException. We know which token was being
+            // processed; say so, because the peer will tell us nothing.
+            throw new HandshakeException(
+                    "message 1 payload AEAD failed - wrong PSK is NOT possible here "
+                            + "(psk2 mixes it later), so suspect the prologue, our static "
+                            + "key, or the server static key", cause);
+        }
     }
 
     /** Message 2: <- e, ee, se, psk. The PSK is mixed LAST, after key selection. */
@@ -350,15 +391,20 @@ public final class KKpsk2Responder {
 
             System.out.println("RESPONDER h=" + toHex(r.handshakeHash));
 
-            // Transport mode: read one message from the initiator.
-            byte[] ct = readFrame(in);
-            byte[] pt = aeadDecrypt(r.recvKey, 0, new byte[0], ct);
-            System.out.println("RESPONDER transport_recv=" + new String(pt, StandardCharsets.UTF_8));
-
-            // And send one back.
-            byte[] reply = aeadEncrypt(r.sendKey, 0, new byte[0],
-                    "hello from responder".getBytes(StandardCharsets.UTF_8));
-            writeFrame(out, reply);
+            // Transport mode. Two frames per direction, with the nonce counter
+            // advancing: at n=0 the nonce is twelve zero bytes regardless of
+            // endianness or offset, so a counter bug is only visible at n=1.
+            for (long i = 0; i < 2; i++) {
+                byte[] ct = readFrame(in);
+                byte[] pt = aeadDecrypt(r.recvKey, i, new byte[0], ct);
+                System.out.println("RESPONDER transport_recv[" + i + "]="
+                        + new String(pt, StandardCharsets.UTF_8));
+            }
+            for (long i = 0; i < 2; i++) {
+                byte[] reply = aeadEncrypt(r.sendKey, i, new byte[0],
+                        ("reply-" + i + " from responder").getBytes(StandardCharsets.UTF_8));
+                writeFrame(out, reply);
+            }
             System.out.println("RESPONDER done");
         }
     }

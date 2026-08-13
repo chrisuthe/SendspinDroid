@@ -253,11 +253,15 @@ and both cipher suites, but neither compensates.
 A hand-rolled `KKpsk2` responder on BouncyCastle now exists and is validated
 against `noiseprotocol` (the library aiosendspin 9.1.0 depends on): see
 `ci/conformance/noise/`, with reference-round-tripped golden vectors in
-`vectors.json` for #193's tests. Two traps found while building it are written up
-in that README - most notably that under any `psk` modifier the `e` token calls
-`MixKey` on the ephemeral public key in addition to `MixHash`, and omitting it
-diverges the state at the first token while surfacing only as an AEAD tag
-failure several steps later.
+`vectors.json` for #193's tests. The trap found while building it is written up
+in that README: under any `psk` modifier the `e` token calls `MixKey` on the
+ephemeral public key in addition to `MixHash`, and omitting it diverges the state
+at the first token while surfacing only as an AEAD tag failure several steps
+later.
+
+Note for #193: Noise's HKDF **is** RFC 5869 (chaining key as salt, empty info),
+so use a library HKDF. An earlier draft of this document and the README claimed
+otherwise; that was wrong and has been corrected.
 
 Original reasoning, retained for context:
 `KKpsk2` is a fixed three-message pattern needing only X25519, HKDF-SHA256,
