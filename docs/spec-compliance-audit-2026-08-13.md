@@ -404,3 +404,58 @@ For an agent picking up Phase 1 cold, in order:
    `BaseWebSocketTransport.kt`
 5. `aiosendspin/noise/` at tag 9.1.0 - the working reference for every one of
    these, in a language that is easy to read against the spec
+
+---
+
+## 8. Issue index
+
+Every work item in section 5 has a GitHub issue carrying its full implementation
+plan (spec quotes, current state with `file:line`, ordered steps, a test-first
+test plan, acceptance criteria, risks). Issues are labelled `spec-compliance`
+plus `phase-0` .. `phase-4`.
+
+| Item | Issue | Item | Issue | Item | Issue |
+|---|---|---|---|---|---|
+| 0.1 | #189 | 2.1 | #202 | 3.7 | #210 |
+| 0.2 | #190 | 2.2 | #203 | 3.8 | #211 |
+| 0.3 | #191 | 2.3 | #204 | 3.9 | #212 |
+| 1.1 | #192 | 2.4 | #205 | 3.10 | #213 |
+| 1.2 | #193 | 2.5 | #206 | 3.11 | #214 |
+| 1.3 | #194 | 2.6 | #223 | 3.12 | #215 |
+| 1.4 | #195 | 2.7 | #224 | 3.13 | #216 |
+| 1.5 | #196 | 2.8 | #225 | 4.1 | #217 |
+| 1.6 | #197 | 2.9 | #226 | 4.2 | #218 |
+| 1.7 | #198 | 3.1 | #227 | 4.3 | #219 |
+| 1.8 | #199 | 3.2 | #228 | 4.4 | #220 |
+| 1.9 | #200 | 3.3 | #229 | 4.5 | #221 |
+| 1.10 | #201 | 3.4 | #207 | 4.6 | #222 |
+|  |  | 3.5 | #208 |  |  |
+|  |  | 3.6 | #209 |  |  |
+
+### Findings from planning that amend section 4
+
+Two decisions changed while the plans were being written. The issues carry the
+corrected guidance; this records why.
+
+**D3 (Noise library) now expects a negative result.** Reading
+`org.signal.forks:noise-java` 0.1.1 at source shows `Pattern.lookup` has no `PSK`
+token and does not recognize `KKpsk2`, and `setPreSharedKey` throws once the
+handshake has started - so the PSK cannot be supplied after Noise message 1, which
+is exactly what `psk_id` selection requires. No other JVM Noise artifact on Maven
+Central implements `psk` modifiers. Hand-rolling KKpsk2 on BouncyCastle's
+low-level `org.bouncycastle.crypto.*` API is therefore the likely route. #189
+keeps the empirical check but timeboxes it and requires the fallback prototype as
+its real deliverable, so #193 starts from working code.
+
+**D2 (`locations` hint) should probably be `["device"]`, not `["operator"]`.**
+Music Assistant renders `operator` as "The pairing token is a custom one set on the
+device by its operator", which describes a manually-provisioned secret. We generate
+the Pairing PSK from a CSPRNG on first run and show it on screen, which
+`pairing_psk_location_device` ("printed on the device") describes better. #191
+confirms this against a running instance and amends the decision.
+
+**Music Assistant has no QR scanner on the pairing screen.** Its token field is a
+single-line text input, and `decode_token` trims only *surrounding* whitespace, so
+any interior grouping separator is rejected by `b32decode` with an opaque failure.
+The token must therefore be rendered and copied ungrouped. #205 and #225 both
+carry this constraint.
