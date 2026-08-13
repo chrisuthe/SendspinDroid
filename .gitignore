@@ -57,3 +57,11 @@ android/nul
 # Git worktrees (isolated dev branches)
 .worktrees/
 android/conformance-client/build/
+
+# Sendspin dev server runtime state (identity key + pairing records)
+.dev/
+
+# Noise spike: jars are fetched on demand, classes are build output
+ci/conformance/noise/*.jar
+ci/conformance/noise/*.class
+ci/conformance/__pycache__/

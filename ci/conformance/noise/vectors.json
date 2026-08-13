@@ -1,0 +1,21 @@
+{
+  "protocol": "Noise_KKpsk2_25519_ChaChaPoly_SHA256",
+  "prologue_utf8": "sendspin-spike-prologue-v1",
+  "client_static_private": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+  "client_static_public": "675dd574ed7789310b3d2e7681f3790b466c773b1521fecf36577958371ea52f",
+  "server_static_public": "358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd166254",
+  "psk": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+  "client_ephemeral_private": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+  "message_1": "493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531dcdf8933800968c0ab0d21481f61c2ea53bd68371179d1956acc40d7b281a98cba4cf963ced3b80d387e249a9511fb61e45502d52cf09",
+  "message_1_payload_utf8": "{\"psk_id\": \"spike-psk-id-placeholder\"}",
+  "h_after_message_1": "c5d8ec6e3cbb8c2ef69b99e44c058264f50050e26932e0ba46575a412ca8a81d",
+  "message_2": "dc2cca31e8e43bbd91dff7e475cca3347eb478107d5bd765aba4ae4a30c35d44a0ae1d03ad24d7313cff292d69d2059b72bf",
+  "message_2_payload_utf8": "{}",
+  "handshake_hash": "fac6e4f921f36dc0c1c263f0eac2f396abeb15794516cc7f178218bf22eaa3b5",
+  "transport_key_recv": "30f64bb8c9054b6bfdfb710b4fcd024ec00a371ca91db99c8fc00bd31f5181e8",
+  "transport_key_send": "b3a7f911b85c3b284f96804e584d9838f7bf4308e2ad1094dace15582f81b5ed",
+  "transport_probe_ciphertext": "f9f69dab9f333a45fce04e08417eb81ab282db6f32",
+  "transport_probe_plaintext_utf8": "probe",
+  "_generated_by": "ci/conformance/noise/make_vectors.py - validated against noiseprotocol (the library aiosendspin 9.1.0 depends on)",
+  "server_ephemeral_private": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f"
+}
