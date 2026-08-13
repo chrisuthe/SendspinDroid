@@ -3,11 +3,13 @@ package com.sendspindroid.sendspin.protocol
 import android.util.Log
 import com.sendspindroid.sendspin.AdaptiveBufferPolicy
 import com.sendspindroid.sendspin.SendspinTimeFilter
+import com.sendspindroid.sendspin.crypto.NoiseTransport
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
 import com.sendspindroid.sendspin.protocol.timesync.TimeSyncManager
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -78,9 +80,17 @@ abstract class SendSpinProtocolHandler(
     // ========== Abstract Transport Methods ==========
 
     /**
-     * Send a text message over the WebSocket.
+     * Send a raw WebSocket TEXT frame.
+     *
+     * After the Noise handshake this is a protocol violation - "all messages
+     * are sent as WebSocket binary frames carrying Noise transport ciphertexts".
+     * Only the handshake driver and the legacy path may call it; everything else
+     * goes through [sendProtocolMessage].
      */
     protected abstract fun sendTextMessage(text: String)
+
+    /** Send a raw WebSocket BINARY frame. */
+    protected abstract fun sendBinaryFrame(bytes: ByteArray)
 
     /**
      * Get the coroutine scope for async operations.
@@ -226,7 +236,7 @@ abstract class SendSpinProtocolHandler(
             supportedFormats = formats,
             softwareVersion = getSoftwareVersion()
         )
-        sendTextMessage(text)
+        sendProtocolMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
     }
 
@@ -235,7 +245,7 @@ abstract class SendSpinProtocolHandler(
      */
     protected fun sendClientTime() {
         val clientTransmitted = System.nanoTime() / 1000 // Convert to microseconds
-        sendTextMessage(MessageBuilder.buildClientTime(clientTransmitted))
+        sendProtocolMessage(MessageBuilder.buildClientTime(clientTransmitted))
     }
 
     /**
@@ -243,7 +253,7 @@ abstract class SendSpinProtocolHandler(
      */
     protected fun sendGoodbye(reason: String) {
         if (!handshakeComplete) return
-        sendTextMessage(MessageBuilder.buildGoodbye(reason))
+        sendProtocolMessage(MessageBuilder.buildGoodbye(reason))
     }
 
     /**
@@ -256,7 +266,7 @@ abstract class SendSpinProtocolHandler(
             lastReportedMinBufferMs = target
             target
         }
-        sendTextMessage(
+        sendProtocolMessage(
             MessageBuilder.buildPlayerState(
                 currentVolume, currentMuted, currentSyncState, delayMs,
                 minBufferMs = minBufferMs
@@ -439,7 +449,7 @@ abstract class SendSpinProtocolHandler(
             Log.w(tag, "Dropping controller command '$command': not in server supported_commands $supported")
             return
         }
-        sendTextMessage(MessageBuilder.buildCommand(command, volume, mute))
+        sendProtocolMessage(MessageBuilder.buildCommand(command, volume, mute))
     }
 
     /**
@@ -456,7 +466,7 @@ abstract class SendSpinProtocolHandler(
     ) {
         if (!handshakeComplete) return
         Log.i(tag, "Requesting stream format: codec=$codec, rate=$sampleRate, ch=$channels, bits=$bitDepth")
-        sendTextMessage(MessageBuilder.buildStreamRequestFormat(codec, sampleRate, channels, bitDepth))
+        sendProtocolMessage(MessageBuilder.buildStreamRequestFormat(codec, sampleRate, channels, bitDepth))
     }
 
     // ========== Player State Methods ==========
@@ -530,6 +540,70 @@ abstract class SendSpinProtocolHandler(
             onMeasurementApplied = { rttMicros -> onTimeMeasurement(rttMicros) },
             tag = tag
         )
+    }
+
+    // ========== Encrypted channel ==========
+
+    /**
+     * Set once the Noise handshake completes. Null means the legacy
+     * (unencrypted) dialect, which Music Assistant still accepts today behind
+     * its `allow_legacy_clients` toggle but has documented as temporary.
+     *
+     * This one field is what switches the whole protocol layer between the two
+     * wire formats: every existing caller of [sendProtocolMessage] becomes
+     * encrypted with no further edits, and [handleBinaryMessage] routes through
+     * the codec instead of parsing a bare frame.
+     */
+    @Volatile
+    private var wireCodec: NoiseWireCodec? = null
+
+    /** True once the connection is carrying Noise ciphertexts. */
+    val isEncrypted: Boolean get() = wireCodec != null
+
+    /** Install the transport produced by the handshake driver. */
+    fun installEncryptedTransport(transport: NoiseTransport) {
+        wireCodec = NoiseWireCodec(transport)
+        Log.i(tag, "Encrypted channel established")
+    }
+
+    /** Drop the encrypted channel (disconnect, or falling back to legacy). */
+    fun clearEncryptedTransport() {
+        wireCodec = null
+    }
+
+    /**
+     * Send an application protocol message.
+     *
+     * Encrypted when a Noise transport is installed, a plain text frame
+     * otherwise. Callers do not need to know which.
+     */
+    protected fun sendProtocolMessage(text: String) {
+        val codec = wireCodec
+        if (codec == null) {
+            // Legacy dialect: a plain text frame.
+            sendTextMessage(text)
+            return
+        }
+        // encodeJson takes the send mutex, so this has to be in a coroutine.
+        getCoroutineScope().launch {
+            try {
+                codec.encodeJson(text).forEach { sendBinaryFrame(it) }
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to encrypt outbound message", e)
+                onProtocolFailure("outbound encryption failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * A protocol-level failure that requires closing the socket.
+     *
+     * The spec allows no application-level error message for these, so the only
+     * thing to do is close - and the only diagnostic anyone will ever have is
+     * the log line the implementation writes here.
+     */
+    protected open fun onProtocolFailure(reason: String) {
+        Log.e(tag, "Protocol failure: $reason")
     }
 
     // ========== Message Handling ==========
@@ -728,9 +802,24 @@ abstract class SendSpinProtocolHandler(
      * Handle binary message from the transport.
      */
     protected fun handleBinaryMessage(bytes: ByteArray) {
-        val message = BinaryMessageParser.parse(bytes)
-        if (message != null) {
-            dispatchBinaryMessage(message)
+        val codec = wireCodec
+        if (codec == null) {
+            // Legacy path: the frame is a bare SendSpin binary message.
+            BinaryMessageParser.parse(bytes)?.let { dispatchBinaryMessage(it) }
+            return
+        }
+        when (val decoded = codec.decode(bytes)) {
+            is NoiseWireCodec.Decoded.Json -> handleTextMessage(decoded.text)
+            is NoiseWireCodec.Decoded.Typed ->
+                BinaryMessageParser.parse(decoded.type, decoded.body)
+                    ?.let { dispatchBinaryMessage(it) }
+            is NoiseWireCodec.Decoded.Fragment ->
+                // Reassembly lands in item 1.5. Until then a fragmented message
+                // is unreadable, and silently ignoring it would strand the
+                // stream; the spec's answer to an unhandleable frame is to close.
+                onProtocolFailure("fragmentation is not implemented yet (item 1.5)")
+            is NoiseWireCodec.Decoded.ProtocolError ->
+                onProtocolFailure(decoded.reason)
         }
     }
 

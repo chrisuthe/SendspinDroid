@@ -472,6 +472,13 @@ class TestProtocolHandler : SendSpinProtocolHandler("TestHandler") {
         sentMessages.add(text)
     }
 
+    /** Frames sent on the encrypted path, in order. */
+    val sentBinaryFrames = mutableListOf<ByteArray>()
+
+    override fun sendBinaryFrame(bytes: ByteArray) {
+        sentBinaryFrames.add(bytes)
+    }
+
     override fun getCoroutineScope(): CoroutineScope = testScope
 
     override fun getTimeFilter(): SendspinTimeFilter = timeFilter

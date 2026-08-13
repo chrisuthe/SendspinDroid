@@ -10,6 +10,8 @@ import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
 import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
+import com.sendspindroid.sendspin.crypto.PskCandidateSet
+import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.TrackMetadata
@@ -314,11 +316,83 @@ class SendSpin(
 
     // ========== SendSpinProtocolHandler Implementation ==========
 
+    // ========== Encrypted handshake (spec) ==========
+
+    /**
+     * Whether to attempt the spec's encrypted handshake.
+     *
+     * Defaults to off. Music Assistant still accepts the legacy dialect behind
+     * its `allow_legacy_clients` toggle, and flipping this default before the
+     * encrypted path has run against a real server would strand every user on a
+     * stable MA build. Automatic negotiation - try encrypted, fall back once on
+     * a handshake-phase close - is item 1.10 (#201); until then this is an
+     * explicit opt-in so the path can be exercised against the dev server.
+     */
+    @Volatile
+    var useEncryption: Boolean = false
+
+    private var handshakeDriver: SendSpinHandshakeDriver? = null
+
+    private fun startEncryptedHandshake() {
+        // The wire client_id for an encrypted session is the base64url public
+        // key, NOT the legacy UUID player id - the two are different
+        // identifiers and the server rejects a non-43-character value.
+        val identity = UserSettings.getOrCreateClientIdentity()
+        val driver = SendSpinHandshakeDriver(
+            identity = identity,
+            candidates = pskCandidates(),
+            onEvent = ::onHandshakeEvent,
+        )
+        handshakeDriver = driver
+        driver.start()
+    }
+
+    private fun onHandshakeEvent(event: SendSpinHandshakeDriver.Event) {
+        when (event) {
+            is SendSpinHandshakeDriver.Event.SendCleartext ->
+                // Cleartext handshake frames are the only text frames the spec
+                // permits; everything after transport mode is binary.
+                sendTextMessage(event.text)
+
+            is SendSpinHandshakeDriver.Event.TransportReady -> {
+                Log.i(TAG, "Noise handshake complete with ${event.serverInit.serverId} " +
+                    "(psk=${event.matchedPsk.category})")
+                installEncryptedTransport(event.transport)
+                // client/hello is the first ENCRYPTED message, not the first
+                // frame on the socket. It now rides the codec like everything
+                // else.
+                sendClientHello()
+            }
+
+            is SendSpinHandshakeDriver.Event.Fail -> {
+                // The spec allows no application-level error message here, so
+                // this log line is the only diagnostic that will ever exist.
+                Log.e(TAG, "Noise handshake failed: ${event.reason} - ${event.detail}")
+                handshakeDriver = null
+                _connectionState.value = TransportState.Failed(FailureReason.HandshakeFailed)
+                transport?.close(1002, "handshake failed")
+            }
+        }
+    }
+
+    /**
+     * Phase 1 candidate set: the Sentinel alone, which is what an unpaired
+     * client presents. Pairing records join it in Phase 2 (#202).
+     */
+    private fun pskCandidates(): PskCandidateSet = PskCandidateSet.sentinelOnly()
+
     override fun sendTextMessage(text: String) {
         val t = transport ?: return  // Silently drop if transport is gone (e.g. post-disconnect race)
         val success = t.send(text)
         if (!success) {
             Log.w(TAG, "Failed to send message")
+        }
+    }
+
+    override fun sendBinaryFrame(bytes: ByteArray) {
+        val t = transport ?: return
+        if (!t.send(bytes)) {
+            Log.w(TAG, "Failed to send binary frame (${bytes.size} bytes)")
         }
     }
 
@@ -1346,10 +1420,28 @@ class SendSpin(
                 Log.e(TAG, "Proxy connection has no auth token - server will reject")
                 _connectionState.value = TransportState.Failed(FailureReason.AuthRejected)
                 disconnect()
+            } else if (useEncryption) {
+                // Spec order: client/init is the FIRST frame on the socket.
+                // client/hello moves after the Noise handshake and travels
+                // encrypted like every other application message.
+                Log.d(TAG, "Starting encrypted handshake")
+                startEncryptedHandshake()
             } else {
                 // Local/Remote mode: proceed directly with hello
                 sendClientHello()
             }
+        }
+
+        override fun onMessage(text: String, rawUtf8: ByteArray) {
+            // The Noise prologue is built from the EXACT bytes of server/init as
+            // received, so the driver gets rawUtf8 and never a re-encoding.
+            val driver = handshakeDriver
+            if (driver != null && driver.phase != SendSpinHandshakeDriver.Phase.Transport) {
+                lastByteReceivedAtMs.set(System.currentTimeMillis())
+                driver.onCleartextFrame(rawUtf8)
+                return
+            }
+            onMessage(text)
         }
 
         override fun onMessage(text: String) {

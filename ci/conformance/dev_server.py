@@ -215,6 +215,16 @@ class DevServer:
     # -- console -----------------------------------------------------------
 
     async def console(self) -> None:
+        if self._args.no_console or not sys.stdin.isatty():
+            # Started from a script, nohup, or CI. Without this the first
+            # readline() returns EOF immediately and the server shuts down a
+            # moment after reporting that it started successfully - which looks
+            # exactly like a crash on connect. isatty() is not reliable on
+            # Windows shells, hence the explicit flag.
+            LOGGER.info("stdin is not a terminal; console disabled, serving until killed")
+            while True:
+                await asyncio.sleep(3600)
+
         loop = asyncio.get_running_loop()
         self._print_help()
         while True:
@@ -316,6 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--trust-all-unpaired",
         action="store_true",
         help="auto-trust every unpaired client so it becomes playback-capable",
+    )
+    parser.add_argument(
+        "--no-console",
+        action="store_true",
+        help="do not read commands from stdin; serve until killed",
     )
     parser.add_argument(
         "--debug",

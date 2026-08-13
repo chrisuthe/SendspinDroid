@@ -9,6 +9,7 @@ import androidx.preference.PreferenceManager
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import java.util.UUID
+import com.sendspindroid.sendspin.crypto.ClientIdentity
 
 /**
  * Centralized access to user settings stored in SharedPreferences.
@@ -178,6 +179,63 @@ object UserSettings {
      * in memory. The cached ID is persisted when initialize() runs.
      * Double-checked locking ensures only one UUID is ever generated.
      */
+    // ========== Sendspin identity (Curve25519) ==========
+
+    private const val KEY_NOISE_IDENTITY = "sendspin_noise_identity"
+
+    @Volatile
+    private var cachedIdentity: ClientIdentity? = null
+
+    /**
+     * The client's persistent Sendspin identity.
+     *
+     * Its public half is the `client_id` on the wire, and it is a pre-message
+     * input to every Noise handshake, so losing it makes this device a stranger
+     * to every server it has paired with - and the failure mode the spec
+     * prescribes is a silent socket close.
+     *
+     * Stored in [sensitivePrefs] with `commit()` rather than `apply()`: an
+     * async write that loses a race with process death would mint a different
+     * identity on next launch, breaking pairings with nothing to point at.
+     *
+     * A stored value that will not decode is NOT silently replaced. That state
+     * means something went wrong, and quietly generating a new identity would
+     * convert a recoverable problem into permanent, invisible unpairing.
+     */
+    fun getOrCreateClientIdentity(): ClientIdentity {
+        cachedIdentity?.let { return it }
+        synchronized(this) {
+            cachedIdentity?.let { return it }
+
+            val stored = sensitivePrefs?.getString(KEY_NOISE_IDENTITY, null)
+            if (!stored.isNullOrBlank()) {
+                val restored = ClientIdentity.fromStoredKey(stored)
+                if (restored != null) {
+                    cachedIdentity = restored
+                    return restored
+                }
+                Log.e(
+                    TAG,
+                    "Stored Sendspin identity is unreadable. Refusing to overwrite it: " +
+                        "minting a new one would silently unpair this device from every " +
+                        "server. Clear app data deliberately if that is what you want."
+                )
+                error("stored Sendspin identity is corrupt")
+            }
+
+            val fresh = ClientIdentity.generate()
+            val ok = sensitivePrefs?.edit()
+                ?.putString(KEY_NOISE_IDENTITY, ClientIdentity.encodeForStorage(fresh))
+                ?.commit() ?: false
+            if (!ok) {
+                Log.w(TAG, "Could not persist the Sendspin identity; it will not survive restart")
+            }
+            cachedIdentity = fresh
+            Log.i(TAG, "Generated Sendspin identity ${fresh.clientId}")
+            return fresh
+        }
+    }
+
     fun getPlayerId(): String {
         // Fast path: prefs available and ID already stored
         val p = prefs
