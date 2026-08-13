@@ -13,6 +13,14 @@ kotlin {
         withHostTest {
             isIncludeAndroidResources = false
         }
+
+        // The Noise layer runs on BouncyCastle. Host tests prove the logic, but
+        // only a device proves it on ART/arm64 with whatever the platform's own
+        // repackaged BouncyCastle does to class resolution. The crypto tests
+        // live in commonTest so the same assertions run in both places.
+        withDeviceTest {
+            instrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        }
     }
 
     // Plain JVM target so the protocol layer (MessageBuilder/MessageParser/
@@ -69,6 +77,18 @@ kotlin {
                 implementation("junit:junit:4.13.2")
                 implementation("io.mockk:mockk:1.13.16")
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+            }
+        }
+        getByName("androidDeviceTest") {
+            // The default hierarchy does NOT wire commonTest into the device
+            // compilation, so without this the instrumentation APK builds with
+            // NO-SOURCE and the task still reports BUILD SUCCESSFUL - a green
+            // run that asserted nothing.
+            dependsOn(commonTest.get())
+            dependencies {
+                implementation("androidx.test:runner:1.6.2")
+                implementation("androidx.test.ext:junit:1.2.1")
+                implementation(kotlin("test-junit"))
             }
         }
     }

@@ -134,8 +134,10 @@ def transcript(protocol: str) -> dict:
     }
 
 
+# commonTest so both androidHostTest (JVM) and androidDeviceTest (on-device,
+# ART/arm64) can drive the same vectors.
 KOTLIN_OUT = (
-    HERE.parents[2] / "android" / "shared" / "src" / "androidHostTest" / "kotlin"
+    HERE.parents[2] / "android" / "shared" / "src" / "commonTest" / "kotlin"
     / "com" / "sendspindroid" / "sendspin" / "crypto" / "NoiseTestVectors.kt"
 )
 

@@ -4,7 +4,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import org.junit.Test
+import kotlin.test.Test
 
 /**
  * Drives the responder against complete KKpsk2 transcripts produced by
@@ -40,7 +40,7 @@ class NoiseHandshakeVectorTest {
     )
 
     @Test
-    fun `protocol names hash only when longer than 32 bytes`() {
+    fun protocolNamesHashOnlyWhenLongerThan32Bytes() {
         // The boundary case is real, not hypothetical: one shipped suite sits
         // exactly on it. Guard the constants themselves.
         assertEquals(36, NoiseCipherSuite.CHACHA_POLY.protocolName.length)
@@ -55,7 +55,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `message 1 payload decrypts without any PSK mixed in`() {
+    fun message1PayloadDecryptsWithoutAnyPSKMixedIn() {
         // This is the whole point of psk2: psk_id must be readable before the
         // client has chosen a PSK.
         for (v in NoiseTestVectors.all) {
@@ -65,7 +65,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `message 2 reproduces the reference bytes`() {
+    fun message2ReproducesTheReferenceBytes() {
         for (v in NoiseTestVectors.all) {
             val handshake = handshakeFor(v)
             handshake.readMessage1(hex(v.message1))
@@ -77,7 +77,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `handshake hash agrees with the reference`() {
+    fun handshakeHashAgreesWithTheReference() {
         for (v in NoiseTestVectors.all) {
             val handshake = handshakeFor(v)
             handshake.readMessage1(hex(v.message1))
@@ -87,7 +87,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `transport decrypts initiator frames at nonce 0 and 1`() {
+    fun transportDecryptsInitiatorFramesAtNonce0And1() {
         // Nonce 0 encodes as twelve zero bytes under either endianness, so the
         // n=1 frame is the one that actually pins the counter layout.
         for (v in NoiseTestVectors.all) {
@@ -103,7 +103,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `transport encrypts responder frames matching the reference at nonce 0 and 1`() {
+    fun transportEncryptsResponderFramesMatchingTheReferenceAtNonce0And1() {
         for (v in NoiseTestVectors.all) {
             val transport = completedTransport(v)
             v.transportR2iPlaintextUtf8.forEachIndexed { i, plaintext ->
@@ -117,7 +117,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `transport keys are not swapped`() {
+    fun transportKeysAreNotSwapped() {
         // A swapped split still yields an agreeing handshake hash, so this needs
         // its own assertion: our receive key must NOT decrypt our own output.
         for (v in NoiseTestVectors.all) {
@@ -129,7 +129,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `a different prologue breaks message 1`() {
+    fun aDifferentPrologueBreaksMessage1() {
         // The prologue is the highest-risk input in the whole migration: it must
         // be the exact wire bytes, never a re-encoding.
         for (v in NoiseTestVectors.all) {
@@ -149,7 +149,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `the wrong PSK breaks message 2 for the peer but not locally`() {
+    fun theWrongPSKBreaksMessage2ForThePeerButNotLocally() {
         // psk2 mixes the PSK after all DH, so a wrong PSK cannot fail locally -
         // it produces a well-formed message 2 the server will reject. Pinning
         // this stops anyone "fixing" a non-existent local check later.
@@ -162,7 +162,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `truncated message 1 is rejected as malformed not as an AEAD failure`() {
+    fun truncatedMessage1IsRejectedAsMalformedNotAsAnAEADFailure() {
         val v = NoiseTestVectors.chaChaPoly
         for (size in listOf(0, 1, 31, 32, 47)) {
             val e = assertFailsWith<NoiseHandshakeException>("size=$size") {
@@ -177,7 +177,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `calling out of order fails with WrongPhase`() {
+    fun callingOutOfOrderFailsWithWrongPhase() {
         val v = NoiseTestVectors.chaChaPoly
         val fresh = handshakeFor(v)
         assertEquals(
@@ -197,7 +197,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `a failed handshake is terminal`() {
+    fun aFailedHandshakeIsTerminal() {
         val v = NoiseTestVectors.chaChaPoly
         val handshake = handshakeFor(v)
         assertFailsWith<NoiseHandshakeException> { handshake.readMessage1(ByteArray(10)) }
@@ -211,7 +211,7 @@ class NoiseHandshakeVectorTest {
     }
 
     @Test
-    fun `handshakeHash is defensively copied`() {
+    fun handshakeHashIsDefensivelyCopied() {
         val v = NoiseTestVectors.chaChaPoly
         val transport = completedTransport(v)
         val first = transport.handshakeHash

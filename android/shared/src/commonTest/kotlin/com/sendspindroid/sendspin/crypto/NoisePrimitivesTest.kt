@@ -4,7 +4,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import org.junit.Test
+import kotlin.test.Test
 
 /**
  * Published vectors for the primitives.
@@ -28,7 +28,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `sha256 matches the NIST empty and abc vectors`() {
+    fun sha256MatchesTheNISTEmptyAndAbcVectors() {
         assertEquals(
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
             sha256(ByteArray(0)).hex(),
@@ -40,7 +40,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `sha256 concatenates its parts`() {
+    fun sha256ConcatenatesItsParts() {
         // The vararg form is used for MixHash(h, data); a wrong concatenation
         // order here would break every handshake identically.
         assertContentEquals(
@@ -50,7 +50,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `hmacSha256 matches RFC 4231 test case 1`() {
+    fun hmacSha256MatchesRFC4231TestCase1() {
         val key = ByteArray(20) { 0x0b }
         val data = "Hi There".encodeToByteArray()
         assertEquals(
@@ -60,7 +60,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `x25519 matches the RFC 7748 section 6_1 key exchange`() {
+    fun x25519MatchesTheRFC7748Section61KeyExchange() {
         val alicePrivate = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
         val alicePublic = hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a")
         val bobPrivate = hex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")
@@ -74,7 +74,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `chacha20poly1305 matches the RFC 8439 section 2_8_2 AEAD vector`() {
+    fun chacha20poly1305MatchesTheRFC8439Section282AEADVector() {
         val key = hex("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
         val nonce = hex("070000004041424344454647")
         val aad = hex("50515253c0c1c2c3c4c5c6c7")
@@ -98,7 +98,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `aes gcm round-trips and rejects a tampered tag`() {
+    fun aesGcmRoundtripsAndRejectsATamperedTag() {
         val key = ByteArray(32) { it.toByte() }
         val nonce = ByteArray(12) { (it + 1).toByte() }
         val aad = "associated".encodeToByteArray()
@@ -116,7 +116,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `aead rejects the wrong associated data`() {
+    fun aeadRejectsTheWrongAssociatedData() {
         // The handshake uses h as the AD, so this is how a diverged transcript
         // actually manifests.
         for (alg in NoiseAeadAlgorithm.entries) {
@@ -130,7 +130,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `aead rejects a ciphertext shorter than the tag`() {
+    fun aeadRejectsACiphertextShorterThanTheTag() {
         for (alg in NoiseAeadAlgorithm.entries) {
             assertFailsWith<NoiseAeadFailure>(alg.name) {
                 aeadOpen(alg, ByteArray(32), ByteArray(12), ByteArray(0), ByteArray(15))
@@ -139,7 +139,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `noiseHkdf is RFC 5869 HKDF with the chaining key as salt`() {
+    fun noiseHkdfIsRFC5869HKDFWithTheChainingKeyAsSalt() {
         // Documented here because an earlier iteration of this project asserted
         // the opposite in a comment and nearly sent the port chasing a
         // non-existent incompatibility. Noise spec section 4.3 is explicit.
@@ -157,7 +157,7 @@ class NoisePrimitivesTest {
     }
 
     @Test
-    fun `secureRandomBytes returns the requested length and varies`() {
+    fun secureRandomBytesReturnsTheRequestedLengthAndVaries() {
         val a = secureRandomBytes(32)
         val b = secureRandomBytes(32)
         assertEquals(32, a.size)
