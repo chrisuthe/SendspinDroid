@@ -1,5 +1,11 @@
 # Sendspin Spec Compliance Audit - 2026-06-12
 
+> **SUPERSEDED by `docs/spec-compliance-audit-2026-08-13.md`.** The spec added a
+> mandatory Noise encryption layer, pairing, management, and `server/activate` on
+> 2026-06-29 (#84), and renamed client `state` to `available` on 2026-07-07
+> (#115). Recommendations P1.1, P3.6, and P3.9 below are obsolete as written.
+> Kept for the JVM-library evaluation and the change history.
+
 Audit of SendSpinDroid against the current Sendspin protocol spec
 (github.com/Sendspin/spec @ 2026-06-11, "Add visualizer@v1 role"), plus an
 evaluation of the official JVM library (github.com/Sendspin/sendspin-jvm v0.3.0).
