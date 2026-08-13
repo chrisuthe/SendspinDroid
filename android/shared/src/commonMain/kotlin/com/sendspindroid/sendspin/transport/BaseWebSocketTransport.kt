@@ -185,9 +185,16 @@ abstract class BaseWebSocketTransport(
                         for (frame in incoming) {
                             when (frame) {
                                 is Frame.Text -> {
-                                    val txt = frame.readText()
+                                    // Keep the raw bytes: the Noise prologue is
+                                    // built from the exact bytes of server/init
+                                    // as received, and readText() alone throws
+                                    // them away. Decoding from the same array
+                                    // rather than calling readText() means the
+                                    // String and the bytes cannot disagree.
+                                    val raw = frame.data
+                                    val txt = raw.decodeToString()
                                     Log.i(tag, "[cmd-trace] T0 wire-text len=${txt.length}")
-                                    listener?.onMessage(txt)
+                                    listener?.onMessage(txt, raw)
                                 }
                                 is Frame.Binary -> listener?.onMessage(frame.readBytes())
                                 is Frame.Close -> {

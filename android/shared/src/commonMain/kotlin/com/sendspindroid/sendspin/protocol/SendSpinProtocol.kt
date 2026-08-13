@@ -18,9 +18,39 @@ object SendSpinProtocol {
      * Binary message type identifiers.
      */
     object BinaryType {
+        /**
+         * A JSON message body (UTF-8). Every application message travels this
+         * way once the Noise handshake completes.
+         */
+        const val JSON = 0
+
+        /** Reserved by the spec for future use. */
+        const val RESERVED = 1
+
+        /** Fragmentation, see messaging.md#fragmentation. Handled in item 1.5. */
+        const val FRAGMENT_MORE = 2
+        const val FRAGMENT_END = 3
+
         const val AUDIO = 4
         const val ARTWORK_BASE = 8  // 8-11 for channels 0-3
         const val VISUALIZER = 16
+    }
+
+    /**
+     * Noise transport framing limits.
+     *
+     * "A single Noise transport message is limited to 65535 bytes by the Noise
+     * specification. Both defined cipher suites use a 16-byte AEAD
+     * authentication tag, and the message type byte occupies the first byte of
+     * the AEAD plaintext, so the application payload per frame is at most
+     * 65535 - 16 - 1 = 65518 bytes." Anything larger must be fragmented (1.5).
+     */
+    object NoiseFraming {
+        const val MAX_TRANSPORT_MESSAGE = 65535
+        const val AEAD_TAG = 16
+        const val TYPE_BYTE = 1
+        const val MAX_PLAINTEXT = MAX_TRANSPORT_MESSAGE - AEAD_TAG          // 65519
+        const val MAX_PAYLOAD = MAX_PLAINTEXT - TYPE_BYTE                   // 65518
     }
 
     /**
@@ -88,6 +118,13 @@ object SendSpinProtocol {
      * Protocol message type identifiers.
      */
     object MessageType {
+        // Cleartext handshake. These three are the ONLY messages sent as
+        // WebSocket text frames; everything below travels as a Noise ciphertext
+        // in a binary frame once transport mode begins.
+        const val CLIENT_INIT = "client/init"
+        const val SERVER_INIT = "server/init"
+        const val NOISE_HANDSHAKE = "noise/handshake"
+
         const val CLIENT_HELLO = "client/hello"
         const val SERVER_HELLO = "server/hello"
         const val CLIENT_TIME = "client/time"
