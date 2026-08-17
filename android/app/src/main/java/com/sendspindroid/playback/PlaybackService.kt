@@ -949,6 +949,9 @@ class PlaybackService : MediaLibraryService() {
                                 is FailureReason.TransientNetwork -> "Network error"
                                 is FailureReason.ProtocolError -> "Protocol error"
                                 is FailureReason.Exhausted -> "Connection lost after multiple attempts"
+                                is FailureReason.ServerLacksEncryption ->
+                                    "This server does not support encrypted connections. " +
+                                        "Music Assistant 2.9 or newer is required."
                             }
                             Log.e(TAG, "SendSpin error: $message")
 
@@ -1988,6 +1991,9 @@ class PlaybackService : MediaLibraryService() {
         is FailureReason.TransientNetwork -> "Network error"
         is FailureReason.ProtocolError -> "Protocol error"
         is FailureReason.Exhausted -> "Connection lost after multiple attempts"
+        is FailureReason.ServerLacksEncryption ->
+            "This server does not support encrypted connections. " +
+                "Music Assistant 2.9 or newer is required."
     }
 
     /**

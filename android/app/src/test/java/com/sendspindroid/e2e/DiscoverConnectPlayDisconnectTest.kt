@@ -78,20 +78,25 @@ class DiscoverConnectPlayDisconnectTest : E2ETestBase() {
     }
 
     @Test
-    fun `handshake sends client hello with correct fields`() {
+    fun `connect opens with client init and withholds hello until encrypted`() {
         injectTransportAndConnect()
         fakeTransport.simulateConnected()
 
-        // Client should have sent a client/hello message
+        // client/init is the FIRST frame on the socket. Encryption is mandatory
+        // (spec #84), so there is no dialect in which hello comes first.
         assertTrue(
-            "Client should send client/hello on connect",
+            "Client should send client/init on connect",
+            fakeTransport.hasSentMessageContaining("client/init")
+        )
+        val initMsg = fakeTransport.sentTextMessages.first { it.contains("client/init") }
+        assertTrue("client/init should carry client_id", initMsg.contains("client_id"))
+
+        // client/hello rides the encrypted channel, so it cannot appear as a
+        // text frame before the Noise handshake completes.
+        assertFalse(
+            "client/hello must not precede the Noise handshake",
             fakeServer.clientSentHello()
         )
-
-        // Verify the hello message contains required fields
-        val helloMsg = fakeTransport.sentTextMessages.first { it.contains("client/hello") }
-        assertTrue("client/hello should contain client_id", helloMsg.contains("client_id"))
-        assertTrue("client/hello should contain name", helloMsg.contains("name"))
     }
 
     @Test

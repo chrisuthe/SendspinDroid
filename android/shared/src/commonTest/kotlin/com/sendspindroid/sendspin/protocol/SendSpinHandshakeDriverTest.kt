@@ -230,6 +230,29 @@ class SendSpinHandshakeDriverTest {
     }
 
     @Test
+    fun aLegacyServerHelloReplyIsReportedAsLackingEncryption() {
+        // A server predating mandatory encryption (spec #84) answers client/init
+        // with a legacy server/hello. Nothing is malformed - it is a well-formed
+        // message in an older dialect - and it is the only handshake failure the
+        // user can act on, so it must be distinguishable from the crypto
+        // failures for the app to say "upgrade your server" rather than
+        // "could not connect".
+        val r = Recorder()
+        val driver = driverWith(r)
+        driver.start()
+        driver.onCleartextFrame(
+            """{"type":"server/hello","payload":{"name":"Music Assistant"}}""".encodeToByteArray()
+        )
+        assertEquals(
+            NoiseHandshakeException.Cause.ServerLacksEncryption,
+            r.failures.single().first
+        )
+        assertEquals(SendSpinHandshakeDriver.Phase.Failed, driver.phase)
+        // Never reply to it: only our own client/init was ever sent.
+        assertEquals(1, r.sent.size)
+    }
+
+    @Test
     fun timeoutFailsBeforeTransportAndIsIgnoredAfter() {
         val r = Recorder()
         val driver = driverWith(r)

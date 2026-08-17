@@ -278,7 +278,39 @@ have to write. If it does not expose `h`, hand-roll.
 Android has no storage pressure. Binding each PSK to a `server_id` is the
 stronger option and is what `management/list-records` reports.
 
-**D5. Keep the legacy dialect behind a flag through Phase 2.**
+**D5. REVISED (2026-08-17, issue #201): encryption only. There is no legacy
+fallback and no unencrypted path.**
+
+The original decision assumed a fallback was needed to keep MA stable users
+working. Section 2 of this document contradicts that on its own terms: MA 2.9.13
+stable pins `aiosendspin[server]==9.1.0`, which ships the full `noise/` package.
+`allow_legacy_clients` is merely *on by default* and documented temporary - 2.9.x
+servers can already speak the encrypted dialect, so they never needed the
+fallback. Confirmed empirically on 2026-08-17: the app completed a Noise KKpsk2
+handshake against a live Music Assistant instance, was granted `player@v1`, and
+streamed and played audio over the encrypted channel.
+
+Encryption has been normative since 2026-06-29 (spec #84). A fallback would be a
+second wire format exercised only when the first one fails - the least-tested
+path in the client, reached exactly when something is already wrong - and it
+would keep the legacy dialect alive indefinitely, since nothing would force its
+removal.
+
+Consequences, accepted deliberately:
+
+- **Minimum supported server is Music Assistant 2.9.** Anything older has no
+  encrypted endpoint and cannot be connected to at all.
+- That failure must be legible rather than silent. A server predating mandatory
+  encryption answers `client/init` with a legacy `server/hello`; this is now its
+  own `NoiseHandshakeException.Cause.ServerLacksEncryption` rather than being
+  folded into `MalformedMessage`, and it surfaces as "This server does not
+  support encrypted connections. Music Assistant 2.9 or newer is required."
+  It is the one connection failure with a remedy the user controls, so it must
+  be separable from the crypto failures.
+- The minimum version belongs in the release notes. Discovering it as a failed
+  connection is a bad first experience for anyone on an older MA.
+
+Original reasoning, retained for context:
 Users on MA stable (2.9.x) and older builds must keep working while the encrypted
 path stabilizes. Detect by outcome: attempt the spec handshake, and on a
 handshake-phase close, fall back once to the legacy `client/hello` path and
@@ -326,7 +358,7 @@ survives `allow_legacy_clients=False`.
 | 1.7 | Gate all client output on the first `server/activate`; stop reading `active_roles`/`connection_reason` from `server/hello` | `messaging.md#server--client-serveractivate` | `SendSpinProtocolHandler.kt:566-590`, `MessageParser.kt:29-49` | No `client/time` or `client/state` on the wire before the first `server/activate` |
 | 1.8 | `client/hello`: add `trust_level`, `supported_pair_methods`, `unpaired_access`; remove `client_id` and `version` (they moved to `client/init`) | `messaging.md#client--server-clienthello` | `MessageBuilder.kt:19-79` | Matches the spec field list exactly; aiosendspin accepts it without warnings |
 | 1.9 | `client/state`: replace the `state` string with `available: boolean`. Do not report `available: true` until the time filter has converged | `messaging.md#client--server-clientstate` | `MessageBuilder.kt:101-134`, `SendSpinProtocolHandler.kt:319-399` | First `client/state` carries `available: false` (or is withheld) until `timeFilter.isConverged` |
-| 1.10 | Legacy fallback behind D5: try spec handshake, fall back once to the legacy dialect on handshake-phase failure, surface an "unencrypted" indicator in the UI | - | `SendSpin.kt`, connection UI | Connects to both MA 2.9.x (legacy) and an `allow_unencrypted=False` server |
+| 1.10 | Encryption only (revised D5): remove the `useEncryption` flag and the legacy `client/hello` branch so the encrypted handshake is the only path, including after proxy auth. Report a server that answers `client/init` with a legacy `server/hello` as its own failure, not a generic one | - | `SendSpin.kt`, `SendSpinHandshakeDriver.kt`, `NoiseHandshakeException.kt`, `TransportState.kt` | Connects to an `allow_unencrypted=False` server; a pre-2.9 server produces "does not support encrypted connections", not "could not connect" |
 
 **Phase 1 exit criterion:** the conformance harness passes the encrypted
 unpaired-playback scenario against aiosendspin with `allow_unencrypted=False`,
@@ -456,8 +488,17 @@ plus `phase-0` .. `phase-4`.
 
 ### Findings from planning that amend section 4
 
-Two decisions changed while the plans were being written. The issues carry the
+Three decisions changed while the plans were being written. The issues carry the
 corrected guidance; this records why.
+
+**D5 (legacy fallback) is withdrawn: the client is encryption-only.** The
+premise - that MA stable users need an unencrypted path - is contradicted by
+section 2 of this document: 2.9.13 stable pins `aiosendspin[server]==9.1.0`,
+which has full Noise support, so the legacy shim is a default rather than a
+necessity. Encryption is normative (spec #84, 2026-06-29), and a fallback would
+be a second wire format reached only when the first fails. The cost is a minimum
+supported server of MA 2.9, reported through a dedicated failure rather than a
+generic one. See the revised D5 above; #201 carries the work.
 
 **D3 (Noise library) now expects a negative result.** Reading
 `org.signal.forks:noise-java` 0.1.1 at source shows `Pattern.lookup` has no `PSK`

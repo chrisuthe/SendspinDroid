@@ -44,5 +44,17 @@ class NoiseHandshakeException(
          * Noise-handshake phases.
          */
         Timeout,
+
+        /**
+         * The peer answered `client/init` with something other than
+         * `server/init` - in practice a legacy `server/hello`, from a server
+         * predating mandatory encryption (spec #84, 2026-06-29).
+         *
+         * Distinct from [MalformedMessage] because nothing is malformed: the
+         * reply is a well-formed message in an older dialect. It is the one
+         * handshake failure a user can act on, so it must be separable from
+         * the crypto failures in order to say so.
+         */
+        ServerLacksEncryption,
     }
 }

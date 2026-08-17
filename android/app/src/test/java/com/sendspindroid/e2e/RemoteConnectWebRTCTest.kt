@@ -153,7 +153,7 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
     }
 
     @Test
-    fun `remote handshake completes with server hello`() {
+    fun `remote mode opens with the encrypted handshake`() {
         injectTransportAndConnect(
             mode = SendSpin.ConnectionMode.REMOTE,
             remoteId = "VVPN3TLP34YMGIZDINCEKQKSIR",
@@ -164,19 +164,16 @@ class RemoteConnectWebRTCTest : E2ETestBase() {
         // Simulate transport becoming connected
         fakeTransport.simulateConnected()
 
-        // Client should send hello (no auth needed for remote mode)
-        assertTrue("Should send client/hello in remote mode",
+        // Remote carries the same wire protocol as local - the DataChannel only
+        // replaces the socket - so it opens with client/init like everything else.
+        assertTrue("Should send client/init in remote mode",
+            fakeTransport.hasSentMessageContaining("client/init"))
+        assertFalse("client/hello must not precede the Noise handshake",
             fakeServer.clientSentHello())
 
-        // Server responds with hello
-        fakeServer.sendServerHello()
-
-        // Should be connected
-        assertTrue("Should be connected after remote handshake", client.isConnected)
-        assertTrue(
-            "State should be Ready after remote handshake, was: ${client.connectionState.value}",
-            client.connectionState.value is com.sendspindroid.coordinator.TransportState.Ready
-        )
+        // Reaching Ready needs a real Noise exchange, which this fake server
+        // does not perform; SendSpinHandshakeDriverTest covers that against
+        // reference-round-tripped vectors.
     }
 
     @Test
