@@ -151,6 +151,18 @@ object MessageBuilder {
         return message.toString()
     }
 
+    /**
+     * `pair/abort`.
+     *
+     * Only `concurrent_attempt` closes the connection after sending; every
+     * other reason leaves it open so the server can re-activate. Item 2.9
+     * (#226) owns the full enum and the attempt state machine.
+     */
+    fun buildPairAbort(reason: String): String = buildJsonObject {
+        put("type", SendSpinProtocol.MessageType.PAIR_ABORT)
+        put("payload", buildJsonObject { put("reason", reason) })
+    }.toString()
+
     fun buildGoodbye(reason: String): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_GOODBYE)
@@ -182,13 +194,20 @@ object MessageBuilder {
         available: Boolean,
         staticDelayMs: Double = 0.0,
         requiredLeadTimeMs: Int = SendSpinProtocol.PlayerTiming.REQUIRED_LEAD_TIME_MS,
-        minBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS
+        minBufferMs: Int = SendSpinProtocol.PlayerTiming.MIN_BUFFER_MS,
+        playerRoleActive: Boolean = true
     ): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_STATE)
             put("payload", buildJsonObject {
                 put("available", available)
-                put("player", buildJsonObject {
+                // "player?: object - only if client has player role". Sending it
+                // for an inactive role is a compliance failure: aiosendspin
+                // rejects the connection outright with "client/state carried a
+                // player object for an inactive role". A client whose roles are
+                // all state-less still sends this message - `available` alone is
+                // what unlocks the server's streams.
+                if (playerRoleActive) put("player", buildJsonObject {
                     put("volume", volume)
                     put("muted", muted)
                     // Spec: integer, range 0-5000, negative values not

@@ -127,6 +127,8 @@ object SendSpinProtocol {
 
         const val CLIENT_HELLO = "client/hello"
         const val SERVER_HELLO = "server/hello"
+        const val SERVER_ACTIVATE = "server/activate"
+        const val PAIR_ABORT = "pair/abort"
         const val CLIENT_TIME = "client/time"
         const val SERVER_TIME = "server/time"
         const val CLIENT_STATE = "client/state"
