@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.protocol
 
 import com.sendspindroid.sendspin.crypto.Base64Url
+import com.sendspindroid.sendspin.crypto.ClientIdentity
 import com.sendspindroid.sendspin.crypto.NoiseCipherSuite
 import com.sendspindroid.sendspin.crypto.NoiseHandshake
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
@@ -40,8 +41,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * (`connection.md#failure-handling`).
  */
 class SendSpinHandshakeDriver(
-    private val clientId: String,
-    private val clientStaticPrivateKey: ByteArray,
+    private val identity: ClientIdentity,
     private val candidates: PskCandidateSet,
     private val suite: NoiseCipherSuite = DEFAULT_SUITE,
     private val onEvent: (Event) -> Unit = {},
@@ -89,7 +89,7 @@ class SendSpinHandshakeDriver(
         if (phase != Phase.New) return fail(
             NoiseHandshakeException.Cause.WrongPhase, "start() called in $phase"
         )
-        val text = InitMessages.buildClientInit(clientId, suite.wireName)
+        val text = InitMessages.buildClientInit(identity.clientId, suite.wireName)
         clientInitSent = text
         phase = Phase.AwaitingServerInit
         onEvent(Event.SendCleartext(text))
@@ -157,7 +157,7 @@ class SendSpinHandshakeDriver(
         val override = ephemeralOverrideForTest
         handshake = if (override == null) {
             NoiseHandshake.responder(
-                staticPrivateKey = clientStaticPrivateKey,
+                staticPrivateKey = identity.privateKeyBytes(),
                 remoteStaticPublicKey = parsed.serverStaticKey,
                 suite = suite,
                 prologue = prologue,
@@ -165,7 +165,7 @@ class SendSpinHandshakeDriver(
         } else {
             NoiseHandshake(
                 suite = suite,
-                staticPrivateKey = clientStaticPrivateKey,
+                staticPrivateKey = identity.privateKeyBytes(),
                 remoteStaticPublicKey = parsed.serverStaticKey,
                 prologue = prologue,
                 generateEphemeral = override,

@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.protocol
 
 import com.sendspindroid.sendspin.crypto.Base64Url
+import com.sendspindroid.sendspin.crypto.ClientIdentity
 import com.sendspindroid.sendspin.crypto.NoiseHandshake
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.Psk
@@ -58,8 +59,7 @@ class SendSpinHandshakeDriverTest {
      */
     private fun driverWith(recorder: Recorder): SendSpinHandshakeDriver =
         SendSpinHandshakeDriver(
-            clientId = WireTestVectors.clientId,
-            clientStaticPrivateKey = hex(WireTestVectors.clientStaticPrivate),
+            identity = ClientIdentity(hex(WireTestVectors.clientStaticPrivate)),
             candidates = candidates,
             onEvent = recorder::handle,
             ephemeralOverrideForTest = { hex(WireTestVectors.clientEphemeralPrivate) },
@@ -158,8 +158,7 @@ class SendSpinHandshakeDriverTest {
     fun anUnknownPskIdFailsAsALookupMiss() {
         val r = Recorder()
         val driver = SendSpinHandshakeDriver(
-            clientId = WireTestVectors.clientId,
-            clientStaticPrivateKey = hex(WireTestVectors.clientStaticPrivate),
+            identity = ClientIdentity(hex(WireTestVectors.clientStaticPrivate)),
             // Sentinel only: the transcript's PSK is not a candidate.
             candidates = PskCandidateSet.sentinelOnly(),
             onEvent = r::handle,
@@ -177,8 +176,7 @@ class SendSpinHandshakeDriverTest {
         val wrongBinding = Psk(hex(WireTestVectors.psk), PskCategory.LONG_TERM, "some-other-server")
         val r = Recorder()
         val driver = SendSpinHandshakeDriver(
-            clientId = WireTestVectors.clientId,
-            clientStaticPrivateKey = hex(WireTestVectors.clientStaticPrivate),
+            identity = ClientIdentity(hex(WireTestVectors.clientStaticPrivate)),
             candidates = PskCandidateSet.of(listOf(wrongBinding)).getOrThrow(),
             onEvent = r::handle,
             ephemeralOverrideForTest = { hex(WireTestVectors.clientEphemeralPrivate) },
