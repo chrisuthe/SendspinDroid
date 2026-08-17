@@ -2,6 +2,8 @@ package com.sendspindroid.sendspin.protocol
 
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.NoiseTransport
+import com.sendspindroid.sendspin.protocol.message.FragmentReassembler
+import com.sendspindroid.sendspin.protocol.message.FragmentWriter
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -25,7 +27,16 @@ import kotlinx.coroutines.sync.withLock
  * This is the only place that byte is added or stripped. Fragmentation (item
  * 1.5) plugs in here too, which is why [encodeJson] and [encode] return a list.
  */
-class NoiseWireCodec(private val transport: NoiseTransport) {
+class NoiseWireCodec internal constructor(
+    private val decrypt: (ByteArray) -> ByteArray,
+    private val encrypt: (ByteArray) -> ByteArray,
+    private val reassembler: FragmentReassembler = FragmentReassembler(),
+) {
+
+    constructor(transport: NoiseTransport) : this(
+        decrypt = { transport.decrypt(it) },
+        encrypt = { transport.encrypt(it) },
+    )
 
     /**
      * Serialises sends.
@@ -49,21 +60,14 @@ class NoiseWireCodec(private val transport: NoiseTransport) {
      */
     suspend fun encode(type: Int, payload: ByteArray): List<ByteArray> {
         require(type in 0..255) { "binary message type is a uint8, got $type" }
-        if (payload.size > SendSpinProtocol.NoiseFraming.MAX_PAYLOAD) {
-            // Item 1.5 replaces this with a fragmented send. Failing loudly is
-            // the right interim behaviour: silently truncating or letting the
-            // AEAD reject it would both be far harder to diagnose.
-            throw NoiseHandshakeException(
-                NoiseHandshakeException.Cause.MessageTooLarge,
-                "payload of ${payload.size} bytes exceeds the " +
-                    "${SendSpinProtocol.NoiseFraming.MAX_PAYLOAD}-byte single-frame " +
-                    "limit and fragmentation is not implemented yet (item 1.5)",
-            )
-        }
-        val plaintext = ByteArray(1 + payload.size)
-        plaintext[0] = type.toByte()
-        payload.copyInto(plaintext, 1)
-        return sendMutex.withLock { listOf(transport.encrypt(plaintext)) }
+        // FragmentWriter returns one frame when the payload fits and a
+        // fragment-more/.../fragment-end sequence when it does not. The mutex is
+        // held across the whole list, which is what enforces "a sender must
+        // finish a fragmented message before sending any other frame in that
+        // direction" - a second sender interleaving here would corrupt both
+        // messages and desynchronise the peer's reassembly buffer.
+        val plaintexts = FragmentWriter.frames(type, payload)
+        return sendMutex.withLock { plaintexts.map { encrypt(it) } }
     }
 
     /**
@@ -82,7 +86,7 @@ class NoiseWireCodec(private val transport: NoiseTransport) {
             )
         }
         val plaintext = try {
-            transport.decrypt(frameBytes)
+            decrypt(frameBytes)
         } catch (e: NoiseHandshakeException) {
             // Includes a replayed or reordered frame: the per-direction counter
             // means a repeat fails the tag check rather than decrypting twice.
@@ -93,13 +97,27 @@ class NoiseWireCodec(private val transport: NoiseTransport) {
         }
         val type = plaintext[0].toInt() and 0xFF
         val body = plaintext.copyOfRange(1, plaintext.size)
-        return when (type) {
-            SendSpinProtocol.BinaryType.JSON -> Decoded.Json(body.decodeToString())
-            SendSpinProtocol.BinaryType.FRAGMENT_MORE,
-            SendSpinProtocol.BinaryType.FRAGMENT_END ->
-                Decoded.Fragment(type, body)
-            else -> Decoded.Typed(type, body)
+
+        // Every frame goes through the reassembler: it owns the rule that a
+        // non-fragment frame arriving mid-sequence is a protocol error, which
+        // cannot be decided by looking at the frame alone.
+        return when (val result = reassembler.accept(type, body)) {
+            is FragmentReassembler.Result.Complete -> asMessage(result.type, result.body)
+            FragmentReassembler.Result.Passthrough -> asMessage(type, body)
+            FragmentReassembler.Result.Buffered -> Decoded.Buffered
+            is FragmentReassembler.Result.ProtocolError ->
+                Decoded.ProtocolError(result.reason)
         }
+    }
+
+    /**
+     * A completed message, however it arrived. A reassembled `orig_type` of 0
+     * has to land here too, or a fragmented JSON message would be delivered as
+     * an opaque binary frame.
+     */
+    private fun asMessage(type: Int, body: ByteArray): Decoded = when (type) {
+        SendSpinProtocol.BinaryType.JSON -> Decoded.Json(body.decodeToString())
+        else -> Decoded.Typed(type, body)
     }
 
     sealed interface Decoded {
@@ -115,14 +133,11 @@ class NoiseWireCodec(private val transport: NoiseTransport) {
             override fun hashCode(): Int = 31 * type + body.contentHashCode()
         }
 
-        /** A fragmentation frame. Reassembly arrives in item 1.5. */
-        data class Fragment(val type: Int, val body: ByteArray) : Decoded {
-            override fun equals(other: Any?): Boolean =
-                this === other ||
-                    (other is Fragment && type == other.type && body.contentEquals(other.body))
-
-            override fun hashCode(): Int = 31 * type + body.contentHashCode()
-        }
+        /**
+         * A fragment was consumed and the message is still incomplete. Nothing
+         * to dispatch; wait for the next frame.
+         */
+        object Buffered : Decoded
 
         /** Close the socket, send nothing. */
         data class ProtocolError(val reason: String) : Decoded

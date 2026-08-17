@@ -970,11 +970,11 @@ abstract class SendSpinProtocolHandler(
             is NoiseWireCodec.Decoded.Typed ->
                 BinaryMessageParser.parse(decoded.type, decoded.body)
                     ?.let { dispatchBinaryMessage(it) }
-            is NoiseWireCodec.Decoded.Fragment ->
-                // Reassembly lands in item 1.5. Until then a fragmented message
-                // is unreadable, and silently ignoring it would strand the
-                // stream; the spec's answer to an unhandleable frame is to close.
-                onProtocolFailure("fragmentation is not implemented yet (item 1.5)")
+            is NoiseWireCodec.Decoded.Buffered -> {
+                // A fragment landed and the message is still incomplete. The
+                // codec holds the partial buffer; nothing to dispatch until the
+                // fragment-end frame arrives.
+            }
             is NoiseWireCodec.Decoded.ProtocolError ->
                 onProtocolFailure(decoded.reason)
         }

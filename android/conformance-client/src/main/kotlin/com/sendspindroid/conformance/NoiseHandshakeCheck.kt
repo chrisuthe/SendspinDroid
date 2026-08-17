@@ -198,8 +198,8 @@ object NoiseHandshakeCheck {
                         if (decoded.type == SendSpinProtocol.BinaryType.AUDIO) audioFrames++
                         else println("<- enc   binary type=${decoded.type} ${decoded.body.size}B")
                     }
-                    is NoiseWireCodec.Decoded.Fragment ->
-                        println("<- enc   fragment type=${decoded.type}")
+                    is NoiseWireCodec.Decoded.Buffered ->
+                        println("<- enc   fragment buffered")
                     is NoiseWireCodec.Decoded.ProtocolError ->
                         fail("decode failed: ${decoded.reason}")
                 }
