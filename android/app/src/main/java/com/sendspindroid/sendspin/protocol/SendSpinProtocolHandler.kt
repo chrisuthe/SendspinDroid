@@ -319,7 +319,11 @@ abstract class SendSpinProtocolHandler(
         sendProtocolMessage(
             MessageBuilder.buildPlayerState(
                 currentVolume, currentMuted, isAvailable(), delayMs,
-                minBufferMs = minBufferMs
+                minBufferMs = minBufferMs,
+                // On the legacy dialect there is no server/activate, so the
+                // player object always ships; on the spec path it may only
+                // appear once the role is actually active.
+                playerRoleActive = !isEncrypted || activeRoles.contains(ROLE_PLAYER_V1),
             )
         )
     }
@@ -727,6 +731,9 @@ abstract class SendSpinProtocolHandler(
             startTimeSync()
         }
     }
+
+    /** The versioned player role, as it appears in active_roles. */
+    protected val ROLE_PLAYER_V1 = SendSpinProtocol.Roles.PLAYER
 
     /** True once the first server/activate has been accepted on this connection. */
     @Volatile
