@@ -195,8 +195,15 @@ object NoiseHandshakeCheck {
                         }
                     }
                     is NoiseWireCodec.Decoded.Typed -> {
-                        if (decoded.type == SendSpinProtocol.BinaryType.AUDIO) audioFrames++
-                        else println("<- enc   binary type=${decoded.type} ${decoded.body.size}B")
+                        if (decoded.type == SendSpinProtocol.BinaryType.AUDIO) {
+                            audioFrames++
+                            // --hold never reaches the RESULT block, so without a
+                            // line here a streaming session and a silent one look
+                            // exactly the same: no output at all.
+                            if (audioFrames == 1 || audioFrames % 100 == 0) {
+                                println("<- enc   audio frame #$audioFrames ${decoded.body.size}B")
+                            }
+                        } else println("<- enc   binary type=${decoded.type} ${decoded.body.size}B")
                     }
                     is NoiseWireCodec.Decoded.Fragment ->
                         println("<- enc   fragment type=${decoded.type}")
