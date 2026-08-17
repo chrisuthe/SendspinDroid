@@ -109,13 +109,20 @@ class SendSpinProtocolHandlerTest {
     // ========== External Source Tests ==========
 
     @Test
-    fun `setExternalSource true reports external_source state`() {
+    fun `setExternalSource true reports available false`() {
         handler.sentMessages.clear()
         handler.setExternalSource(true)
 
+        // The spec replaced the tri-state `state` string with a boolean (#115).
+        // External-source takeover is now the ONLY thing available:false means,
+        // so the wire assertion is on the boolean, not on a removed enum value.
         assertEquals("external_source", handler.exposedSyncState())
         assertEquals(1, handler.sentMessages.size)
-        assertTrue(handler.sentMessages[0].contains("\"state\":\"external_source\""))
+        assertTrue(handler.sentMessages[0].contains("\"available\":false"))
+        assertTrue(
+            "the removed state string must not appear on the wire",
+            !handler.sentMessages[0].contains("external_source"),
+        )
     }
 
     @Test
