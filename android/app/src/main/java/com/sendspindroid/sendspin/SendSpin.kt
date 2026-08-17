@@ -10,6 +10,7 @@ import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
 import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
+import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.PskCandidateSet
 import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
@@ -318,19 +319,6 @@ class SendSpin(
 
     // ========== Encrypted handshake (spec) ==========
 
-    /**
-     * Whether to attempt the spec's encrypted handshake.
-     *
-     * Defaults to off. Music Assistant still accepts the legacy dialect behind
-     * its `allow_legacy_clients` toggle, and flipping this default before the
-     * encrypted path has run against a real server would strand every user on a
-     * stable MA build. Automatic negotiation - try encrypted, fall back once on
-     * a handshake-phase close - is item 1.10 (#201); until then this is an
-     * explicit opt-in so the path can be exercised against the dev server.
-     */
-    @Volatile
-    var useEncryption: Boolean = false
-
     private var handshakeDriver: SendSpinHandshakeDriver? = null
 
     private fun startEncryptedHandshake() {
@@ -369,7 +357,17 @@ class SendSpin(
                 // this log line is the only diagnostic that will ever exist.
                 Log.e(TAG, "Noise handshake failed: ${event.reason} - ${event.detail}")
                 handshakeDriver = null
-                _connectionState.value = TransportState.Failed(FailureReason.HandshakeFailed)
+                // A server too old to speak the encrypted handshake is the one
+                // failure the user can fix, so it is reported as itself rather
+                // than as a generic handshake failure.
+                val reason = if (event.reason ==
+                    NoiseHandshakeException.Cause.ServerLacksEncryption
+                ) {
+                    FailureReason.ServerLacksEncryption
+                } else {
+                    FailureReason.HandshakeFailed
+                }
+                _connectionState.value = TransportState.Failed(reason)
                 transport?.close(1002, "handshake failed")
             }
         }
@@ -1420,15 +1418,18 @@ class SendSpin(
                 Log.e(TAG, "Proxy connection has no auth token - server will reject")
                 _connectionState.value = TransportState.Failed(FailureReason.AuthRejected)
                 disconnect()
-            } else if (useEncryption) {
+            } else {
                 // Spec order: client/init is the FIRST frame on the socket.
                 // client/hello moves after the Noise handshake and travels
                 // encrypted like every other application message.
+                //
+                // There is no unencrypted branch here. Encryption has been
+                // mandatory since spec #84 (2026-06-29), and a fallback would be
+                // a second wire format that only ever runs when the first one
+                // breaks - the least tested path reached exactly when things are
+                // already going wrong.
                 Log.d(TAG, "Starting encrypted handshake")
                 startEncryptedHandshake()
-            } else {
-                // Local/Remote mode: proceed directly with hello
-                sendClientHello()
             }
         }
 
@@ -1464,11 +1465,14 @@ class SendSpin(
                 }
             }
 
-            // After receiving first message post-auth, send client/hello
+            // Proxy auth is a wrapper around the socket, not a substitute for
+            // the Sendspin handshake: once the proxy has accepted us the
+            // session starts the same way every other session does, with
+            // client/init. It used to send a legacy client/hello here.
             if (awaitingAuthResponse) {
-                Log.d(TAG, "Received auth-ack, sending client/hello")
+                Log.d(TAG, "Received auth-ack, starting encrypted handshake")
                 awaitingAuthResponse = false
-                sendClientHello()
+                startEncryptedHandshake()
                 // Consume the auth-ack message; do NOT forward it to the protocol handler.
                 // If the auth-ack were forwarded, it could be misinterpreted as a protocol
                 // message (e.g., a server/hello arriving before client/hello is sent).

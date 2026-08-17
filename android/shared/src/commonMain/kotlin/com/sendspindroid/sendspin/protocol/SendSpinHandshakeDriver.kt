@@ -135,8 +135,12 @@ class SendSpinHandshakeDriver(
     private fun handleServerInit(raw: ByteArray) {
         val envelope = parseEnvelope(raw) ?: return
         if (envelope.first != SendSpinProtocol.MessageType.SERVER_INIT) {
+            // A server that predates mandatory encryption answers client/init
+            // with a legacy server/hello rather than server/init. That is the
+            // one failure here a user can do something about, so it gets its
+            // own cause instead of being folded into MalformedMessage.
             return fail(
-                NoiseHandshakeException.Cause.MalformedMessage,
+                NoiseHandshakeException.Cause.ServerLacksEncryption,
                 "expected server/init, got ${envelope.first}",
             )
         }

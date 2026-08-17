@@ -59,7 +59,7 @@ class ProxyConnectAuthTest : E2ETestBase() {
     }
 
     @Test
-    fun `auth-ack triggers client hello`() {
+    fun `auth-ack triggers the encrypted handshake`() {
         injectTransportAndConnect(
             mode = SendSpin.ConnectionMode.PROXY,
             serverAddress = "https://ma.example.com/sendspin",
@@ -74,8 +74,12 @@ class ProxyConnectAuthTest : E2ETestBase() {
         // Server sends auth_ok
         fakeServer.sendAuthOk()
 
-        // Now client should send client/hello
-        assertTrue("Should send client/hello after auth_ok",
+        // Proxy auth wraps the socket; it does not replace the Sendspin
+        // handshake. Once the proxy accepts us the session starts the same way
+        // any other session does - with client/init, not a legacy hello.
+        assertTrue("Should send client/init after auth_ok",
+            fakeTransport.hasSentMessageContaining("client/init"))
+        assertFalse("client/hello must not precede the Noise handshake",
             fakeServer.clientSentHello())
     }
 

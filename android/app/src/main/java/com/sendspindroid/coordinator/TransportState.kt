@@ -26,4 +26,15 @@ sealed class FailureReason {
     object AuthRejected : FailureReason()
     object ProtocolError : FailureReason()
     object Exhausted : FailureReason()
+
+    /**
+     * The server answered `client/init` with a legacy `server/hello`, so it
+     * predates mandatory encryption (spec #84, 2026-06-29) and this client has
+     * no unencrypted path to offer it.
+     *
+     * Separate from [HandshakeFailed] because it is the only connection failure
+     * with a remedy the user controls: upgrade the server. Reported as such
+     * rather than as a generic "could not connect".
+     */
+    object ServerLacksEncryption : FailureReason()
 }

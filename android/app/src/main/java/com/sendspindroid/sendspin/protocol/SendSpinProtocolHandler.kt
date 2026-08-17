@@ -230,10 +230,10 @@ abstract class SendSpinProtocolHandler(
         }
         val bufferCapacity = MessageBuilder.calculateBufferCapacity(formats, bufferDuration)
         val text = MessageBuilder.buildClientHello(
-            // On an encrypted session client_id and version live in
-            // client/init; repeating them here would be sending fields the
-            // spec does not define for this message.
-            clientId = if (isEncrypted) null else getClientId(),
+            // Always null: client_id and version live in client/init, and every
+            // session is encrypted, so repeating them here would be sending
+            // fields the spec does not define for this message.
+            clientId = null,
             deviceName = getDeviceName(),
             bufferCapacity = bufferCapacity,
             manufacturer = getManufacturer(),

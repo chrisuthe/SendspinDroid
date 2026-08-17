@@ -366,9 +366,15 @@ class SendSpinDisconnectTest {
         // handshakeComplete should NOT be set (auth_ok is not a server/hello)
         assertFalse("Handshake should not complete from auth_ok", stateField.get(client) as Boolean)
 
-        // A client/hello should have been sent
+        // The encrypted handshake should have started. Proxy auth wraps the
+        // socket rather than replacing the Sendspin handshake, so client/init
+        // goes out here; client/hello follows later, encrypted.
         assertTrue(
-            "sendClientHello should have been called",
+            "startEncryptedHandshake should have been called",
+            fakeTransport.sentMessages.any { it.contains("client/init") }
+        )
+        assertFalse(
+            "client/hello must not precede the Noise handshake",
             fakeTransport.sentMessages.any { it.contains("client/hello") }
         )
     }
