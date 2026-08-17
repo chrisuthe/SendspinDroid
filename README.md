@@ -4,8 +4,6 @@
 
 A native Android client for [SendSpin](https://www.sendspin-audio.com/)
 
-Google Play Store: https://play.google.com/store/apps/details?id=com.sendspindroid 
-
 
 ## Features
 
