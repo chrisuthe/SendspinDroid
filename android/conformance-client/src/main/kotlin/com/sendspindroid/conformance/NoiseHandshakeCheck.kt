@@ -45,8 +45,16 @@ object NoiseHandshakeCheck {
 
     @JvmStatic
     fun main(args: Array<String>) {
-        val url = args.getOrNull(0) ?: "ws://127.0.0.1:8927/sendspin"
-        val identityFile = File(args.getOrNull(1) ?: ".dev/noisecheck-identity.key")
+        // Positional args only - a flag landing in the identity-file slot would
+        // silently mint a new identity, and the server would see a client it has
+        // never been told to trust.
+        val positional = args.filterNot { it.startsWith("--") }
+        val url = positional.getOrNull(0) ?: "ws://127.0.0.1:8927/sendspin"
+        // Music Assistant only offers player setup for a client that is
+        // currently online, and a 4-second connection is gone before anyone
+        // can click anything. --hold keeps it up until interrupted.
+        val hold = args.contains("--hold") || System.getenv("NOISECHECK_HOLD") != null
+        val identityFile = File(positional.getOrNull(1) ?: ".dev/noisecheck-identity.key")
         val identity = loadOrCreateIdentity(identityFile)
 
         println("client_id : ${identity.clientId}")
@@ -169,11 +177,11 @@ object NoiseHandshakeCheck {
                                             ),
                                             "client/time",
                                         )
-                                        if (Activity.PLAYBACK in activate.activities) {
-                                            // Give the server a moment to stream.
-                                            Thread {
-                                                Thread.sleep(4000); done.countDown()
-                                            }.start()
+                                        if (hold) {
+                                            println("         holding connection open - " +
+                                                "configure this player in Music Assistant now")
+                                        } else if (Activity.PLAYBACK in activate.activities) {
+                                            Thread { Thread.sleep(4000); done.countDown() }.start()
                                         } else {
                                             done.countDown()
                                         }
@@ -205,6 +213,25 @@ object NoiseHandshakeCheck {
                 done.countDown()
             }
         })
+
+        if (hold) {
+            println()
+            println("HOLDING. Configure the player in Music Assistant, then watch for a new")
+            println("server/activate below. Ctrl-C to stop.")
+            println()
+            // A real client keeps clock sync running; without it MA may treat
+            // the session as idle.
+            while (true) {
+                Thread.sleep(2000)
+                if (codec != null && failure == null) {
+                    sendEncrypted(
+                        MessageBuilder.buildClientTime(System.nanoTime() / 1000),
+                        "client/time",
+                    )
+                }
+                if (done.count == 0L && failure != null) break
+            }
+        }
 
         val finished = done.await(40, TimeUnit.SECONDS)
         socket.close(1000, "done")

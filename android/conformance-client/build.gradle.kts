@@ -40,5 +40,5 @@ tasks.register<JavaExec>("noiseCheck") {
     group = "verification"
     mainClass.set("com.sendspindroid.conformance.NoiseHandshakeCheck")
     classpath = sourceSets["main"].runtimeClasspath
-    args = (project.findProperty("url") as String?)?.let { listOf(it) } ?: emptyList()
+    args = listOfNotNull(project.findProperty("url") as String?, if (project.hasProperty("hold")) "--hold" else null)
 }
