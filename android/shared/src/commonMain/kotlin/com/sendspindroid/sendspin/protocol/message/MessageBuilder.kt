@@ -151,6 +151,18 @@ object MessageBuilder {
         return message.toString()
     }
 
+    /**
+     * `pair/abort`.
+     *
+     * Only `concurrent_attempt` closes the connection after sending; every
+     * other reason leaves it open so the server can re-activate. Item 2.9
+     * (#226) owns the full enum and the attempt state machine.
+     */
+    fun buildPairAbort(reason: String): String = buildJsonObject {
+        put("type", SendSpinProtocol.MessageType.PAIR_ABORT)
+        put("payload", buildJsonObject { put("reason", reason) })
+    }.toString()
+
     fun buildGoodbye(reason: String): String {
         val message = buildJsonObject {
             put("type", SendSpinProtocol.MessageType.CLIENT_GOODBYE)

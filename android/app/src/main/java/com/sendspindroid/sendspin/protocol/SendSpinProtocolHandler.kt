@@ -4,6 +4,7 @@ import android.util.Log
 import com.sendspindroid.sendspin.AdaptiveBufferPolicy
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.crypto.NoiseTransport
+import com.sendspindroid.sendspin.crypto.PskCategory
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
@@ -671,6 +672,7 @@ abstract class SendSpinProtocolHandler(
 
             when (type) {
                 SendSpinProtocol.MessageType.SERVER_HELLO -> handleServerHello(payload)
+                SendSpinProtocol.MessageType.SERVER_ACTIVATE -> handleServerActivate(payload)
                 SendSpinProtocol.MessageType.SERVER_TIME -> handleServerTime(payload)
                 SendSpinProtocol.MessageType.SERVER_STATE -> handleServerState(payload)
                 SendSpinProtocol.MessageType.SERVER_COMMAND -> handleServerCommand(payload)
@@ -693,8 +695,11 @@ abstract class SendSpinProtocolHandler(
             return
         }
 
-        Log.i(tag, "server/hello: name=${result.serverName}, id=${result.serverId}, reason=${result.connectionReason}")
-        Log.d(tag, "Active roles: ${result.activeRoles}")
+        // server/hello carries only `name` in the current spec. active_roles
+        // moved to server/activate and connection_reason was an aiosendspin
+        // legacy-mode invention; both are still parsed for the legacy dialect
+        // but must not be acted on here.
+        Log.i(tag, "server/hello: name=${result.serverName}")
 
         handshakeComplete = true
 
@@ -705,11 +710,107 @@ abstract class SendSpinProtocolHandler(
         lastPlaybackState = null
         lastGroupInfo = null
         currentControllerState = null
+        activationSeen = false
+        activeRoles = emptyList()
 
         onHandshakeComplete(result.serverName, result.serverId)
 
-        sendPlayerStateUpdate()
-        startTimeSync()
+        if (isEncrypted) {
+            // "Only after receiving the initial server/activate should the
+            // client send any other messages (including client/time and the
+            // initial client/state)." Starting either here would put frames on
+            // the wire before the server has told us what this connection is
+            // for.
+            Log.d(tag, "Waiting for server/activate before sending state or time")
+        } else {
+            sendPlayerStateUpdate()
+            startTimeSync()
+        }
+    }
+
+    /** True once the first server/activate has been accepted on this connection. */
+    @Volatile
+    protected var activationSeen = false
+        private set
+
+    /** Roles the server has activated, persisted across activations that omit them. */
+    @Volatile
+    protected var activeRoles: List<String> = emptyList()
+        private set
+
+    /** Activities currently declared on this connection. */
+    @Volatile
+    protected var activities: Set<Activity> = emptySet()
+        private set
+
+    /**
+     * The PSK category that admitted this connection. Drives the admissibility
+     * table; item 2.3 (#204) makes it follow the real handshake result.
+     */
+    protected open fun matchedPskCategory(): PskCategory = PskCategory.SENTINEL
+
+    /** Pairing methods this client currently offers, as live configuration. */
+    protected open fun offeredPairMethods(): Set<String> = setOf("pairing_psk")
+
+    protected fun handleServerActivate(payload: JsonObject?) {
+        val activate = ServerActivateRules.parse(payload)
+        if (activate == null) {
+            Log.e(tag, "server/activate missing required activities")
+            onProtocolFailure("malformed server/activate")
+            return
+        }
+        if (activate.unknownActivities.isNotEmpty()) {
+            // Forward compatibility: ignore, but say so - an unknown activity
+            // usually means the server is newer than we are.
+            Log.i(tag, "Ignoring unknown activities: ${activate.unknownActivities}")
+        }
+
+        val outcome = ServerActivateRules.evaluate(
+            activate = activate,
+            category = matchedPskCategory(),
+            unpairedAccessEnabled = isUnpairedAccessEnabled(),
+            previousRoles = activeRoles,
+            isFirstActivation = !activationSeen,
+            offeredPairMethods = offeredPairMethods(),
+        )
+
+        when (outcome) {
+            is ActivationOutcome.Close -> {
+                Log.w(tag, "Rejecting server/activate: ${outcome.goodbyeReason} " +
+                    "(activities=${activate.activities}, roles=${activate.activeRoles})")
+                sendGoodbye(outcome.goodbyeReason)
+                onProtocolFailure("server/activate not admissible: ${outcome.goodbyeReason}")
+            }
+
+            is ActivationOutcome.AbortPairing -> {
+                // Connection stays open; the server may re-activate with a
+                // method we do offer.
+                Log.w(tag, "Aborting pairing: ${outcome.reason}")
+                onPairAbort(outcome.reason)
+            }
+
+            is ActivationOutcome.Accept -> {
+                val first = !activationSeen
+                activities = activate.activities
+                activeRoles = outcome.activeRoles
+                activationSeen = true
+                Log.i(tag, "server/activate accepted: activities=${activate.activities} " +
+                    "roles=${outcome.activeRoles}")
+                if (first) {
+                    // Now, and only now, may we speak.
+                    sendPlayerStateUpdate()
+                    startTimeSync()
+                }
+            }
+        }
+    }
+
+    /**
+     * Send `pair/abort`. Item 2.9 (#226) owns the full reason enum and the
+     * attempt state machine; this is the one path 1.6 can already reach.
+     */
+    protected open fun onPairAbort(reason: String) {
+        sendProtocolMessage(MessageBuilder.buildPairAbort(reason))
     }
 
     protected fun handleServerTime(payload: JsonObject?) {
