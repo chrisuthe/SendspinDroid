@@ -966,7 +966,15 @@ class PlaybackService : MediaLibraryService() {
                         // From-Idle: initial connect attempt, no UI overlay needed.
                         // From-Failed: reconnect attempt after a transient failure.
                         // From-Ready: reselection (network handover) -- DRAINING applies.
-                        if (prevSendSpinState is TransportState.Ready) {
+                        if (prevSendSpinState !is TransportState.Ready) {
+                            // Announce the attempt from here, where the transition
+                            // has already happened. The connect* methods used to do
+                            // it on their first line, before anything had left Idle,
+                            // and the publisher reports observed state rather than
+                            // the argument it is handed - so that call announced
+                            // DISCONNECTED at the very moment a connection began.
+                            broadcastConnectionState(STATE_CONNECTING)
+                        } else {
                             // PORTED FROM onReconnecting (the Ready->Connecting path during
                             // network handover or stall watchdog):
                             val serverName = sendSpinClient?.getServerName() ?: ""
@@ -1868,18 +1876,31 @@ class PlaybackService : MediaLibraryService() {
         val sessionState = coordinator.sessionState.value
         val reconnectStatus = coordinator.reconnectStatus.value
 
+        // coordinator.sessionState is a combine() of several upstream flows, so it
+        // settles a beat after sendSpinClient.connectionState - the flow every
+        // collector here reacts to. Deriving the published state from the lagging
+        // copy made a broadcast triggered by a client transition announce the
+        // PREVIOUS state. On first connect the previous state is Idle, so the
+        // service announced DISCONNECTED while it was actually connecting;
+        // MainActivity reads a non-user-initiated DISCONNECTED as an unexpected
+        // drop and answers with a second, competing reconnect loop, which then
+        // tore down the connection the first one had just established.
+        val sendSpinState = sendSpinClient?.connectionState?.value ?: sessionState.sendSpin
+
         val connectionStateString = when {
             reconnectStatus is ReconnectStatus.Attempting -> STATE_RECONNECTING
-            sessionState.sendSpin is TransportState.Failed -> STATE_ERROR
-            sessionState.sendSpin is TransportState.Ready -> STATE_CONNECTED
-            sessionState.sendSpin is TransportState.Connecting -> STATE_CONNECTING
+            sendSpinState is TransportState.Failed -> STATE_ERROR
+            sendSpinState is TransportState.Ready -> STATE_CONNECTED
+            sendSpinState is TransportState.Connecting -> STATE_CONNECTING
             else -> STATE_DISCONNECTED
         }
 
         val serverName: String? = sessionState.server?.name
 
-        val errorMessage: String? = when (val s = sessionState.sendSpin) {
-            is TransportState.Failed -> failureReasonToMessage(s.reason)
+        // Same source as connectionStateString above, or STATE_ERROR could be
+        // published with a null message when the two copies disagree.
+        val errorMessage: String? = when (sendSpinState) {
+            is TransportState.Failed -> failureReasonToMessage(sendSpinState.reason)
             else -> null
         }
 
@@ -1979,8 +2000,9 @@ class PlaybackService : MediaLibraryService() {
         Log.d(TAG, "Connecting to server: $address path=$path")
         lastDisconnectUserInitiated = false
 
-        // Broadcast connecting state to controllers (MainActivity)
-        broadcastConnectionState(STATE_CONNECTING)
+        // No broadcast here: the coordinator is still Idle at this point, and
+        // the publisher reports whatever state the coordinator is in. The
+        // Connecting branch of the connectionState collector announces it.
 
         try {
             if (sendSpinClient?.isConnected == true) {
@@ -2016,8 +2038,8 @@ class PlaybackService : MediaLibraryService() {
         Log.d(TAG, "Connecting to remote server via Remote ID: $remoteId")
         lastDisconnectUserInitiated = false
 
-        // Broadcast connecting state to controllers (MainActivity)
-        broadcastConnectionState(STATE_CONNECTING)
+        // See connectToServer: announcing Connecting before the coordinator
+        // leaves Idle publishes DISCONNECTED instead.
 
         try {
             if (sendSpinClient?.isConnected == true) {
@@ -2056,8 +2078,8 @@ class PlaybackService : MediaLibraryService() {
         Log.d(TAG, "Connecting to proxy server: $url")
         lastDisconnectUserInitiated = false
 
-        // Broadcast connecting state to controllers (MainActivity)
-        broadcastConnectionState(STATE_CONNECTING)
+        // See connectToServer: announcing Connecting before the coordinator
+        // leaves Idle publishes DISCONNECTED instead.
 
         try {
             if (sendSpinClient?.isConnected == true) {
