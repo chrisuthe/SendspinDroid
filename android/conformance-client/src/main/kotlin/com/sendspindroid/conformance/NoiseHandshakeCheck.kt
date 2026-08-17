@@ -195,8 +195,15 @@ object NoiseHandshakeCheck {
                         }
                     }
                     is NoiseWireCodec.Decoded.Typed -> {
-                        if (decoded.type == SendSpinProtocol.BinaryType.AUDIO) audioFrames++
-                        else println("<- enc   binary type=${decoded.type} ${decoded.body.size}B")
+                        if (decoded.type == SendSpinProtocol.BinaryType.AUDIO) {
+                            audioFrames++
+                            // --hold never reaches the RESULT block, so without a
+                            // line here a streaming session and a silent one look
+                            // exactly the same: no output at all.
+                            if (audioFrames == 1 || audioFrames % 100 == 0) {
+                                println("<- enc   audio frame #$audioFrames ${decoded.body.size}B")
+                            }
+                        } else println("<- enc   binary type=${decoded.type} ${decoded.body.size}B")
                     }
                     is NoiseWireCodec.Decoded.Fragment ->
                         println("<- enc   fragment type=${decoded.type}")
@@ -252,15 +259,27 @@ object NoiseHandshakeCheck {
             !finished -> exitFail("timed out")
             !sawServerHello -> exitFail("no encrypted server/hello")
             Activity.PLAYBACK !in grantedActivities -> {
-                // Not a client bug: an unpaired client is only playback-capable
-                // once the operator trusts this client_id. Say so precisely so
-                // nobody goes looking in the wrong place.
-                println("INCOMPLETE: handshake and encrypted traffic verified, but the server")
-                println("  granted no playback activity. An unpaired client needs BOTH")
-                println("  unpaired_access advertised (it is - see client/hello above) AND")
-                println("  the operator to trust this client_id. Start the dev server with")
-                println("  --trust-all-unpaired and run this again; trust is remembered per")
-                println("  client_id, which is why this tool now persists its identity.")
+                // Never a client bug, but two very different situations share
+                // this exit. A server declares 'playback' only while playback is
+                // actually running, so an idle server reporting no playback
+                // activity is entirely normal. Separate that from "the server is
+                // offering this client nothing" so nobody looks in the wrong place.
+                println("INCOMPLETE: handshake and encrypted traffic verified, but the")
+                println("  server declared no playback activity.")
+                println()
+                if (grantedRoles.isEmpty()) {
+                    println("  It granted no roles either, so this client is not eligible to")
+                    println("  play at all. Either the operator has not trusted this client_id,")
+                    println("  or the player has not been set up on the server. For the dev")
+                    println("  server, start it with --trust-all-unpaired. Trust is remembered")
+                    println("  per client_id, which is why this tool persists its identity.")
+                } else {
+                    println("  It did grant roles, so this client IS eligible and playback is")
+                    println("  simply not running right now. A server declares")
+                    println("  activities=['playback'] when playback starts, not at connect")
+                    println("  time. Start playback on this player and re-run with --hold to")
+                    println("  watch the second server/activate and the audio frames arrive.")
+                }
                 kotlin.system.exitProcess(2)
             }
             else -> println("PASS: playback granted (activities=${grantedActivities.map { it.wireName }})")
