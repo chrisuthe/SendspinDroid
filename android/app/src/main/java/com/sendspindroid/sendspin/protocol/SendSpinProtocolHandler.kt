@@ -241,6 +241,7 @@ abstract class SendSpinProtocolHandler(
             softwareVersion = getSoftwareVersion(),
             trustLevel = getTrustLevel(),
             unpairedAccessEnabled = isUnpairedAccessEnabled(),
+            supportedPairMethods = getSupportedPairMethods(),
         )
         sendProtocolMessage(text)
         Log.d(tag, "Sent client/hello: ${text.take(500)}")
@@ -305,6 +306,17 @@ abstract class SendSpinProtocolHandler(
      * server toggle it.
      */
     protected open fun isUnpairedAccessEnabled(): Boolean = true
+
+    /**
+     * The pairing methods this client currently offers.
+     *
+     * "An implemented method that is disabled is omitted", so a disabled
+     * `pairing_psk` leaves this list - and its PSK leaves the handshake
+     * candidate set at the same time, or the server could still re-handshake to
+     * a method the client no longer advertises.
+     */
+    protected open fun getSupportedPairMethods(): List<MessageBuilder.PairMethodDescriptor> =
+        listOf(MessageBuilder.PairMethodDescriptor.PAIRING_PSK)
 
     /**
      * Send player state update (volume/muted/availability).

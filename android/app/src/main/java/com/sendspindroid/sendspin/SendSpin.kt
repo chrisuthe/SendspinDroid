@@ -11,6 +11,8 @@ import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
+import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
+import com.sendspindroid.sendspin.crypto.PskCandidates
 import com.sendspindroid.sendspin.crypto.PskCandidateSet
 import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
@@ -373,11 +375,44 @@ class SendSpin(
         }
     }
 
+    /** Read once per connection; the PSK is process-wide and never rotates itself. */
+    private val pairingConfigStore = AndroidPairingConfigStore()
+
     /**
-     * Phase 1 candidate set: the Sentinel alone, which is what an unpaired
-     * client presents. Pairing records join it in Phase 2 (#202).
+     * Every PSK this handshake may match: the stored records, the Sentinel, and
+     * the Pairing PSK whenever the method is enabled.
+     *
+     * Built from stored state alone, with no reference to whether a pairing
+     * screen is open, because the server re-handshakes to the Pairing PSK
+     * unprompted and that handshake "succeeds only if the client already
+     * recognizes its `psk_id`".
+     *
+     * A collision cannot arise here - the trust store rejects a colliding
+     * record on the write path and rotation rejects a colliding PSK - so a
+     * failure means the invariant broke somewhere upstream, and falling back to
+     * the Sentinel keeps the client connectable while making the problem loud.
      */
-    private fun pskCandidates(): PskCandidateSet = PskCandidateSet.sentinelOnly()
+    private fun pskCandidates(): PskCandidateSet {
+        val candidates = PskCandidates.build(
+            records = UserSettings.getOrCreateTrustStore().listRecords(),
+            config = pairingConfigStore.load(),
+        )
+        return PskCandidateSet.of(candidates).getOrElse {
+            Log.e(TAG, "PSK candidate set is invalid, falling back to the Sentinel", it)
+            PskCandidateSet.sentinelOnly()
+        }
+    }
+
+    override fun isUnpairedAccessEnabled(): Boolean =
+        pairingConfigStore.load().unpairedAccessEnabled
+
+    override fun getSupportedPairMethods(): List<MessageBuilder.PairMethodDescriptor> =
+        if (pairingConfigStore.load().pairingPskEnabled) {
+            listOf(MessageBuilder.PairMethodDescriptor.PAIRING_PSK)
+        } else {
+            // "An implemented method that is disabled is omitted."
+            emptyList()
+        }
 
     override fun sendTextMessage(text: String) {
         val t = transport ?: return  // Silently drop if transport is gone (e.g. post-disconnect race)
