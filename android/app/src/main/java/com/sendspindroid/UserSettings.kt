@@ -10,6 +10,8 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import java.util.UUID
 import com.sendspindroid.sendspin.crypto.ClientIdentity
+import com.sendspindroid.sendspin.crypto.EncryptedPrefsTrustStore
+import com.sendspindroid.sendspin.crypto.TrustStore
 
 /**
  * Centralized access to user settings stored in SharedPreferences.
@@ -49,6 +51,10 @@ object UserSettings {
     const val KEY_LAYOUT_MODE = "layout_mode"
     const val KEY_AUTO_START_ON_BOOT = "auto_start_on_boot"
     const val KEY_SEARCH_LIBRARY_ONLY = "search_library_only"  // Backward compatibility: search local library only
+
+    // Long-term PSK records from pairing (stored in encrypted prefs).
+    // Record semantics live in the trust store; this is only the blob.
+    const val KEY_PSK_RECORDS = "sendspin_psk_records"
 
     // Remote access preference keys (stored in encrypted prefs)
     const val KEY_REMOTE_SERVERS = "remote_servers"
@@ -235,6 +241,50 @@ object UserSettings {
             return fresh
         }
     }
+
+    // ========== Long-term PSK records (trust store backing) ==========
+    //
+    // Only the opaque blob lives here. Record semantics - the psk_id namespace,
+    // `used`, and the add/remove rules - belong to the trust store, so that
+    // there is exactly one place they can be got wrong.
+
+    @Volatile
+    private var cachedTrustStore: TrustStore? = null
+
+    /**
+     * The process-wide trust store.
+     *
+     * One instance, for the same reason the identity is cached: two stores over
+     * the same preferences would each hold their own record list, so a write
+     * through one would be invisible to the other and the `psk_id` namespace
+     * check would run against a stale view.
+     */
+    fun getOrCreateTrustStore(): TrustStore {
+        cachedTrustStore?.let { return it }
+        synchronized(this) {
+            cachedTrustStore?.let { return it }
+            val store = EncryptedPrefsTrustStore()
+            cachedTrustStore = store
+            return store
+        }
+    }
+
+    /** The serialised record store, or "" when nothing has been paired. */
+    fun getPskRecordsBlob(): String =
+        sensitivePrefs?.getString(KEY_PSK_RECORDS, null) ?: ""
+
+    /**
+     * Persist the serialised record store.
+     *
+     * `commit()` rather than `apply()`, for the same reason the identity uses
+     * it: an asynchronous write that loses a race with process death drops a
+     * record the server has already accepted, and the next connect fails as
+     * `unauthorized` with nothing to point at.
+     *
+     * @return false if there is no storage to write to.
+     */
+    fun setPskRecordsBlob(blob: String): Boolean =
+        sensitivePrefs?.edit()?.putString(KEY_PSK_RECORDS, blob)?.commit() ?: false
 
     fun getPlayerId(): String {
         // Fast path: prefs available and ID already stored
@@ -753,6 +803,9 @@ object UserSettings {
             isEncrypted = false
             cachedPlayerId = null
             appContext = null
+            // Or a store built over one test's mock prefs would answer queries
+            // in the next test, against records that test never wrote.
+            cachedTrustStore = null
         }
     }
 
