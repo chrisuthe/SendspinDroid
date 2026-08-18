@@ -12,6 +12,8 @@ import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
+import com.sendspindroid.sendspin.crypto.Psk
+import com.sendspindroid.sendspin.crypto.PskCategory
 import com.sendspindroid.sendspin.crypto.PskCandidates
 import com.sendspindroid.sendspin.crypto.PskCandidateSet
 import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
@@ -324,6 +326,12 @@ class SendSpin(
     private var handshakeDriver: SendSpinHandshakeDriver? = null
 
     private fun startEncryptedHandshake() {
+        // Cleared here rather than on disconnect: every handshake passes through
+        // this point, so a stale category from the previous session can never
+        // survive into the next one and overstate its trust level. This also
+        // covers the in-band re-handshake (#223), which never disconnects.
+        matchedPsk = null
+
         // The wire client_id for an encrypted session is the base64url public
         // key, NOT the legacy UUID player id - the two are different
         // identifiers and the server rejects a non-43-character value.
@@ -347,6 +355,19 @@ class SendSpin(
             is SendSpinHandshakeDriver.Event.TransportReady -> {
                 Log.i(TAG, "Noise handshake complete with ${event.serverInit.serverId} " +
                     "(psk=${event.matchedPsk.category})")
+                // Retained rather than logged and dropped: the category decides
+                // trust_level, which activities the server may declare, and
+                // whether pairing may run. Recomputing it anywhere else would
+                // let those three disagree.
+                matchedPsk = event.matchedPsk
+
+                // "used" means a server has authenticated a session with this
+                // record. Marked on entry to transport mode rather than on the
+                // psk_id match, because a match that then failed AEAD
+                // authenticated nothing.
+                if (event.matchedPsk.category == PskCategory.LONG_TERM) {
+                    UserSettings.getOrCreateTrustStore().markUsed(event.matchedPsk.pskId)
+                }
                 installEncryptedTransport(event.transport)
                 // client/hello is the first ENCRYPTED message, not the first
                 // frame on the socket. It now rides the codec like everything
@@ -379,6 +400,16 @@ class SendSpin(
     private val pairingConfigStore = AndroidPairingConfigStore()
 
     /**
+     * The PSK that admitted the current session, or null before the handshake.
+     *
+     * Single source of truth for everything that follows from how we were
+     * authenticated: `trust_level`, the `server/activate` admissibility table,
+     * and (in 2.5) whether a pairing activation may proceed.
+     */
+    @Volatile
+    private var matchedPsk: Psk? = null
+
+    /**
      * Every PSK this handshake may match: the stored records, the Sentinel, and
      * the Pairing PSK whenever the method is enabled.
      *
@@ -405,6 +436,32 @@ class SendSpin(
 
     override fun isUnpairedAccessEnabled(): Boolean =
         pairingConfigStore.load().unpairedAccessEnabled
+
+    /**
+     * The category that admitted this connection, defaulting to the Sentinel
+     * before a handshake has matched anything - the least-privileged answer,
+     * so a bug here narrows what the server may declare rather than widening it.
+     */
+    override fun matchedPskCategory(): PskCategory =
+        matchedPsk?.category ?: PskCategory.SENTINEL
+
+    /**
+     * `'user'` if and only if a long-term record admitted this session.
+     *
+     * The Sentinel and the Pairing PSK are both `'none'`: neither proves the
+     * server is one we have ever paired with. This single field is what makes
+     * the server pick the long-term row of the admissibility table.
+     */
+    override fun getTrustLevel(): String =
+        if (matchedPsk?.category == PskCategory.LONG_TERM) {
+            MessageBuilder.TRUST_USER
+        } else {
+            MessageBuilder.TRUST_NONE
+        }
+
+    /** The live configuration, not a constant: a disabled method is not offered. */
+    override fun offeredPairMethods(): Set<String> =
+        if (pairingConfigStore.load().pairingPskEnabled) setOf("pairing_psk") else emptySet()
 
     override fun getSupportedPairMethods(): List<MessageBuilder.PairMethodDescriptor> =
         if (pairingConfigStore.load().pairingPskEnabled) {

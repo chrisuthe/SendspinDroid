@@ -43,6 +43,40 @@ class PskCandidateSet private constructor(private val candidates: List<Psk>) {
     fun verifyServerBinding(matched: Psk, serverIdFromServerInit: String): Boolean =
         matched.serverId == null || matched.serverId == serverIdFromServerInit
 
+    /** The outcome of choosing a PSK for a handshake. */
+    sealed interface Selection {
+        data class Matched(val candidate: Psk) : Selection
+
+        /** No candidate claims this `psk_id`. */
+        object NoMatch : Selection
+
+        /**
+         * The `psk_id` matched a record bound to a different server.
+         *
+         * Kept apart from [NoMatch] because both close the socket with no
+         * application-level message, so a log line is the only place they can
+         * ever be distinguished - and they mean very different things. A miss
+         * is "I have never been told about this secret"; a mismatch is "I hold
+         * this secret, but for someone else", which is what a spoofed or
+         * misconfigured server looks like.
+         */
+        data class ServerIdMismatch(val expected: String, val actual: String) : Selection
+    }
+
+    /**
+     * Choose the PSK for a handshake: [resolve] then the stored-pubkey check,
+     * in one call so the two cannot drift apart or be applied in the wrong
+     * order.
+     */
+    fun select(pskId: String, serverIdFromServerInit: String): Selection {
+        val matched = resolve(pskId) ?: return Selection.NoMatch
+        val bound = matched.serverId
+        if (bound != null && bound != serverIdFromServerInit) {
+            return Selection.ServerIdMismatch(expected = bound, actual = serverIdFromServerInit)
+        }
+        return Selection.Matched(matched)
+    }
+
     companion object {
         /**
          * @return a failure if two candidates derive the same `psk_id`. That is a
