@@ -10,6 +10,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
 import java.util.UUID
 import com.sendspindroid.sendspin.crypto.ClientIdentity
+import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
 import com.sendspindroid.sendspin.crypto.EncryptedPrefsTrustStore
 import com.sendspindroid.sendspin.crypto.TrustStore
 
@@ -55,6 +56,13 @@ object UserSettings {
     // Long-term PSK records from pairing (stored in encrypted prefs).
     // Record semantics live in the trust store; this is only the blob.
     const val KEY_PSK_RECORDS = "sendspin_psk_records"
+
+    // Pairing configuration. The PSK is sensitive; the two flags are policy.
+    // All of it is read and written only through the pairing config store -
+    // these are plain accessors with no policy of their own.
+    const val KEY_PAIRING_PSK = "sendspin_pairing_psk"
+    const val KEY_PAIRING_PSK_ENABLED = "sendspin_pairing_psk_enabled"
+    const val KEY_UNPAIRED_ACCESS = "sendspin_unpaired_access"
 
     // Remote access preference keys (stored in encrypted prefs)
     const val KEY_REMOTE_SERVERS = "remote_servers"
@@ -285,6 +293,28 @@ object UserSettings {
      */
     fun setPskRecordsBlob(blob: String): Boolean =
         sensitivePrefs?.edit()?.putString(KEY_PSK_RECORDS, blob)?.commit() ?: false
+
+    /** The stored Pairing PSK as base64url, or null when none has been minted. */
+    fun getPairingPskBlob(): String? =
+        sensitivePrefs?.getString(KEY_PAIRING_PSK, null)
+
+    /** `commit()`: a lost write would mint a different PSK on next launch. */
+    fun setPairingPskBlob(blob: String): Boolean =
+        sensitivePrefs?.edit()?.putString(KEY_PAIRING_PSK, blob)?.commit() ?: false
+
+    fun getPairingPskEnabled(): Boolean =
+        sensitivePrefs?.getBoolean(KEY_PAIRING_PSK_ENABLED, true) ?: true
+
+    fun setPairingPskEnabled(enabled: Boolean) {
+        sensitivePrefs?.edit()?.putBoolean(KEY_PAIRING_PSK_ENABLED, enabled)?.commit()
+    }
+
+    fun getUnpairedAccessEnabled(): Boolean =
+        sensitivePrefs?.getBoolean(KEY_UNPAIRED_ACCESS, true) ?: true
+
+    fun setUnpairedAccessEnabled(enabled: Boolean) {
+        sensitivePrefs?.edit()?.putBoolean(KEY_UNPAIRED_ACCESS, enabled)?.commit()
+    }
 
     fun getPlayerId(): String {
         // Fast path: prefs available and ID already stored
@@ -806,6 +836,7 @@ object UserSettings {
             // Or a store built over one test's mock prefs would answer queries
             // in the next test, against records that test never wrote.
             cachedTrustStore = null
+            AndroidPairingConfigStore.resetForTesting()
         }
     }
 
