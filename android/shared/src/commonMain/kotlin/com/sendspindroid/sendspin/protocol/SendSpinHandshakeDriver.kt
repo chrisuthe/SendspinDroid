@@ -206,20 +206,29 @@ class SendSpinHandshakeDriver(
             NoiseHandshakeException.Cause.PayloadNotJson,
             "message 1 payload is not {\"psk_id\": ...}",
         )
-        val matched = candidates.resolve(pskId) ?: return fail(
-            NoiseHandshakeException.Cause.PskLookupMiss,
-            "no candidate PSK matches psk_id $pskId",
-        )
         val init = serverInit ?: return fail(
             NoiseHandshakeException.Cause.WrongPhase, "no server/init retained"
         )
-        if (!candidates.verifyServerBinding(matched, init.serverId)) {
-            // Usually a server that rotated its static keypair rather than an
-            // attack: "A server that rotates its static keypair ... appears to
-            // clients as a different server."
-            return fail(
+        // One call, so the lookup and the stored-pubkey check cannot drift apart
+        // or run in the wrong order. Both failures close the socket in silence,
+        // so this detail string is the only diagnostic that will ever exist -
+        // hence spelling out which of the two happened, and the candidate count.
+        val matched = when (val selection = candidates.select(pskId, init.serverId)) {
+            is PskCandidateSet.Selection.Matched -> selection.candidate
+
+            PskCandidateSet.Selection.NoMatch -> return fail(
                 NoiseHandshakeException.Cause.PskLookupMiss,
-                "matched record is bound to a different server_id",
+                "no candidate PSK matches psk_id $pskId " +
+                    "(${candidates.all.size} candidates offered)",
+            )
+
+            is PskCandidateSet.Selection.ServerIdMismatch -> return fail(
+                // Usually a server that rotated its static keypair rather than
+                // an attack: "A server that rotates its static keypair ...
+                // appears to clients as a different server."
+                NoiseHandshakeException.Cause.PskLookupMiss,
+                "psk_id $pskId is a record for server ${selection.expected}, " +
+                    "but server/init announced ${selection.actual}",
             )
         }
 
