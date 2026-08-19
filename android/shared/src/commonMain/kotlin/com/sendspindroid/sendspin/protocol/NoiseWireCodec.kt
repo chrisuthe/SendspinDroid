@@ -1,6 +1,8 @@
 package com.sendspindroid.sendspin.protocol
 
+import com.sendspindroid.sendspin.crypto.NoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
+import com.sendspindroid.sendspin.crypto.asNoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseTransport
 import com.sendspindroid.sendspin.protocol.message.FragmentReassembler
 import com.sendspindroid.sendspin.protocol.message.FragmentWriter
@@ -27,16 +29,21 @@ import kotlinx.coroutines.sync.withLock
  * This is the only place that byte is added or stripped. Fragmentation (item
  * 1.5) plugs in here too, which is why [encodeJson] and [encode] return a list.
  */
-class NoiseWireCodec internal constructor(
-    private val decrypt: (ByteArray) -> ByteArray,
-    private val encrypt: (ByteArray) -> ByteArray,
+class NoiseWireCodec(
+    crypto: NoiseCrypto,
     private val reassembler: FragmentReassembler = FragmentReassembler(),
 ) {
 
-    constructor(transport: NoiseTransport) : this(
-        decrypt = { transport.decrypt(it) },
-        encrypt = { transport.encrypt(it) },
-    )
+    constructor(transport: NoiseTransport) : this(transport.asNoiseCrypto())
+
+    /**
+     * Replaced wholesale by an in-band re-handshake, never mutated in place.
+     *
+     * Volatile because the receive path reads it from the socket thread while
+     * [encodeAndSwap] installs a new one from a coroutine.
+     */
+    @Volatile
+    private var crypto: NoiseCrypto = crypto
 
     /**
      * Serialises sends.
@@ -67,7 +74,42 @@ class NoiseWireCodec internal constructor(
         // direction" - a second sender interleaving here would corrupt both
         // messages and desynchronise the peer's reassembly buffer.
         val plaintexts = FragmentWriter.frames(type, payload)
-        return sendMutex.withLock { plaintexts.map { encrypt(it) } }
+        return sendMutex.withLock { plaintexts.map { crypto.encrypt(it) } }
+    }
+
+    /**
+     * Encrypt one message under the CURRENT keys, then install [next].
+     *
+     * This is the frame boundary of an in-band re-handshake. "Noise message 2
+     * is still encrypted under the pre-re-handshake transport keys; the first
+     * frame each side sends after the handshake completes uses the new keys."
+     *
+     * Encrypting and swapping are one critical section on purpose. Doing them
+     * as two calls would let another producer - the `client/time` burst loop is
+     * the realistic one - slip a frame in between, encrypted under the old keys
+     * but arriving after the peer has moved to the new ones. That frame fails
+     * the peer's tag check, and the spec's answer to an AEAD failure in
+     * transport mode is to close the socket without saying why.
+     *
+     * The receive direction swaps here too: the peer's next frame is already
+     * under the new keys.
+     */
+    suspend fun encodeAndSwap(
+        type: Int,
+        payload: ByteArray,
+        next: NoiseCrypto,
+    ): List<ByteArray> {
+        require(type in 0..255) { "binary message type is a uint8, got $type" }
+        val plaintexts = FragmentWriter.frames(type, payload)
+        return sendMutex.withLock {
+            val frames = plaintexts.map { crypto.encrypt(it) }
+            crypto = next
+            // A half-reassembled inbound message cannot survive a key change:
+            // its remaining fragments would arrive under keys that no longer
+            // decrypt into the same stream.
+            reassembler.reset()
+            frames
+        }
     }
 
     /**
@@ -86,7 +128,7 @@ class NoiseWireCodec internal constructor(
             )
         }
         val plaintext = try {
-            decrypt(frameBytes)
+            crypto.decrypt(frameBytes)
         } catch (e: NoiseHandshakeException) {
             // Includes a replayed or reordered frame: the per-direction counter
             // means a repeat fails the tag check rather than decrypting twice.

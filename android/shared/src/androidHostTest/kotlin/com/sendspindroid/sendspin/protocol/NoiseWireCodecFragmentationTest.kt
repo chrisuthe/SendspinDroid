@@ -16,8 +16,10 @@ class NoiseWireCodecFragmentationTest {
 
     /** A codec whose encrypt/decrypt are the identity, so plaintext == frame. */
     private fun plaintextCodec() = NoiseWireCodec(
-        decrypt = { it },
-        encrypt = { it },
+        object : com.sendspindroid.sendspin.crypto.NoiseCrypto {
+            override fun encrypt(plaintext: ByteArray) = plaintext
+            override fun decrypt(frame: ByteArray) = frame
+        }
     )
 
     @Test

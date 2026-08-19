@@ -3,6 +3,7 @@ package com.sendspindroid.sendspin.protocol
 import android.util.Log
 import com.sendspindroid.sendspin.AdaptiveBufferPolicy
 import com.sendspindroid.sendspin.SendspinTimeFilter
+import com.sendspindroid.sendspin.crypto.NoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseTransport
 import com.sendspindroid.sendspin.crypto.PskCategory
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
@@ -632,6 +633,35 @@ abstract class SendSpinProtocolHandler(
         Log.i(tag, "Encrypted channel established")
     }
 
+    /**
+     * A `noise/handshake` arrived inside the encrypted channel.
+     *
+     * Overridden by the connection, which owns the identity, the candidate set
+     * and the prior handshake hash. The base implementation closes: a
+     * `noise/handshake` is only ever valid in transport mode, and a handler
+     * that cannot run one must not silently ignore it.
+     */
+    protected open fun onRehandshakeMessage(payload: JsonObject?) {
+        onProtocolFailure("noise/handshake received but re-handshake is not supported here")
+    }
+
+    /**
+     * Reset the application-level handshake state after a re-handshake.
+     *
+     * The channel is promoted, not replaced: the transport, the group and the
+     * time filter all survive, so this deliberately does NOT touch them. What
+     * does reset is the message sequence - the server sends `server/hello`
+     * again, and the next `server/activate` is a *first* activation, so a
+     * server that omits `active_roles` clears them rather than inheriting the
+     * roles from before the promotion.
+     */
+    protected fun resetForRehandshake() {
+        handshakeComplete = false
+        activationSeen = false
+        activeRoles = emptyList()
+        activities = emptySet()
+    }
+
     /** Drop the encrypted channel (disconnect, or falling back to legacy). */
     fun clearEncryptedTransport() {
         wireCodec = null
@@ -662,6 +692,36 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
+     * Send [text] under the current keys, then promote the channel to [next].
+     *
+     * The completing frame of a re-handshake. Ordering is the codec's problem
+     * (it holds the send mutex across encrypt-then-install); ordering with
+     * respect to the *application* is this method's: [onSwapped] runs only
+     * after the frame is on the wire, so the re-asserted `client/hello` cannot
+     * be built from state the swap has not finished changing.
+     */
+    protected fun sendAndSwapKeys(text: String, next: NoiseCrypto, onSwapped: () -> Unit) {
+        val codec = wireCodec
+        if (codec == null) {
+            onProtocolFailure("re-handshake attempted with no encrypted channel")
+            return
+        }
+        getCoroutineScope().launch {
+            try {
+                codec.encodeAndSwap(
+                    SendSpinProtocol.BinaryType.JSON,
+                    text.encodeToByteArray(),
+                    next,
+                ).forEach { sendBinaryFrame(it) }
+                onSwapped()
+            } catch (e: Exception) {
+                Log.e(tag, "Re-handshake key swap failed", e)
+                onProtocolFailure("re-handshake key swap failed: ${e.message}")
+            }
+        }
+    }
+
+    /**
      * A protocol-level failure that requires closing the socket.
      *
      * The spec allows no application-level error message for these, so the only
@@ -687,6 +747,11 @@ abstract class SendSpinProtocolHandler(
             val payload = json["payload"]?.jsonObject
 
             when (type) {
+                // An in-band re-handshake. It arrives as an ordinary encrypted
+                // JSON message inside the current channel, which is why it is
+                // dispatched here and not by the cleartext handshake driver.
+                SendSpinProtocol.MessageType.NOISE_HANDSHAKE -> onRehandshakeMessage(payload)
+
                 SendSpinProtocol.MessageType.SERVER_HELLO -> handleServerHello(payload)
                 SendSpinProtocol.MessageType.SERVER_ACTIVATE -> handleServerActivate(payload)
                 SendSpinProtocol.MessageType.SERVER_TIME -> handleServerTime(payload)

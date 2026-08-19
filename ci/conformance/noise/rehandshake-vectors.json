@@ -1,0 +1,41 @@
+{
+  "_generated_by": "make_rehandshake_vectors.py",
+  "_note": "The re-handshake's prologue is the RAW 32 bytes of the prior handshake's h - not its base64url text, and not the initial handshake's prologue. wrong_prologue_* record what the wrong choice produces, so a test can assert we do not produce it.",
+  "protocol": "Noise_KKpsk2_25519_ChaChaPoly_SHA256",
+  "server_static_private": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+  "server_static_public": "358072d6365880d1aeea329adf9121383851ed21a28e3b75e965d0d2cd166254",
+  "client_static_private": "606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f",
+  "client_static_public": "675dd574ed7789310b3d2e7681f3790b466c773b1521fecf36577958371ea52f",
+  "initial": {
+    "prologue": "73656e647370696e2d726568616e647368616b652d696e697469616c2d70726f6c6f6775652d7631",
+    "psk": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+    "server_ephemeral_private": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+    "client_ephemeral_private": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+    "message_1": "493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531dcdf8933800968c0ab0d21481d00d1f970a9c9c5d33853e73b282525c0f20a7ee8fdcb2019d201fdf1fbb344d8694c3323af1433ca494daf07d94472ef646bd76d3407a7b55b842915f",
+    "message_1_payload": "{\"psk_id\": \"UaXYTgo_O5NA363FD_WJGwAORfbAld1hDE9vHMOWFSg\"}",
+    "message_2": "dc2cca31e8e43bbd91dff7e475cca3347eb478107d5bd765aba4ae4a30c35d44a0aed8677b63bc1b1340cfb56c31eebaebfc",
+    "handshake_hash": "c67193e08139054878140bfcb63e2006de919f0d77951210f76789073f781385"
+  },
+  "rehandshake": {
+    "prologue": "c67193e08139054878140bfcb63e2006de919f0d77951210f76789073f781385",
+    "psk": "b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0",
+    "server_ephemeral_private": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "client_ephemeral_private": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+    "message_1": "07a37cbc142093c8b755dc1b10e86cb426374ad16aa853ed0bdfc0b2b86d1c7cdd9e7b6b8fa1b6c5c8cc1ef96a3059b5cff80039bba7a44cee3f0aba6535fe545d1152fbbf44c65ed703e61a0705a2d583167bbb654a0593a7006bbcd9da39913dc53c0cf5c6f0e52a",
+    "message_1_payload": "{\"psk_id\": \"6A-_lYjSwe_Zdvax32HHlWsJ_EDijylfWfnhN1VOsaY\"}",
+    "message_2": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51ad16bef1e916c9d494334fe0e6769045dda6f",
+    "handshake_hash": "f7965fde8e621d2710bb578620d4a159829d4ad06de77c612fdd04b93a977228"
+  },
+  "chained": {
+    "prologue": "f7965fde8e621d2710bb578620d4a159829d4ad06de77c612fdd04b93a977228",
+    "psk": "b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0",
+    "server_ephemeral_private": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+    "client_ephemeral_private": "c0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedf",
+    "message_1": "493e82fc74464a59268817623d2053c5eb8e2cc4a988b4fee179ec6b010d531dcdf8933800968c0ab0d21481b32d6a9132a299510bd52f68e5c20062784db8eca4fc8004900339f719a6694395b7942c3c8d5a2491a6e4f07d2353958d36092934bee7ade6fe8778dc",
+    "message_1_payload": "{\"psk_id\": \"6A-_lYjSwe_Zdvax32HHlWsJ_EDijylfWfnhN1VOsaY\"}",
+    "message_2": "dc2cca31e8e43bbd91dff7e475cca3347eb478107d5bd765aba4ae4a30c35d442db1d8b8206516b3ae61055a20e865e45510",
+    "handshake_hash": "5d28d229f2da99513fe10f605f69c2a36faea68305f940466a8489c05be7884c"
+  },
+  "wrong_prologue_message_2": "79a631eede1bf9c98f12032cdeadd0e7a079398fc786b88cc846ec89af85a51ad16be829ab7c90db555bacabeb2ebb86060d",
+  "wrong_prologue_handshake_hash": "8b2a98a75f313ab2a39cb10ad6375fe612f72c68e01f31167c960289a460302f"
+}
