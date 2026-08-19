@@ -1,5 +1,6 @@
 package com.sendspindroid.sendspin.protocol.message
 
+import com.sendspindroid.sendspin.crypto.Base64Url
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -149,6 +150,29 @@ object MessageBuilder {
             })
         }
         return message.toString()
+    }
+
+    /**
+     * Build `client/pair-finalize` for the Pairing PSK flow.
+     *
+     * `pairing.md#client--server-clientpair-finalize`: "In the Pairing PSK
+     * Flow, it starts the pairing attempt and is sent immediately after the
+     * `server/activate`, carrying the PSK directly."
+     *
+     * Exactly one of `long_term_psk` and `wrapped_psk` is ever present, and the
+     * wrapped form belongs to the PIN methods this client does not offer - so
+     * only the direct field is emitted here.
+     */
+    fun buildClientPairFinalize(longTermPsk: ByteArray): String {
+        require(longTermPsk.size == 32) {
+            "a Sendspin PSK is 32 bytes, got ${longTermPsk.size}"
+        }
+        return buildJsonObject {
+            put("type", SendSpinProtocol.MessageType.CLIENT_PAIR_FINALIZE)
+            put("payload", buildJsonObject {
+                put("long_term_psk", Base64Url.encode(longTermPsk))
+            })
+        }.toString()
     }
 
     /**

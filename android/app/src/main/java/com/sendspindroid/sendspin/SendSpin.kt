@@ -17,6 +17,7 @@ import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
 import com.sendspindroid.sendspin.crypto.Psk
 import com.sendspindroid.sendspin.crypto.PskCategory
+import com.sendspindroid.sendspin.crypto.TrustStore
 import com.sendspindroid.sendspin.crypto.PskCandidates
 import com.sendspindroid.sendspin.crypto.PskCandidateSet
 import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
@@ -497,6 +498,24 @@ class SendSpin(
     /** The live configuration, not a constant: a disabled method is not offered. */
     override fun offeredPairMethods(): Set<String> =
         if (pairingConfigStore.load().pairingPskEnabled) setOf("pairing_psk") else emptySet()
+
+    /**
+     * The `server_id` a pairing record binds to.
+     *
+     * The exact 43-character string from `server/init`, retained on the
+     * session - a record bound to a re-derived or reformatted value would fail
+     * the stored-pubkey check on the next connect and look like corruption.
+     */
+    override fun currentServerId(): String? = sessionFacts?.serverId
+
+    override fun trustStore(): TrustStore = UserSettings.getOrCreateTrustStore()
+
+    override fun onPaired(serverId: String) {
+        // The server drives the in-band re-handshake from here (#223); the
+        // client sends nothing further. The new record is already visible to
+        // pskCandidates(), which reads the store on every call.
+        Log.i(TAG, "Pairing complete with $serverId - awaiting the server's re-handshake")
+    }
 
     /**
      * Run an in-band re-handshake.
