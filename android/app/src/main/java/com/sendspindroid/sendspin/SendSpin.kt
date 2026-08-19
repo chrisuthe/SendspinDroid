@@ -568,6 +568,16 @@ class SendSpin(
                 "Re-handshake complete: psk=${outcome.matched.category} " +
                     "trust=${getTrustLevel()} new h=${hashPrefix(outcome.transport.handshakeHash)}"
             )
+
+            // Re-assert client/hello, carrying the trust_level the new PSK
+            // earns. On the initial connection this is sent from the handshake
+            // driver's TransportReady callback - but a re-handshake produces no
+            // such event, because there is no new driver. Without this the
+            // server sends server/hello, waits for a reply that never comes,
+            // and closes the session after a couple of seconds. The sequence is
+            // server/hello -> client/hello -> server/activate, and we owe the
+            // middle one.
+            sendClientHello()
         }
     }
 

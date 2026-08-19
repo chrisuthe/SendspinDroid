@@ -14,6 +14,8 @@ import com.sendspindroid.UnifiedServerRepository
 import com.sendspindroid.UserSettings
 import com.sendspindroid.logging.AppLog
 import com.sendspindroid.logging.LogLevel
+import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
+import com.sendspindroid.sendspin.pairing.PairingToken
 import com.sendspindroid.sendspin.decoder.AudioDecoderFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +51,27 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     // Player settings
     private val _playerName = MutableStateFlow(UserSettings.getPlayerName())
     val playerName: StateFlow<String> = _playerName.asStateFlow()
+
+    /**
+     * The pairing token, or null when the method is disabled.
+     *
+     * Computed lazily rather than held in state: it contains the Pairing PSK,
+     * so the fewer copies alive the better. Reading it also mints the PSK on
+     * first use, which is why this is not evaluated at construction - opening
+     * Settings should not create a secret the user never asked for.
+     */
+    fun pairingToken(): String? {
+        val config = AndroidPairingConfigStore().load()
+        if (!config.pairingPskEnabled) return null
+        // Never logged. The token embeds the Pairing PSK, so anything that
+        // writes it to logcat puts a live credential into a buffer that bug
+        // reports and any app with log access can read. It leaves this method
+        // only by being rendered on screen for the user to copy.
+        return PairingToken.encode(
+            clientKey = UserSettings.getOrCreateClientIdentity().publicKey,
+            pairingPsk = config.pairingPsk,
+        )
+    }
 
     // Display settings
     private val _fullscreenMode = MutableStateFlow(UserSettings.fullScreenMode)

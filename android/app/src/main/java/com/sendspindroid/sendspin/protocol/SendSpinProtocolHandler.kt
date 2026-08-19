@@ -251,7 +251,12 @@ abstract class SendSpinProtocolHandler(
             supportedPairMethods = getSupportedPairMethods(),
         )
         sendProtocolMessage(text)
-        Log.d(tag, "Sent client/hello: ${text.take(500)}")
+        // Logged whole, not truncated. The pairing fields sit at the end of the
+        // payload, and whether a server offers pairing at all is decided by
+        // them - a 500-character cut hid exactly the thing worth checking when
+        // Music Assistant reports "this player has nothing to pair". Nothing
+        // here is secret: client_id is public, and the pair methods are names.
+        Log.d(tag, "Sent client/hello: $text")
     }
 
     /**
@@ -887,7 +892,20 @@ abstract class SendSpinProtocolHandler(
                 activationSeen = true
                 Log.i(tag, "server/activate accepted: activities=${activate.activities} " +
                     "roles=${outcome.activeRoles}")
-                if (first) {
+                val pairing = Activity.PAIRING in activate.activities
+
+                // A pairing activation is answered with client/pair-finalize and
+                // NOTHING else. The server is sitting in _receive_pairing
+                // waiting for that exact message, so a client/state or the
+                // client/time burst arriving first is read as the finalize and
+                // rejected as malformed - which is precisely how this failed
+                // against both Music Assistant builds.
+                //
+                // Withholding them costs nothing: the admissibility table grants
+                // no roles on a Pairing-PSK connection, so there is no player
+                // state worth reporting and no stream to synchronise to. The
+                // activation that follows the promotion starts them.
+                if (first && !pairing) {
                     // Now, and only now, may we speak.
                     sendPlayerStateUpdate()
                     startTimeSync()
@@ -898,7 +916,7 @@ abstract class SendSpinProtocolHandler(
                 // the server ends an attempt without finalizing, and the client
                 // must then discard the PSK it generated.
                 runPairingActions(
-                    if (Activity.PAIRING in activate.activities) {
+                    if (pairing) {
                         PairingEvent.PairingActivation(
                             method = activate.pairingMethod,
                             // From the handshake, never re-derived: this is the
@@ -954,7 +972,10 @@ abstract class SendSpinProtocolHandler(
         for (action in pairingFlow.onEvent(event)) {
             when (action) {
                 is PairingAction.SendPairFinalize -> {
-                    Log.i(tag, "Pairing: sending client/pair-finalize")
+                    // Metadata only. The payload carries the long-term PSK in
+                    // the clear (inside the encrypted channel), so logging the
+                    // message itself would put a live credential in logcat.
+                    Log.i(tag, "Pairing: sending client/pair-finalize (32-byte PSK)")
                     sendProtocolMessage(
                         MessageBuilder.buildClientPairFinalize(action.longTermPsk)
                     )
