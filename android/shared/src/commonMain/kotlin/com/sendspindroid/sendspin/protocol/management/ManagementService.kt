@@ -26,6 +26,8 @@ data class ManagementOutcome(
 data class ManagementSessionContext(
     val hasManagementActivity: Boolean,
     val pinMethodEnabled: Boolean,
+    /** The record that authenticated this session, if it was a record at all. */
+    val matchedPskId: String? = null,
 )
 
 /**
@@ -63,6 +65,13 @@ class ManagementService(
             null
         }
 
+    private val records =
+        if (trustStore != null && configStore != null) {
+            RecordOperations(trustStore, configStore)
+        } else {
+            null
+        }
+
     fun handle(
         request: ManagementRequest,
         session: ManagementSessionContext,
@@ -91,13 +100,15 @@ class ManagementService(
                     pairingConfig?.set(request.patch) ?: ManagementResultCode.INVALID
                 )
 
-            // The record operations land in #229. Until then they are answered
-            // rather than left hanging: a reply the server can act on beats a
-            // silence it has to time out.
-            ManagementRequest.ListRecords,
-            is ManagementRequest.AddRecord,
+            ManagementRequest.ListRecords ->
+                records?.list() ?: ManagementOutcome(ManagementResultCode.INVALID)
+
+            is ManagementRequest.AddRecord ->
+                records?.add(request) ?: ManagementOutcome(ManagementResultCode.INVALID)
+
             is ManagementRequest.RemoveRecord ->
-                ManagementOutcome(ManagementResultCode.INVALID)
+                records?.remove(request.pskId, session.matchedPskId)
+                    ?: ManagementOutcome(ManagementResultCode.INVALID)
         }
     }
 }

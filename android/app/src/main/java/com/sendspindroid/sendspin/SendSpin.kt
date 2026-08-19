@@ -537,6 +537,11 @@ class SendSpin(
 
     override fun pairingConfigStore(): PairingConfigStore = pairingConfigStore
 
+    override fun onManagementSessionRevoked() {
+        Log.i(TAG, "Our pairing record was removed by the server - not reconnecting")
+        suppressAutoReconnect.set(true)
+    }
+
     override fun onPaired(serverId: String) {
         // The server drives the in-band re-handshake from here (#223); the
         // client sends nothing further. The new record is already visible to

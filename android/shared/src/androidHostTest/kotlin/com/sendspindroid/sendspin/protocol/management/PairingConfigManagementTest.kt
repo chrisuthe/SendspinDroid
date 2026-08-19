@@ -343,10 +343,20 @@ class PairingConfigManagementTest {
             PskRecord(BOUND_RECORD_ID, BOUND_RECORD_PSK, serverId = "srv1"),
         )
 
+        var failAdds = false
+
         override fun listRecords(): List<PskRecord> = records.toList()
         override fun findByPskId(pskId: String): PskRecord? = records.find { it.pskId == pskId }
-        override fun addRecord(psk: ByteArray, serverId: String?) =
-            throw UnsupportedOperationException()
+
+        override fun addRecord(psk: ByteArray, serverId: String?): TrustStore.AddRecordResult {
+            if (psk.size != Psk.PSK_SIZE) return TrustStore.AddRecordResult.Invalid
+            val id = PskId.derive(psk)
+            if (records.any { it.pskId == id }) return TrustStore.AddRecordResult.AlreadyExists
+            if (failAdds) return TrustStore.AddRecordResult.StorageFailed
+            val record = PskRecord(id, psk, serverId)
+            records.add(record)
+            return TrustStore.AddRecordResult.Ok(record)
+        }
         override fun removeRecord(pskId: String): Boolean = records.removeAll { it.pskId == pskId }
         override fun markUsed(pskId: String) = Unit
         override fun candidates(): List<Psk> = records.map { it.toPsk() }

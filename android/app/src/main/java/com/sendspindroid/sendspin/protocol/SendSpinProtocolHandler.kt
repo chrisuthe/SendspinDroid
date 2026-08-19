@@ -1046,25 +1046,46 @@ abstract class SendSpinProtocolHandler(
     private fun handleManagementRequest(type: String, payload: JsonObject?) {
         val request = ManagementRequestParser.parse(type, payload) ?: return
 
+        val matched = matchedPsk()
         val outcome = ManagementService(trustStore(), pairingConfigStore()).handle(
             request,
             ManagementSessionContext(
                 hasManagementActivity = Activity.MANAGEMENT in activities,
                 // No PIN method is implemented (audit D2), so none can be on.
                 pinMethodEnabled = false,
+                // Only a record identifies "our own record"; the Sentinel and
+                // the Pairing PSK are not records and cannot be removed.
+                matchedPskId = matched?.takeIf { it.category == PskCategory.LONG_TERM }?.pskId,
             ),
         )
 
         Log.i(tag, "management: $type -> ${outcome.code.wire}")
-        sendProtocolMessage(
-            MessageBuilder.buildManagementResult(outcome.code, outcome.data)
-        )
 
-        outcome.closeAfterReply?.let { reason ->
-            sendGoodbye(reason)
-            closeConnectionAfterFlush()
+        // Sequenced in one coroutine, and that is the contract: the result must
+        // reach the wire before the goodbye, because the result is the only
+        // thing that tells the server the operation happened. A close on its
+        // own reads as a failure. sendProtocolMessage returns while the encrypt
+        // is still queued, so the awaiting form is what makes the order real.
+        getCoroutineScope().launch {
+            sendProtocolMessageAwaiting(
+                MessageBuilder.buildManagementResult(outcome.code, outcome.data)
+            )
+            outcome.closeAfterReply?.let { reason ->
+                sendProtocolMessageAwaiting(MessageBuilder.buildGoodbye(reason))
+                onManagementSessionRevoked()
+                closeConnectionAfterFlush()
+            }
         }
     }
+
+    /**
+     * The client removed the record that authenticated this session.
+     *
+     * "Server should not auto-reconnect with the same activity set" - and we
+     * should not either: the credential is gone, so every attempt would fail
+     * the handshake PSK lookup and loop.
+     */
+    protected open fun onManagementSessionRevoked() {}
 
     /** The operator cancelled pairing from the UI. Leaves the connection open. */
     fun cancelPairing() {
@@ -1248,6 +1269,10 @@ abstract class SendSpinProtocolHandler(
                 Log.e(tag, "Cannot store pairing record: psk_id already claimed")
             TrustStore.AddRecordResult.Invalid ->
                 Log.e(tag, "Cannot store pairing record: PSK rejected as invalid")
+            TrustStore.AddRecordResult.StorageFailed ->
+                // The one failure a user could actually act on, so it names the
+                // cause rather than the symptom.
+                Log.e(tag, "Cannot store pairing record: the write did not persist")
         }
     }
 

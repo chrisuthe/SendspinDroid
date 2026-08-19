@@ -83,6 +83,9 @@ interface TrustStore {
 
         /** Not a 32-byte PSK. */
         object Invalid : AddRecordResult
+
+        /** The record was fine; persisting it was not. */
+        object StorageFailed : AddRecordResult
     }
 
     fun listRecords(): List<PskRecord>
