@@ -60,6 +60,19 @@ interface SendSpinTransport {
     fun close(code: Int = 1000, reason: String = "")
 
     /**
+     * Close, but let already-queued frames reach the wire first.
+     *
+     * [send] only *queues*; [close] can then discard what it queued. That
+     * matters for exactly one kind of message: the last one. A `client/goodbye`
+     * that never lands leaves the server applying its no-goodbye heuristic -
+     * for a playback connection, "assume restart and reconnect" - which is the
+     * opposite of what every goodbye reason asks for.
+     *
+     * Defaults to [close] for transports that cannot distinguish the two.
+     */
+    fun closeAfterFlush(code: Int = 1000, reason: String = "") = close(code, reason)
+
+    /**
      * Release all resources associated with this transport.
      * Should be called when the transport is no longer needed.
      */

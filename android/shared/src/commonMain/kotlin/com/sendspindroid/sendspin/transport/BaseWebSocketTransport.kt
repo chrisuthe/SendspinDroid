@@ -16,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.atomics.AtomicReference
 import kotlin.concurrent.atomics.ExperimentalAtomicApi
 
@@ -41,6 +42,9 @@ abstract class BaseWebSocketTransport(
 ) : SendSpinTransport {
 
     companion object {
+        /** A goodbye is best-effort; a wedged socket must not stall the close. */
+        private const val FLUSH_TIMEOUT_MS = 500L
+
         /**
          * Create a default Ktor HttpClient configured for WebSocket connections.
          *
@@ -64,6 +68,10 @@ abstract class BaseWebSocketTransport(
 
     // Channel for outgoing messages (text or binary)
     private var outgoingChannel: Channel<OutgoingMessage>? = null
+
+    // Held so closeAfterFlush can wait for the queue to drain. The sender is a
+    // child of connectionJob, so cancelling that kills it mid-queue.
+    private var senderJob: Job? = null
 
     private sealed class OutgoingMessage {
         data class Text(val text: String) : OutgoingMessage()
@@ -165,7 +173,7 @@ abstract class BaseWebSocketTransport(
                     listener?.onConnected()
 
                     // Launch sender coroutine
-                    val senderJob = launch {
+                    val sender = launch {
                         try {
                             for (msg in sendChannel) {
                                 when (msg) {
@@ -179,6 +187,7 @@ abstract class BaseWebSocketTransport(
                             // Coroutine cancelled
                         }
                     }
+                    senderJob = sender
 
                     // Receive loop
                     try {
@@ -211,7 +220,7 @@ abstract class BaseWebSocketTransport(
                         // Normal cancellation during close
                     }
 
-                    senderJob.cancel()
+                    sender.cancel()
 
                     // Session ended normally
                     val reason = closeReason.await()
@@ -258,6 +267,31 @@ abstract class BaseWebSocketTransport(
         outgoingChannel?.close()
         connectionJob?.cancel()
         connectionJob = null
+    }
+
+    /**
+     * Closing the channel stops new sends but leaves what is already buffered
+     * deliverable, so the sender's `for (msg in channel)` loop drains and then
+     * completes on its own. Waiting for that completion before cancelling is
+     * the whole difference from [close], which cancels the sender's parent and
+     * takes the queue down with it.
+     *
+     * Bounded: a wedged socket must not hold the close open indefinitely, and a
+     * goodbye is best-effort by nature.
+     */
+    override fun closeAfterFlush(code: Int, reason: String) {
+        Log.d(tag, "Closing WebSocket after flush: code=$code reason=$reason")
+        val sender = senderJob
+        outgoingChannel?.close()
+        if (sender == null) {
+            close(code, reason)
+            return
+        }
+        scope.launch {
+            val drained = withTimeoutOrNull(FLUSH_TIMEOUT_MS) { sender.join() } != null
+            if (!drained) Log.w(tag, "Outgoing queue did not drain in ${FLUSH_TIMEOUT_MS}ms")
+            close(code, reason)
+        }
     }
 
     override fun destroy() {

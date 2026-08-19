@@ -146,6 +146,12 @@ object SendSpinProtocol {
         const val CLIENT_COMMAND = "client/command"
         const val SERVER_COMMAND = "server/command"
         const val CLIENT_GOODBYE = "client/goodbye"
+
+        /**
+         * Valid at any time regardless of `activities`; notably it does NOT
+         * require `'management'`, so it must never be gated on the activity set.
+         */
+        const val SERVER_UNPAIR = "server/unpair"
         const val GROUP_UPDATE = "group/update"
         const val STREAM_START = "stream/start"
         const val STREAM_END = "stream/end"

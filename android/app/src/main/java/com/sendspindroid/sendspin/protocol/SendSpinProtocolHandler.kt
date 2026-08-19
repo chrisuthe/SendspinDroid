@@ -5,6 +5,7 @@ import com.sendspindroid.sendspin.AdaptiveBufferPolicy
 import com.sendspindroid.sendspin.SendspinTimeFilter
 import com.sendspindroid.sendspin.crypto.NoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseTransport
+import com.sendspindroid.sendspin.crypto.Psk
 import com.sendspindroid.sendspin.crypto.PskCategory
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
@@ -269,7 +270,15 @@ abstract class SendSpinProtocolHandler(
 
     /**
      * Send goodbye message before disconnecting.
+     *
+     * Note the [handshakeComplete] gate, which means "server/hello seen". A
+     * goodbye is legitimate before that, as soon as the Noise handshake
+     * finishes, so this swallows one silently. `server/unpair` sidesteps it by
+     * sending its own goodbye - it has to sequence the send against the close
+     * anyway - but item 2.9's `concurrent_attempt` will need this relaxed.
      */
+    protected fun sendGoodbye(reason: GoodbyeReason) = sendGoodbye(reason.wire)
+
     protected fun sendGoodbye(reason: String) {
         if (!handshakeComplete) return
         sendProtocolMessage(MessageBuilder.buildGoodbye(reason))
@@ -692,13 +701,29 @@ abstract class SendSpinProtocolHandler(
             return
         }
         // encodeJson takes the send mutex, so this has to be in a coroutine.
-        getCoroutineScope().launch {
-            try {
-                codec.encodeJson(text).forEach { sendBinaryFrame(it) }
-            } catch (e: Exception) {
-                Log.e(tag, "Failed to encrypt outbound message", e)
-                onProtocolFailure("outbound encryption failed: ${e.message}")
-            }
+        getCoroutineScope().launch { sendProtocolMessageAwaiting(text) }
+    }
+
+    /**
+     * [sendProtocolMessage], but the caller can tell when the frames have been
+     * handed to the transport.
+     *
+     * Needed wherever something must happen strictly after a message is on the
+     * wire - closing the connection after a goodbye, for instance. The
+     * fire-and-forget version returns while the encrypt is still queued, so
+     * "send, then close" written in that order does not execute in it.
+     */
+    protected suspend fun sendProtocolMessageAwaiting(text: String) {
+        val codec = wireCodec
+        if (codec == null) {
+            sendTextMessage(text)
+            return
+        }
+        try {
+            codec.encodeJson(text).forEach { sendBinaryFrame(it) }
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to encrypt outbound message", e)
+            onProtocolFailure("outbound encryption failed: ${e.message}")
         }
     }
 
@@ -762,6 +787,11 @@ abstract class SendSpinProtocolHandler(
                 // JSON message inside the current channel, which is why it is
                 // dispatched here and not by the cleartext handshake driver.
                 SendSpinProtocol.MessageType.NOISE_HANDSHAKE -> onRehandshakeMessage(payload)
+
+                // Deliberately not gated on `activities`, and deliberately
+                // discarding the payload: "Valid at any time regardless of the
+                // current `activities`", and the message has no fields.
+                SendSpinProtocol.MessageType.SERVER_UNPAIR -> handleServerUnpair()
 
                 SendSpinProtocol.MessageType.SERVER_PAIR_FINALIZE -> handleServerPairFinalize()
                 SendSpinProtocol.MessageType.SERVER_HELLO -> handleServerHello(payload)
@@ -958,6 +988,100 @@ abstract class SendSpinProtocolHandler(
 
     /** Surfaced for the pairing UI (#225). */
     protected open fun onPaired(serverId: String) {}
+
+    // ========== server/unpair (item 2.7) ==========
+
+    /**
+     * The PSK that admitted this connection, or null before the handshake.
+     *
+     * This is the single source of truth for the session's trust level, and
+     * `server/unpair` must read it rather than ask "do we hold a record for
+     * this server?". The two differ in a case that matters: during a pairing
+     * handshake we may well hold a record for that same server from a previous
+     * pairing, while the current session was admitted by the Pairing PSK and is
+     * `trust_level: none`. Deciding on the record would delete it.
+     *
+     * A re-handshake replaces it at the key swap, so an unpair arriving just
+     * after a promotion sees the post-swap value.
+     */
+    protected open fun matchedPsk(): Psk? = null
+
+    /** The record this connection dropped. Drives the UI and reconnect policy. */
+    protected open fun onUnpaired(pskId: String, serverId: String?) {}
+
+    /**
+     * Close the connection once the goodbye is on the wire.
+     *
+     * Separate from an ordinary close because the frame must actually be
+     * flushed first; see [handleServerUnpair].
+     */
+    protected open fun closeConnectionAfterGoodbye() {}
+
+    /** One unpair per connection; a repeat is a no-op. */
+    private var unpairHandled = false
+
+    /**
+     * `messaging.md#server--client-serverunpair`: "Remove the matched pairing
+     * record, send `client/goodbye` reason `'unpaired'`, and close the
+     * connection."
+     *
+     * Takes no payload: the message has no fields, and ignoring whatever
+     * arrives is exactly the required tolerance for unknown ones.
+     */
+    protected fun handleServerUnpair() {
+        val matched = matchedPsk()
+
+        // "If the connection's `trust_level` is `'none'` (e.g., an in-flight
+        // pairing handshake), ignore the message and continue unchanged." Not
+        // an error, and specifically not a close: the connection carries on.
+        if (matched == null || matched.category != PskCategory.LONG_TERM) {
+            Log.i(tag, "server/unpair at trust_level none (psk=${matched?.category}) - ignoring")
+            return
+        }
+
+        if (unpairHandled) {
+            Log.d(tag, "server/unpair already handled on this connection - ignoring")
+            return
+        }
+
+        if (matched.serverId == null) {
+            // "If the matched record is a shared-PSK record ... the client MUST
+            // NOT remove it." The same PSK may authenticate other servers, and
+            // none of them asked to be unpaired. Wholesale removal is
+            // management/remove-record's job.
+            Log.i(tag, "server/unpair matched shared-PSK record ${matched.pskId} - retaining it")
+        } else {
+            val store = trustStore()
+            if (store == null) {
+                Log.e(tag, "server/unpair with no trust store - cannot drop the record")
+                return
+            }
+            // Durable before we say a word. A crash between the two must not
+            // leave a record the server has already forgotten, and telling the
+            // server we unpaired while the record survives is worse still: the
+            // device keeps authenticating with a credential that is gone, and
+            // it looks like a working pairing until the next handshake fails.
+            try {
+                store.removeRecord(matched.pskId)
+            } catch (e: Exception) {
+                Log.e(tag, "server/unpair could not remove record ${matched.pskId}", e)
+                return
+            }
+            Log.i(tag, "server/unpair removed record ${matched.pskId} for ${matched.serverId}")
+        }
+
+        unpairHandled = true
+        onUnpaired(matched.pskId, matched.serverId)
+
+        // The goodbye has to reach the wire before the close, and on the
+        // encrypted path sending is a suspending encrypt. Sequencing them in
+        // one coroutine is what makes "send then close" true rather than
+        // merely written in that order.
+        getCoroutineScope().launch {
+            sendProtocolMessageAwaiting(MessageBuilder.buildGoodbye(GoodbyeReason.UNPAIRED))
+            closeConnectionAfterGoodbye()
+        }
+    }
 
     protected fun handleServerPairFinalize() {
         runPairingActions(PairingEvent.ServerPairFinalize)
