@@ -23,6 +23,44 @@ class PairingTokenTest {
     private val clientKey = ByteArray(32) { it.toByte() }
     private val pairingPsk = ByteArray(32) { (it + 0x40).toByte() }
 
+    /**
+     * The spec's reference vector, `pairing.md#pairing-token`, with
+     * `client_key = 0x00 0x01 ... 0x1f` and `pairing_psk = 0xe0 0xe1 ... 0xff`.
+     *
+     * This is the only test here that can fail while every other one passes.
+     * The rest of the file round-trips our own encoder through our own decoder,
+     * which stays green no matter how wrong they both are in the same
+     * direction - halves swapped, bits packed the other way, alphabet rotated.
+     * The server is the party that has to agree with us, and this string is the
+     * only thing in the repository that comes from the server's side of the
+     * contract.
+     */
+    @Test
+    fun encodeMatchesTheSpecReferenceVector() {
+        val token = PairingToken.encode(
+            clientKey = ByteArray(32) { it.toByte() },
+            pairingPsk = ByteArray(32) { (0xe0 + it).toByte() },
+        )
+
+        assertEquals(
+            "SP:0AAAQEAYEAUDAOCAJBIFQYDIOB4IBCEQTCQKRMFYYDENBWHA5DYP6BYPC4PS" +
+                "OLZXH5DU6V97M5XXO74HR6LZ7J5PW674PT6X37T6757Y",
+            token,
+        )
+    }
+
+    @Test
+    fun decodeMatchesTheSpecReferenceVector() {
+        val decoded = PairingToken.decode(
+            "SP:0AAAQEAYEAUDAOCAJBIFQYDIOB4IBCEQTCQKRMFYYDENBWHA5DYP6BYPC4PS" +
+                "OLZXH5DU6V97M5XXO74HR6LZ7J5PW674PT6X37T6757Y"
+        )
+
+        assertNotNull(decoded)
+        assertArrayEquals(ByteArray(32) { it.toByte() }, decoded!!.clientKey)
+        assertArrayEquals(ByteArray(32) { (0xe0 + it).toByte() }, decoded.pairingPsk)
+    }
+
     @Test
     fun aTokenIs107CharactersOfTheQrAlphanumericSet() {
         val token = PairingToken.encode(clientKey, pairingPsk)
