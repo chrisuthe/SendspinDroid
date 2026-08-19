@@ -234,6 +234,7 @@
     <string name="pairing_category">Pairing</string>
     <string name="pairing_token_title">Pairing token</string>
     <string name="pairing_token_summary">Paste this into your server to pair this device. Copy it whole, without spaces or dashes.</string>
+    <string name="pairing_token_qr_hint">Scan to copy the token to another device</string>
     <string name="pairing_token_copy">Copy pairing token</string>
     <string name="pairing_token_copied">Pairing token copied</string>
     <string name="pairing_token_secret_warning">Treat this like a password: anyone who has it can pair with this device.</string>

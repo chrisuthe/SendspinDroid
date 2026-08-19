@@ -464,6 +464,20 @@ private fun PairingTokenPreference(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
+        PairingQrImage(
+            token = token,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.pairing_token_qr_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         SelectionContainer {
             Text(
                 text = token,
