@@ -555,7 +555,7 @@ class SendSpin(
         callback?.onUnpaired(serverId)
     }
 
-    override fun closeConnectionAfterGoodbye() {
+    override fun closeConnectionAfterFlush() {
         // closeAfterFlush, not close: close() cancels the connection job, and
         // the sender coroutine is its child, so a goodbye still sitting in the
         // outgoing channel dies with it.
