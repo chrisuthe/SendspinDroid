@@ -26,6 +26,19 @@ sealed interface PairingEvent {
 
     object AttemptTimeout : PairingEvent
 
+    /**
+     * The server ended the attempt.
+     *
+     * "On receipt the client abandons the attempt, discarding all pairing
+     * state, and proceeds under the declared activities; an abandoned attempt
+     * is not an inner-authentication failure and does not touch the failure
+     * counter." So: not an error, and specifically not a disconnect.
+     */
+    data class PairAbortReceived(val reason: String) : PairingEvent
+
+    /** The operator cancelled through a local UI. */
+    object UserCancelled : PairingEvent
+
     object ConnectionClosed : PairingEvent
 }
 
@@ -120,6 +133,34 @@ class PairingPskFlow {
             }
         }
 
+        is PairingEvent.PairAbortReceived -> {
+            if (state != State.AWAITING_ACK) {
+                // "A pair/abort received after the receiver has itself ended
+                // the attempt has no effect." Covers the duplicate abort and
+                // the race where the server's abort crosses its own ack.
+                emptyList()
+            } else {
+                discard()
+                state = State.ABORTED
+                // Nothing sent back: answering an abort with an abort would
+                // have both sides bouncing the attempt between them.
+                listOf(PairingAction.ClearAttemptTimeout)
+            }
+        }
+
+        PairingEvent.UserCancelled -> {
+            if (state != State.AWAITING_ACK) {
+                emptyList()
+            } else {
+                discard()
+                state = State.ABORTED
+                listOf(
+                    PairingAction.SendPairAbort(PairAbortReason.USER_CANCELLED),
+                    PairingAction.ClearAttemptTimeout,
+                )
+            }
+        }
+
         PairingEvent.ConnectionClosed -> {
             // Nothing to send: the socket is gone. Just make sure the secret
             // does not outlive the attempt.
@@ -165,12 +206,42 @@ class PairingPskFlow {
 
 /** `pair/abort` reasons (`pairing.md#client--server-pairabort`). */
 object PairAbortReason {
+    /** The attempt did not complete within the attempt timeout. Client only. */
     const val ATTEMPT_TIMEOUT = "attempt_timeout"
+
+    /** Another attempt is already in progress with this client. Client only. */
     const val CONCURRENT_ATTEMPT = "concurrent_attempt"
+
+    /** The activation's method is one the matched PSK disallows, or one we do not offer. */
     const val METHOD_NOT_SUPPORTED = "method_not_supported"
+
+    /** `pin_length` below `min_pin_length` or outside 4-12. No call site until 4.4 (#220). */
     const val PIN_LENGTH_UNACCEPTABLE = "pin_length_unacceptable"
+
+    /** PAKE key confirmation or PIN binding failed. No call site until 4.4 (#220). */
     const val PIN_MISMATCH = "pin_mismatch"
+
+    /** The operator aborted through a local UI. Either side may send it. */
     const val USER_CANCELLED = "user_cancelled"
+
+    val ALL = setOf(
+        ATTEMPT_TIMEOUT,
+        CONCURRENT_ATTEMPT,
+        METHOD_NOT_SUPPORTED,
+        PIN_LENGTH_UNACCEPTABLE,
+        PIN_MISMATCH,
+        USER_CANCELLED,
+    )
+
+    /**
+     * "With reason `concurrent_attempt` the sender closes the connection after
+     * sending, otherwise the connection stays open."
+     *
+     * A set rather than an `if` at the call site so the rule is stated once and
+     * can be pinned by a test. Note it governs the *sender*: a client receiving
+     * `concurrent_attempt` does not close, it waits for the peer to.
+     */
+    val CLOSES_CONNECTION = setOf(CONCURRENT_ATTEMPT)
 }
 
 /** Pairing method wire names. */

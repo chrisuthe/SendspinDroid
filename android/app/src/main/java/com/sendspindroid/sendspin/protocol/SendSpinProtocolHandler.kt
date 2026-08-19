@@ -13,6 +13,7 @@ import com.sendspindroid.sendspin.protocol.message.MessageParser
 import com.sendspindroid.sendspin.protocol.timesync.TimeSyncManager
 import kotlinx.coroutines.CoroutineScope
 import com.sendspindroid.sendspin.crypto.TrustStore
+import com.sendspindroid.sendspin.pairing.PairAbortReason
 import com.sendspindroid.sendspin.pairing.PairingAction
 import com.sendspindroid.sendspin.pairing.PairingEvent
 import com.sendspindroid.sendspin.pairing.PairingPskFlow
@@ -793,6 +794,7 @@ abstract class SendSpinProtocolHandler(
                 // current `activities`", and the message has no fields.
                 SendSpinProtocol.MessageType.SERVER_UNPAIR -> handleServerUnpair()
 
+                SendSpinProtocol.MessageType.PAIR_ABORT -> handlePairAbort(payload)
                 SendSpinProtocol.MessageType.SERVER_PAIR_FINALIZE -> handleServerPairFinalize()
                 SendSpinProtocol.MessageType.SERVER_HELLO -> handleServerHello(payload)
                 SendSpinProtocol.MessageType.SERVER_ACTIVATE -> handleServerActivate(payload)
@@ -963,11 +965,54 @@ abstract class SendSpinProtocolHandler(
     }
 
     /**
-     * Send `pair/abort`. Item 2.9 (#226) owns the full reason enum and the
-     * attempt state machine; this is the one path 1.6 can already reach.
+     * Send `pair/abort`.
+     *
+     * "With reason `concurrent_attempt` the sender closes the connection after
+     * sending, otherwise the connection stays open." The close is the sender's
+     * job only - see [handlePairAbort] for the receiving side, which never
+     * closes.
+     *
+     * The send and the close are sequenced in one coroutine for the same reason
+     * the unpair goodbye is: `sendProtocolMessage` returns while the encrypt is
+     * still queued, so a close issued after it can outrun the frame.
+     */
+    protected fun sendPairAbort(reason: String) {
+        Log.w(tag, "Pairing aborted (sent): reason=$reason")
+        val closes = reason in PairAbortReason.CLOSES_CONNECTION
+        getCoroutineScope().launch {
+            sendProtocolMessageAwaiting(MessageBuilder.buildPairAbort(reason))
+            if (closes) closeConnectionAfterFlush()
+        }
+    }
+
+    /**
+     * Kept as an override point for the legacy call sites in 1.6's activation
+     * handling, which abort before any attempt exists.
      */
     protected open fun onPairAbort(reason: String) {
-        sendProtocolMessage(MessageBuilder.buildPairAbort(reason))
+        sendPairAbort(reason)
+    }
+
+    /**
+     * `pair/abort` from the server.
+     *
+     * Never closes the connection, for any reason including
+     * `concurrent_attempt`: the spec makes the *sender* close, and closing here
+     * too would race the peer's close and report the wrong reason for it.
+     *
+     * The reason is passed through unvalidated on purpose. A reason we do not
+     * recognise still means the peer has abandoned the attempt, and treating it
+     * as a protocol error would leave us waiting on an attempt that is over.
+     */
+    protected fun handlePairAbort(payload: JsonObject?) {
+        val reason = payload?.get("reason")?.jsonPrimitive?.contentOrNull ?: "unspecified"
+        Log.w(tag, "Pairing aborted (received): reason=$reason")
+        runPairingActions(PairingEvent.PairAbortReceived(reason))
+    }
+
+    /** The operator cancelled pairing from the UI. Leaves the connection open. */
+    fun cancelPairing() {
+        runPairingActions(PairingEvent.UserCancelled)
     }
 
     // ========== Pairing PSK flow (item 2.5) ==========
@@ -1015,7 +1060,7 @@ abstract class SendSpinProtocolHandler(
      * Separate from an ordinary close because the frame must actually be
      * flushed first; see [handleServerUnpair].
      */
-    protected open fun closeConnectionAfterGoodbye() {}
+    protected open fun closeConnectionAfterFlush() {}
 
     /** One unpair per connection; a repeat is a no-op. */
     private var unpairHandled = false
@@ -1079,7 +1124,7 @@ abstract class SendSpinProtocolHandler(
         // merely written in that order.
         getCoroutineScope().launch {
             sendProtocolMessageAwaiting(MessageBuilder.buildGoodbye(GoodbyeReason.UNPAIRED))
-            closeConnectionAfterGoodbye()
+            closeConnectionAfterFlush()
         }
     }
 
@@ -1105,10 +1150,7 @@ abstract class SendSpinProtocolHandler(
                     )
                 }
 
-                is PairingAction.SendPairAbort -> {
-                    Log.w(tag, "Pairing aborted: ${action.reason}")
-                    onPairAbort(action.reason)
-                }
+                is PairingAction.SendPairAbort -> sendPairAbort(action.reason)
 
                 is PairingAction.PersistRecord -> persistPairingRecord(action.psk)
 
