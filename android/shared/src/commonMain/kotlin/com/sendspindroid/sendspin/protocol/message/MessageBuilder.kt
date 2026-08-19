@@ -1,6 +1,7 @@
 package com.sendspindroid.sendspin.protocol.message
 
 import com.sendspindroid.sendspin.crypto.Base64Url
+import com.sendspindroid.sendspin.protocol.GoodbyeReason
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -186,6 +187,10 @@ object MessageBuilder {
         put("type", SendSpinProtocol.MessageType.PAIR_ABORT)
         put("payload", buildJsonObject { put("reason", reason) })
     }.toString()
+
+    /** The typed form. Prefer this: a bare string can invent a reason. */
+    fun buildGoodbye(reason: GoodbyeReason): String =
+        buildGoodbye(reason.wire)
 
     fun buildGoodbye(reason: String): String {
         val message = buildJsonObject {

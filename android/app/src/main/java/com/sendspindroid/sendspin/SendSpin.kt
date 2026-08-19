@@ -23,6 +23,7 @@ import com.sendspindroid.sendspin.crypto.PskCandidateSet
 import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
 import kotlinx.serialization.json.JsonObject
 import com.sendspindroid.sendspin.protocol.RehandshakeDriver
+import com.sendspindroid.sendspin.protocol.GoodbyeReason
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.TrackMetadata
@@ -166,6 +167,18 @@ class SendSpin(
          * that don't render audio.
          */
         fun onSyncMuteChanged(muted: Boolean) {}
+
+        /**
+         * The server dropped its pairing with this device.
+         *
+         * Without surfacing this, an unpair is indistinguishable from a network
+         * drop: the player simply stops appearing, and the app looks broken
+         * rather than deliberately disconnected.
+         *
+         * @param serverId null when a shared-PSK record was matched, whose
+         *   record is deliberately retained.
+         */
+        fun onUnpaired(serverId: String?) {}
     }
 
     /**
@@ -246,6 +259,17 @@ class SendSpin(
 
     // Reconnection state
     private val userInitiatedDisconnect = AtomicBoolean(false)
+
+    /**
+     * Set when the server unpairs us; blocks automatic reconnection only.
+     *
+     * Separate from [userInitiatedDisconnect] because the two answer different
+     * questions and are reported differently to the UI. Cleared when the user
+     * deliberately connects again, which is the only thing that can make
+     * reconnecting sensible: the credential the server dropped is gone, so
+     * every automatic attempt would just be refused.
+     */
+    private val suppressAutoReconnect = AtomicBoolean(false)
     private val reconnectAttempts = AtomicInteger(0)
     private val reconnecting = AtomicBoolean(false)
     private var reconnectJob: Job? = null  // Pending reconnect coroutine - cancelled on disconnect
@@ -515,6 +539,27 @@ class SendSpin(
         // client sends nothing further. The new record is already visible to
         // pskCandidates(), which reads the store on every call.
         Log.i(TAG, "Pairing complete with $serverId - awaiting the server's re-handshake")
+    }
+
+    /** The PSK that admitted this session; the re-handshake swaps it. */
+    override fun matchedPsk(): Psk? = matchedPsk
+
+    override fun onUnpaired(pskId: String, serverId: String?) {
+        Log.i(TAG, "Unpaired by ${serverId ?: "a server holding a shared PSK"} (psk_id=$pskId)")
+
+        // "Server should not auto-reconnect." On a client-initiated topology
+        // that guidance lands on us: reconnecting would just hand the server a
+        // credential it has dropped, once per backoff step, forever.
+        suppressAutoReconnect.set(true)
+
+        callback?.onUnpaired(serverId)
+    }
+
+    override fun closeConnectionAfterGoodbye() {
+        // closeAfterFlush, not close: close() cancels the connection job, and
+        // the sender coroutine is its child, so a goodbye still sitting in the
+        // outgoing channel dies with it.
+        transport?.closeAfterFlush(1000, "unpaired")
     }
 
     /**
@@ -1038,6 +1083,7 @@ class SendSpin(
         reconnectJob = null
 
         userInitiatedDisconnect.set(false)
+        suppressAutoReconnect.set(false)
         reconnectAttempts.set(0)
         reconnecting.set(false)
         waitingForNetwork.set(false)
@@ -1153,7 +1199,7 @@ class SendSpin(
         // Spec reason enum is another_server | shutdown | restart |
         // user_request. "restart" fits: we will reconnect (after the outer
         // loop re-selects the transport) and the server should auto-reconnect.
-        sendGoodbye("restart")
+        sendGoodbye(GoodbyeReason.RESTART)
         // Clear the transport listener BEFORE closing to prevent the async onClosed
         // callback from firing a second onDisconnected after we fire one synchronously below.
         transport?.setListener(null)
@@ -1178,7 +1224,7 @@ class SendSpin(
         stopTimeSync()
         reconnecting.set(false)
         waitingForNetwork.set(false)
-        sendGoodbye("user_request")
+        sendGoodbye(GoodbyeReason.USER_REQUEST)
         // Clear the transport listener BEFORE closing to prevent the async onClosed
         // callback from firing a second onDisconnected after we fire one synchronously below.
         transport?.setListener(null)
@@ -1409,6 +1455,11 @@ class SendSpin(
 
         if (userInitiatedDisconnect.get()) {
             Log.d(TAG, "Not reconnecting: user-initiated disconnect")
+            return
+        }
+
+        if (suppressAutoReconnect.get()) {
+            Log.i(TAG, "Not reconnecting: this server unpaired us")
             return
         }
 
