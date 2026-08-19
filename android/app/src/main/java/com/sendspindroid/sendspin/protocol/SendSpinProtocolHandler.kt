@@ -7,6 +7,8 @@ import com.sendspindroid.sendspin.crypto.NoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseTransport
 import com.sendspindroid.sendspin.crypto.Psk
 import com.sendspindroid.sendspin.crypto.PskCategory
+import com.sendspindroid.sendspin.crypto.PairingConfigStore
+import com.sendspindroid.sendspin.protocol.management.ManagementResultCode
 import com.sendspindroid.sendspin.protocol.management.ManagementRequestParser
 import com.sendspindroid.sendspin.protocol.management.ManagementService
 import com.sendspindroid.sendspin.protocol.management.ManagementSessionContext
@@ -1024,7 +1026,8 @@ abstract class SendSpinProtocolHandler(
 
     // ========== Management (item 3.1) ==========
 
-    private val managementService = ManagementService()
+    /** Where the pairing configuration lives. Null on the legacy path. */
+    protected open fun pairingConfigStore(): PairingConfigStore? = null
 
     /**
      * Answer one `management/` request.
@@ -1043,7 +1046,7 @@ abstract class SendSpinProtocolHandler(
     private fun handleManagementRequest(type: String, payload: JsonObject?) {
         val request = ManagementRequestParser.parse(type, payload) ?: return
 
-        val outcome = managementService.handle(
+        val outcome = ManagementService(trustStore(), pairingConfigStore()).handle(
             request,
             ManagementSessionContext(
                 hasManagementActivity = Activity.MANAGEMENT in activities,

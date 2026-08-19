@@ -16,6 +16,9 @@ interface PairingConfigStore {
 
         /** Not a 32-byte PSK. */
         object Invalid : RotateResult
+
+        /** The bytes were fine; persisting them was not. */
+        object StorageFailed : RotateResult
     }
 
     /**
@@ -24,10 +27,19 @@ interface PairingConfigStore {
      */
     fun load(): PairingConfig
 
-    /** Offer or withdraw the `pairing_psk` method. Never discards the secret. */
-    fun setEnabled(enabled: Boolean)
+    /**
+     * Offer or withdraw the `pairing_psk` method. Never discards the secret.
+     *
+     * @return false if the change could not be persisted. Management answers
+     *   `ok` only once "any state change has been persisted", so a caller that
+     *   ignored this would claim a durability it does not have.
+     */
+    fun setEnabled(enabled: Boolean): Boolean
 
-    fun setUnpairedAccess(enabled: Boolean)
+    fun setUnpairedAccess(enabled: Boolean): Boolean
+
+    /** Point record mode at a different shared-PSK record. */
+    fun setRecordModePskId(pskId: String): Boolean
 
     /**
      * Replace the Pairing PSK.

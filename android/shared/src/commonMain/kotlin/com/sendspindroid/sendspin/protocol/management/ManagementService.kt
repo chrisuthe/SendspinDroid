@@ -1,5 +1,7 @@
 package com.sendspindroid.sendspin.protocol.management
 
+import com.sendspindroid.sendspin.crypto.PairingConfigStore
+import com.sendspindroid.sendspin.crypto.TrustStore
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -40,7 +42,26 @@ data class ManagementSessionContext(
  * conflating them either drops a usable connection or leaves an unauthorised
  * one alive.
  */
-class ManagementService {
+class ManagementService(
+    trustStore: TrustStore?,
+    configStore: PairingConfigStore?,
+) {
+
+    /**
+     * Null only on the legacy path, where no storage is wired up.
+     *
+     * Nullable rather than required so the permission gate below can run
+     * without storage: whether a session may issue management commands is a
+     * property of the session, not of what we can read. Requiring a store to
+     * answer `permission_denied` would report `invalid` to an unauthorised
+     * caller - the wrong reason, and one that invites a retry.
+     */
+    private val pairingConfig =
+        if (trustStore != null && configStore != null) {
+            PairingConfigOperations(trustStore, configStore)
+        } else {
+            null
+        }
 
     fun handle(
         request: ManagementRequest,
@@ -62,14 +83,20 @@ class ManagementService {
                 // method can be enabled and the answer is always invalid.
                 ManagementOutcome(ManagementResultCode.INVALID)
 
-            // The record and config operations land in #228 and #229. Until
-            // then they are answered rather than left hanging: a reply the
-            // server can act on beats a silence it has to time out.
+            ManagementRequest.GetPairingConfig ->
+                pairingConfig?.get() ?: ManagementOutcome(ManagementResultCode.INVALID)
+
+            is ManagementRequest.SetPairingConfig ->
+                ManagementOutcome(
+                    pairingConfig?.set(request.patch) ?: ManagementResultCode.INVALID
+                )
+
+            // The record operations land in #229. Until then they are answered
+            // rather than left hanging: a reply the server can act on beats a
+            // silence it has to time out.
             ManagementRequest.ListRecords,
             is ManagementRequest.AddRecord,
-            is ManagementRequest.RemoveRecord,
-            ManagementRequest.GetPairingConfig,
-            is ManagementRequest.SetPairingConfig ->
+            is ManagementRequest.RemoveRecord ->
                 ManagementOutcome(ManagementResultCode.INVALID)
         }
     }

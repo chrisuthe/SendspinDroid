@@ -17,6 +17,7 @@ import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
 import com.sendspindroid.sendspin.crypto.Psk
 import com.sendspindroid.sendspin.crypto.PskCategory
+import com.sendspindroid.sendspin.crypto.PairingConfigStore
 import com.sendspindroid.sendspin.crypto.TrustStore
 import com.sendspindroid.sendspin.crypto.PskCandidates
 import com.sendspindroid.sendspin.crypto.PskCandidateSet
@@ -533,6 +534,8 @@ class SendSpin(
     override fun currentServerId(): String? = sessionFacts?.serverId
 
     override fun trustStore(): TrustStore = UserSettings.getOrCreateTrustStore()
+
+    override fun pairingConfigStore(): PairingConfigStore = pairingConfigStore
 
     override fun onPaired(serverId: String) {
         // The server drives the in-band re-handshake from here (#223); the

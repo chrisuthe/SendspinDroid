@@ -168,7 +168,7 @@ class ManagementRoutingTest {
 
     @Test
     fun everyRequestOutsideAManagementSessionIsDenied() {
-        val service = ManagementService()
+        val service = service()
 
         for (request in ALL_REQUESTS) {
             val outcome = service.handle(request, session(management = false))
@@ -181,7 +181,7 @@ class ManagementRoutingTest {
 
     @Test
     fun anUnknownRequestInsideASessionIsInvalid() {
-        val outcome = ManagementService()
+        val outcome = service()
             .handle(ManagementRequest.Unrecognized("management/nope"), session(management = true))
 
         assertEquals(ManagementResultCode.INVALID, outcome.code)
@@ -191,7 +191,7 @@ class ManagementRoutingTest {
     fun openingAPairingWindowIsInvalidWithNoPinMethod() {
         // "rejected as `invalid` when no PIN method is enabled." This client
         // implements neither PIN method (audit D2), so it is always invalid.
-        val outcome = ManagementService()
+        val outcome = service()
             .handle(ManagementRequest.OpenPairingWindow, session(management = true))
 
         assertEquals(ManagementResultCode.INVALID, outcome.code)
@@ -203,11 +203,17 @@ class ManagementRoutingTest {
         // is answered and the connection continues. Only an unauthorised
         // *activation* closes, and that is decided in ServerActivateRules.
         for (request in ALL_REQUESTS) {
-            assertNull(ManagementService().handle(request, session(management = false)).closeAfterReply)
+            assertNull(service().handle(request, session(management = false)).closeAfterReply)
         }
     }
 
     // ========== Helpers ==========
+
+    /** The gating tests do not touch storage; any consistent pair will do. */
+    private fun service() = ManagementService(
+        PairingConfigManagementTest.FakeTrust(),
+        PairingConfigManagementTest.FakeConfigStore(),
+    )
 
     private fun session(management: Boolean) = ManagementSessionContext(
         hasManagementActivity = management,
