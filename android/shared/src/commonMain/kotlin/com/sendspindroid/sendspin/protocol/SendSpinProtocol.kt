@@ -10,6 +10,14 @@ object SendSpinProtocol {
     const val ENDPOINT_PATH = "/sendspin"
 
     /**
+     * How long a pairing attempt may stay open before the client aborts it.
+     *
+     * "The client bounds each attempt with an attempt timeout measured from its
+     * first message (recommended 2 minutes)."
+     */
+    const val PAIR_ATTEMPT_TIMEOUT_MS = 120_000L
+
+    /**
      * Binary message header: 1 byte type + 8 bytes big-endian int64 timestamp.
      */
     const val BINARY_HEADER_SIZE_BYTES = 9
@@ -129,6 +137,8 @@ object SendSpinProtocol {
         const val SERVER_HELLO = "server/hello"
         const val SERVER_ACTIVATE = "server/activate"
         const val PAIR_ABORT = "pair/abort"
+        const val CLIENT_PAIR_FINALIZE = "client/pair-finalize"
+        const val SERVER_PAIR_FINALIZE = "server/pair-finalize"
         const val CLIENT_TIME = "client/time"
         const val SERVER_TIME = "server/time"
         const val CLIENT_STATE = "client/state"

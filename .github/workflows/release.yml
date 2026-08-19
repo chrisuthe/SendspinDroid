@@ -47,14 +47,16 @@ jobs:
       run: chmod +x ./gradlew
 
     - name: Run unit tests
-      run: ./gradlew testDebugUnitTest
+      run: ./gradlew testDebugUnitTest :shared:testAndroidHostTest
 
     - name: Upload test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-results
-        path: android/app/build/reports/tests/
+        path: |
+          android/app/build/reports/tests/
+          android/shared/build/reports/tests/
 
     - name: Check signing availability
       env:

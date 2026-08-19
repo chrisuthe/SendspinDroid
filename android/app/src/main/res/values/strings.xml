@@ -230,6 +230,15 @@
     <string name="pref_export_logs_title">Export Debug Logs</string>
     <string name="pref_export_logs_summary">Share collected sync data for troubleshooting</string>
     <string name="pref_export_logs_summary_empty">No logs collected yet - set a log level above</string>
+    <!-- Pairing (Sendspin Pairing PSK flow) -->
+    <string name="pairing_category">Pairing</string>
+    <string name="pairing_token_title">Pairing token</string>
+    <string name="pairing_token_summary">Paste this into your server to pair this device. Copy it whole, without spaces or dashes.</string>
+    <string name="pairing_token_qr_hint">Scan to copy the token to another device</string>
+    <string name="pairing_token_copy">Copy pairing token</string>
+    <string name="pairing_token_copied">Pairing token copied</string>
+    <string name="pairing_token_secret_warning">Treat this like a password: anyone who has it can pair with this device.</string>
+    <string name="pairing_token_disabled">Pairing is turned off for this device.</string>
     <string name="debug_share_chooser_title">Share Debug Log</string>
     <string name="debug_log_exported">Debug log exported</string>
     <string name="debug_log_export_failed">Failed to export debug log</string>

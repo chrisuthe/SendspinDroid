@@ -58,6 +58,12 @@ import com.sendspindroid.UserSettings
 import com.sendspindroid.diagnostics.Telemetry
 import com.sendspindroid.logging.LogLevel
 import com.sendspindroid.ui.theme.SendSpinTheme
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.background
+import android.widget.Toast
 
 /**
  * Settings screen composable with all app preferences.
@@ -132,6 +138,10 @@ fun SettingsScreen(
                 summary = playerName.ifEmpty { stringResource(R.string.pref_player_name_summary) },
                 onClick = { showPlayerNameDialog = true }
             )
+
+            // Pairing Category
+            PreferenceCategory(title = stringResource(R.string.pairing_category))
+            PairingTokenPreference(token = viewModel.pairingToken())
 
             // Display Category
             PreferenceCategory(title = stringResource(R.string.pref_category_display))
@@ -406,6 +416,101 @@ fun SettingsScreen(
 // ============================================================================
 // Preference Components
 // ============================================================================
+
+/**
+ * The pairing token, rendered for transcription and copying.
+ *
+ * Deliberately ungrouped. Confirmed against a live Music Assistant in #191:
+ * its decoder trims only *surrounding* whitespace, so any separator inserted
+ * for legibility - a hyphen every eight characters, say - makes the token fail
+ * with an opaque "not valid" error that says nothing about separators. The
+ * readability win is not worth an unexplainable failure.
+ *
+ * Monospace so a user reading it aloud or retyping it can tell O from 0.
+ */
+@Composable
+private fun PairingTokenPreference(
+    token: String?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val copiedMessage = stringResource(R.string.pairing_token_copied)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 16.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.pairing_token_title),
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+
+        if (token == null) {
+            Text(
+                text = stringResource(R.string.pairing_token_disabled),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@Column
+        }
+
+        Text(
+            text = stringResource(R.string.pairing_token_summary),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+
+        PairingQrImage(
+            token = token,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.pairing_token_qr_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.align(Alignment.CenterHorizontally)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SelectionContainer {
+            Text(
+                text = token,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant,
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(12.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.pairing_token_secret_warning),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+        TextButton(
+            onClick = {
+                clipboard.setText(AnnotatedString(token))
+                Toast.makeText(context, copiedMessage, Toast.LENGTH_SHORT).show()
+            }
+        ) {
+            Text(stringResource(R.string.pairing_token_copy))
+        }
+    }
+}
 
 @Composable
 private fun PreferenceCategory(

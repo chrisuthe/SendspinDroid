@@ -11,6 +11,12 @@ import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
 import com.sendspindroid.sendspin.protocol.timesync.TimeSyncManager
 import kotlinx.coroutines.CoroutineScope
+import com.sendspindroid.sendspin.crypto.TrustStore
+import com.sendspindroid.sendspin.pairing.PairingAction
+import com.sendspindroid.sendspin.pairing.PairingEvent
+import com.sendspindroid.sendspin.pairing.PairingPskFlow
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -245,7 +251,12 @@ abstract class SendSpinProtocolHandler(
             supportedPairMethods = getSupportedPairMethods(),
         )
         sendProtocolMessage(text)
-        Log.d(tag, "Sent client/hello: ${text.take(500)}")
+        // Logged whole, not truncated. The pairing fields sit at the end of the
+        // payload, and whether a server offers pairing at all is decided by
+        // them - a 500-character cut hid exactly the thing worth checking when
+        // Music Assistant reports "this player has nothing to pair". Nothing
+        // here is secret: client_id is public, and the pair methods are names.
+        Log.d(tag, "Sent client/hello: $text")
     }
 
     /**
@@ -752,6 +763,7 @@ abstract class SendSpinProtocolHandler(
                 // dispatched here and not by the cleartext handshake driver.
                 SendSpinProtocol.MessageType.NOISE_HANDSHAKE -> onRehandshakeMessage(payload)
 
+                SendSpinProtocol.MessageType.SERVER_PAIR_FINALIZE -> handleServerPairFinalize()
                 SendSpinProtocol.MessageType.SERVER_HELLO -> handleServerHello(payload)
                 SendSpinProtocol.MessageType.SERVER_ACTIVATE -> handleServerActivate(payload)
                 SendSpinProtocol.MessageType.SERVER_TIME -> handleServerTime(payload)
@@ -880,11 +892,42 @@ abstract class SendSpinProtocolHandler(
                 activationSeen = true
                 Log.i(tag, "server/activate accepted: activities=${activate.activities} " +
                     "roles=${outcome.activeRoles}")
-                if (first) {
+                val pairing = Activity.PAIRING in activate.activities
+
+                // A pairing activation is answered with client/pair-finalize and
+                // NOTHING else. The server is sitting in _receive_pairing
+                // waiting for that exact message, so a client/state or the
+                // client/time burst arriving first is read as the finalize and
+                // rejected as malformed - which is precisely how this failed
+                // against both Music Assistant builds.
+                //
+                // Withholding them costs nothing: the admissibility table grants
+                // no roles on a Pairing-PSK connection, so there is no player
+                // state worth reporting and no stream to synchronise to. The
+                // activation that follows the promotion starts them.
+                if (first && !pairing) {
                     // Now, and only now, may we speak.
                     sendPlayerStateUpdate()
                     startTimeSync()
                 }
+
+                // Every accepted activation is fed to the pairing flow, not
+                // only the pairing ones: an activation WITHOUT `pairing` is how
+                // the server ends an attempt without finalizing, and the client
+                // must then discard the PSK it generated.
+                runPairingActions(
+                    if (pairing) {
+                        PairingEvent.PairingActivation(
+                            method = activate.pairingMethod,
+                            // From the handshake, never re-derived: this is the
+                            // only thing keeping a long-term secret off an
+                            // unauthenticated connection.
+                            matchedCategory = matchedPskCategory(),
+                        )
+                    } else {
+                        PairingEvent.NonPairingActivation
+                    }
+                )
             }
         }
     }
@@ -895,6 +938,95 @@ abstract class SendSpinProtocolHandler(
      */
     protected open fun onPairAbort(reason: String) {
         sendProtocolMessage(MessageBuilder.buildPairAbort(reason))
+    }
+
+    // ========== Pairing PSK flow (item 2.5) ==========
+
+    /** One attempt at a time, owned by the connection. */
+    private val pairingFlow = PairingPskFlow()
+
+    private var attemptTimeoutJob: Job? = null
+
+    /**
+     * The `server_id` this connection authenticated against, for the record a
+     * successful pairing persists. Null on the legacy path.
+     */
+    protected open fun currentServerId(): String? = null
+
+    /** Where a completed pairing stores its record. */
+    protected open fun trustStore(): TrustStore? = null
+
+    /** Surfaced for the pairing UI (#225). */
+    protected open fun onPaired(serverId: String) {}
+
+    protected fun handleServerPairFinalize() {
+        runPairingActions(PairingEvent.ServerPairFinalize)
+    }
+
+    /** Called by the connection when the socket goes away mid-attempt. */
+    fun onConnectionClosedForPairing() {
+        runPairingActions(PairingEvent.ConnectionClosed)
+    }
+
+    private fun runPairingActions(event: PairingEvent) {
+        for (action in pairingFlow.onEvent(event)) {
+            when (action) {
+                is PairingAction.SendPairFinalize -> {
+                    // Metadata only. The payload carries the long-term PSK in
+                    // the clear (inside the encrypted channel), so logging the
+                    // message itself would put a live credential in logcat.
+                    Log.i(tag, "Pairing: sending client/pair-finalize (32-byte PSK)")
+                    sendProtocolMessage(
+                        MessageBuilder.buildClientPairFinalize(action.longTermPsk)
+                    )
+                }
+
+                is PairingAction.SendPairAbort -> {
+                    Log.w(tag, "Pairing aborted: ${action.reason}")
+                    onPairAbort(action.reason)
+                }
+
+                is PairingAction.PersistRecord -> persistPairingRecord(action.psk)
+
+                PairingAction.StartAttemptTimeout -> {
+                    attemptTimeoutJob?.cancel()
+                    attemptTimeoutJob = getCoroutineScope().launch {
+                        delay(SendSpinProtocol.PAIR_ATTEMPT_TIMEOUT_MS)
+                        Log.w(tag, "Pairing attempt timed out")
+                        runPairingActions(PairingEvent.AttemptTimeout)
+                    }
+                }
+
+                PairingAction.ClearAttemptTimeout -> {
+                    attemptTimeoutJob?.cancel()
+                    attemptTimeoutJob = null
+                }
+            }
+        }
+    }
+
+    private fun persistPairingRecord(psk: ByteArray) {
+        val store = trustStore()
+        val serverId = currentServerId()
+        if (store == null || serverId == null) {
+            // The server has already stored its half, so this is not
+            // recoverable by retrying - say so loudly rather than leaving a
+            // half-pairing that fails as `unauthorized` on the next connect.
+            Log.e(tag, "Paired, but there is nowhere to store the record")
+            return
+        }
+        when (val result = store.addRecord(psk, serverId)) {
+            is TrustStore.AddRecordResult.Ok -> {
+                Log.i(tag, "Paired with $serverId (psk_id=${result.record.pskId})")
+                onPaired(serverId)
+            }
+            // Astronomically unlikely, and not worth a silent retry: the server
+            // holds a PSK we cannot store, so the pairing is already broken.
+            TrustStore.AddRecordResult.AlreadyExists ->
+                Log.e(tag, "Cannot store pairing record: psk_id already claimed")
+            TrustStore.AddRecordResult.Invalid ->
+                Log.e(tag, "Cannot store pairing record: PSK rejected as invalid")
+        }
     }
 
     protected fun handleServerTime(payload: JsonObject?) {

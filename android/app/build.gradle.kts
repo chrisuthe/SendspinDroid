@@ -279,6 +279,12 @@ dependencies {
     // ZXing-C++ Barcode Scanning - FOSS QR code scanning for Remote ID input
     implementation("io.github.zxing-cpp:android:2.3.0")
 
+    // ZXing core - the *encoder*. zxing-cpp above ships only reader classes, so
+    // it cannot generate the pairing QR. Pure Java, no NDK, so it also runs in
+    // plain JVM unit tests, which is what lets PairingQrCodeTest scan its own
+    // output instead of merely asserting on the input.
+    implementation("com.google.zxing:core:3.5.3")
+
     // CameraX - Modern camera API for QR code scanner
     implementation("androidx.camera:camera-camera2:1.4.1")
     implementation("androidx.camera:camera-lifecycle:1.4.1")
