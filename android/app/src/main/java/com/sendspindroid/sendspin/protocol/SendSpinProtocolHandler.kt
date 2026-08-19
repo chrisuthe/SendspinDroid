@@ -7,6 +7,9 @@ import com.sendspindroid.sendspin.crypto.NoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseTransport
 import com.sendspindroid.sendspin.crypto.Psk
 import com.sendspindroid.sendspin.crypto.PskCategory
+import com.sendspindroid.sendspin.protocol.management.ManagementRequestParser
+import com.sendspindroid.sendspin.protocol.management.ManagementService
+import com.sendspindroid.sendspin.protocol.management.ManagementSessionContext
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
@@ -806,7 +809,16 @@ abstract class SendSpinProtocolHandler(
                 SendSpinProtocol.MessageType.STREAM_END -> handleStreamEnd(payload)
                 SendSpinProtocol.MessageType.STREAM_CLEAR -> handleStreamClear()
                 SendSpinProtocol.MessageType.CLIENT_SYNC_OFFSET -> handleClientSyncOffset(payload)
-                else -> Log.d(tag, "Unhandled message type: $type")
+                // Before the else: every management request must be
+                // answered, including one we do not implement. Falling through
+                // to the unhandled log leaves the server waiting for a reply
+                // that never comes - which is exactly how MA's device-settings
+                // dialog hangs (#228).
+                else -> if (type.startsWith("management/")) {
+                    handleManagementRequest(type, payload)
+                } else {
+                    Log.d(tag, "Unhandled message type: $type")
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to parse message: ${text.take(100)}", e)
@@ -1008,6 +1020,47 @@ abstract class SendSpinProtocolHandler(
         val reason = payload?.get("reason")?.jsonPrimitive?.contentOrNull ?: "unspecified"
         Log.w(tag, "Pairing aborted (received): reason=$reason")
         runPairingActions(PairingEvent.PairAbortReceived(reason))
+    }
+
+    // ========== Management (item 3.1) ==========
+
+    private val managementService = ManagementService()
+
+    /**
+     * Answer one `management/` request.
+     *
+     * Handled to completion on the receive path, synchronously, and that is a
+     * requirement rather than a convenience: "At most one management request
+     * may be in flight per connection; in-order WebSocket delivery makes the
+     * reply unambiguous", and the reply carries no request identifier. The Nth
+     * result on the wire IS the answer to the Nth request. Moving the work to
+     * another dispatcher would let two replies race and be attributed to the
+     * wrong requests, with nothing in either frame to reveal the swap.
+     *
+     * If persistence ever has to leave this thread, it needs a single-consumer
+     * serialized queue, not a `launch`.
+     */
+    private fun handleManagementRequest(type: String, payload: JsonObject?) {
+        val request = ManagementRequestParser.parse(type, payload) ?: return
+
+        val outcome = managementService.handle(
+            request,
+            ManagementSessionContext(
+                hasManagementActivity = Activity.MANAGEMENT in activities,
+                // No PIN method is implemented (audit D2), so none can be on.
+                pinMethodEnabled = false,
+            ),
+        )
+
+        Log.i(tag, "management: $type -> ${outcome.code.wire}")
+        sendProtocolMessage(
+            MessageBuilder.buildManagementResult(outcome.code, outcome.data)
+        )
+
+        outcome.closeAfterReply?.let { reason ->
+            sendGoodbye(reason)
+            closeConnectionAfterFlush()
+        }
     }
 
     /** The operator cancelled pairing from the UI. Leaves the connection open. */

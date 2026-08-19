@@ -158,6 +158,17 @@ object SendSpinProtocol {
         const val STREAM_CLEAR = "stream/clear"
         const val STREAM_REQUEST_FORMAT = "stream/request-format"
         const val CLIENT_SYNC_OFFSET = "client/sync_offset"
+
+        // Management. Every one of these is answered by exactly one
+        // MANAGEMENT_RESULT; ordering alone matches reply to request, so none
+        // of them carries an identifier.
+        const val MANAGEMENT_LIST_RECORDS = "management/list-records"
+        const val MANAGEMENT_ADD_RECORD = "management/add-record"
+        const val MANAGEMENT_REMOVE_RECORD = "management/remove-record"
+        const val MANAGEMENT_GET_PAIRING_CONFIG = "management/get-pairing-config"
+        const val MANAGEMENT_SET_PAIRING_CONFIG = "management/set-pairing-config"
+        const val MANAGEMENT_OPEN_PAIRING_WINDOW = "management/open-pairing-window"
+        const val MANAGEMENT_RESULT = "management/result"
     }
 
     /**

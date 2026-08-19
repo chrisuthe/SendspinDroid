@@ -2,6 +2,7 @@ package com.sendspindroid.sendspin.protocol.message
 
 import com.sendspindroid.sendspin.crypto.Base64Url
 import com.sendspindroid.sendspin.protocol.GoodbyeReason
+import com.sendspindroid.sendspin.protocol.management.ManagementResultCode
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -189,6 +190,40 @@ object MessageBuilder {
     }.toString()
 
     /** The typed form. Prefer this: a bare string can invent a reason. */
+    /**
+     * A `management/result`.
+     *
+     * Deliberately omits the `storage` accounting object. "a client whose
+     * storage is effectively unbounded or of unknown size omits the key, and
+     * the server relies on `storage_exhausted` alone" - records are roughly a
+     * hundred bytes in EncryptedSharedPreferences on a filesystem measured in
+     * gigabytes, so any capacity figure we invented would corrupt the server's
+     * free/cost arithmetic. `storage_exhausted` stays authoritative for a
+     * genuine write failure.
+     *
+     * Also carries no request identifier: replies are matched to requests by
+     * ordering alone.
+     *
+     * @param data merged into the payload, and only when the operation
+     *   succeeded. A failure that carried state would invite the server to read
+     *   it out of a reply saying the operation did not happen.
+     */
+    fun buildManagementResult(
+        code: ManagementResultCode,
+        data: JsonObject? = null,
+    ): String {
+        val message = buildJsonObject {
+            put("type", SendSpinProtocol.MessageType.MANAGEMENT_RESULT)
+            put("payload", buildJsonObject {
+                put("result", code.wire)
+                if (code == ManagementResultCode.OK && data != null) {
+                    for ((key, value) in data) put(key, value)
+                }
+            })
+        }
+        return message.toString()
+    }
+
     fun buildGoodbye(reason: GoodbyeReason): String =
         buildGoodbye(reason.wire)
 
