@@ -48,8 +48,21 @@ CLIENT_EPHEMERAL_2 = bytes(range(0x40, 0x60))
 PSK_1 = bytes(range(0xA0, 0xC0))
 PSK_2 = bytes([(b + 0x11) & 0xFF for b in range(0xA0, 0xC0)])
 
-MSG1_PAYLOAD_1 = json.dumps({"psk_id": "initial-psk-id-placeholder"}).encode()
-MSG1_PAYLOAD_2 = json.dumps({"psk_id": "rehandshake-psk-id-placeholder"}).encode()
+
+
+def psk_id(psk: bytes) -> str:
+    """base64url(SHA-256("sendspin-psk-id-v1" || PSK)), unpadded - connection.md."""
+    import base64
+    import hashlib
+    digest = hashlib.sha256(b"sendspin-psk-id-v1" + psk).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+
+
+# Real derived ids, not placeholders: the client selects its PSK by matching
+# this value, so a placeholder would make the vector unusable for any test that
+# exercises selection.
+MSG1_PAYLOAD_1 = json.dumps({"psk_id": psk_id(PSK_1)}).encode()
+MSG1_PAYLOAD_2 = json.dumps({"psk_id": psk_id(PSK_2)}).encode()
 MSG2_PAYLOAD = b"{}"
 
 

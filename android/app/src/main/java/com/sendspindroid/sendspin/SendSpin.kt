@@ -10,6 +10,9 @@ import com.sendspindroid.sendspin.transport.ProxyWebSocketTransport
 import com.sendspindroid.sendspin.protocol.ControllerState
 import com.sendspindroid.sendspin.protocol.GroupInfo
 import com.sendspindroid.sendspin.protocol.SendSpinProtocol
+
+import com.sendspindroid.sendspin.crypto.NoiseCipherSuite
+import com.sendspindroid.sendspin.crypto.asNoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseHandshakeException
 import com.sendspindroid.sendspin.crypto.AndroidPairingConfigStore
 import com.sendspindroid.sendspin.crypto.Psk
@@ -17,6 +20,8 @@ import com.sendspindroid.sendspin.crypto.PskCategory
 import com.sendspindroid.sendspin.crypto.PskCandidates
 import com.sendspindroid.sendspin.crypto.PskCandidateSet
 import com.sendspindroid.sendspin.protocol.SendSpinHandshakeDriver
+import kotlinx.serialization.json.JsonObject
+import com.sendspindroid.sendspin.protocol.RehandshakeDriver
 import com.sendspindroid.sendspin.protocol.SendSpinProtocolHandler
 import com.sendspindroid.sendspin.protocol.StreamConfig
 import com.sendspindroid.sendspin.protocol.TrackMetadata
@@ -361,6 +366,17 @@ class SendSpin(
                 // let those three disagree.
                 matchedPsk = event.matchedPsk
 
+                // Retained for the in-band re-handshake, which re-sends none of
+                // this and has no way to ask for it again.
+                sessionFacts = SessionFacts(
+                    serverId = event.serverInit.serverId,
+                    serverStaticKey = event.serverInit.serverStaticKey,
+                    // Carries over unchanged: the re-handshake re-sends no
+                    // client/init, so there is no opportunity to renegotiate it.
+                    suite = SendSpinHandshakeDriver.DEFAULT_SUITE,
+                    priorHandshakeHash = event.transport.handshakeHash,
+                )
+
                 // "used" means a server has authenticated a session with this
                 // record. Marked on entry to transport mode rather than on the
                 // psk_id match, because a match that then failed AEAD
@@ -408,6 +424,25 @@ class SendSpin(
      */
     @Volatile
     private var matchedPsk: Psk? = null
+
+    /**
+     * Everything a re-handshake needs that is NOT re-sent.
+     *
+     * "`client/init` and `server/init` are not re-sent - `client_id`,
+     * `server_id`, and `suite` carry over. The new handshake's prologue is the
+     * prior handshake's hash `h`." So the connection has to retain them; there
+     * is no second chance to read them off the wire.
+     */
+    private class SessionFacts(
+        val serverId: String,
+        val serverStaticKey: ByteArray,
+        val suite: NoiseCipherSuite,
+        /** Prologue for the NEXT handshake. Advances on every promotion. */
+        var priorHandshakeHash: ByteArray,
+    )
+
+    @Volatile
+    private var sessionFacts: SessionFacts? = null
 
     /**
      * Every PSK this handshake may match: the stored records, the Sentinel, and
@@ -462,6 +497,71 @@ class SendSpin(
     /** The live configuration, not a constant: a disabled method is not offered. */
     override fun offeredPairMethods(): Set<String> =
         if (pairingConfigStore.load().pairingPskEnabled) setOf("pairing_psk") else emptySet()
+
+    /**
+     * Run an in-band re-handshake.
+     *
+     * The server initiates this to promote the channel after a pairing, or to
+     * switch a Sentinel-keyed connection to the Pairing PSK before offering
+     * `pairing_psk`. The socket stays open throughout: "The server may rerun
+     * the Noise handshake in transport mode to swap session keys without
+     * closing the WebSocket."
+     *
+     * Every failure below closes without an application-level message, because
+     * the spec allows none - so each one logs its own reason first. That log
+     * line is the only artifact anyone will have.
+     */
+    override fun onRehandshakeMessage(payload: JsonObject?) {
+        val facts = sessionFacts ?: return failRehandshake(
+            "noise/handshake arrived before any handshake completed"
+        )
+        Log.i(TAG, "Re-handshake starting (prior h=${hashPrefix(facts.priorHandshakeHash)})")
+
+        // Candidates are rebuilt now rather than reused from connect time: a
+        // record persisted moments ago by a pairing must be visible to this
+        // very selection, which is why the server started the exchange.
+        val driver = RehandshakeDriver(
+            identity = UserSettings.getOrCreateClientIdentity(),
+            candidates = pskCandidates(),
+            serverId = facts.serverId,
+            serverStaticKey = facts.serverStaticKey,
+            suite = facts.suite,
+            priorHandshakeHash = facts.priorHandshakeHash,
+        )
+
+        val outcome = driver.handle(payload?.get("data")?.jsonPrimitive?.contentOrNull)
+        if (outcome is RehandshakeDriver.Outcome.Fail) return failRehandshake(outcome.reason)
+        outcome as RehandshakeDriver.Outcome.Reply
+
+        // Encrypted under the OLD keys, then the swap. The callback runs only
+        // once that frame is on the wire.
+        sendAndSwapKeys(outcome.replyJson, outcome.transport.asNoiseCrypto()) {
+            facts.priorHandshakeHash = outcome.transport.handshakeHash
+            matchedPsk = outcome.matched
+            if (outcome.matched.category == PskCategory.LONG_TERM) {
+                UserSettings.getOrCreateTrustStore().markUsed(outcome.matched.pskId)
+            }
+            // The channel is promoted, not replaced: transport, group and time
+            // filter all survive. Only the message sequence restarts.
+            resetForRehandshake()
+            Log.i(
+                TAG,
+                "Re-handshake complete: psk=${outcome.matched.category} " +
+                    "trust=${getTrustLevel()} new h=${hashPrefix(outcome.transport.handshakeHash)}"
+            )
+        }
+    }
+
+    /** First 8 hex chars of a handshake hash. Channel-binding data, not a secret. */
+    private fun hashPrefix(hash: ByteArray): String =
+        hash.take(4).joinToString("") { b ->
+            ((b.toInt() and 0xFF) + 0x100).toString(16).substring(1)
+        }
+
+    private fun failRehandshake(reason: String) {
+        Log.e(TAG, "Re-handshake failed: $reason")
+        onProtocolFailure(reason)
+    }
 
     override fun getSupportedPairMethods(): List<MessageBuilder.PairMethodDescriptor> =
         if (pairingConfigStore.load().pairingPskEnabled) {
