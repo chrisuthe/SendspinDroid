@@ -1285,12 +1285,35 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
+    /**
+     * `server/state` is a delta, so every field is merged into the cached role
+     * state rather than replacing it.
+     *
+     * Before this merge existed, a delta carrying only `progress` arrived as a
+     * metadata object with empty title, artist and album, and blanked the Now
+     * Playing screen on every progress tick.
+     */
     protected fun handleServerState(payload: JsonObject?) {
-        val (metadata, state, controllerDelta) = MessageParser.parseServerState(payload)
+        val (metadataUpdate, state, controllerUpdate) = MessageParser.parseServerState(payload)
 
-        if (metadata != null) {
-            lastMetadata = metadata
-            onMetadataUpdate(metadata)
+        when (metadataUpdate) {
+            RoleUpdate.Absent -> Unit
+
+            RoleUpdate.Cleared -> {
+                // The role was dropped from active_roles; the UI must blank
+                // rather than keep showing a track the server no longer has.
+                lastMetadata = null
+                onMetadataCleared()
+            }
+
+            is RoleUpdate.Delta -> {
+                val merged = metadataUpdate.applyTo(lastMetadata)
+                lastMetadata = merged
+                // Fired even when the merged value is unchanged: progress
+                // extrapolation needs a fresh receive-time anchor on every
+                // message, not only on a change.
+                if (merged != null) onMetadataUpdate(merged)
+            }
         }
 
         if (state != null && state != lastPlaybackState) {
@@ -1298,13 +1321,27 @@ abstract class SendSpinProtocolHandler(
             onPlaybackStateChanged(state)
         }
 
-        if (controllerDelta != null) {
-            val merged = currentControllerState?.mergedWith(controllerDelta) ?: controllerDelta
-            if (merged != currentControllerState) {
-                currentControllerState = merged
-                onControllerStateUpdate(merged)
+        when (controllerUpdate) {
+            RoleUpdate.Absent -> Unit
+
+            RoleUpdate.Cleared -> {
+                currentControllerState = null
+                onControllerStateUpdate(ControllerState())
+            }
+
+            is RoleUpdate.Delta -> {
+                val merged = controllerUpdate.applyTo(currentControllerState)
+                if (merged != null && merged != currentControllerState) {
+                    currentControllerState = merged
+                    onControllerStateUpdate(merged)
+                }
             }
         }
+    }
+
+    /** The server dropped the metadata role. Default: treat as an empty track. */
+    protected open fun onMetadataCleared() {
+        onMetadataUpdate(TrackMetadata())
     }
 
     protected fun handleServerCommand(payload: JsonObject?) {
