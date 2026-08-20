@@ -24,6 +24,7 @@ class PskCandidatesTest {
             pairingPsk = psk(pairing),
             pairingPskEnabled = enabled,
             unpairedAccessEnabled = true,
+            recordModePskId = "record-mode-id",
         )
 
     @Test

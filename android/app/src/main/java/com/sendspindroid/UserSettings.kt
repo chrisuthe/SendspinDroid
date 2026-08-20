@@ -63,6 +63,7 @@ object UserSettings {
     const val KEY_PAIRING_PSK = "sendspin_pairing_psk"
     const val KEY_PAIRING_PSK_ENABLED = "sendspin_pairing_psk_enabled"
     const val KEY_UNPAIRED_ACCESS = "sendspin_unpaired_access"
+    const val KEY_RECORD_MODE_PSK_ID = "sendspin_record_mode_psk_id"
 
     // Remote access preference keys (stored in encrypted prefs)
     const val KEY_REMOTE_SERVERS = "remote_servers"
@@ -305,16 +306,27 @@ object UserSettings {
     fun getPairingPskEnabled(): Boolean =
         sensitivePrefs?.getBoolean(KEY_PAIRING_PSK_ENABLED, true) ?: true
 
-    fun setPairingPskEnabled(enabled: Boolean) {
-        sensitivePrefs?.edit()?.putBoolean(KEY_PAIRING_PSK_ENABLED, enabled)?.commit()
-    }
+    /**
+     * @return false if the change was not persisted.
+     *
+     * `commit()` rather than `apply()`, and the result is propagated, because
+     * management answers `ok` only once "any state change has been persisted".
+     * The rest of this file uses `apply()`; a management write cannot.
+     */
+    fun setPairingPskEnabled(enabled: Boolean): Boolean =
+        sensitivePrefs?.edit()?.putBoolean(KEY_PAIRING_PSK_ENABLED, enabled)?.commit() ?: false
 
     fun getUnpairedAccessEnabled(): Boolean =
         sensitivePrefs?.getBoolean(KEY_UNPAIRED_ACCESS, true) ?: true
 
-    fun setUnpairedAccessEnabled(enabled: Boolean) {
-        sensitivePrefs?.edit()?.putBoolean(KEY_UNPAIRED_ACCESS, enabled)?.commit()
-    }
+    fun setUnpairedAccessEnabled(enabled: Boolean): Boolean =
+        sensitivePrefs?.edit()?.putBoolean(KEY_UNPAIRED_ACCESS, enabled)?.commit() ?: false
+
+    fun getRecordModePskId(): String? =
+        sensitivePrefs?.getString(KEY_RECORD_MODE_PSK_ID, null)
+
+    fun setRecordModePskId(pskId: String): Boolean =
+        sensitivePrefs?.edit()?.putString(KEY_RECORD_MODE_PSK_ID, pskId)?.commit() ?: false
 
     fun getPlayerId(): String {
         // Fast path: prefs available and ID already stored

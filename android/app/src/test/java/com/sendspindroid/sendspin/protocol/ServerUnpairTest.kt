@@ -265,7 +265,7 @@ class UnpairTestHandler(
         unpaired.add(pskId to serverId)
     }
 
-    override fun closeConnectionAfterGoodbye() {
+    override fun closeConnectionAfterFlush() {
         events.add("close")
     }
 
