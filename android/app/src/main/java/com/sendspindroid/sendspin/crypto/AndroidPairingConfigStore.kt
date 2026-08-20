@@ -28,17 +28,49 @@ class AndroidPairingConfigStore : PairingConfigStore {
             pairingPsk = psk,
             pairingPskEnabled = UserSettings.getPairingPskEnabled(),
             unpairedAccessEnabled = UserSettings.getUnpairedAccessEnabled(),
+            recordModePskId = recordModePskId(),
         )
     }
 
-    override fun setEnabled(enabled: Boolean) {
+    override fun setEnabled(enabled: Boolean): Boolean {
         // Only the flag moves. The secret stays, so re-enabling restores every
         // token already in circulation rather than silently invalidating them.
-        UserSettings.setPairingPskEnabled(enabled)
+        return UserSettings.setPairingPskEnabled(enabled)
     }
 
-    override fun setUnpairedAccess(enabled: Boolean) {
+    override fun setUnpairedAccess(enabled: Boolean): Boolean =
         UserSettings.setUnpairedAccessEnabled(enabled)
+
+    override fun setRecordModePskId(pskId: String): Boolean =
+        UserSettings.setRecordModePskId(pskId)
+
+    /**
+     * The shared-PSK record backing record mode, minted on first read.
+     *
+     * `management.md#record-mode` requires the reference to name a real
+     * shared-PSK record and `get-pairing-config` treats `record_mode` as
+     * non-optional, so one exists. It is device-specific and generated here
+     * ("MUST NOT be a fixed default shared across devices"), and it is never
+     * distributed: nothing offers it to a server, so nothing can authenticate
+     * under it. See the KDoc on [PairingConfig] for why it exists at all.
+     */
+    private fun recordModePskId(): String {
+        UserSettings.getRecordModePskId()?.let { return it }
+
+        val store = UserSettings.getOrCreateTrustStore()
+        val psk = secureRandomBytes(Psk.PSK_SIZE)
+        // serverId = null makes it a shared-PSK record, which is exactly what
+        // record mode must point at.
+        val result = store.addRecord(psk, serverId = null)
+        if (result !is TrustStore.AddRecordResult.Ok) {
+            Log.e(TAG, "Could not provision the record-mode record: $result")
+            return ""
+        }
+        if (!UserSettings.setRecordModePskId(result.record.pskId)) {
+            Log.e(TAG, "Could not persist the record-mode reference")
+        }
+        Log.i(TAG, "Provisioned the record-mode shared record (psk_id=${result.record.pskId})")
+        return result.record.pskId
     }
 
     override fun rotatePairingPsk(
@@ -52,7 +84,7 @@ class AndroidPairingConfigStore : PairingConfigStore {
         synchronized(lock) {
             if (!UserSettings.setPairingPskBlob(Base64Url.encode(newPsk))) {
                 Log.e(TAG, "Failed to persist rotated Pairing PSK: no storage available")
-                return PairingConfigStore.RotateResult.Invalid
+                return PairingConfigStore.RotateResult.StorageFailed
             }
             cachedPsk = newPsk.copyOf()
         }

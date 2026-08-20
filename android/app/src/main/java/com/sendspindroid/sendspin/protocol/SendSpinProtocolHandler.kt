@@ -7,6 +7,11 @@ import com.sendspindroid.sendspin.crypto.NoiseCrypto
 import com.sendspindroid.sendspin.crypto.NoiseTransport
 import com.sendspindroid.sendspin.crypto.Psk
 import com.sendspindroid.sendspin.crypto.PskCategory
+import com.sendspindroid.sendspin.crypto.PairingConfigStore
+import com.sendspindroid.sendspin.protocol.management.ManagementResultCode
+import com.sendspindroid.sendspin.protocol.management.ManagementRequestParser
+import com.sendspindroid.sendspin.protocol.management.ManagementService
+import com.sendspindroid.sendspin.protocol.management.ManagementSessionContext
 import com.sendspindroid.sendspin.protocol.message.BinaryMessageParser
 import com.sendspindroid.sendspin.protocol.message.MessageBuilder
 import com.sendspindroid.sendspin.protocol.message.MessageParser
@@ -806,7 +811,16 @@ abstract class SendSpinProtocolHandler(
                 SendSpinProtocol.MessageType.STREAM_END -> handleStreamEnd(payload)
                 SendSpinProtocol.MessageType.STREAM_CLEAR -> handleStreamClear()
                 SendSpinProtocol.MessageType.CLIENT_SYNC_OFFSET -> handleClientSyncOffset(payload)
-                else -> Log.d(tag, "Unhandled message type: $type")
+                // Before the else: every management request must be
+                // answered, including one we do not implement. Falling through
+                // to the unhandled log leaves the server waiting for a reply
+                // that never comes - which is exactly how MA's device-settings
+                // dialog hangs (#228).
+                else -> if (type.startsWith("management/")) {
+                    handleManagementRequest(type, payload)
+                } else {
+                    Log.d(tag, "Unhandled message type: $type")
+                }
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to parse message: ${text.take(100)}", e)
@@ -1010,6 +1024,69 @@ abstract class SendSpinProtocolHandler(
         runPairingActions(PairingEvent.PairAbortReceived(reason))
     }
 
+    // ========== Management (item 3.1) ==========
+
+    /** Where the pairing configuration lives. Null on the legacy path. */
+    protected open fun pairingConfigStore(): PairingConfigStore? = null
+
+    /**
+     * Answer one `management/` request.
+     *
+     * Handled to completion on the receive path, synchronously, and that is a
+     * requirement rather than a convenience: "At most one management request
+     * may be in flight per connection; in-order WebSocket delivery makes the
+     * reply unambiguous", and the reply carries no request identifier. The Nth
+     * result on the wire IS the answer to the Nth request. Moving the work to
+     * another dispatcher would let two replies race and be attributed to the
+     * wrong requests, with nothing in either frame to reveal the swap.
+     *
+     * If persistence ever has to leave this thread, it needs a single-consumer
+     * serialized queue, not a `launch`.
+     */
+    private fun handleManagementRequest(type: String, payload: JsonObject?) {
+        val request = ManagementRequestParser.parse(type, payload) ?: return
+
+        val matched = matchedPsk()
+        val outcome = ManagementService(trustStore(), pairingConfigStore()).handle(
+            request,
+            ManagementSessionContext(
+                hasManagementActivity = Activity.MANAGEMENT in activities,
+                // No PIN method is implemented (audit D2), so none can be on.
+                pinMethodEnabled = false,
+                // Only a record identifies "our own record"; the Sentinel and
+                // the Pairing PSK are not records and cannot be removed.
+                matchedPskId = matched?.takeIf { it.category == PskCategory.LONG_TERM }?.pskId,
+            ),
+        )
+
+        Log.i(tag, "management: $type -> ${outcome.code.wire}")
+
+        // Sequenced in one coroutine, and that is the contract: the result must
+        // reach the wire before the goodbye, because the result is the only
+        // thing that tells the server the operation happened. A close on its
+        // own reads as a failure. sendProtocolMessage returns while the encrypt
+        // is still queued, so the awaiting form is what makes the order real.
+        getCoroutineScope().launch {
+            sendProtocolMessageAwaiting(
+                MessageBuilder.buildManagementResult(outcome.code, outcome.data)
+            )
+            outcome.closeAfterReply?.let { reason ->
+                sendProtocolMessageAwaiting(MessageBuilder.buildGoodbye(reason))
+                onManagementSessionRevoked()
+                closeConnectionAfterFlush()
+            }
+        }
+    }
+
+    /**
+     * The client removed the record that authenticated this session.
+     *
+     * "Server should not auto-reconnect with the same activity set" - and we
+     * should not either: the credential is gone, so every attempt would fail
+     * the handshake PSK lookup and loop.
+     */
+    protected open fun onManagementSessionRevoked() {}
+
     /** The operator cancelled pairing from the UI. Leaves the connection open. */
     fun cancelPairing() {
         runPairingActions(PairingEvent.UserCancelled)
@@ -1192,6 +1269,10 @@ abstract class SendSpinProtocolHandler(
                 Log.e(tag, "Cannot store pairing record: psk_id already claimed")
             TrustStore.AddRecordResult.Invalid ->
                 Log.e(tag, "Cannot store pairing record: PSK rejected as invalid")
+            TrustStore.AddRecordResult.StorageFailed ->
+                // The one failure a user could actually act on, so it names the
+                // cause rather than the symptom.
+                Log.e(tag, "Cannot store pairing record: the write did not persist")
         }
     }
 
