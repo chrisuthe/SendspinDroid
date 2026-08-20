@@ -220,19 +220,24 @@ data class TrackProgress(
  * @param progress Progress information (position, duration, speed)
  */
 data class TrackMetadata(
-    val timestamp: Long,
-    val title: String,
-    val artist: String,
-    val albumArtist: String,
-    val album: String,
-    val artworkUrl: String,
-    val year: Int,
-    val track: Int,
-    val progress: TrackProgress
+    val timestamp: Long? = null,
+    val title: String? = null,
+    val artist: String? = null,
+    val albumArtist: String? = null,
+    val album: String? = null,
+    val artworkUrl: String? = null,
+    val year: Int? = null,
+    val track: Int? = null,
+    val progress: TrackProgress? = null
 ) {
+    // Every field is nullable because `server/state` can clear any of them
+    // individually. Null means "the server has no value for this", which is
+    // distinct from the empty string - the old representation, which could not
+    // tell a cleared title from a title the delta simply did not mention.
+
     // Convenience properties for backwards compatibility
-    val durationMs: Long get() = progress.trackDuration
-    val positionMs: Long get() = progress.trackProgress
+    val durationMs: Long get() = progress?.trackDuration ?: 0L
+    val positionMs: Long get() = progress?.trackProgress ?: 0L
 
     /**
      * Current track position extrapolated from this metadata snapshot,
@@ -248,12 +253,15 @@ data class TrackMetadata(
      *   microseconds (from the time filter's client->server mapping)
      */
     fun progressAtServerTime(serverNowMicros: Long): Long {
-        if (timestamp == 0L) return progress.trackProgress
+        val p = progress ?: return 0L
+        // A null or zero timestamp means no anchor to extrapolate from - legacy
+        // servers, or a cleared field - so report the raw position.
+        if (timestamp == null || timestamp == 0L) return p.trackProgress
         val elapsedMicros = serverNowMicros - timestamp
-        val calculated = progress.trackProgress +
-                elapsedMicros * progress.playbackSpeed / 1_000_000L
-        return if (progress.trackDuration != 0L) {
-            calculated.coerceIn(0L, progress.trackDuration)
+        val calculated = p.trackProgress +
+                elapsedMicros * p.playbackSpeed / 1_000_000L
+        return if (p.trackDuration != 0L) {
+            calculated.coerceIn(0L, p.trackDuration)
         } else {
             calculated.coerceAtLeast(0L)
         }
@@ -315,25 +323,18 @@ data class ControllerState(
     val volume: Int? = null,
     val muted: Boolean? = null,
     val repeat: String? = null,
-    val shuffle: Boolean? = null
-) {
-    /** Merge a delta update into this state, keeping known values. */
-    fun mergedWith(delta: ControllerState): ControllerState = ControllerState(
-        supportedCommands = delta.supportedCommands ?: supportedCommands,
-        volume = delta.volume ?: volume,
-        muted = delta.muted ?: muted,
-        repeat = delta.repeat ?: repeat,
-        shuffle = delta.shuffle ?: shuffle
-    )
-}
+    val shuffle: Boolean? = null,
+    /** Furthest seekable position; `controller` role, read by item 3.11. */
+    val seekMaxMs: Long? = null
+)
 
 /**
  * Result of parsing a server/state message.
  */
 data class ServerStateResult(
-    val metadata: TrackMetadata?,
+    val metadata: RoleUpdate<TrackMetadata>,
     val playbackState: String?,
-    val controller: ControllerState?
+    val controller: RoleUpdate<ControllerState>
 )
 
 /**

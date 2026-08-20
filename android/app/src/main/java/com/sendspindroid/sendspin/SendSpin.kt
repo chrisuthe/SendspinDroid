@@ -770,14 +770,17 @@ class SendSpin(
         } else {
             metadata.positionMs
         }
+        // Null means the server has no value for the field - either it was
+        // never sent or it was explicitly cleared. The callback's empty string
+        // carries that meaning downstream.
         callback.onMetadataUpdate(
-            metadata.title,
-            metadata.artist,
-            metadata.album,
-            metadata.artworkUrl,
+            metadata.title.orEmpty(),
+            metadata.artist.orEmpty(),
+            metadata.album.orEmpty(),
+            metadata.artworkUrl.orEmpty(),
             metadata.durationMs,
             positionMs,
-            metadata.progress.playbackSpeed
+            metadata.progress?.playbackSpeed ?: 1000
         )
     }
 
