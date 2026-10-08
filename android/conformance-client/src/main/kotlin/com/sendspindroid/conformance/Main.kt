@@ -269,6 +269,12 @@ fun main(argv: Array<String>) {
                                     supportedFormats = formats,
                                     softwareVersion = "conformance",
                                     unpairedAccessEnabled = true,
+                                    // Without artwork@v1. The harness runs this
+                                    // adapter for the player scenarios only, and
+                                    // offering a role it does not exercise lets the
+                                    // server open an artwork stream of its own
+                                    // accord, which those scenarios then judge.
+                                    lowMemoryMode = true,
                                 )
                             )
                         }
