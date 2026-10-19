@@ -57,6 +57,39 @@ class VolumeLawTest {
     }
 
     @Test
+    fun `valid Android dB curve is retained`() {
+        assertTrue(VolumeLaw.isUsableCurve(maxIndex, dbAt))
+    }
+
+    @Test
+    fun `zero to one dB table is invalid on every device`() {
+        val broken: (Int) -> Double = { it.toDouble() / maxIndex }
+        assertFalse(VolumeLaw.isUsableCurve(maxIndex, broken))
+        assertEquals(maxIndex, VolumeLaw.indexFor(100, maxIndex, broken))
+        assertEquals(1f, VolumeLaw.trackGainFor(100, maxIndex, broken), 0f)
+    }
+
+    @Test
+    fun `flat reversed nonfinite and positive dB tables are invalid`() {
+        val flat: (Int) -> Double = { if (it == 0) Double.NEGATIVE_INFINITY else 0.0 }
+        val reversed: (Int) -> Double = { -it.toDouble() }
+        val nan: (Int) -> Double = { if (it == 8) Double.NaN else dbAt(it) }
+        val positive: (Int) -> Double = { dbAt(it) + 3.0 }
+        assertFalse(VolumeLaw.isUsableCurve(maxIndex, flat))
+        assertFalse(VolumeLaw.isUsableCurve(maxIndex, reversed))
+        assertFalse(VolumeLaw.isUsableCurve(maxIndex, nan))
+        assertFalse(VolumeLaw.isUsableCurve(maxIndex, positive))
+    }
+
+    @Test
+    fun `100 percent uses maximum step even on malformed curve`() {
+        val misleading: (Int) -> Double = { 0.0 }
+        assertEquals(maxIndex, VolumeLaw.indexFor(100, maxIndex, misleading))
+        assertEquals(1f, VolumeLaw.trackGainFor(100, maxIndex, misleading), 0f)
+        assertEquals(0, VolumeLaw.indexFor(0, maxIndex, misleading))
+    }
+
+    @Test
     fun `a volume above 0 is never the silent index`() {
         assertEquals(0, VolumeLaw.indexFor(0, maxIndex, dbAt))
         for (volume in 1..100) assertTrue(VolumeLaw.indexFor(volume, maxIndex, dbAt) >= 1)
