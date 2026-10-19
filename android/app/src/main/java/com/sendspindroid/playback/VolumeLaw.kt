@@ -23,6 +23,26 @@ internal object VolumeLaw {
     /** The spec's linear amplitude for [volume]. */
     fun amplitude(volume: Int): Float = (volume.coerceIn(0, 100) / 100.0).pow(1.5).toFloat()
 
+    /** Fall back to native volume steps if vendor does not return usable volume curve */
+    fun isUsableCurve(maxIndex: Int, dbAt: (Int) -> Double): Boolean {
+        if (maxIndex < 2) return false
+        val first = dbAt(1)
+        val last = dbAt(maxIndex)
+        if (!first.isFinite() || !last.isFinite()) return false
+        if (first >= -TOLERANCE_DB || last <= first + TOLERANCE_DB) return false
+        // Positive gain at maximum is possible in theory, but the Android API
+        // describes 0 dB as the typical maximum and these tables are unsafe for
+        // mapping perceived loudness. Falling back is preferable to near-mute volumes.
+        if (last > TOLERANCE_DB) return false
+        var previous = first
+        for (index in 2..maxIndex) {
+            val current = dbAt(index)
+            if (!current.isFinite() || current + TOLERANCE_DB < previous) return false
+            previous = current
+        }
+        return true
+    }
+
     /**
      * The index for [volume]: the lowest one whose device gain reaches the
      * target, so the gain left for the track is at most 0 dB. A volume above
@@ -30,13 +50,15 @@ internal object VolumeLaw {
      */
     fun indexFor(volume: Int, maxIndex: Int, dbAt: (Int) -> Double): Int {
         if (volume <= 0) return 0
+        // 100% means full hardware output, even with a misleading dB table.
+        if (volume >= 100) return maxIndex
         val target = targetDb(volume)
         return (1..maxIndex).firstOrNull { dbAt(it) >= target - TOLERANCE_DB } ?: maxIndex
     }
 
     /** Gain for the track that brings [index]'s device gain down to [volume]'s target. */
     fun trackGainFor(volume: Int, index: Int, dbAt: (Int) -> Double): Float {
-        if (volume <= 0 || index <= 0) return 1f
+        if (volume <= 0 || index <= 0 || volume >= 100) return 1f
         val residualDb = targetDb(volume) - dbAt(index)
         return 10.0.pow(residualDb / 20.0).coerceIn(0.0, 1.0).toFloat()
     }

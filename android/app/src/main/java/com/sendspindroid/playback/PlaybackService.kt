@@ -2173,11 +2173,17 @@ class PlaybackService : MediaLibraryService() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
         return try {
             val min = am.getStreamMinVolume(AudioManager.STREAM_MUSIC)
-            val table = (0..am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)).map { index ->
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val table = (0..max).map { index ->
                 if (index < min) Double.NEGATIVE_INFINITY
                 else am.getStreamVolumeDb(AudioManager.STREAM_MUSIC, index, deviceType).toDouble()
             }
-            table::get
+            if (VolumeLaw.isUsableCurve(max, table::get)) {
+                table::get
+            } else {
+                Log.w(TAG, "Unusable dB volume curve for output type $deviceType; using native steps")
+                null
+            }
         } catch (e: IllegalArgumentException) {
             Log.w(TAG, "No volume curve for output type $deviceType", e)
             null
