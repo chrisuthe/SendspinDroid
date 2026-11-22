@@ -271,6 +271,12 @@ object MessageBuilder {
         put("payload", buildJsonObject { put("reason", reason) })
     }.toString()
 
+    /** Build `client/leave`, whose payload is empty. */
+    fun buildLeave(): String = buildJsonObject {
+        put("type", SendSpinProtocol.MessageType.CLIENT_LEAVE)
+        put("payload", buildJsonObject {})
+    }.toString()
+
     /** The typed form. Prefer this: a bare string can invent a reason. */
     fun buildGoodbye(reason: GoodbyeReason): String =
         buildGoodbye(reason.wire)

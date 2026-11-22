@@ -64,6 +64,12 @@ class SendSpinPlayer : Player {
      * False: nothing can play now, and the command is not sent.
      */
     var onPlayRequested: (() -> Boolean)? = null
+
+    /**
+     * Run when a pause is asked for, before the command goes to the server.
+     * True: it has been dealt with, and the command is not sent.
+     */
+    var onPauseRequested: (() -> Boolean)? = null
     private var syncAudioPlayer: SyncAudioPlayer? = null
 
     // Listener management - CopyOnWriteArrayList prevents ConcurrentModificationException
@@ -388,7 +394,7 @@ class SendSpinPlayer : Player {
         this.playWhenReady = playWhenReady
         if (playWhenReady) {
             sendSpinClient?.play()
-        } else {
+        } else if (onPauseRequested?.invoke() != true) {
             sendSpinClient?.pause()
         }
         listeners.forEach { it.onPlayWhenReadyChanged(playWhenReady, Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) }
@@ -466,7 +472,6 @@ class SendSpinPlayer : Player {
 
     override fun stop() {
         setPlayWhenReady(false)
-        sendSpinClient?.pause()
     }
 
     override fun release() {

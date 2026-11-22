@@ -185,6 +185,7 @@ object SendSpinProtocol {
         const val CLIENT_COMMAND = "client/command"
         const val SERVER_COMMAND = "server/command"
         const val CLIENT_GOODBYE = "client/goodbye"
+        const val CLIENT_LEAVE = "client/leave"
 
         /** Valid regardless of the current `activities`; never gate it on them. */
         const val SERVER_UNPAIR = "server/unpair"

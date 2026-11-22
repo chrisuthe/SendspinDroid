@@ -670,6 +670,19 @@ abstract class SendSpinProtocolHandler(
         }
     }
 
+    /**
+     * Leave the current group with `client/leave`: this player stops, the rest
+     * of the group plays on, and the client stays connected and available.
+     * A 'switch' command rejoins the group.
+     *
+     * @return false if nothing was sent, as before the activation
+     */
+    fun leaveGroup(): Boolean {
+        if (!activationSeen || wireCodec == null) return false
+        sendProtocolMessage(MessageBuilder.buildLeave())
+        return true
+    }
+
     /** Whether [sendCommand] would send [command] right now; see there for the rule. */
     fun canSendCommand(command: String): Boolean =
         SendSpinProtocol.Roles.CONTROLLER in activeRoles &&
