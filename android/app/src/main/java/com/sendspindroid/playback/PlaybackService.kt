@@ -200,6 +200,19 @@ class PlaybackService : MediaLibraryService() {
     // Handler for posting callbacks to main thread
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private val standbyPause = StandbyPause(
+        inStandby = {
+            isTvDevice() && !(getSystemService(Context.POWER_SERVICE) as PowerManager).isInteractive
+        },
+        playingGroup = {
+            _playbackState.value.takeIf { it.playbackState == PlaybackStateType.PLAYING }
+                ?.let { it.groupId.orEmpty() }
+        },
+        leaveGroup = { sendSpinClient?.leaveGroup() == true },
+        pauseGroup = { sendSpinClient?.pause() },
+        schedule = { delayMs, action -> mainHandler.postDelayed(action, delayMs) },
+    )
+
     // BroadcastReceiver for sync offset changes from settings
     private val syncOffsetReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -3520,7 +3533,10 @@ class PlaybackService : MediaLibraryService() {
 
     @OptIn(UnstableApi::class)
     private fun initializePlayer() {
-        sendSpinPlayer = SendSpinPlayer().apply { onPlayRequested = { onUserPlay() } }
+        sendSpinPlayer = SendSpinPlayer().apply {
+            onPlayRequested = { onUserPlay() }
+            onPauseRequested = standbyPause::handlePause
+        }
         Log.d(TAG, "SendSpinPlayer initialized")
     }
 

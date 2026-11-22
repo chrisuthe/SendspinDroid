@@ -49,6 +49,47 @@ class SendSpinPlayerTest {
     }
 
     // =========================================================================
+    // Every way a pause reaches the server
+    // =========================================================================
+
+    private fun pauseRoutes(): List<Pair<String, () -> Unit>> = listOf(
+        "pause" to { player.pause() },
+        "stop" to { player.stop() },
+        "setPlayWhenReady" to { player.setPlayWhenReady(false) },
+    )
+
+    @Test
+    fun `a pause that was dealt with sends no command, on every route`() {
+        for ((name, route) in pauseRoutes()) {
+            val client = mockk<com.sendspindroid.sendspin.SendSpin>(relaxed = true)
+            player.setSendSpinClient(client)
+            player.onPauseRequested = { true }
+            route()
+            verify(exactly = 0) { client.pause() }
+            assertFalse(name, player.playWhenReady)
+        }
+    }
+
+    @Test
+    fun `a pause that was not dealt with sends one command, on every route`() {
+        for ((_, route) in pauseRoutes()) {
+            val client = mockk<com.sendspindroid.sendspin.SendSpin>(relaxed = true)
+            player.setSendSpinClient(client)
+            player.onPauseRequested = { false }
+            route()
+            verify(exactly = 1) { client.pause() }
+        }
+    }
+
+    @Test
+    fun `play does not ask the pause hook`() {
+        var asked = false
+        player.onPauseRequested = { asked = true; true }
+        player.play()
+        assertFalse(asked)
+    }
+
+    // =========================================================================
     // updatePlayWhenReadyFromServer notifies listeners
     // =========================================================================
 
